@@ -1,6 +1,6 @@
 //! Binnacle CLI - A project state tracking tool for AI agents and humans.
 
-use binnacle::cli::{Cli, Commands, TaskCommands};
+use binnacle::cli::{Cli, Commands, DepCommands, TaskCommands};
 use binnacle::commands::{self, Output};
 use clap::Parser;
 use std::env;
@@ -45,14 +45,8 @@ fn run_command(
                 assignee,
                 description,
             } => {
-                let result = commands::task_create(
-                    repo_path,
-                    title,
-                    description,
-                    priority,
-                    tag,
-                    assignee,
-                )?;
+                let result =
+                    commands::task_create(repo_path, title, description, priority, tag, assignee)?;
                 output(&result, human);
             }
 
@@ -61,12 +55,8 @@ fn run_command(
                 priority,
                 tag,
             } => {
-                let result = commands::task_list(
-                    repo_path,
-                    status.as_deref(),
-                    priority,
-                    tag.as_deref(),
-                )?;
+                let result =
+                    commands::task_list(repo_path, status.as_deref(), priority, tag.as_deref())?;
                 output(&result, human);
             }
 
@@ -115,9 +105,20 @@ fn run_command(
             }
         },
 
-        Some(Commands::Dep { command }) => {
-            not_implemented("dep", &format!("{:?}", command), human);
-        }
+        Some(Commands::Dep { command }) => match command {
+            DepCommands::Add { child, parent } => {
+                let result = commands::dep_add(repo_path, &child, &parent)?;
+                output(&result, human);
+            }
+            DepCommands::Rm { child, parent } => {
+                let result = commands::dep_rm(repo_path, &child, &parent)?;
+                output(&result, human);
+            }
+            DepCommands::Show { id } => {
+                let result = commands::dep_show(repo_path, &id)?;
+                output(&result, human);
+            }
+        },
         Some(Commands::Test { command }) => {
             not_implemented("test", &format!("{:?}", command), human);
         }
@@ -125,10 +126,12 @@ fn run_command(
             not_implemented("commit", &format!("{:?}", command), human);
         }
         Some(Commands::Ready) => {
-            not_implemented("ready", "", human);
+            let result = commands::ready(repo_path)?;
+            output(&result, human);
         }
         Some(Commands::Blocked) => {
-            not_implemented("blocked", "", human);
+            let result = commands::blocked(repo_path)?;
+            output(&result, human);
         }
         Some(Commands::Doctor) => {
             not_implemented("doctor", "", human);
