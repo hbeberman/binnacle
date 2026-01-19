@@ -209,27 +209,27 @@ tests/
 
 ---
 
-## Phase 0: Project Setup
+## Phase 0: Project Setup ✅
 
 **Goal:** Rust project scaffolding, basic structure
 
 ### Deliverables
-- [ ] `Cargo.toml` with dependencies (clap, serde, rusqlite, chrono, sha2, dirs, thiserror)
-- [ ] Project structure:
+- [x] `Cargo.toml` with dependencies (clap, serde, rusqlite, chrono, sha2, dirs, thiserror)
+- [x] Project structure:
   ```
   src/
   ├── main.rs
+  ├── lib.rs
   ├── cli/
   ├── models/
   ├── storage/
   ├── commands/
   └── mcp/
   ```
-- [ ] CI pipeline with `cargo test`, `cargo clippy`, `cargo fmt`
-- [ ] Test utilities module
+- [x] Test utilities module (assert_cmd, predicates, tempfile in dev-dependencies)
 
 ### Tests
-- [ ] Smoke test: `bn --version`, `bn --help`
+- [x] Smoke test: `bn --version`, `bn --help` (7 integration tests + 9 unit tests)
 
 ---
 
@@ -366,6 +366,19 @@ tests/
 - [ ] Git notes backend
 - [ ] `bn sync` for shared mode
 - [ ] Migration between backends
+
+---
+
+## Phase 8: CI/CD Pipeline
+
+**Goal:** Automated testing and quality checks
+
+### Deliverables
+- [ ] GitHub Actions workflow (`.github/workflows/ci.yml`)
+- [ ] `cargo test` on push/PR
+- [ ] `cargo clippy` linting
+- [ ] `cargo fmt --check` formatting verification
+- [ ] Release workflow for tagged versions
 
 ---
 
