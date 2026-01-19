@@ -288,25 +288,31 @@ tests/
 
 ---
 
-## Phase 3: Test Nodes
+## Phase 3: Test Nodes ✅
 
 **Goal:** First-class test tracking with regression detection
 
 ### Deliverables
-- [ ] Test model (`bnt-xxxx`)
-- [ ] Test results storage
-- [ ] Commands: `test create/list/show/link/unlink/run`
-- [ ] Regression detection: auto-reopen closed tasks on failure
+- [x] Test model (`bnt-xxxx`)
+- [x] Test results storage
+- [x] Commands: `test create/list/show/link/unlink/run`
+- [x] Regression detection: auto-reopen closed tasks on failure
 
 ### Unit Tests
-- [ ] Test model serialization
-- [ ] Command execution, exit code capture, timeout handling
-- [ ] Regression detection logic
+- [x] Test model serialization
+- [x] Command execution, exit code capture
+- [x] Regression detection logic
 
 ### Integration Tests
-- [ ] Test node CRUD
-- [ ] `bn test run` execution
-- [ ] Regression: closed task reopens on failure
+- [x] Test node CRUD
+- [x] `bn test run` execution
+- [x] Regression: closed task reopens on failure
+
+### Test Summary (Phase 3)
+- 51 unit tests (models, storage, commands including 11 new test node tests)
+- 64 CLI integration tests (35 task + 29 test node tests)
+- 7 smoke tests (version, help, basic output)
+- **Total: 122 tests**
 
 ---
 

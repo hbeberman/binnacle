@@ -8,12 +8,14 @@
 //! - `test` - Test node operations
 //! - `commit` - Commit tracking
 
-use crate::models::{Task, TaskStatus};
+use crate::models::{Task, TaskStatus, TestNode, TestResult};
 use crate::storage::{generate_id, parse_status, Storage};
 use crate::{Error, Result};
 use chrono::Utc;
 use serde::Serialize;
 use std::path::Path;
+use std::process::Command;
+use std::time::Instant;
 
 /// Output format trait for commands.
 pub trait Output {
@@ -765,6 +767,395 @@ pub fn blocked(repo_path: &Path) -> Result<BlockedTasks> {
     Ok(BlockedTasks {
         tasks: blocked_tasks,
         count,
+    })
+}
+
+// === Test Node Commands ===
+
+#[derive(Serialize)]
+pub struct TestCreated {
+    pub id: String,
+    pub name: String,
+}
+
+impl Output for TestCreated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Created test {} \"{}\"", self.id, self.name)
+    }
+}
+
+/// Create a new test node.
+pub fn test_create(
+    repo_path: &Path,
+    name: String,
+    command: String,
+    working_dir: String,
+    task_id: Option<String>,
+) -> Result<TestCreated> {
+    let mut storage = Storage::open(repo_path)?;
+
+    let id = generate_id("bnt", &name);
+    let mut test = TestNode::new(id.clone(), name.clone(), command);
+    test.working_dir = working_dir;
+
+    // If task_id provided, link immediately
+    if let Some(tid) = task_id {
+        // Verify task exists
+        storage.get_task(&tid)?;
+        test.linked_tasks.push(tid);
+    }
+
+    storage.create_test(&test)?;
+
+    Ok(TestCreated { id, name })
+}
+
+impl Output for TestNode {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("{} {}", self.id, self.name));
+        lines.push(format!("  Command: {}", self.command));
+        lines.push(format!("  Working dir: {}", self.working_dir));
+        if let Some(ref pattern) = self.pattern {
+            lines.push(format!("  Pattern: {}", pattern));
+        }
+        if self.linked_tasks.is_empty() {
+            lines.push("  Linked tasks: (none)".to_string());
+        } else {
+            lines.push(format!("  Linked tasks: {}", self.linked_tasks.join(", ")));
+        }
+        lines.push(format!(
+            "  Created: {}",
+            self.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.join("\n")
+    }
+}
+
+/// Show a test node by ID.
+pub fn test_show(repo_path: &Path, id: &str) -> Result<TestNode> {
+    let storage = Storage::open(repo_path)?;
+    storage.get_test(id)
+}
+
+#[derive(Serialize)]
+pub struct TestList {
+    pub tests: Vec<TestNode>,
+    pub count: usize,
+}
+
+impl Output for TestList {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.tests.is_empty() {
+            return "No tests found.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("{} test(s):\n", self.count));
+
+        for test in &self.tests {
+            let links = if test.linked_tasks.is_empty() {
+                String::new()
+            } else {
+                format!(" -> {}", test.linked_tasks.join(", "))
+            };
+            lines.push(format!("  {} {}{}", test.id, test.name, links));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// List test nodes with optional filters.
+pub fn test_list(repo_path: &Path, task_id: Option<&str>) -> Result<TestList> {
+    let storage = Storage::open(repo_path)?;
+    let tests = storage.list_tests(task_id)?;
+    let count = tests.len();
+    Ok(TestList { tests, count })
+}
+
+#[derive(Serialize)]
+pub struct TestLinked {
+    pub test_id: String,
+    pub task_id: String,
+}
+
+impl Output for TestLinked {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Linked test {} to task {}", self.test_id, self.task_id)
+    }
+}
+
+/// Link a test to a task.
+pub fn test_link(repo_path: &Path, test_id: &str, task_id: &str) -> Result<TestLinked> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.link_test_to_task(test_id, task_id)?;
+
+    Ok(TestLinked {
+        test_id: test_id.to_string(),
+        task_id: task_id.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct TestUnlinked {
+    pub test_id: String,
+    pub task_id: String,
+}
+
+impl Output for TestUnlinked {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Unlinked test {} from task {}", self.test_id, self.task_id)
+    }
+}
+
+/// Unlink a test from a task.
+pub fn test_unlink(repo_path: &Path, test_id: &str, task_id: &str) -> Result<TestUnlinked> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.unlink_test_from_task(test_id, task_id)?;
+
+    Ok(TestUnlinked {
+        test_id: test_id.to_string(),
+        task_id: task_id.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct TestRunResult {
+    pub test_id: String,
+    pub test_name: String,
+    pub passed: bool,
+    pub exit_code: i32,
+    pub duration_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stderr: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reopened_tasks: Vec<String>,
+}
+
+impl Output for TestRunResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let status = if self.passed { "PASSED" } else { "FAILED" };
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "{} {} ({}) - {}ms",
+            status, self.test_name, self.test_id, self.duration_ms
+        ));
+
+        if !self.passed {
+            if let Some(ref stderr) = self.stderr {
+                if !stderr.is_empty() {
+                    lines.push(format!(
+                        "  stderr: {}",
+                        stderr
+                            .lines()
+                            .take(5)
+                            .collect::<Vec<_>>()
+                            .join("\n         ")
+                    ));
+                }
+            }
+        }
+
+        if !self.reopened_tasks.is_empty() {
+            lines.push(format!(
+                "  Regression detected! Reopened tasks: {}",
+                self.reopened_tasks.join(", ")
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct TestRunResults {
+    pub results: Vec<TestRunResult>,
+    pub total: usize,
+    pub passed: usize,
+    pub failed: usize,
+}
+
+impl Output for TestRunResults {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.results.is_empty() {
+            return "No tests to run.".to_string();
+        }
+
+        let mut lines = Vec::new();
+
+        for result in &self.results {
+            lines.push(result.to_human());
+        }
+
+        lines.push(String::new());
+        lines.push(format!(
+            "Results: {} passed, {} failed, {} total",
+            self.passed, self.failed, self.total
+        ));
+
+        lines.join("\n")
+    }
+}
+
+/// Run a single test and return the result.
+fn run_single_test(
+    storage: &mut Storage,
+    test: &TestNode,
+    repo_path: &Path,
+) -> Result<TestRunResult> {
+    let start = Instant::now();
+
+    // Execute the command
+    let working_dir = if test.working_dir == "." {
+        repo_path.to_path_buf()
+    } else {
+        repo_path.join(&test.working_dir)
+    };
+
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(&test.command)
+        .current_dir(&working_dir)
+        .output()
+        .map_err(|e| Error::Other(format!("Failed to execute command: {}", e)))?;
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+    let exit_code = output.status.code().unwrap_or(-1);
+    let passed = output.status.success();
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    // Save test result
+    let result = TestResult {
+        test_id: test.id.clone(),
+        passed,
+        exit_code,
+        stdout: if stdout.is_empty() {
+            None
+        } else {
+            Some(stdout.clone())
+        },
+        stderr: if stderr.is_empty() {
+            None
+        } else {
+            Some(stderr.clone())
+        },
+        duration_ms,
+        executed_at: Utc::now(),
+    };
+    storage.save_test_result(&result)?;
+
+    // Handle regression detection
+    let mut reopened_tasks = Vec::new();
+    if !passed {
+        reopened_tasks = storage.reopen_linked_tasks_on_failure(&test.id)?;
+    }
+
+    Ok(TestRunResult {
+        test_id: test.id.clone(),
+        test_name: test.name.clone(),
+        passed,
+        exit_code,
+        duration_ms,
+        stdout: if stdout.is_empty() {
+            None
+        } else {
+            Some(stdout)
+        },
+        stderr: if stderr.is_empty() {
+            None
+        } else {
+            Some(stderr)
+        },
+        reopened_tasks,
+    })
+}
+
+/// Run tests based on the provided options.
+pub fn test_run(
+    repo_path: &Path,
+    test_id: Option<&str>,
+    task_id: Option<&str>,
+    all: bool,
+    failed_only: bool,
+) -> Result<TestRunResults> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Determine which tests to run
+    let tests: Vec<TestNode> = if let Some(id) = test_id {
+        // Run specific test
+        vec![storage.get_test(id)?]
+    } else if let Some(tid) = task_id {
+        // Run tests linked to a task
+        storage.get_tests_for_task(tid)?
+    } else if failed_only {
+        // Run only previously failed tests
+        storage.get_failed_tests()?
+    } else if all {
+        // Run all tests
+        storage.list_tests(None)?
+    } else {
+        return Err(Error::Other(
+            "Specify --all, --failed, --task, or a test ID".to_string(),
+        ));
+    };
+
+    if tests.is_empty() {
+        return Ok(TestRunResults {
+            results: vec![],
+            total: 0,
+            passed: 0,
+            failed: 0,
+        });
+    }
+
+    let mut results = Vec::new();
+    for test in &tests {
+        let result = run_single_test(&mut storage, test, repo_path)?;
+        results.push(result);
+    }
+
+    let total = results.len();
+    let passed = results.iter().filter(|r| r.passed).count();
+    let failed = total - passed;
+
+    Ok(TestRunResults {
+        results,
+        total,
+        passed,
+        failed,
     })
 }
 
