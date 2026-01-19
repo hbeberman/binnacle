@@ -263,7 +263,8 @@ impl Storage {
 
         sql.push_str(" ORDER BY t.priority ASC, t.created_at DESC");
 
-        let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
 
         let mut stmt = self.conn.prepare(&sql)?;
         let ids: Vec<String> = stmt
@@ -316,6 +317,216 @@ impl Storage {
         )?;
 
         Ok(())
+    }
+
+    // === Dependency Operations ===
+
+    /// Add a dependency (child depends on parent).
+    ///
+    /// Returns an error if:
+    /// - Either task doesn't exist
+    /// - Adding the dependency would create a cycle
+    /// - The dependency already exists
+    pub fn add_dependency(&mut self, child_id: &str, parent_id: &str) -> Result<()> {
+        // Validate both tasks exist
+        self.get_task(child_id)?;
+        self.get_task(parent_id)?;
+
+        // Check for self-dependency
+        if child_id == parent_id {
+            return Err(Error::Other("A task cannot depend on itself".to_string()));
+        }
+
+        // Check if dependency already exists
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM task_dependencies WHERE child_id = ?1 AND parent_id = ?2)",
+            params![child_id, parent_id],
+            |row| row.get(0),
+        )?;
+
+        if exists {
+            return Err(Error::Other(format!(
+                "Dependency already exists: {} -> {}",
+                child_id, parent_id
+            )));
+        }
+
+        // Check for cycle: would adding this edge create a path from parent back to child?
+        if self.would_create_cycle(child_id, parent_id)? {
+            return Err(Error::CycleDetected);
+        }
+
+        // Add the dependency to the cache
+        self.conn.execute(
+            "INSERT INTO task_dependencies (child_id, parent_id) VALUES (?1, ?2)",
+            params![child_id, parent_id],
+        )?;
+
+        // Update the task's depends_on list and append to JSONL
+        let mut task = self.get_task(child_id)?;
+        if !task.depends_on.contains(&parent_id.to_string()) {
+            task.depends_on.push(parent_id.to_string());
+            task.updated_at = chrono::Utc::now();
+
+            // Append updated task to JSONL
+            let tasks_path = self.root.join("tasks.jsonl");
+            let mut file = OpenOptions::new().append(true).open(&tasks_path)?;
+            let json = serde_json::to_string(&task)?;
+            writeln!(file, "{}", json)?;
+        }
+
+        Ok(())
+    }
+
+    /// Remove a dependency.
+    pub fn remove_dependency(&mut self, child_id: &str, parent_id: &str) -> Result<()> {
+        // Validate both tasks exist
+        self.get_task(child_id)?;
+        self.get_task(parent_id)?;
+
+        // Check if dependency exists
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM task_dependencies WHERE child_id = ?1 AND parent_id = ?2)",
+            params![child_id, parent_id],
+            |row| row.get(0),
+        )?;
+
+        if !exists {
+            return Err(Error::NotFound(format!(
+                "Dependency not found: {} -> {}",
+                child_id, parent_id
+            )));
+        }
+
+        // Remove from cache
+        self.conn.execute(
+            "DELETE FROM task_dependencies WHERE child_id = ?1 AND parent_id = ?2",
+            params![child_id, parent_id],
+        )?;
+
+        // Update the task's depends_on list and append to JSONL
+        let mut task = self.get_task(child_id)?;
+        task.depends_on.retain(|id| id != parent_id);
+        task.updated_at = chrono::Utc::now();
+
+        let tasks_path = self.root.join("tasks.jsonl");
+        let mut file = OpenOptions::new().append(true).open(&tasks_path)?;
+        let json = serde_json::to_string(&task)?;
+        writeln!(file, "{}", json)?;
+
+        Ok(())
+    }
+
+    /// Get all dependencies of a task (what it depends on).
+    pub fn get_dependencies(&self, task_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT parent_id FROM task_dependencies WHERE child_id = ?1")?;
+        let ids: Vec<String> = stmt
+            .query_map([task_id], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(ids)
+    }
+
+    /// Get all dependents of a task (what depends on it).
+    pub fn get_dependents(&self, task_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT child_id FROM task_dependencies WHERE parent_id = ?1")?;
+        let ids: Vec<String> = stmt
+            .query_map([task_id], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(ids)
+    }
+
+    /// Check if adding an edge from child to parent would create a cycle.
+    ///
+    /// This uses DFS to check if there's a path from parent to child.
+    /// If there is, adding child->parent would create a cycle.
+    fn would_create_cycle(&self, child_id: &str, parent_id: &str) -> Result<bool> {
+        let mut visited = std::collections::HashSet::new();
+        let mut stack = vec![parent_id.to_string()];
+
+        while let Some(current) = stack.pop() {
+            if current == child_id {
+                return Ok(true); // Found a path back to child, would create cycle
+            }
+
+            if visited.contains(&current) {
+                continue;
+            }
+            visited.insert(current.clone());
+
+            // Get all tasks that the current task depends on
+            let deps = self.get_dependencies(&current)?;
+            for dep in deps {
+                if !visited.contains(&dep) {
+                    stack.push(dep);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Get tasks that are ready (pending/reopened with all dependencies done).
+    pub fn get_ready_tasks(&self) -> Result<Vec<Task>> {
+        let tasks = self.list_tasks(None, None, None)?;
+        let mut ready = Vec::new();
+
+        for task in tasks {
+            match task.status {
+                TaskStatus::Pending | TaskStatus::Reopened => {
+                    if task.depends_on.is_empty() {
+                        ready.push(task);
+                    } else {
+                        let all_done = task.depends_on.iter().all(|dep_id| {
+                            self.get_task(dep_id)
+                                .map(|t| t.status == TaskStatus::Done)
+                                .unwrap_or(false)
+                        });
+                        if all_done {
+                            ready.push(task);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(ready)
+    }
+
+    /// Get tasks that are blocked (have open dependencies).
+    pub fn get_blocked_tasks(&self) -> Result<Vec<Task>> {
+        let tasks = self.list_tasks(None, None, None)?;
+        let mut blocked = Vec::new();
+
+        for task in tasks {
+            match task.status {
+                TaskStatus::Pending | TaskStatus::Reopened => {
+                    if !task.depends_on.is_empty() {
+                        let has_open_deps = task.depends_on.iter().any(|dep_id| {
+                            self.get_task(dep_id)
+                                .map(|t| t.status != TaskStatus::Done)
+                                .unwrap_or(true)
+                        });
+                        if has_open_deps {
+                            blocked.push(task);
+                        }
+                    }
+                }
+                TaskStatus::Blocked => {
+                    // Explicitly blocked tasks are always included
+                    blocked.push(task);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(blocked)
     }
 
     /// Get the storage root path.
@@ -539,5 +750,199 @@ mod tests {
         assert_eq!(parse_status("in-progress").unwrap(), TaskStatus::InProgress);
         assert_eq!(parse_status("done").unwrap(), TaskStatus::Done);
         assert!(parse_status("invalid").is_err());
+    }
+
+    // === Dependency Tests ===
+
+    #[test]
+    fn test_add_dependency() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task_a).unwrap();
+        storage.create_task(&task_b).unwrap();
+
+        // B depends on A
+        storage.add_dependency("bn-bbbb", "bn-aaaa").unwrap();
+
+        let deps = storage.get_dependencies("bn-bbbb").unwrap();
+        assert_eq!(deps, vec!["bn-aaaa"]);
+
+        let dependents = storage.get_dependents("bn-aaaa").unwrap();
+        assert_eq!(dependents, vec!["bn-bbbb"]);
+    }
+
+    #[test]
+    fn test_add_dependency_self_reference() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task).unwrap();
+
+        // A cannot depend on itself
+        let result = storage.add_dependency("bn-aaaa", "bn-aaaa");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("cannot depend on itself"));
+    }
+
+    #[test]
+    fn test_add_dependency_duplicate() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task_a).unwrap();
+        storage.create_task(&task_b).unwrap();
+
+        storage.add_dependency("bn-bbbb", "bn-aaaa").unwrap();
+
+        // Adding same dependency again should fail
+        let result = storage.add_dependency("bn-bbbb", "bn-aaaa");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn test_cycle_detection_direct() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task_a).unwrap();
+        storage.create_task(&task_b).unwrap();
+
+        // A depends on B
+        storage.add_dependency("bn-aaaa", "bn-bbbb").unwrap();
+
+        // B depends on A would create a cycle
+        let result = storage.add_dependency("bn-bbbb", "bn-aaaa");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::Error::CycleDetected => {}
+            e => panic!("Expected CycleDetected, got {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_cycle_detection_transitive() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Create A -> B -> C chain
+        let task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        let task_c = Task::new("bn-cccc".to_string(), "Task C".to_string());
+        storage.create_task(&task_a).unwrap();
+        storage.create_task(&task_b).unwrap();
+        storage.create_task(&task_c).unwrap();
+
+        // B depends on A
+        storage.add_dependency("bn-bbbb", "bn-aaaa").unwrap();
+        // C depends on B
+        storage.add_dependency("bn-cccc", "bn-bbbb").unwrap();
+
+        // A depends on C would create a cycle (A -> B -> C -> A)
+        let result = storage.add_dependency("bn-aaaa", "bn-cccc");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::Error::CycleDetected => {}
+            e => panic!("Expected CycleDetected, got {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_remove_dependency() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task_a).unwrap();
+        storage.create_task(&task_b).unwrap();
+
+        storage.add_dependency("bn-bbbb", "bn-aaaa").unwrap();
+        storage.remove_dependency("bn-bbbb", "bn-aaaa").unwrap();
+
+        let deps = storage.get_dependencies("bn-bbbb").unwrap();
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_remove_nonexistent_dependency() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task_a).unwrap();
+        storage.create_task(&task_b).unwrap();
+
+        let result = storage.remove_dependency("bn-bbbb", "bn-aaaa");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_get_ready_tasks() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Task A: no dependencies, pending -> ready
+        let task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task_a).unwrap();
+
+        // Task B: depends on A (pending) -> blocked
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task_b).unwrap();
+        storage.add_dependency("bn-bbbb", "bn-aaaa").unwrap();
+
+        let ready = storage.get_ready_tasks().unwrap();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].id, "bn-aaaa");
+    }
+
+    #[test]
+    fn test_get_ready_tasks_with_done_dependency() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Task A: done
+        let mut task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        task_a.status = TaskStatus::Done;
+        storage.create_task(&task_a).unwrap();
+
+        // Task B: depends on A (done) -> ready
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task_b).unwrap();
+        storage.add_dependency("bn-bbbb", "bn-aaaa").unwrap();
+
+        let ready = storage.get_ready_tasks().unwrap();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].id, "bn-bbbb");
+    }
+
+    #[test]
+    fn test_get_blocked_tasks() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Task A: pending
+        let task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task_a).unwrap();
+
+        // Task B: depends on A (pending) -> blocked
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task_b).unwrap();
+        storage.add_dependency("bn-bbbb", "bn-aaaa").unwrap();
+
+        // Task C: explicitly blocked status
+        let mut task_c = Task::new("bn-cccc".to_string(), "Task C".to_string());
+        task_c.status = TaskStatus::Blocked;
+        storage.create_task(&task_c).unwrap();
+
+        let blocked = storage.get_blocked_tasks().unwrap();
+        assert_eq!(blocked.len(), 2);
+
+        let blocked_ids: Vec<&str> = blocked.iter().map(|t| t.id.as_str()).collect();
+        assert!(blocked_ids.contains(&"bn-bbbb"));
+        assert!(blocked_ids.contains(&"bn-cccc"));
     }
 }

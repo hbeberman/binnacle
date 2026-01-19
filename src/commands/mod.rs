@@ -68,10 +68,7 @@ impl Output for InitResult {
         if self.initialized {
             format!("Initialized binnacle at {}", self.storage_path)
         } else {
-            format!(
-                "Binnacle already initialized at {}",
-                self.storage_path
-            )
+            format!("Binnacle already initialized at {}", self.storage_path)
         }
     }
 }
@@ -163,8 +160,14 @@ impl Output for Task {
         if !self.depends_on.is_empty() {
             lines.push(format!("  Depends on: {}", self.depends_on.join(", ")));
         }
-        lines.push(format!("  Created: {}", self.created_at.format("%Y-%m-%d %H:%M")));
-        lines.push(format!("  Updated: {}", self.updated_at.format("%Y-%m-%d %H:%M")));
+        lines.push(format!(
+            "  Created: {}",
+            self.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.push(format!(
+            "  Updated: {}",
+            self.updated_at.format("%Y-%m-%d %H:%M")
+        ));
         if let Some(closed) = self.closed_at {
             lines.push(format!("  Closed: {}", closed.format("%Y-%m-%d %H:%M")));
             if let Some(ref reason) = self.closed_reason {
@@ -439,9 +442,9 @@ impl Output for StatusSummary {
 
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
-        
+
         lines.push(format!("Binnacle - {} total task(s)", self.tasks.len()));
-        
+
         if !self.in_progress.is_empty() {
             lines.push(format!("  In Progress: {}", self.in_progress.join(", ")));
         }
@@ -503,6 +506,268 @@ pub fn status(repo_path: &Path) -> Result<StatusSummary> {
     })
 }
 
+// === Dependency Commands ===
+
+#[derive(Serialize)]
+pub struct DepAdded {
+    pub child: String,
+    pub parent: String,
+}
+
+impl Output for DepAdded {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Added dependency: {} depends on {}",
+            self.child, self.parent
+        )
+    }
+}
+
+/// Add a dependency (child depends on parent).
+pub fn dep_add(repo_path: &Path, child: &str, parent: &str) -> Result<DepAdded> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.add_dependency(child, parent)?;
+
+    Ok(DepAdded {
+        child: child.to_string(),
+        parent: parent.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct DepRemoved {
+    pub child: String,
+    pub parent: String,
+}
+
+impl Output for DepRemoved {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Removed dependency: {} no longer depends on {}",
+            self.child, self.parent
+        )
+    }
+}
+
+/// Remove a dependency.
+pub fn dep_rm(repo_path: &Path, child: &str, parent: &str) -> Result<DepRemoved> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.remove_dependency(child, parent)?;
+
+    Ok(DepRemoved {
+        child: child.to_string(),
+        parent: parent.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct DepGraph {
+    pub task_id: String,
+    pub depends_on: Vec<String>,
+    pub dependents: Vec<String>,
+    pub transitive_deps: Vec<String>,
+}
+
+impl Output for DepGraph {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("Dependency graph for {}:", self.task_id));
+
+        if self.depends_on.is_empty() {
+            lines.push("  Depends on: (none)".to_string());
+        } else {
+            lines.push(format!("  Depends on: {}", self.depends_on.join(", ")));
+        }
+
+        if self.dependents.is_empty() {
+            lines.push("  Dependents: (none)".to_string());
+        } else {
+            lines.push(format!("  Dependents: {}", self.dependents.join(", ")));
+        }
+
+        if !self.transitive_deps.is_empty() {
+            lines.push(format!(
+                "  All blockers: {}",
+                self.transitive_deps.join(", ")
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Show dependency graph for a task.
+pub fn dep_show(repo_path: &Path, id: &str) -> Result<DepGraph> {
+    let storage = Storage::open(repo_path)?;
+
+    // Verify task exists
+    storage.get_task(id)?;
+
+    let depends_on = storage.get_dependencies(id)?;
+    let dependents = storage.get_dependents(id)?;
+
+    // Calculate transitive dependencies (all blockers)
+    let mut transitive_deps = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+    let mut stack: Vec<String> = depends_on.clone();
+
+    while let Some(current) = stack.pop() {
+        if visited.contains(&current) {
+            continue;
+        }
+        visited.insert(current.clone());
+        transitive_deps.push(current.clone());
+
+        if let Ok(deps) = storage.get_dependencies(&current) {
+            for dep in deps {
+                if !visited.contains(&dep) {
+                    stack.push(dep);
+                }
+            }
+        }
+    }
+
+    Ok(DepGraph {
+        task_id: id.to_string(),
+        depends_on,
+        dependents,
+        transitive_deps,
+    })
+}
+
+// === Query Commands ===
+
+#[derive(Serialize)]
+pub struct ReadyTasks {
+    pub tasks: Vec<Task>,
+    pub count: usize,
+}
+
+impl Output for ReadyTasks {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.tasks.is_empty() {
+            return "No ready tasks.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("{} ready task(s):\n", self.count));
+
+        for task in &self.tasks {
+            let tags = if task.tags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", task.tags.join(", "))
+            };
+            lines.push(format!(
+                "  {} P{} {}{}",
+                task.id, task.priority, task.title, tags
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Get tasks that are ready (no open blockers).
+pub fn ready(repo_path: &Path) -> Result<ReadyTasks> {
+    let storage = Storage::open(repo_path)?;
+    let tasks = storage.get_ready_tasks()?;
+    let count = tasks.len();
+    Ok(ReadyTasks { tasks, count })
+}
+
+#[derive(Serialize)]
+pub struct BlockedTasks {
+    pub tasks: Vec<BlockedTask>,
+    pub count: usize,
+}
+
+#[derive(Serialize)]
+pub struct BlockedTask {
+    #[serde(flatten)]
+    pub task: Task,
+    pub blocking_tasks: Vec<String>,
+}
+
+impl Output for BlockedTasks {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.tasks.is_empty() {
+            return "No blocked tasks.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("{} blocked task(s):\n", self.count));
+
+        for bt in &self.tasks {
+            let task = &bt.task;
+            let blockers = if bt.blocking_tasks.is_empty() {
+                String::new()
+            } else {
+                format!(" (blocked by: {})", bt.blocking_tasks.join(", "))
+            };
+            lines.push(format!(
+                "  {} P{} {}{}",
+                task.id, task.priority, task.title, blockers
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Get tasks that are blocked (waiting on dependencies).
+pub fn blocked(repo_path: &Path) -> Result<BlockedTasks> {
+    let storage = Storage::open(repo_path)?;
+    let tasks = storage.get_blocked_tasks()?;
+
+    let mut blocked_tasks = Vec::new();
+    for task in tasks {
+        // Find which dependencies are blocking
+        let blocking: Vec<String> = task
+            .depends_on
+            .iter()
+            .filter(|dep_id| {
+                storage
+                    .get_task(dep_id)
+                    .map(|t| t.status != TaskStatus::Done)
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+
+        blocked_tasks.push(BlockedTask {
+            task,
+            blocking_tasks: blocking,
+        });
+    }
+
+    let count = blocked_tasks.len();
+    Ok(BlockedTasks {
+        tasks: blocked_tasks,
+        count,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -548,7 +813,8 @@ mod tests {
     #[test]
     fn test_task_show() {
         let temp = setup();
-        let created = task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
+        let created =
+            task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
         let task = task_show(temp.path(), &created.id).unwrap();
         assert_eq!(task.id, created.id);
     }
@@ -556,8 +822,24 @@ mod tests {
     #[test]
     fn test_task_list() {
         let temp = setup();
-        task_create(temp.path(), "Task 1".to_string(), None, Some(1), vec![], None).unwrap();
-        task_create(temp.path(), "Task 2".to_string(), None, Some(2), vec![], None).unwrap();
+        task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            Some(1),
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            Some(2),
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let list = task_list(temp.path(), None, None, None).unwrap();
         assert_eq!(list.count, 2);
@@ -566,7 +848,15 @@ mod tests {
     #[test]
     fn test_task_update() {
         let temp = setup();
-        let created = task_create(temp.path(), "Original".to_string(), None, None, vec![], None).unwrap();
+        let created = task_create(
+            temp.path(),
+            "Original".to_string(),
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let updated = task_update(
             temp.path(),
@@ -592,7 +882,8 @@ mod tests {
     #[test]
     fn test_task_close_reopen() {
         let temp = setup();
-        let created = task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
+        let created =
+            task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
 
         task_close(temp.path(), &created.id, Some("Done".to_string())).unwrap();
         let task = task_show(temp.path(), &created.id).unwrap();
@@ -608,10 +899,144 @@ mod tests {
     #[test]
     fn test_task_delete() {
         let temp = setup();
-        let created = task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
+        let created =
+            task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
 
         task_delete(temp.path(), &created.id).unwrap();
         let list = task_list(temp.path(), None, None, None).unwrap();
         assert_eq!(list.count, 0);
+    }
+
+    // === Dependency Command Tests ===
+
+    #[test]
+    fn test_dep_add() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        let result = dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+        assert_eq!(result.child, task_b.id);
+        assert_eq!(result.parent, task_a.id);
+
+        // Verify task B now depends on A
+        let task = task_show(temp.path(), &task_b.id).unwrap();
+        assert!(task.depends_on.contains(&task_a.id));
+    }
+
+    #[test]
+    fn test_dep_add_cycle_rejected() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // A depends on B
+        dep_add(temp.path(), &task_a.id, &task_b.id).unwrap();
+
+        // B depends on A should fail (cycle)
+        let result = dep_add(temp.path(), &task_b.id, &task_a.id);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dep_rm() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+        dep_rm(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // Verify task B no longer depends on A
+        let task = task_show(temp.path(), &task_b.id).unwrap();
+        assert!(!task.depends_on.contains(&task_a.id));
+    }
+
+    #[test]
+    fn test_dep_show() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+        let task_c =
+            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+
+        // B depends on A, C depends on B
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
+
+        let graph = dep_show(temp.path(), &task_b.id).unwrap();
+        assert_eq!(graph.task_id, task_b.id);
+        assert!(graph.depends_on.contains(&task_a.id));
+        assert!(graph.dependents.contains(&task_c.id));
+    }
+
+    // === Query Command Tests ===
+
+    #[test]
+    fn test_ready_command() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // B depends on A (which is pending, so B is blocked)
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        let result = ready(temp.path()).unwrap();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.tasks[0].id, task_a.id);
+    }
+
+    #[test]
+    fn test_blocked_command() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // B depends on A (which is pending, so B is blocked)
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        let result = blocked(temp.path()).unwrap();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.tasks[0].task.id, task_b.id);
+        assert!(result.tasks[0].blocking_tasks.contains(&task_a.id));
+    }
+
+    #[test]
+    fn test_ready_after_dependency_done() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // Initially B is blocked
+        let blocked_result = blocked(temp.path()).unwrap();
+        assert_eq!(blocked_result.count, 1);
+
+        // Close task A
+        task_close(temp.path(), &task_a.id, None).unwrap();
+
+        // Now B should be ready
+        let ready_result = ready(temp.path()).unwrap();
+        assert_eq!(ready_result.count, 1);
+        assert_eq!(ready_result.tasks[0].id, task_b.id);
+
+        // And B should not be blocked anymore
+        let blocked_result = blocked(temp.path()).unwrap();
+        assert_eq!(blocked_result.count, 0);
     }
 }

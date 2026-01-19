@@ -256,30 +256,35 @@ tests/
 - [x] Filtering by status, priority, tags
 - [x] `-H` flag output difference
 
-### Test Summary
+### Test Summary (Phase 1)
 - 24 unit tests (models, storage, commands)
 - 23 CLI integration tests (task CRUD, filtering, output formats)
 - 7 smoke tests (version, help, basic output)
 
 ---
 
-## Phase 2: Dependencies & Queries
+## Phase 2: Dependencies & Queries ✅
 
 **Goal:** Task relationships, smart queries
 
 ### Deliverables
-- [ ] Dependency graph storage
-- [ ] Cycle detection
-- [ ] Commands: `dep add/rm/show`, `ready`, `blocked`
+- [x] Dependency graph storage
+- [x] Cycle detection
+- [x] Commands: `dep add/rm/show`, `ready`, `blocked`
 
 ### Unit Tests
-- [ ] Cycle detection (A→B→C→A fails)
-- [ ] Transitive blocking calculation
-- [ ] Self-dependency rejection
+- [x] Cycle detection (A→B→C→A fails)
+- [x] Transitive blocking calculation
+- [x] Self-dependency rejection
 
 ### Integration Tests
-- [ ] `bn dep add` creates relationship, rejects cycles
-- [ ] `bn ready` and `bn blocked` correctness
+- [x] `bn dep add` creates relationship, rejects cycles
+- [x] `bn ready` and `bn blocked` correctness
+
+### Test Summary
+- 41 unit tests (models, storage, commands including 12 new dependency tests)
+- 35 CLI integration tests (task CRUD, deps, queries, output formats)
+- 7 smoke tests (version, help, basic output)
 
 ---
 
