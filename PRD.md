@@ -316,23 +316,29 @@ tests/
 
 ---
 
-## Phase 4: Commit Tracking
+## Phase 4: Commit Tracking ✅
 
 **Goal:** Explicit commit-to-task links
 
 ### Deliverables
-- [ ] Commit link model
-- [ ] Commands: `commit link/unlink/list`
-- [ ] Regression context includes commits since close
+- [x] Commit link model
+- [x] Commands: `commit link/unlink/list`
+- [x] Regression context includes commits since close
 
 ### Unit Tests
-- [ ] Commit link serialization, SHA validation
-- [ ] Lookup by task and by commit
+- [x] Commit link serialization, SHA validation
+- [x] Lookup by task and by commit
 
 ### Integration Tests
-- [ ] Link/unlink operations
-- [ ] `bn commit list` output
-- [ ] Regression context includes commits
+- [x] Link/unlink operations
+- [x] `bn commit list` output
+- [x] Regression context includes commits
+
+### Test Summary (Phase 4)
+- 72 unit tests (models, storage, commands including 18 new commit tracking tests)
+- 82 CLI integration tests (35 task + 29 test + 18 commit tests)
+- 7 smoke tests (version, help, basic output)
+- **Total: 161 tests**
 
 ---
 

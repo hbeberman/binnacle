@@ -1,6 +1,6 @@
 //! Binnacle CLI - A project state tracking tool for AI agents and humans.
 
-use binnacle::cli::{Cli, Commands, DepCommands, TaskCommands, TestCommands};
+use binnacle::cli::{Cli, Commands, CommitCommands, DepCommands, TaskCommands, TestCommands};
 use binnacle::commands::{self, Output};
 use clap::Parser;
 use std::env;
@@ -156,9 +156,20 @@ fn run_command(
                 output(&result, human);
             }
         },
-        Some(Commands::Commit { command }) => {
-            not_implemented("commit", &format!("{:?}", command), human);
-        }
+        Some(Commands::Commit { command }) => match command {
+            CommitCommands::Link { sha, task_id } => {
+                let result = commands::commit_link(repo_path, &sha, &task_id)?;
+                output(&result, human);
+            }
+            CommitCommands::Unlink { sha, task_id } => {
+                let result = commands::commit_unlink(repo_path, &sha, &task_id)?;
+                output(&result, human);
+            }
+            CommitCommands::List { task_id } => {
+                let result = commands::commit_list(repo_path, &task_id)?;
+                output(&result, human);
+            }
+        },
         Some(Commands::Ready) => {
             let result = commands::ready(repo_path)?;
             output(&result, human);
