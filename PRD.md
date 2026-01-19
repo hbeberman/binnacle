@@ -233,28 +233,33 @@ tests/
 
 ---
 
-## Phase 1: Core Task Management
+## Phase 1: Core Task Management ✅
 
 **Goal:** Basic task CRUD with JSON output
 
 ### Deliverables
-- [ ] Task model with all fields
-- [ ] Hash-based ID generation (`bn-xxxx`)
-- [ ] Storage layer (JSONL + SQLite cache)
-- [ ] Commands: `init`, `task create/list/show/update/close/delete`
-- [ ] Output: JSON default, `-H` for human-readable
+- [x] Task model with all fields
+- [x] Hash-based ID generation (`bn-xxxx`)
+- [x] Storage layer (JSONL + SQLite cache)
+- [x] Commands: `init`, `task create/list/show/update/close/delete`
+- [x] Output: JSON default, `-H` for human-readable
 
 ### Unit Tests
-- [ ] ID generation: uniqueness, format validation
-- [ ] Task model: serialization round-trip
-- [ ] Storage: JSONL append/read, SQLite rebuild, concurrent access
-- [ ] Field validation: priority 0-4, status enum
+- [x] ID generation: uniqueness, format validation
+- [x] Task model: serialization round-trip
+- [x] Storage: JSONL append/read, SQLite rebuild
+- [x] Field validation: priority 0-4, status enum
 
 ### Integration Tests
-- [ ] `bn init` creates directory structure
-- [ ] Full CRUD round-trip
-- [ ] Filtering by status, priority, tags
-- [ ] `-H` flag output difference
+- [x] `bn init` creates directory structure
+- [x] Full CRUD round-trip
+- [x] Filtering by status, priority, tags
+- [x] `-H` flag output difference
+
+### Test Summary
+- 24 unit tests (models, storage, commands)
+- 23 CLI integration tests (task CRUD, filtering, output formats)
+- 7 smoke tests (version, help, basic output)
 
 ---
 
