@@ -7,7 +7,7 @@
 //!
 //! Storage location: `~/.local/share/binnacle/<repo-hash>/`
 
-use crate::models::{Task, TaskStatus, TestNode, TestResult};
+use crate::models::{CommitLink, Task, TaskStatus, TestNode, TestResult};
 use crate::{Error, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection};
@@ -138,6 +138,18 @@ impl Storage {
 
             CREATE INDEX IF NOT EXISTS idx_test_links_task ON test_links(task_id);
             CREATE INDEX IF NOT EXISTS idx_test_results_test ON test_results(test_id);
+
+            -- Commit link tables
+            CREATE TABLE IF NOT EXISTS commit_links (
+                sha TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                linked_at TEXT NOT NULL,
+                PRIMARY KEY (sha, task_id),
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_commit_links_task ON commit_links(task_id);
+            CREATE INDEX IF NOT EXISTS idx_commit_links_sha ON commit_links(sha);
             "#,
         )?;
         Ok(())
@@ -883,6 +895,160 @@ impl Storage {
 
         Ok(reopened)
     }
+
+    // === Commit Link Operations ===
+
+    /// Link a commit to a task.
+    pub fn link_commit(&mut self, sha: &str, task_id: &str) -> Result<CommitLink> {
+        // Validate SHA format
+        validate_sha(sha)?;
+
+        // Validate task exists
+        self.get_task(task_id)?;
+
+        // Check if already linked
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM commit_links WHERE sha = ?1 AND task_id = ?2)",
+            params![sha, task_id],
+            |row| row.get(0),
+        )?;
+
+        if exists {
+            return Err(Error::Other(format!(
+                "Commit {} is already linked to task {}",
+                sha, task_id
+            )));
+        }
+
+        let linked_at = Utc::now();
+
+        // Insert into SQLite cache
+        self.conn.execute(
+            "INSERT INTO commit_links (sha, task_id, linked_at) VALUES (?1, ?2, ?3)",
+            params![sha, task_id, linked_at.to_rfc3339()],
+        )?;
+
+        // Append to JSONL
+        let link = CommitLink {
+            sha: sha.to_string(),
+            task_id: task_id.to_string(),
+            linked_at,
+        };
+        let commits_path = self.root.join("commits.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&commits_path)?;
+        let json = serde_json::to_string(&link)?;
+        writeln!(file, "{}", json)?;
+
+        Ok(link)
+    }
+
+    /// Unlink a commit from a task.
+    pub fn unlink_commit(&mut self, sha: &str, task_id: &str) -> Result<()> {
+        // Validate SHA format
+        validate_sha(sha)?;
+
+        // Validate task exists
+        self.get_task(task_id)?;
+
+        // Check if linked
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM commit_links WHERE sha = ?1 AND task_id = ?2)",
+            params![sha, task_id],
+            |row| row.get(0),
+        )?;
+
+        if !exists {
+            return Err(Error::NotFound(format!(
+                "Commit {} is not linked to task {}",
+                sha, task_id
+            )));
+        }
+
+        // Remove from cache
+        self.conn.execute(
+            "DELETE FROM commit_links WHERE sha = ?1 AND task_id = ?2",
+            params![sha, task_id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Get all commits linked to a task.
+    pub fn get_commits_for_task(&self, task_id: &str) -> Result<Vec<CommitLink>> {
+        // Validate task exists
+        self.get_task(task_id)?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT sha, task_id, linked_at FROM commit_links WHERE task_id = ?1 ORDER BY linked_at DESC",
+        )?;
+
+        let links: Vec<CommitLink> = stmt
+            .query_map([task_id], |row| {
+                let linked_at_str: String = row.get(2)?;
+                Ok(CommitLink {
+                    sha: row.get(0)?,
+                    task_id: row.get(1)?,
+                    linked_at: chrono::DateTime::parse_from_rfc3339(&linked_at_str)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(links)
+    }
+
+    /// Get all tasks linked to a commit.
+    pub fn get_tasks_for_commit(&self, sha: &str) -> Result<Vec<String>> {
+        validate_sha(sha)?;
+
+        let mut stmt = self
+            .conn
+            .prepare("SELECT task_id FROM commit_links WHERE sha = ?1")?;
+
+        let task_ids: Vec<String> = stmt
+            .query_map([sha], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(task_ids)
+    }
+
+    /// Get commits since a task was closed (for regression context).
+    /// Returns commits linked to the task that were made after the task was closed.
+    pub fn get_commits_since_close(&self, task_id: &str) -> Result<Vec<CommitLink>> {
+        let task = self.get_task(task_id)?;
+
+        // If task was never closed, return empty
+        let closed_at = match task.closed_at {
+            Some(dt) => dt,
+            None => return Ok(Vec::new()),
+        };
+
+        let mut stmt = self.conn.prepare(
+            "SELECT sha, task_id, linked_at FROM commit_links WHERE task_id = ?1 AND linked_at > ?2 ORDER BY linked_at DESC",
+        )?;
+
+        let links: Vec<CommitLink> = stmt
+            .query_map(params![task_id, closed_at.to_rfc3339()], |row| {
+                let linked_at_str: String = row.get(2)?;
+                Ok(CommitLink {
+                    sha: row.get(0)?,
+                    task_id: row.get(1)?,
+                    linked_at: chrono::DateTime::parse_from_rfc3339(&linked_at_str)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(links)
+    }
 }
 
 /// Get the storage directory for a repository.
@@ -966,6 +1132,34 @@ pub fn parse_status(s: &str) -> Result<TaskStatus> {
         "reopened" => Ok(TaskStatus::Reopened),
         _ => Err(Error::Other(format!("Invalid status: {}", s))),
     }
+}
+
+/// Validate a git commit SHA.
+///
+/// Accepts both short (7+ chars) and full (40 chars) SHA formats.
+/// SHAs must consist only of hexadecimal characters.
+pub fn validate_sha(sha: &str) -> Result<()> {
+    if sha.len() < 7 {
+        return Err(Error::InvalidId(format!(
+            "SHA must be at least 7 characters, got {} characters: {}",
+            sha.len(),
+            sha
+        )));
+    }
+    if sha.len() > 40 {
+        return Err(Error::InvalidId(format!(
+            "SHA must be at most 40 characters, got {} characters: {}",
+            sha.len(),
+            sha
+        )));
+    }
+    if !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(Error::InvalidId(format!(
+            "SHA must contain only hex characters: {}",
+            sha
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1547,5 +1741,169 @@ mod tests {
         assert!(validate_test_id("bnt-ffff").is_ok());
         assert!(validate_test_id("bn-a1b2").is_err()); // Wrong prefix
         assert!(validate_test_id("bnt-abc").is_err()); // Too short
+    }
+
+    // === SHA Validation Tests ===
+
+    #[test]
+    fn test_validate_sha_valid() {
+        // Short SHA (7 chars)
+        assert!(validate_sha("a1b2c3d").is_ok());
+        // Full SHA (40 chars)
+        assert!(validate_sha("a1b2c3d4e5f6789012345678901234567890abcd").is_ok());
+        // Medium length
+        assert!(validate_sha("a1b2c3d4e5f6").is_ok());
+    }
+
+    #[test]
+    fn test_validate_sha_too_short() {
+        assert!(validate_sha("a1b2c3").is_err()); // 6 chars
+        assert!(validate_sha("abc").is_err()); // 3 chars
+        assert!(validate_sha("").is_err()); // Empty
+    }
+
+    #[test]
+    fn test_validate_sha_too_long() {
+        // 41 chars - too long
+        assert!(validate_sha("a1b2c3d4e5f6789012345678901234567890abcde").is_err());
+    }
+
+    #[test]
+    fn test_validate_sha_invalid_chars() {
+        assert!(validate_sha("g1b2c3d").is_err()); // 'g' is not hex
+        assert!(validate_sha("a1b2c3!").is_err()); // '!' is not hex
+        assert!(validate_sha("GHIJKLM").is_err()); // Non-hex uppercase
+    }
+
+    // === Commit Link Tests ===
+
+    #[test]
+    fn test_link_commit() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Create a task
+        let task = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task).unwrap();
+
+        // Link a commit
+        let link = storage.link_commit("a1b2c3d", "bn-aaaa").unwrap();
+        assert_eq!(link.sha, "a1b2c3d");
+        assert_eq!(link.task_id, "bn-aaaa");
+    }
+
+    #[test]
+    fn test_link_commit_invalid_sha() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task).unwrap();
+
+        // Too short
+        let result = storage.link_commit("abc", "bn-aaaa");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_link_commit_nonexistent_task() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let result = storage.link_commit("a1b2c3d", "bn-9999");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_link_commit_duplicate() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task).unwrap();
+
+        storage.link_commit("a1b2c3d", "bn-aaaa").unwrap();
+
+        // Second link should fail
+        let result = storage.link_commit("a1b2c3d", "bn-aaaa");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already linked"));
+    }
+
+    #[test]
+    fn test_unlink_commit() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task).unwrap();
+
+        storage.link_commit("a1b2c3d", "bn-aaaa").unwrap();
+        storage.unlink_commit("a1b2c3d", "bn-aaaa").unwrap();
+
+        // Should have no commits now
+        let commits = storage.get_commits_for_task("bn-aaaa").unwrap();
+        assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn test_unlink_nonexistent_commit() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task).unwrap();
+
+        let result = storage.unlink_commit("a1b2c3d", "bn-aaaa");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not linked"));
+    }
+
+    #[test]
+    fn test_get_commits_for_task() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task).unwrap();
+
+        storage.link_commit("a1b2c3d", "bn-aaaa").unwrap();
+        storage.link_commit("e5f6789", "bn-aaaa").unwrap();
+
+        let commits = storage.get_commits_for_task("bn-aaaa").unwrap();
+        assert_eq!(commits.len(), 2);
+    }
+
+    #[test]
+    fn test_get_tasks_for_commit() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task_a).unwrap();
+        storage.create_task(&task_b).unwrap();
+
+        // Link same commit to both tasks
+        storage.link_commit("a1b2c3d", "bn-aaaa").unwrap();
+        storage.link_commit("a1b2c3d", "bn-bbbb").unwrap();
+
+        let tasks = storage.get_tasks_for_commit("a1b2c3d").unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks.contains(&"bn-aaaa".to_string()));
+        assert!(tasks.contains(&"bn-bbbb".to_string()));
+    }
+
+    #[test]
+    fn test_commit_link_multiple_tasks() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task_a = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        let task_b = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task_a).unwrap();
+        storage.create_task(&task_b).unwrap();
+
+        // Link different commits to different tasks
+        storage.link_commit("a1b2c3d", "bn-aaaa").unwrap();
+        storage.link_commit("e5f6789", "bn-bbbb").unwrap();
+        storage.link_commit("1234567", "bn-aaaa").unwrap();
+
+        let commits_a = storage.get_commits_for_task("bn-aaaa").unwrap();
+        let commits_b = storage.get_commits_for_task("bn-bbbb").unwrap();
+
+        assert_eq!(commits_a.len(), 2);
+        assert_eq!(commits_b.len(), 1);
     }
 }

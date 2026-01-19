@@ -1159,6 +1159,112 @@ pub fn test_run(
     })
 }
 
+// === Commit Tracking Commands ===
+
+use crate::models::CommitLink;
+
+#[derive(Serialize)]
+pub struct CommitLinked {
+    pub sha: String,
+    pub task_id: String,
+}
+
+impl Output for CommitLinked {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Linked commit {} to task {}", self.sha, self.task_id)
+    }
+}
+
+/// Link a commit to a task.
+pub fn commit_link(repo_path: &Path, sha: &str, task_id: &str) -> Result<CommitLinked> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.link_commit(sha, task_id)?;
+
+    Ok(CommitLinked {
+        sha: sha.to_string(),
+        task_id: task_id.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct CommitUnlinked {
+    pub sha: String,
+    pub task_id: String,
+}
+
+impl Output for CommitUnlinked {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Unlinked commit {} from task {}", self.sha, self.task_id)
+    }
+}
+
+/// Unlink a commit from a task.
+pub fn commit_unlink(repo_path: &Path, sha: &str, task_id: &str) -> Result<CommitUnlinked> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.unlink_commit(sha, task_id)?;
+
+    Ok(CommitUnlinked {
+        sha: sha.to_string(),
+        task_id: task_id.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct CommitList {
+    pub task_id: String,
+    pub commits: Vec<CommitLink>,
+    pub count: usize,
+}
+
+impl Output for CommitList {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.commits.is_empty() {
+            return format!("No commits linked to task {}", self.task_id);
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "{} commit(s) linked to task {}:\n",
+            self.count, self.task_id
+        ));
+
+        for link in &self.commits {
+            lines.push(format!(
+                "  {} (linked {})",
+                link.sha,
+                link.linked_at.format("%Y-%m-%d %H:%M")
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// List commits linked to a task.
+pub fn commit_list(repo_path: &Path, task_id: &str) -> Result<CommitList> {
+    let storage = Storage::open(repo_path)?;
+    let commits = storage.get_commits_for_task(task_id)?;
+    let count = commits.len();
+
+    Ok(CommitList {
+        task_id: task_id.to_string(),
+        commits,
+        count,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1429,5 +1535,96 @@ mod tests {
         // And B should not be blocked anymore
         let blocked_result = blocked(temp.path()).unwrap();
         assert_eq!(blocked_result.count, 0);
+    }
+
+    // === Commit Command Tests ===
+
+    #[test]
+    fn test_commit_link() {
+        let temp = setup();
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        let result = commit_link(temp.path(), "a1b2c3d", &task.id).unwrap();
+        assert_eq!(result.sha, "a1b2c3d");
+        assert_eq!(result.task_id, task.id);
+    }
+
+    #[test]
+    fn test_commit_link_invalid_sha() {
+        let temp = setup();
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        // SHA too short
+        let result = commit_link(temp.path(), "abc", &task.id);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_link_nonexistent_task() {
+        let temp = setup();
+
+        let result = commit_link(temp.path(), "a1b2c3d", "bn-9999");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_unlink() {
+        let temp = setup();
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        commit_link(temp.path(), "a1b2c3d", &task.id).unwrap();
+        let result = commit_unlink(temp.path(), "a1b2c3d", &task.id).unwrap();
+
+        assert_eq!(result.sha, "a1b2c3d");
+        assert_eq!(result.task_id, task.id);
+
+        // Verify commit is no longer linked
+        let list = commit_list(temp.path(), &task.id).unwrap();
+        assert_eq!(list.count, 0);
+    }
+
+    #[test]
+    fn test_commit_unlink_nonexistent() {
+        let temp = setup();
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        let result = commit_unlink(temp.path(), "a1b2c3d", &task.id);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_list() {
+        let temp = setup();
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        commit_link(temp.path(), "a1b2c3d", &task.id).unwrap();
+        commit_link(temp.path(), "e5f6789", &task.id).unwrap();
+
+        let list = commit_list(temp.path(), &task.id).unwrap();
+        assert_eq!(list.count, 2);
+        assert_eq!(list.task_id, task.id);
+    }
+
+    #[test]
+    fn test_commit_list_empty() {
+        let temp = setup();
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        let list = commit_list(temp.path(), &task.id).unwrap();
+        assert_eq!(list.count, 0);
+    }
+
+    #[test]
+    fn test_commit_list_nonexistent_task() {
+        let temp = setup();
+
+        let result = commit_list(temp.path(), "bn-9999");
+        assert!(result.is_err());
     }
 }
