@@ -1,6 +1,6 @@
 //! Binnacle CLI - A project state tracking tool for AI agents and humans.
 
-use binnacle::cli::{Cli, Commands, DepCommands, TaskCommands};
+use binnacle::cli::{Cli, Commands, DepCommands, TaskCommands, TestCommands};
 use binnacle::commands::{self, Output};
 use clap::Parser;
 use std::env;
@@ -119,9 +119,43 @@ fn run_command(
                 output(&result, human);
             }
         },
-        Some(Commands::Test { command }) => {
-            not_implemented("test", &format!("{:?}", command), human);
-        }
+        Some(Commands::Test { command }) => match command {
+            TestCommands::Create {
+                name,
+                cmd,
+                dir,
+                task,
+            } => {
+                let result = commands::test_create(repo_path, name, cmd, dir, task)?;
+                output(&result, human);
+            }
+            TestCommands::List { task } => {
+                let result = commands::test_list(repo_path, task.as_deref())?;
+                output(&result, human);
+            }
+            TestCommands::Show { id } => {
+                let result = commands::test_show(repo_path, &id)?;
+                output(&result, human);
+            }
+            TestCommands::Link { test_id, task_id } => {
+                let result = commands::test_link(repo_path, &test_id, &task_id)?;
+                output(&result, human);
+            }
+            TestCommands::Unlink { test_id, task_id } => {
+                let result = commands::test_unlink(repo_path, &test_id, &task_id)?;
+                output(&result, human);
+            }
+            TestCommands::Run {
+                id,
+                task,
+                all,
+                failed,
+            } => {
+                let result =
+                    commands::test_run(repo_path, id.as_deref(), task.as_deref(), all, failed)?;
+                output(&result, human);
+            }
+        },
         Some(Commands::Commit { command }) => {
             not_implemented("commit", &format!("{:?}", command), human);
         }
