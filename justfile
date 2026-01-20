@@ -22,6 +22,13 @@ install: (build "release" "gui")
     cp target/release/bn ~/.local/bin/
     @echo "Installed bn to ~/.local/bin/bn (with GUI feature)"
 
+gui:
+    #!/usr/bin/env bash
+    pkill bn || :
+    just install
+    bn gui&
+    echo "Launched binnacle GUI as PID $!"
+
 # Run clippy with strict warnings
 clippy:
     cargo clippy --all-targets --all-features -- -D warnings
