@@ -44,9 +44,46 @@ bn blocked            Tasks waiting on dependencies
 bn test create/run    Test node management
 bn commit link/list   Associate commits with tasks
 bn mcp serve          Start MCP server
+bn gui                Start web GUI (requires gui feature)
 ```
 
 Use `bn --help` or `bn <command> --help` for full details.
+
+## Web GUI
+
+Binnacle includes an optional web-based GUI for visualizing tasks, dependencies, tests, and activity logs. The GUI provides a real-time, interactive view of your project state with a modern dark blue interface.
+
+**Features:**
+- **Interactive task graph** - Spring-physics based visualization of task dependencies
+- **Ready tasks view** - Quick access to tasks ready to work on
+- **Test dashboard** - Monitor test status and history
+- **Activity log** - Track all changes and actions
+- **Live updates** - WebSocket-based real-time synchronization
+
+**Building with GUI:**
+```bash
+# Build with GUI feature
+cargo build --release --features gui
+
+# Or use just (includes GUI by default)
+just install
+
+# Or install with cargo
+cargo install --path . --features gui
+```
+
+**Running the GUI:**
+```bash
+# Start on default port (3030)
+bn gui
+
+# Start on custom port
+bn gui --port 8080
+
+# Then open http://localhost:3030 in your browser
+```
+
+The GUI watches for changes to binnacle data and automatically updates all connected clients.
 
 ## Configuration
 
@@ -94,6 +131,7 @@ What works:
 - Commit tracking
 - Action logging with sanitization
 - MCP server with 30 tools
+- Web GUI with live updates (behind gui feature flag)
 - CI/CD via GitHub Actions
 
 In progress:
@@ -103,10 +141,17 @@ In progress:
 ## Building
 
 ```bash
+# Recommended: Install with GUI feature using just
+just install
+
+# Or build manually
+cargo build --release --features gui
+
+# Or without GUI
 cargo build --release
 ```
 
-The binary is `bn` (short for binnacle).
+The binary is `bn` (short for binnacle). The `just install` command builds with the GUI feature enabled and installs to `~/.local/bin`.
 
 ## License
 

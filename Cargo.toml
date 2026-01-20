@@ -33,6 +33,17 @@ dirs = "5"
 # Error handling
 thiserror = "1"
 
+# GUI dependencies (feature-gated)
+axum = { version = "0.7", features = ["ws"], optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+tower-http = { version = "0.5", features = ["fs", "cors"], optional = true }
+futures = { version = "0.3", optional = true }
+notify = { version = "6", optional = true }
+tracing = { version = "0.1", optional = true }
+
+[features]
+gui = ["axum", "tokio", "tower-http", "futures", "notify", "tracing"]
+
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
