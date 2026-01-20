@@ -12,7 +12,7 @@ use tempfile::TempDir;
 
 /// Get a Command for the bn binary, running in a temp directory.
 fn bn_in(dir: &TempDir) -> Command {
-    let mut cmd = Command::cargo_bin("bn").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(dir.path());
     cmd
 }
@@ -56,7 +56,7 @@ fn test_commit_link() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"sha\":\"a1b2c3d\""))
-        .stdout(predicate::str::contains(&format!(
+        .stdout(predicate::str::contains(format!(
             "\"task_id\":\"{}\"",
             task_id
         )));
@@ -226,7 +226,7 @@ fn test_commit_unlink() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"sha\":\"a1b2c3d\""))
-        .stdout(predicate::str::contains(&format!(
+        .stdout(predicate::str::contains(format!(
             "\"task_id\":\"{}\"",
             task_id
         )));

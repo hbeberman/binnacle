@@ -4,6 +4,8 @@
 //! - `bn mcp manifest` outputs valid JSON with tools, resources, prompts
 //! - MCP protocol message handling
 
+#![allow(dead_code)] // McpServerHandle::send_request is for future use
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::io::Write;
@@ -12,7 +14,7 @@ use tempfile::TempDir;
 
 /// Get a Command for the bn binary.
 fn bn() -> Command {
-    Command::cargo_bin("bn").unwrap()
+    Command::new(env!("CARGO_BIN_EXE_bn"))
 }
 
 /// Setup a temp directory and initialize binnacle.

@@ -10,7 +10,7 @@ use predicates::prelude::*;
 
 /// Get a Command for the bn binary.
 fn bn() -> Command {
-    Command::cargo_bin("bn").unwrap()
+    Command::new(env!("CARGO_BIN_EXE_bn"))
 }
 
 #[test]

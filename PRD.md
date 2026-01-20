@@ -487,16 +487,33 @@ Run 'bn --help' for full command reference.
 
 ---
 
-## Phase 9: CI/CD Pipeline
+## Phase 9: CI/CD Pipeline ✅
 
 **Goal:** Automated testing and quality checks
 
 ### Deliverables
-- [ ] GitHub Actions workflow (`.github/workflows/ci.yml`)
-- [ ] `cargo test` on push/PR
-- [ ] `cargo clippy` linting
-- [ ] `cargo fmt --check` formatting verification
-- [ ] Release workflow for tagged versions
+- [x] GitHub Actions workflow (`.github/workflows/ci.yml`)
+- [x] `cargo test` on push/PR
+- [x] `cargo clippy` linting
+- [x] `cargo fmt --check` formatting verification
+- [x] Release workflow for tagged versions (`.github/workflows/release.yml`)
+
+### Workflows Created
+
+**CI Workflow (`.github/workflows/ci.yml`):**
+- Runs on push/PR to main/master branches
+- Three parallel jobs: test, clippy, fmt
+- Uses cargo caching for faster builds
+- Fails on any clippy warnings (`-D warnings`)
+
+**Release Workflow (`.github/workflows/release.yml`):**
+- Triggered by version tags (e.g., `v0.1.0`)
+- Builds binaries for multiple platforms:
+  - Linux x86_64
+  - macOS x86_64 and ARM64
+  - Windows x86_64
+- Creates GitHub Release with auto-generated notes
+- Uploads platform-specific archives
 
 ---
 

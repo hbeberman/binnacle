@@ -13,3 +13,11 @@ install: (build "release")
     mkdir -p ~/.local/bin
     cp target/release/bn ~/.local/bin/
     @echo "Installed bn to ~/.local/bin/bn"
+
+# Run clippy with strict warnings
+clippy:
+    cargo clippy --all-targets --all-features -- -D warnings
+
+# Run all tests
+test:
+    cargo test --all-features
