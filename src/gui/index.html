@@ -101,6 +101,10 @@
             display: block;
         }
 
+        #graph-view {
+            position: relative;
+        }
+
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -246,7 +250,7 @@
             top: 1rem;
             right: 1rem;
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
             gap: 0.5rem;
             z-index: 100;
         }
@@ -276,10 +280,14 @@
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
             border-radius: 6px;
-            padding: 0.5rem;
+            padding: 0.5rem 0.75rem;
             font-size: 0.85rem;
             text-align: center;
             color: var(--text-secondary);
+            min-width: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .tooltip-title {
