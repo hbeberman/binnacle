@@ -9,21 +9,16 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Task status in the workflow.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
+    #[default]
     Pending,
     InProgress,
     Done,
     Blocked,
     Cancelled,
     Reopened,
-}
-
-impl Default for TaskStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 /// A work item tracked by Binnacle.

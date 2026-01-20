@@ -12,7 +12,7 @@ use tempfile::TempDir;
 
 /// Get a Command for the bn binary, running in a temp directory.
 fn bn_in(dir: &TempDir) -> Command {
-    let mut cmd = Command::cargo_bin("bn").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(dir.path());
     cmd
 }
