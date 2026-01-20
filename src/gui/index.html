@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binnacle - Project State Tracker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #1a2332;
+            --bg-secondary: #243447;
+            --bg-tertiary: #2d4059;
+            --text-primary: #e8edf3;
+            --text-secondary: #b8c5d6;
+            --accent-blue: #4a90e2;
+            --accent-light: #6aa8f0;
+            --border-color: #3a4d66;
+            --success: #5cb85c;
+            --warning: #f0ad4e;
+            --danger: #d9534f;
+            --info: #5bc0de;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 2px solid var(--border-color);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            color: var(--accent-light);
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        nav {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .nav-btn {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.5rem 1.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.95rem;
+        }
+
+        .nav-btn:hover {
+            background: var(--accent-blue);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
+        }
+
+        .nav-btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-light);
+        }
+
+        main {
+            flex: 1;
+            overflow: auto;
+            padding: 2rem;
+        }
+
+        .view {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        #graph-canvas {
+            width: 100%;
+            height: calc(100vh - 200px);
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .task-list, .test-list, .log-list {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            border-color: var(--accent-blue);
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .card-meta {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 0.75rem;
+        }
+
+        .badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .badge-priority-0 { background: var(--danger); color: white; }
+        .badge-priority-1 { background: var(--warning); color: white; }
+        .badge-priority-2 { background: var(--info); color: white; }
+        .badge-priority-3 { background: var(--success); color: white; }
+
+        .badge-status-pending { background: var(--info); color: white; }
+        .badge-status-in_progress { background: var(--warning); color: white; }
+        .badge-status-blocked { background: var(--danger); color: white; }
+        .badge-status-done { background: var(--success); color: white; }
+
+        .badge-tag {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .log-entry {
+            padding: 1rem;
+            border-left: 3px solid var(--accent-blue);
+        }
+
+        .log-time {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .connection-status {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-connected { background: var(--success); }
+        .status-disconnected { background: var(--danger); animation: none; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-secondary);
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .node-tooltip {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.85);
+            color: var(--text-primary);
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 300px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            display: none;
+        }
+
+        .node-tooltip.visible {
+            display: block;
+        }
+
+        .tooltip-title {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            color: var(--accent-light);
+        }
+
+        .tooltip-id {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-family: monospace;
+            margin-bottom: 0.5rem;
+        }
+
+        .tooltip-meta {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 0.5rem;
+        }
+
+        #graph-canvas {
+            cursor: default;
+        }
+
+        #graph-canvas.hovering {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🧭 Binnacle</h1>
+            <p class="subtitle">Project State Tracker</p>
+            <nav>
+                <button class="nav-btn active" data-view="graph">Task Graph</button>
+                <button class="nav-btn" data-view="ready">Ready Tasks</button>
+                <button class="nav-btn" data-view="tests">Tests</button>
+                <button class="nav-btn" data-view="log">Activity Log</button>
+            </nav>
+        </header>
+
+        <main>
+            <div id="graph-view" class="view active">
+                <canvas id="graph-canvas"></canvas>
+                <div class="node-tooltip" id="node-tooltip">
+                    <div class="tooltip-title" id="tooltip-title"></div>
+                    <div class="tooltip-id" id="tooltip-id"></div>
+                    <div class="tooltip-meta" id="tooltip-meta"></div>
+                </div>
+            </div>
+
+            <div id="ready-view" class="view">
+                <div class="task-list" id="ready-list"></div>
+            </div>
+
+            <div id="tests-view" class="view">
+                <div class="test-list" id="test-list"></div>
+            </div>
+
+            <div id="log-view" class="view">
+                <div class="log-list" id="log-list"></div>
+            </div>
+        </main>
+
+        <div class="connection-status">
+            <div class="status-dot status-disconnected" id="status-dot"></div>
+            <span id="status-text">Connecting...</span>
+        </div>
+    </div>
+
+    <script>
+        // State management
+        const state = {
+            currentView: 'graph',
+            tasks: [],
+            ready: [],
+            tests: [],
+            log: [],
+            ws: null,
+            graph: {
+                nodes: [],
+                edges: [],
+                hoveredNode: null,
+                mouseX: 0,
+                mouseY: 0,
+                physics: {
+                    damping: 0.9,
+                    springStrength: 0.05,
+                    repulsionStrength: 5000
+                }
+            }
+        };
+
+        // WebSocket connection
+        function connectWebSocket() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            state.ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+            state.ws.onopen = () => {
+                updateConnectionStatus(true);
+                loadData();
+            };
+
+            state.ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'reload') {
+                    loadData();
+                }
+            };
+
+            state.ws.onclose = () => {
+                updateConnectionStatus(false);
+                setTimeout(connectWebSocket, 2000);
+            };
+
+            state.ws.onerror = () => {
+                updateConnectionStatus(false);
+            };
+        }
+
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            dot.className = `status-dot status-${connected ? 'connected' : 'disconnected'}`;
+            text.textContent = connected ? 'Connected' : 'Disconnected';
+        }
+
+        // Data loading
+        async function loadData() {
+            await Promise.all([
+                fetch('/api/tasks').then(r => r.json()).then(data => state.tasks = data.tasks),
+                fetch('/api/ready').then(r => r.json()).then(data => state.ready = data.tasks),
+                fetch('/api/tests').then(r => r.json()).then(data => state.tests = data.tests),
+                fetch('/api/log').then(r => r.json()).then(data => state.log = data.log)
+            ]);
+            renderCurrentView();
+        }
+
+        // View switching
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const view = btn.dataset.view;
+                switchView(view);
+            });
+        });
+
+        function switchView(view) {
+            state.currentView = view;
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector(`[data-view="${view}"]`).classList.add('active');
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById(`${view}-view`).classList.add('active');
+            renderCurrentView();
+        }
+
+        // Rendering
+        function renderCurrentView() {
+            switch (state.currentView) {
+                case 'graph':
+                    renderGraph();
+                    break;
+                case 'ready':
+                    renderReady();
+                    break;
+                case 'tests':
+                    renderTests();
+                    break;
+                case 'log':
+                    renderLog();
+                    break;
+            }
+        }
+
+        function renderGraph() {
+            // This will be implemented with spring physics
+            const canvas = document.getElementById('graph-canvas');
+            const ctx = canvas.getContext('2d');
+
+            // Set canvas size
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+
+            if (state.tasks.length === 0) {
+                renderEmptyState(ctx, 'No tasks yet');
+                return;
+            }
+
+            // Build graph data structure
+            buildGraphData();
+
+            // Add mouse event listeners
+            setupGraphMouseHandlers(canvas);
+
+            // Start animation loop
+            requestAnimationFrame(animateGraph);
+        }
+
+        function setupGraphMouseHandlers(canvas) {
+            // Remove old listeners to avoid duplicates
+            const newCanvas = canvas.cloneNode(true);
+            canvas.parentNode.replaceChild(newCanvas, canvas);
+            const finalCanvas = document.getElementById('graph-canvas');
+
+            finalCanvas.addEventListener('mousemove', (e) => {
+                const rect = finalCanvas.getBoundingClientRect();
+                state.graph.mouseX = e.clientX - rect.left;
+                state.graph.mouseY = e.clientY - rect.top;
+
+                // Find hovered node
+                const hoveredNode = state.graph.nodes.find(node => {
+                    const dx = state.graph.mouseX - node.x;
+                    const dy = state.graph.mouseY - node.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    return distance <= node.radius;
+                });
+
+                if (hoveredNode !== state.graph.hoveredNode) {
+                    state.graph.hoveredNode = hoveredNode;
+                    updateTooltip(hoveredNode, e.clientX, e.clientY);
+                    finalCanvas.classList.toggle('hovering', !!hoveredNode);
+                }
+            });
+
+            finalCanvas.addEventListener('mouseleave', () => {
+                state.graph.hoveredNode = null;
+                updateTooltip(null);
+                finalCanvas.classList.remove('hovering');
+            });
+        }
+
+        function updateTooltip(node, mouseX, mouseY) {
+            const tooltip = document.getElementById('node-tooltip');
+            const titleEl = document.getElementById('tooltip-title');
+            const idEl = document.getElementById('tooltip-id');
+            const metaEl = document.getElementById('tooltip-meta');
+
+            if (!node) {
+                tooltip.classList.remove('visible');
+                return;
+            }
+
+            // Find full task data
+            const task = state.tasks.find(t => t.id === node.id);
+            if (!task) return;
+
+            // Update tooltip content
+            titleEl.textContent = task.title;
+            idEl.textContent = task.id;
+
+            // Build metadata badges
+            metaEl.innerHTML = `
+                <span class="badge badge-priority-${task.priority}">P${task.priority}</span>
+                <span class="badge badge-status-${task.status}">${task.status}</span>
+                ${task.tags.map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+            `;
+
+            // Position tooltip
+            const offset = 15;
+            tooltip.style.left = `${mouseX + offset}px`;
+            tooltip.style.top = `${mouseY + offset}px`;
+
+            // Adjust if tooltip goes off screen
+            const tooltipRect = tooltip.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            if (tooltipRect.right > viewportWidth) {
+                tooltip.style.left = `${mouseX - tooltipRect.width - offset}px`;
+            }
+            if (tooltipRect.bottom > viewportHeight) {
+                tooltip.style.top = `${mouseY - tooltipRect.height - offset}px`;
+            }
+
+            tooltip.classList.add('visible');
+        }
+
+        function buildGraphData() {
+            // Convert tasks to nodes
+            state.graph.nodes = state.tasks.map(task => ({
+                id: task.id,
+                title: task.title,
+                status: task.status,
+                priority: task.priority,
+                x: Math.random() * 800 + 100,
+                y: Math.random() * 400 + 100,
+                vx: 0,
+                vy: 0,
+                radius: 30
+            }));
+
+            // Build edges from dependencies
+            state.graph.edges = [];
+            state.tasks.forEach(task => {
+                if (task.depends_on && task.depends_on.length > 0) {
+                    task.depends_on.forEach(depId => {
+                        state.graph.edges.push({
+                            from: task.id,
+                            to: depId
+                        });
+                    });
+                }
+            });
+        }
+
+        function animateGraph() {
+            const canvas = document.getElementById('graph-canvas');
+            const ctx = canvas.getContext('2d');
+            const { nodes, edges, physics } = state.graph;
+
+            // Clear canvas
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary');
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Apply forces
+            applySpringForces(nodes, edges, physics);
+            applyRepulsionForces(nodes, physics);
+            updatePositions(nodes, physics, canvas);
+
+            // Draw edges
+            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border-color');
+            ctx.lineWidth = 2;
+            edges.forEach(edge => {
+                const fromNode = nodes.find(n => n.id === edge.from);
+                const toNode = nodes.find(n => n.id === edge.to);
+                if (fromNode && toNode) {
+                    drawArrow(ctx, fromNode.x, fromNode.y, toNode.x, toNode.y);
+                }
+            });
+
+            // Draw nodes
+            nodes.forEach(node => {
+                drawNode(ctx, node);
+            });
+
+            if (state.currentView === 'graph') {
+                requestAnimationFrame(animateGraph);
+            }
+        }
+
+        function applySpringForces(nodes, edges, physics) {
+            const hoveredNode = state.graph.hoveredNode;
+
+            edges.forEach(edge => {
+                const fromNode = nodes.find(n => n.id === edge.from);
+                const toNode = nodes.find(n => n.id === edge.to);
+                if (!fromNode || !toNode) return;
+
+                const dx = toNode.x - fromNode.x;
+                const dy = toNode.y - fromNode.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const idealDistance = 150;
+                const force = (distance - idealDistance) * physics.springStrength;
+
+                const fx = (dx / distance) * force;
+                const fy = (dy / distance) * force;
+
+                // Don't apply forces to hovered node
+                if (fromNode !== hoveredNode) {
+                    fromNode.vx += fx;
+                    fromNode.vy += fy;
+                }
+                if (toNode !== hoveredNode) {
+                    toNode.vx -= fx;
+                    toNode.vy -= fy;
+                }
+            });
+        }
+
+        function applyRepulsionForces(nodes, physics) {
+            const hoveredNode = state.graph.hoveredNode;
+
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const n1 = nodes[i];
+                    const n2 = nodes[j];
+                    const dx = n2.x - n1.x;
+                    const dy = n2.y - n1.y;
+                    const distanceSq = dx * dx + dy * dy;
+                    if (distanceSq === 0) continue;
+
+                    const force = physics.repulsionStrength / distanceSq;
+                    const distance = Math.sqrt(distanceSq);
+                    const fx = (dx / distance) * force;
+                    const fy = (dy / distance) * force;
+
+                    // Don't apply forces to hovered nodes
+                    if (n1 !== hoveredNode) {
+                        n1.vx -= fx;
+                        n1.vy -= fy;
+                    }
+                    if (n2 !== hoveredNode) {
+                        n2.vx += fx;
+                        n2.vy += fy;
+                    }
+                }
+            }
+        }
+
+        function updatePositions(nodes, physics, canvas) {
+            const hoveredNode = state.graph.hoveredNode;
+
+            nodes.forEach(node => {
+                // Freeze hovered node
+                if (node === hoveredNode) {
+                    node.vx = 0;
+                    node.vy = 0;
+                    return;
+                }
+
+                // Apply damping
+                node.vx *= physics.damping;
+                node.vy *= physics.damping;
+
+                // Update position
+                node.x += node.vx;
+                node.y += node.vy;
+
+                // Keep nodes within bounds
+                const margin = node.radius + 10;
+                if (node.x < margin) { node.x = margin; node.vx = 0; }
+                if (node.x > canvas.width - margin) { node.x = canvas.width - margin; node.vx = 0; }
+                if (node.y < margin) { node.y = margin; node.vy = 0; }
+                if (node.y > canvas.height - margin) { node.y = canvas.height - margin; node.vy = 0; }
+            });
+        }
+
+        function drawNode(ctx, node) {
+            const isHovered = node === state.graph.hoveredNode;
+
+            // Node colors based on status
+            const colors = {
+                'pending': '#5bc0de',
+                'in_progress': '#f0ad4e',
+                'blocked': '#d9534f',
+                'done': '#5cb85c'
+            };
+            const color = colors[node.status] || '#4a90e2';
+
+            // Draw hover highlight
+            if (isHovered) {
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, node.radius + 8, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(74, 144, 226, 0.2)';
+                ctx.fill();
+                ctx.strokeStyle = '#6aa8f0';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            // Draw circle
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.strokeStyle = isHovered ? '#ffffff' : '#e8edf3';
+            ctx.lineWidth = isHovered ? 3 : 2;
+            ctx.stroke();
+
+            // Draw text
+            ctx.fillStyle = '#1a2332';
+            ctx.font = isHovered ? 'bold 12px sans-serif' : '12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const text = node.id;
+            ctx.fillText(text, node.x, node.y);
+        }
+
+        function drawArrow(ctx, x1, y1, x2, y2) {
+            const headLength = 10;
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            const angle = Math.atan2(dy, dx);
+
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+
+            // Arrow head
+            ctx.beginPath();
+            ctx.moveTo(x2, y2);
+            ctx.lineTo(
+                x2 - headLength * Math.cos(angle - Math.PI / 6),
+                y2 - headLength * Math.sin(angle - Math.PI / 6)
+            );
+            ctx.lineTo(
+                x2 - headLength * Math.cos(angle + Math.PI / 6),
+                y2 - headLength * Math.sin(angle + Math.PI / 6)
+            );
+            ctx.closePath();
+            ctx.fillStyle = ctx.strokeStyle;
+            ctx.fill();
+        }
+
+        function renderReady() {
+            const list = document.getElementById('ready-list');
+            if (state.ready.length === 0) {
+                list.innerHTML = '<div class="empty-state">No ready tasks</div>';
+                return;
+            }
+            list.innerHTML = state.ready.map(task => `
+                <div class="card">
+                    <div class="card-title">${escapeHtml(task.title)}</div>
+                    <div class="card-meta">
+                        <span class="badge badge-priority-${task.priority}">P${task.priority}</span>
+                        <span class="badge" style="background: var(--bg-tertiary)">${task.id}</span>
+                        ${task.tags.map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderTests() {
+            const list = document.getElementById('test-list');
+            if (state.tests.length === 0) {
+                list.innerHTML = '<div class="empty-state">No tests configured</div>';
+                return;
+            }
+            list.innerHTML = state.tests.map(test => `
+                <div class="card">
+                    <div class="card-title">${escapeHtml(test.name)}</div>
+                    <div class="card-meta">
+                        <span class="badge" style="background: var(--bg-tertiary)">${test.id}</span>
+                        <span class="badge ${test.last_status === 'passed' ? 'badge-status-done' : 'badge-status-blocked'}">
+                            ${test.last_status || 'Not run'}
+                        </span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderLog() {
+            const list = document.getElementById('log-list');
+            if (state.log.length === 0) {
+                list.innerHTML = '<div class="empty-state">No activity yet</div>';
+                return;
+            }
+            list.innerHTML = state.log.slice(0, 50).map(entry => `
+                <div class="card log-entry">
+                    <div class="log-time">${new Date(entry.timestamp).toLocaleString()}</div>
+                    <div class="card-title">${escapeHtml(entry.action || entry.message)}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderEmptyState(ctx, message) {
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary');
+            ctx.font = '20px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(message, ctx.canvas.width / 2, ctx.canvas.height / 2);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Initialize
+        connectWebSocket();
+    </script>
+</body>
+</html>

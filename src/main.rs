@@ -246,6 +246,10 @@ fn run_command(
                 mcp::manifest();
             }
         },
+        #[cfg(feature = "gui")]
+        Some(Commands::Gui { port }) => {
+            run_gui(repo_path, port)?;
+        }
         None => {
             // Default: show status summary
             match commands::status(repo_path) {
@@ -275,6 +279,28 @@ fn output<T: Output>(result: &T, human: bool) {
     } else {
         println!("{}", result.to_json());
     }
+}
+
+/// Run the GUI web server
+#[cfg(feature = "gui")]
+fn run_gui(repo_path: &Path, port: u16) -> Result<(), binnacle::Error> {
+    use binnacle::storage::Storage;
+
+    // Ensure storage is initialized
+    if !Storage::exists(repo_path)? {
+        return Err(binnacle::Error::NotInitialized);
+    }
+
+    // Create tokio runtime and run the server
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?
+        .block_on(async {
+            binnacle::gui::start_server(repo_path, port)
+                .await
+                .map_err(|e| binnacle::Error::Other(format!("GUI server error: {}", e)))
+        })
 }
 
 /// Print a not-implemented message for a command.
@@ -509,6 +535,12 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             McpCommands::Serve => ("mcp serve".to_string(), serde_json::json!({})),
             McpCommands::Manifest => ("mcp manifest".to_string(), serde_json::json!({})),
         },
+
+        #[cfg(feature = "gui")]
+        Some(Commands::Gui { port }) => (
+            "gui".to_string(),
+            serde_json::json!({ "port": port }),
+        ),
 
         None => ("status".to_string(), serde_json::json!({})),
     }

@@ -6,6 +6,8 @@
 pub mod action_log;
 pub mod cli;
 pub mod commands;
+#[cfg(feature = "gui")]
+pub mod gui;
 pub mod mcp;
 pub mod models;
 pub mod storage;

@@ -80,6 +80,14 @@ pub enum Commands {
         #[command(subcommand)]
         command: McpCommands,
     },
+
+    /// Start the web GUI (requires 'gui' feature)
+    #[cfg(feature = "gui")]
+    Gui {
+        /// Port to listen on (default: 3030)
+        #[arg(short, long, default_value = "3030")]
+        port: u16,
+    },
 }
 
 /// Task subcommands
