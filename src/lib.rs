@@ -3,6 +3,7 @@
 //! This library provides the core functionality for the `bn` CLI tool,
 //! including task management, test tracking, and dependency handling.
 
+pub mod action_log;
 pub mod cli;
 pub mod commands;
 pub mod mcp;

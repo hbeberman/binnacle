@@ -1855,6 +1855,37 @@ impl Output for ConfigSet {
 
 /// Set a configuration value.
 pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet> {
+    // Validate configuration values
+    match key {
+        "action_log_enabled" | "action_log_sanitize" => {
+            // Validate boolean values
+            let value_lower = value.to_lowercase();
+            if value_lower != "true"
+                && value_lower != "false"
+                && value_lower != "1"
+                && value_lower != "0"
+                && value_lower != "yes"
+                && value_lower != "no"
+            {
+                return Err(Error::Other(format!(
+                    "Invalid boolean value for {}: {}. Must be one of: true, false, 1, 0, yes, no",
+                    key, value
+                )));
+            }
+        }
+        "action_log_path" => {
+            // Validate path is not empty
+            if value.trim().is_empty() {
+                return Err(Error::Other(
+                    "action_log_path cannot be empty".to_string(),
+                ));
+            }
+        }
+        _ => {
+            // No validation for unknown keys (for forward compatibility)
+        }
+    }
+
     let mut storage = Storage::open(repo_path)?;
     storage.set_config(key, value)?;
 
