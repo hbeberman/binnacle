@@ -1,6 +1,8 @@
 //! Binnacle CLI - A project state tracking tool for AI agents and humans.
 
-use binnacle::cli::{Cli, Commands, CommitCommands, DepCommands, TaskCommands, TestCommands};
+use binnacle::cli::{
+    Cli, Commands, CommitCommands, ConfigCommands, DepCommands, TaskCommands, TestCommands,
+};
 use binnacle::commands::{self, Output};
 use clap::Parser;
 use std::env;
@@ -179,20 +181,34 @@ fn run_command(
             output(&result, human);
         }
         Some(Commands::Doctor) => {
-            not_implemented("doctor", "", human);
+            let result = commands::doctor(repo_path)?;
+            output(&result, human);
         }
         Some(Commands::Log { task_id }) => {
-            not_implemented("log", &task_id.unwrap_or_default(), human);
+            let result = commands::log(repo_path, task_id.as_deref())?;
+            output(&result, human);
         }
         Some(Commands::Compact) => {
-            not_implemented("compact", "", human);
+            let result = commands::compact(repo_path)?;
+            output(&result, human);
         }
         Some(Commands::Sync) => {
             not_implemented("sync", "", human);
         }
-        Some(Commands::Config { command }) => {
-            not_implemented("config", &format!("{:?}", command), human);
-        }
+        Some(Commands::Config { command }) => match command {
+            ConfigCommands::Get { key } => {
+                let result = commands::config_get(repo_path, &key)?;
+                output(&result, human);
+            }
+            ConfigCommands::Set { key, value } => {
+                let result = commands::config_set(repo_path, &key, &value)?;
+                output(&result, human);
+            }
+            ConfigCommands::List => {
+                let result = commands::config_list(repo_path)?;
+                output(&result, human);
+            }
+        },
         Some(Commands::Mcp { command }) => {
             not_implemented("mcp", &format!("{:?}", command), human);
         }

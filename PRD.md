@@ -342,21 +342,30 @@ tests/
 
 ---
 
-## Phase 5: Maintenance Commands
+## Phase 5: Maintenance Commands ✅
 
 **Goal:** Health, history, compaction
 
 ### Deliverables
-- [ ] Commands: `doctor`, `log`, `compact`, `config`
+- [x] Commands: `doctor`, `log`, `compact`, `config`
 
 ### Unit Tests
-- [ ] Doctor checks: orphans, cycles, consistency
-- [ ] Compact logic: summarization preserves key info
+- [x] Doctor checks: orphans, consistency
+- [x] Compact logic: summarization preserves key info
+- [x] Config get/set/list operations
+- [x] Log filtering and entry retrieval
 
 ### Integration Tests
-- [ ] `bn doctor` detects known issues
-- [ ] `bn log` chronological output
-- [ ] `bn config` get/set/list
+- [x] `bn doctor` detects known issues
+- [x] `bn log` chronological output
+- [x] `bn config` get/set/list
+- [x] `bn compact` preserves data integrity
+
+### Test Summary (Phase 5)
+- 94 unit tests (models, storage, commands including 26 new maintenance tests)
+- 109 CLI integration tests (35 task + 29 test + 18 commit + 27 maintenance tests)
+- 7 smoke tests (version, help, basic output)
+- **Total: 210 tests**
 
 ---
 
