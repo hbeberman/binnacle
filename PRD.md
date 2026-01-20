@@ -480,10 +480,32 @@ Run 'bn --help' for full command reference.
 **Goal:** Orphan branch and git notes support
 
 ### Deliverables
-- [ ] Orphan branch backend
+- [x] Orphan branch backend (`binnacle-data` branch)
 - [ ] Git notes backend
 - [ ] `bn sync` for shared mode
 - [ ] Migration between backends
+
+### Implemented: Orphan Branch Backend
+
+The orphan branch backend stores binnacle data in a git orphan branch named `binnacle-data`. 
+This keeps all data within the repository without polluting the main branch or working tree.
+
+**Key Features:**
+- Uses git plumbing commands (hash-object, mktree, commit-tree, update-ref)
+- Never modifies the working tree
+- Full commit history for data changes
+- Data persists across clones when branch is pushed
+
+**Architecture:**
+- `StorageBackend` trait abstracts storage operations
+- `OrphanBranchBackend` implements the trait using git commands
+- Files stored: `tasks.jsonl`, `commits.jsonl`, `test-results.jsonl`
+
+**Test Summary (Phase 8 - Orphan Branch):**
+- 8 unit tests (backend initialization, read/write, branch management)
+- 9 integration tests (data persistence, commit history, no working tree pollution)
+- **Total new tests: 17**
+- **Grand total: 287 tests**
 
 ---
 
