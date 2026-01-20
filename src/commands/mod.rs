@@ -55,11 +55,34 @@ impl<T: Serialize> CommandOutput<T> {
 
 // === Init Command ===
 
+/// Prompt the user for a yes/no answer.
+/// Returns true for yes, false for no.
+/// Default is Yes if default_yes is true, No otherwise.
+fn prompt_yes_no(prompt: &str, default_yes: bool) -> bool {
+    use std::io::{self, Write};
+
+    let suffix = if default_yes { " (Y/n): " } else { " (y/N): " };
+    print!("{}{}", prompt, suffix);
+    io::stdout().flush().unwrap();
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+
+    let trimmed = input.trim().to_lowercase();
+
+    if trimmed.is_empty() {
+        default_yes
+    } else {
+        trimmed == "y" || trimmed == "yes"
+    }
+}
+
 #[derive(Serialize)]
 pub struct InitResult {
     pub initialized: bool,
     pub storage_path: String,
     pub agents_md_updated: bool,
+    pub skills_file_created: bool,
 }
 
 impl Output for InitResult {
@@ -80,12 +103,36 @@ impl Output for InitResult {
         if self.agents_md_updated {
             lines.push("Updated AGENTS.md with binnacle reference.".to_string());
         }
+        if self.skills_file_created {
+            lines.push(
+                "Created Claude Code skills file at ~/.claude/skills/binnacle/SKILL.md".to_string(),
+            );
+        }
         lines.join("\n")
     }
 }
 
-/// Initialize binnacle for the current repository.
+/// Initialize binnacle for the current repository with interactive prompts.
 pub fn init(repo_path: &Path) -> Result<InitResult> {
+    // Prompt for AGENTS.md update (default Yes)
+    let update_agents_md = prompt_yes_no("Add binnacle reference to AGENTS.md?", true);
+
+    // Prompt for skills file creation (default Yes)
+    let create_skills = prompt_yes_no(
+        "Create Claude Code skills file for binnacle at ~/.claude/skills/binnacle/SKILL.md?",
+        true,
+    );
+
+    init_with_options(repo_path, update_agents_md, create_skills)
+}
+
+/// Initialize binnacle for the current repository with explicit options.
+/// Used internally and by tests.
+fn init_with_options(
+    repo_path: &Path,
+    update_agents: bool,
+    create_skills: bool,
+) -> Result<InitResult> {
     let already_exists = Storage::exists(repo_path)?;
     let storage = if already_exists {
         Storage::open(repo_path)?
@@ -93,13 +140,25 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         Storage::init(repo_path)?
     };
 
-    // Create or update AGENTS.md with binnacle blurb
-    let agents_md_updated = update_agents_md(repo_path)?;
+    // Update AGENTS.md if requested (with prompting enabled in interactive mode)
+    let agents_md_updated = if update_agents {
+        update_agents_md(repo_path, true)?
+    } else {
+        false
+    };
+
+    // Create skills file if requested
+    let skills_file_created = if create_skills {
+        create_skills_file()?
+    } else {
+        false
+    };
 
     Ok(InitResult {
         initialized: !already_exists,
         storage_path: storage.root().to_string_lossy().to_string(),
         agents_md_updated,
+        skills_file_created,
     })
 }
 
@@ -109,7 +168,7 @@ This project uses **bn** (binnacle) for long-horizon task/test status tracking. 
 
 ## Task Workflow (IMPORTANT)
 1. **Before starting work**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress`
-2. **After completing work**: Run `bn task close <id> --reason "brief description"` 
+2. **After completing work**: Run `bn task close <id> --reason "brief description"`
 3. **If blocked**: Run `bn task update <id> --status blocked`
 
 The task graph drives development priorities. Always update task status to keep it accurate.
@@ -120,9 +179,154 @@ The task graph drives development priorities. Always update task status to keep 
 3. Verify the task graph is accurate before finalizing your work
 "#;
 
+/// The skills file content for Claude Code
+const SKILLS_FILE_CONTENT: &str = r#"---
+name: binnacle
+description: Project planning supercharged. Use to determine tasks at the start of each session. Task and test tracker for multi-session development work with AI agents
+---
+
+# Binnacle - Project Planning and Task Management
+
+Use `bn` (binnacle) for managing tasks, tests, and project planning across multiple AI agent sessions.
+
+## When to Use Binnacle
+
+- Multi-session projects that span multiple conversations
+- Complex tasks with dependencies and blockers
+- Projects requiring persistent test tracking
+- When you need to maintain context across conversation compactions
+
+## Key Commands
+
+### Getting Oriented
+- `bn orient` - Get project overview and current state
+- `bn ready` - Show tasks ready to work on (no blockers)
+- `bn blocked` - Show tasks waiting on dependencies
+
+### Task Management
+- `bn task create "Title" -p 2 --tag feature` - Create a new task
+- `bn task list` - List all tasks
+- `bn task show <id>` - Show task details
+- `bn task update <id> --status in_progress` - Update task status
+- `bn task close <id> --reason "completed"` - Close a task
+- `bn task update <id> --title "New title"` - Update task details
+
+### Dependencies
+- `bn dep add <child-id> <parent-id>` - Add dependency (child depends on parent)
+- `bn dep show <id>` - Show dependency graph
+- `bn dep rm <child-id> <parent-id>` - Remove dependency
+
+### Test Tracking
+- `bn test create "Name" --cmd "cargo test" --task <id>` - Create and link test
+- `bn test run --all` - Run all tests
+- `bn test run --task <id>` - Run tests for a specific task
+- `bn test list` - List all tests
+
+### Project Health
+- `bn doctor` - Check for issues in task graph
+- `bn log` - Show audit trail of changes
+- `bn log <task-id>` - Show changes for specific task
+
+## Task Workflow
+
+1. **Start of session**: Run `bn orient` to understand project state
+2. **Before starting work**:
+   - Run `bn ready` to see available tasks
+   - Select a task and mark it: `bn task update <id> --status in_progress`
+3. **During work**:
+   - Create new tasks as you discover them
+   - Link commits: `bn commit link <sha> <task-id>`
+   - If blocked: `bn task update <id> --status blocked`
+4. **After completing work**:
+   - Run `bn ready` to check related tasks
+   - Close ALL completed tasks: `bn task close <id> --reason "description"`
+   - Run tests: `bn test run --all`
+
+## Best Practices
+
+- **Always update task status** - Keep the task graph accurate
+- **Close all related tasks** - Don't leave completed work marked as pending
+- **Use dependencies** - Model blockers explicitly with `bn dep add`
+- **Link tests to tasks** - Enables regression detection
+- **Run `bn doctor` regularly** - Catch inconsistencies early
+- **Tag tasks** - Use tags for categorization (feature, bug, refactor, etc.)
+
+## Priority Levels
+
+- `0` - Critical
+- `1` - High
+- `2` - Medium (default)
+- `3` - Low
+- `4` - Nice to have
+
+## Example Workflow
+
+```bash
+# Start of session
+bn orient
+
+# See what's ready
+bn ready
+
+# Start working on a task
+bn task update bn-a1b2 --status in_progress
+
+# Discover a blocker, create it
+bn task create "Fix authentication bug" -p 0 --tag bug
+bn dep add bn-a1b2 bn-c3d4  # bn-a1b2 depends on bn-c3d4
+
+# Work on the blocker instead
+bn task update bn-c3d4 --status in_progress
+
+# Complete blocker
+bn task close bn-c3d4 --reason "Fixed auth validation"
+
+# Now original task is unblocked
+bn ready  # Should show bn-a1b2 is ready
+
+# Complete original task
+bn task close bn-a1b2 --reason "Implemented feature X"
+
+# Run tests
+bn test run --all
+```
+
+## Notes
+
+- Binnacle stores data in `.bn/` directory using git's orphan branch backend
+- All changes are tracked in an append-only log
+- Use `bn compact` to summarize old closed tasks
+- Run `bn --help` for full command reference
+"#;
+
+/// Create the Claude Code skills file for binnacle.
+/// Always overwrites if the file already exists.
+/// Returns true if the file was created/updated.
+fn create_skills_file() -> Result<bool> {
+    use std::fs;
+
+    // Get home directory
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| Error::Other("Could not determine home directory".to_string()))?;
+
+    let skills_dir = home_dir.join(".claude").join("skills").join("binnacle");
+    let skills_path = skills_dir.join("SKILL.md");
+
+    // Create directory if it doesn't exist
+    fs::create_dir_all(&skills_dir)
+        .map_err(|e| Error::Other(format!("Failed to create skills directory: {}", e)))?;
+
+    // Write the skills file (overwrites if exists)
+    fs::write(&skills_path, SKILLS_FILE_CONTENT)
+        .map_err(|e| Error::Other(format!("Failed to create skills file: {}", e)))?;
+
+    Ok(true)
+}
+
 /// Update AGENTS.md with the binnacle blurb.
-/// Returns true if the file was modified, false if it already contained the reference.
-fn update_agents_md(repo_path: &Path) -> Result<bool> {
+/// If the file exists and already has "bn orient", prompts user to append.
+/// Returns true if the file was modified.
+fn update_agents_md(repo_path: &Path, prompt_if_exists: bool) -> Result<bool> {
     use std::fs;
     use std::io::Write;
 
@@ -133,9 +337,20 @@ fn update_agents_md(repo_path: &Path) -> Result<bool> {
         let contents = fs::read_to_string(&agents_path)
             .map_err(|e| Error::Other(format!("Failed to read AGENTS.md: {}", e)))?;
 
-        // Skip if already contains reference to bn orient
+        // If already contains reference to bn orient
         if contents.contains("bn orient") {
-            return Ok(false);
+            // If we should prompt, ask user
+            if prompt_if_exists {
+                if !prompt_yes_no(
+                    "AGENTS.md already contains binnacle reference. Append updated context anyway?",
+                    false,
+                ) {
+                    return Ok(false);
+                }
+            } else {
+                // Non-interactive mode, skip
+                return Ok(false);
+            }
         }
 
         // Append the blurb
@@ -224,10 +439,11 @@ impl Output for OrientResult {
 /// Orient an AI agent to this project.
 /// Auto-initializes binnacle if not already initialized.
 pub fn orient(repo_path: &Path) -> Result<OrientResult> {
-    // Auto-initialize if needed
+    // Auto-initialize if needed (without prompts)
     let initialized = if !Storage::exists(repo_path)? {
         Storage::init(repo_path)?;
-        update_agents_md(repo_path)?;
+        // Auto-update AGENTS.md without prompting (non-interactive)
+        let _ = update_agents_md(repo_path, false);
         true
     } else {
         false
@@ -1840,7 +2056,7 @@ mod tests {
     #[test]
     fn test_init_new() {
         let temp = TempDir::new().unwrap();
-        let result = init(temp.path()).unwrap();
+        let result = init_with_options(temp.path(), false, false).unwrap();
         assert!(result.initialized);
     }
 
@@ -1848,7 +2064,7 @@ mod tests {
     fn test_init_existing() {
         let temp = TempDir::new().unwrap();
         Storage::init(temp.path()).unwrap();
-        let result = init(temp.path()).unwrap();
+        let result = init_with_options(temp.path(), false, false).unwrap();
         assert!(!result.initialized);
     }
 
@@ -2467,10 +2683,11 @@ mod tests {
         // Verify AGENTS.md doesn't exist yet
         assert!(!agents_path.exists());
 
-        // Run init
-        let result = init(temp.path()).unwrap();
+        // Run init with AGENTS.md update enabled
+        let result = init_with_options(temp.path(), true, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
+        assert!(!result.skills_file_created);
 
         // Verify AGENTS.md was created
         assert!(agents_path.exists());
@@ -2487,8 +2704,8 @@ mod tests {
         // Create existing AGENTS.md
         std::fs::write(&agents_path, "# My Existing Agents\n\nSome content here.\n").unwrap();
 
-        // Run init
-        let result = init(temp.path()).unwrap();
+        // Run init with AGENTS.md update enabled
+        let result = init_with_options(temp.path(), true, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
 
@@ -2510,8 +2727,8 @@ mod tests {
         )
         .unwrap();
 
-        // Run init
-        let result = init(temp.path()).unwrap();
+        // Run init with AGENTS.md update enabled
+        let result = init_with_options(temp.path(), true, false).unwrap();
         assert!(result.initialized);
         assert!(!result.agents_md_updated); // Should NOT be updated
 
@@ -2524,9 +2741,9 @@ mod tests {
     fn test_init_idempotent_agents_md() {
         let temp = TempDir::new().unwrap();
 
-        // Run init twice
-        init(temp.path()).unwrap();
-        let result = init(temp.path()).unwrap();
+        // Run init twice with AGENTS.md enabled
+        init_with_options(temp.path(), true, false).unwrap();
+        let result = init_with_options(temp.path(), true, false).unwrap();
 
         // Second run should not update AGENTS.md (already has bn orient)
         assert!(!result.initialized); // binnacle already exists
