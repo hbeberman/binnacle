@@ -1,9 +1,11 @@
 //! Binnacle CLI - A project state tracking tool for AI agents and humans.
 
 use binnacle::cli::{
-    Cli, Commands, CommitCommands, ConfigCommands, DepCommands, TaskCommands, TestCommands,
+    Cli, Commands, CommitCommands, ConfigCommands, DepCommands, McpCommands, TaskCommands,
+    TestCommands,
 };
 use binnacle::commands::{self, Output};
+use binnacle::mcp;
 use clap::Parser;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -209,9 +211,14 @@ fn run_command(
                 output(&result, human);
             }
         },
-        Some(Commands::Mcp { command }) => {
-            not_implemented("mcp", &format!("{:?}", command), human);
-        }
+        Some(Commands::Mcp { command }) => match command {
+            McpCommands::Serve => {
+                mcp::serve(repo_path);
+            }
+            McpCommands::Manifest => {
+                mcp::manifest();
+            }
+        },
         None => {
             // Default: show status summary
             match commands::status(repo_path) {
