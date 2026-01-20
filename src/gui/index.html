@@ -322,6 +322,135 @@
         #graph-canvas.dragging {
             cursor: grabbing;
         }
+
+        .info-panel {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            width: 320px;
+            max-height: calc(100% - 2rem);
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-y: auto;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s ease, visibility 0.2s ease;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .info-panel.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .info-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .info-panel-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .info-panel-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            transition: color 0.2s ease;
+        }
+
+        .info-panel-close:hover {
+            color: var(--text-primary);
+        }
+
+        .info-panel-id {
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: var(--accent-light);
+            margin-bottom: 0.5rem;
+        }
+
+        .info-panel-task-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+            line-height: 1.4;
+        }
+
+        .info-panel-meta {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .info-panel-section {
+            margin-bottom: 1rem;
+        }
+
+        .info-panel-section-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .info-panel-description {
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .info-panel-description.empty {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .info-panel-deps {
+            list-style: none;
+        }
+
+        .info-panel-deps li {
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: var(--accent-light);
+            padding: 0.25rem 0;
+        }
+
+        .info-panel-deps li:before {
+            content: "→ ";
+            color: var(--text-secondary);
+        }
+
+        .info-panel-closed-reason {
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            border-left: 3px solid var(--success);
+        }
+
     </style>
 </head>
 <body>
@@ -350,6 +479,27 @@
                     <div class="zoom-level" id="zoom-level">100%</div>
                     <button class="zoom-btn" id="zoom-out" title="Zoom Out">−</button>
                     <button class="zoom-btn" id="zoom-reset" title="Reset Zoom">⟲</button>
+                </div>
+                <div class="info-panel" id="info-panel">
+                    <div class="info-panel-header">
+                        <span class="info-panel-title">Task Details</span>
+                        <button class="info-panel-close" id="info-panel-close" title="Close">&times;</button>
+                    </div>
+                    <div id="info-panel-id" class="info-panel-id"></div>
+                    <div id="info-panel-task-title" class="info-panel-task-title"></div>
+                    <div id="info-panel-meta" class="info-panel-meta"></div>
+                    <div id="info-panel-description-section" class="info-panel-section">
+                        <div class="info-panel-section-title">Description</div>
+                        <div id="info-panel-description" class="info-panel-description"></div>
+                    </div>
+                    <div id="info-panel-deps-section" class="info-panel-section" style="display: none;">
+                        <div class="info-panel-section-title">Depends On</div>
+                        <ul id="info-panel-deps" class="info-panel-deps"></ul>
+                    </div>
+                    <div id="info-panel-closed-section" class="info-panel-section" style="display: none;">
+                        <div class="info-panel-section-title">Closed Reason</div>
+                        <div id="info-panel-closed-reason" class="info-panel-closed-reason"></div>
+                    </div>
                 </div>
             </div>
 
@@ -741,6 +891,9 @@
                     state.graph.selectedNode = null;
                 }
 
+                // Update info panel with current selection
+                updateInfoPanel(state.graph.selectedNode);
+
                 e.preventDefault();
             });
 
@@ -855,6 +1008,75 @@
 
             tooltip.classList.add('visible');
         }
+
+        function updateInfoPanel(node) {
+            const panel = document.getElementById('info-panel');
+            const idEl = document.getElementById('info-panel-id');
+            const titleEl = document.getElementById('info-panel-task-title');
+            const metaEl = document.getElementById('info-panel-meta');
+            const descEl = document.getElementById('info-panel-description');
+            const descSection = document.getElementById('info-panel-description-section');
+            const depsSection = document.getElementById('info-panel-deps-section');
+            const depsList = document.getElementById('info-panel-deps');
+            const closedSection = document.getElementById('info-panel-closed-section');
+            const closedReason = document.getElementById('info-panel-closed-reason');
+
+            if (!node) {
+                panel.classList.remove('visible');
+                return;
+            }
+
+            // Find full task data
+            const task = state.tasks.find(t => t.id === node.id);
+            if (!task) return;
+
+            // Update panel content
+            idEl.textContent = task.id;
+            titleEl.textContent = task.title;
+
+            // Build metadata badges
+            metaEl.innerHTML = `
+                <span class="badge badge-priority-${task.priority}">P${task.priority}</span>
+                <span class="badge badge-status-${task.status}">${task.status}</span>
+                ${task.tags.map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+            `;
+
+            // Description
+            if (task.description) {
+                descEl.textContent = task.description;
+                descEl.classList.remove('empty');
+                descSection.style.display = 'block';
+            } else {
+                descEl.textContent = 'No description provided';
+                descEl.classList.add('empty');
+                descSection.style.display = 'block';
+            }
+
+            // Dependencies
+            if (task.depends_on && task.depends_on.length > 0) {
+                depsList.innerHTML = task.depends_on.map(depId => `<li>${escapeHtml(depId)}</li>`).join('');
+                depsSection.style.display = 'block';
+            } else {
+                depsSection.style.display = 'none';
+            }
+
+            // Closed reason
+            if (task.status === 'done' && task.closed_reason) {
+                closedReason.textContent = task.closed_reason;
+                closedSection.style.display = 'block';
+            } else {
+                closedSection.style.display = 'none';
+            }
+
+            // Show panel
+            panel.classList.add('visible');
+        }
+
+        // Info panel close button
+        document.getElementById('info-panel-close').addEventListener('click', () => {
+            state.graph.selectedNode = null;
+            updateInfoPanel(null);
+        });
 
         // Coordinate transformation functions
         function screenToWorld(screenX, screenY, canvas) {
