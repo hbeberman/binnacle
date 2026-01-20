@@ -545,7 +545,7 @@
                     springStrength: 0.08,
                     springRestingLength: 200,
                     edgeAttractionEnabled: true,
-                    maxVelocity: 20
+                    maxVelocity: 3
                 },
                 // Viewport transformation
                 viewport: {
@@ -1096,23 +1096,47 @@
         }
 
         function buildGraphData() {
-            // Convert tasks to nodes - place in circular layout in world space
-            state.graph.nodes = state.tasks.map((task, index) => {
-                const totalNodes = state.tasks.length;
-                const angle = (index / totalNodes) * 2 * Math.PI;
-                const radius = 300; // Initial radius in world units
+            // Build a map of existing node positions to preserve them on reload
+            const existingNodes = new Map();
+            state.graph.nodes.forEach(node => {
+                existingNodes.set(node.id, { x: node.x, y: node.y });
+            });
 
-                return {
-                    id: task.id,
-                    title: task.title,
-                    status: task.status,
-                    priority: task.priority,
-                    x: Math.cos(angle) * radius,
-                    y: Math.sin(angle) * radius,
-                    vx: 0,
-                    vy: 0,
-                    radius: 30  // Node radius in world units
-                };
+            // Convert tasks to nodes - preserve positions or place in circular layout
+            state.graph.nodes = state.tasks.map((task, index) => {
+                const existing = existingNodes.get(task.id);
+
+                if (existing) {
+                    // Preserve existing position, but reset velocity to prevent oscillation
+                    return {
+                        id: task.id,
+                        title: task.title,
+                        status: task.status,
+                        priority: task.priority,
+                        x: existing.x,
+                        y: existing.y,
+                        vx: 0,
+                        vy: 0,
+                        radius: 30
+                    };
+                } else {
+                    // New node - place in circular layout in world space
+                    const totalNodes = state.tasks.length;
+                    const angle = (index / totalNodes) * 2 * Math.PI;
+                    const radius = 300; // Initial radius in world units
+
+                    return {
+                        id: task.id,
+                        title: task.title,
+                        status: task.status,
+                        priority: task.priority,
+                        x: Math.cos(angle) * radius,
+                        y: Math.sin(angle) * radius,
+                        vx: 0,
+                        vy: 0,
+                        radius: 30  // Node radius in world units
+                    };
+                }
             });
 
             // Build edges from dependencies
