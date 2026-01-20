@@ -150,6 +150,12 @@ impl Storage {
 
             CREATE INDEX IF NOT EXISTS idx_commit_links_task ON commit_links(task_id);
             CREATE INDEX IF NOT EXISTS idx_commit_links_sha ON commit_links(sha);
+
+            -- Configuration table
+            CREATE TABLE IF NOT EXISTS config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             "#,
         )?;
         Ok(())
@@ -600,6 +606,272 @@ impl Storage {
     /// Get the storage root path.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    // === Config Operations ===
+
+    /// Get a configuration value.
+    pub fn get_config(&self, key: &str) -> Result<Option<String>> {
+        let value: Option<String> = self
+            .conn
+            .query_row("SELECT value FROM config WHERE key = ?1", [key], |row| {
+                row.get(0)
+            })
+            .ok();
+        Ok(value)
+    }
+
+    /// Set a configuration value.
+    pub fn set_config(&mut self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    /// List all configuration values.
+    pub fn list_configs(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT key, value FROM config ORDER BY key")?;
+        let configs: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(configs)
+    }
+
+    // === Log Operations ===
+
+    /// Get log entries from the JSONL file.
+    ///
+    /// Reads the tasks.jsonl file and reconstructs the history of changes.
+    /// If task_id is provided, filters to entries for that task only.
+    pub fn get_log_entries(&self, task_id: Option<&str>) -> Result<Vec<crate::commands::LogEntry>> {
+        use std::collections::HashMap;
+
+        let tasks_path = self.root.join("tasks.jsonl");
+        let file = File::open(&tasks_path)?;
+        let reader = BufReader::new(file);
+
+        let mut entries = Vec::new();
+        let mut seen_tasks: HashMap<String, chrono::DateTime<Utc>> = HashMap::new();
+        let mut seen_tests: HashMap<String, chrono::DateTime<Utc>> = HashMap::new();
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            // Try to parse as Task
+            if let Ok(task) = serde_json::from_str::<Task>(&line) {
+                if task.entity_type == "task" {
+                    // Filter by task_id if provided
+                    if let Some(filter_id) = task_id {
+                        if task.id != filter_id {
+                            continue;
+                        }
+                    }
+
+                    let action = if seen_tasks.contains_key(&task.id) {
+                        // Determine what kind of update
+                        if task.status == TaskStatus::Done && task.closed_at.is_some() {
+                            "closed"
+                        } else if task.status == TaskStatus::Reopened {
+                            "reopened"
+                        } else {
+                            "updated"
+                        }
+                    } else {
+                        "created"
+                    };
+
+                    let details = match action {
+                        "closed" => task.closed_reason.clone(),
+                        "updated" => Some(format!("status: {:?}", task.status)),
+                        _ => None,
+                    };
+
+                    entries.push(crate::commands::LogEntry {
+                        timestamp: task.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        entity_type: "task".to_string(),
+                        entity_id: task.id.clone(),
+                        action: action.to_string(),
+                        details,
+                    });
+
+                    seen_tasks.insert(task.id.clone(), task.updated_at);
+                }
+            }
+
+            // Try to parse as TestNode
+            if let Ok(test) = serde_json::from_str::<TestNode>(&line) {
+                if test.entity_type == "test" {
+                    // Only include if not filtered or if it's linked to the task
+                    let include = match task_id {
+                        Some(filter_id) => test.linked_tasks.contains(&filter_id.to_string()),
+                        None => true,
+                    };
+
+                    if include {
+                        let action = if seen_tests.contains_key(&test.id) {
+                            "updated"
+                        } else {
+                            "created"
+                        };
+
+                        entries.push(crate::commands::LogEntry {
+                            timestamp: test.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                            entity_type: "test".to_string(),
+                            entity_id: test.id.clone(),
+                            action: action.to_string(),
+                            details: None,
+                        });
+
+                        seen_tests.insert(test.id.clone(), test.created_at);
+                    }
+                }
+            }
+        }
+
+        // Also include commit links if not filtered or if linked to the task
+        let commits_path = self.root.join("commits.jsonl");
+        if commits_path.exists() {
+            let file = File::open(&commits_path)?;
+            let reader = BufReader::new(file);
+
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                if let Ok(link) = serde_json::from_str::<CommitLink>(&line) {
+                    let include = match task_id {
+                        Some(filter_id) => link.task_id == filter_id,
+                        None => true,
+                    };
+
+                    if include {
+                        entries.push(crate::commands::LogEntry {
+                            timestamp: link.linked_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                            entity_type: "commit".to_string(),
+                            entity_id: link.sha.clone(),
+                            action: "linked".to_string(),
+                            details: Some(format!("to task {}", link.task_id)),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Sort by timestamp descending (newest first)
+        entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+        Ok(entries)
+    }
+
+    // === Compact Operation ===
+
+    /// Compact the storage by keeping only the latest version of each entity.
+    ///
+    /// Returns statistics about the compaction.
+    pub fn compact(&mut self) -> Result<crate::commands::CompactResult> {
+        use std::collections::HashMap;
+
+        let tasks_path = self.root.join("tasks.jsonl");
+        let backup_path = self.root.join("tasks.jsonl.bak");
+
+        // Read original file size
+        let original_size = fs::metadata(&tasks_path)
+            .map(|m| m.len() as usize)
+            .unwrap_or(0);
+
+        // Read all entries and keep only the latest version of each entity
+        let file = File::open(&tasks_path)?;
+        let reader = BufReader::new(file);
+
+        let mut latest_tasks: HashMap<String, Task> = HashMap::new();
+        let mut latest_tests: HashMap<String, TestNode> = HashMap::new();
+        let mut original_entries = 0;
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            original_entries += 1;
+
+            // Try to parse as Task
+            if let Ok(task) = serde_json::from_str::<Task>(&line) {
+                if task.entity_type == "task" {
+                    latest_tasks.insert(task.id.clone(), task);
+                    continue;
+                }
+            }
+
+            // Try to parse as TestNode
+            if let Ok(test) = serde_json::from_str::<TestNode>(&line) {
+                if test.entity_type == "test" {
+                    latest_tests.insert(test.id.clone(), test);
+                }
+            }
+        }
+
+        // Create backup
+        fs::copy(&tasks_path, &backup_path)?;
+
+        // Write compacted file
+        let mut file = File::create(&tasks_path)?;
+
+        // Write tasks sorted by created_at
+        let mut tasks: Vec<_> = latest_tasks.values().collect();
+        tasks.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+        for task in &tasks {
+            let json = serde_json::to_string(task)?;
+            writeln!(file, "{}", json)?;
+        }
+
+        // Write tests sorted by created_at
+        let mut tests: Vec<_> = latest_tests.values().collect();
+        tests.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+        for test in &tests {
+            let json = serde_json::to_string(test)?;
+            writeln!(file, "{}", json)?;
+        }
+
+        let final_entries = tasks.len() + tests.len();
+
+        // Calculate space saved
+        let new_size = fs::metadata(&tasks_path)
+            .map(|m| m.len() as usize)
+            .unwrap_or(0);
+        let space_saved = original_size.saturating_sub(new_size);
+
+        // Rebuild cache
+        self.rebuild_cache()?;
+
+        // Remove backup on success
+        let _ = fs::remove_file(&backup_path);
+
+        Ok(crate::commands::CompactResult {
+            tasks_compacted: latest_tasks.len(),
+            original_entries,
+            final_entries,
+            space_saved_bytes: space_saved,
+        })
+    }
+
+    /// Count total commit links.
+    pub fn count_commit_links(&self) -> Result<usize> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM commit_links", [], |row| row.get(0))?;
+        Ok(count as usize)
     }
 
     // === Test Node Operations ===
@@ -1905,5 +2177,123 @@ mod tests {
 
         assert_eq!(commits_a.len(), 2);
         assert_eq!(commits_b.len(), 1);
+    }
+
+    // === Config Tests ===
+
+    #[test]
+    fn test_config_set_get() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        storage.set_config("test.key", "test_value").unwrap();
+        let value = storage.get_config("test.key").unwrap();
+
+        assert_eq!(value, Some("test_value".to_string()));
+    }
+
+    #[test]
+    fn test_config_get_nonexistent() {
+        let (_temp_dir, storage) = create_test_storage();
+
+        let value = storage.get_config("nonexistent").unwrap();
+        assert_eq!(value, None);
+    }
+
+    #[test]
+    fn test_config_overwrite() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        storage.set_config("key", "value1").unwrap();
+        storage.set_config("key", "value2").unwrap();
+
+        let value = storage.get_config("key").unwrap();
+        assert_eq!(value, Some("value2".to_string()));
+    }
+
+    #[test]
+    fn test_config_list() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        storage.set_config("alpha", "1").unwrap();
+        storage.set_config("beta", "2").unwrap();
+        storage.set_config("gamma", "3").unwrap();
+
+        let configs = storage.list_configs().unwrap();
+        assert_eq!(configs.len(), 3);
+
+        // Should be sorted by key
+        assert_eq!(configs[0], ("alpha".to_string(), "1".to_string()));
+        assert_eq!(configs[1], ("beta".to_string(), "2".to_string()));
+        assert_eq!(configs[2], ("gamma".to_string(), "3".to_string()));
+    }
+
+    #[test]
+    fn test_count_commit_links() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let task = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task).unwrap();
+
+        assert_eq!(storage.count_commit_links().unwrap(), 0);
+
+        storage.link_commit("a1b2c3d", "bn-aaaa").unwrap();
+        storage.link_commit("e5f6789", "bn-aaaa").unwrap();
+
+        assert_eq!(storage.count_commit_links().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_compact_basic() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Create a task
+        let task = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        storage.create_task(&task).unwrap();
+
+        // Update the task multiple times
+        let mut updated = task.clone();
+        updated.title = "Updated 1".to_string();
+        storage.update_task(&updated).unwrap();
+
+        updated.title = "Updated 2".to_string();
+        storage.update_task(&updated).unwrap();
+
+        // Compact
+        let result = storage.compact().unwrap();
+
+        assert!(result.original_entries >= 3);
+        assert_eq!(result.final_entries, 1);
+        assert_eq!(result.tasks_compacted, 1);
+
+        // Verify task still exists with final title
+        let task = storage.get_task("bn-aaaa").unwrap();
+        assert_eq!(task.title, "Updated 2");
+    }
+
+    #[test]
+    fn test_compact_preserves_all_entities() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Create multiple tasks and tests
+        let task1 = Task::new("bn-aaaa".to_string(), "Task A".to_string());
+        let task2 = Task::new("bn-bbbb".to_string(), "Task B".to_string());
+        storage.create_task(&task1).unwrap();
+        storage.create_task(&task2).unwrap();
+
+        let test = crate::models::TestNode::new(
+            "bnt-0001".to_string(),
+            "Test 1".to_string(),
+            "echo test".to_string(),
+        );
+        storage.create_test(&test).unwrap();
+
+        let result = storage.compact().unwrap();
+
+        assert_eq!(result.final_entries, 3); // 2 tasks + 1 test
+
+        // Verify all entities still exist
+        assert!(storage.get_task("bn-aaaa").is_ok());
+        assert!(storage.get_task("bn-bbbb").is_ok());
+        assert!(storage.get_test("bnt-0001").is_ok());
     }
 }

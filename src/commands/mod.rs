@@ -1163,6 +1163,378 @@ pub fn test_run(
 
 use crate::models::CommitLink;
 
+// === Doctor Command ===
+
+/// A single issue detected by the doctor command.
+#[derive(Serialize, Clone)]
+pub struct DoctorIssue {
+    pub severity: String, // "error", "warning", "info"
+    pub category: String, // "orphan", "cycle", "consistency", "storage"
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_id: Option<String>,
+}
+
+/// Result of the doctor command.
+#[derive(Serialize)]
+pub struct DoctorResult {
+    pub healthy: bool,
+    pub issues: Vec<DoctorIssue>,
+    pub stats: DoctorStats,
+}
+
+/// Statistics about the binnacle data.
+#[derive(Serialize)]
+pub struct DoctorStats {
+    pub total_tasks: usize,
+    pub total_tests: usize,
+    pub total_commits: usize,
+    pub storage_path: String,
+}
+
+impl Output for DoctorResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if self.healthy {
+            lines.push("Health check: OK".to_string());
+        } else {
+            lines.push(format!(
+                "Health check: {} issue(s) found",
+                self.issues.len()
+            ));
+        }
+
+        lines.push(String::new());
+        lines.push("Statistics:".to_string());
+        lines.push(format!("  Tasks: {}", self.stats.total_tasks));
+        lines.push(format!("  Tests: {}", self.stats.total_tests));
+        lines.push(format!("  Commit links: {}", self.stats.total_commits));
+        lines.push(format!("  Storage: {}", self.stats.storage_path));
+
+        if !self.issues.is_empty() {
+            lines.push(String::new());
+            lines.push("Issues:".to_string());
+            for issue in &self.issues {
+                let severity_marker = match issue.severity.as_str() {
+                    "error" => "[ERROR]",
+                    "warning" => "[WARN]",
+                    _ => "[INFO]",
+                };
+                let entity = issue
+                    .entity_id
+                    .as_ref()
+                    .map(|id| format!(" ({})", id))
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "  {} {}: {}{}",
+                    severity_marker, issue.category, issue.message, entity
+                ));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Run health checks on the binnacle data.
+pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
+    let storage = Storage::open(repo_path)?;
+    let mut issues = Vec::new();
+
+    // Get all tasks and tests for analysis
+    let tasks = storage.list_tasks(None, None, None)?;
+    let tests = storage.list_tests(None)?;
+
+    // Check for orphan dependencies (tasks that reference non-existent tasks)
+    for task in &tasks {
+        for dep_id in &task.depends_on {
+            if storage.get_task(dep_id).is_err() {
+                issues.push(DoctorIssue {
+                    severity: "error".to_string(),
+                    category: "orphan".to_string(),
+                    message: format!("Task depends on non-existent task {}", dep_id),
+                    entity_id: Some(task.id.clone()),
+                });
+            }
+        }
+    }
+
+    // Check for orphan test links (tests that reference non-existent tasks)
+    for test in &tests {
+        for task_id in &test.linked_tasks {
+            if storage.get_task(task_id).is_err() {
+                issues.push(DoctorIssue {
+                    severity: "error".to_string(),
+                    category: "orphan".to_string(),
+                    message: format!("Test linked to non-existent task {}", task_id),
+                    entity_id: Some(test.id.clone()),
+                });
+            }
+        }
+    }
+
+    // Check for inconsistent task states
+    for task in &tasks {
+        // Check for done tasks with pending dependencies
+        if task.status == TaskStatus::Done {
+            for dep_id in &task.depends_on {
+                if let Ok(dep_task) = storage.get_task(dep_id) {
+                    if dep_task.status != TaskStatus::Done
+                        && dep_task.status != TaskStatus::Cancelled
+                    {
+                        issues.push(DoctorIssue {
+                            severity: "warning".to_string(),
+                            category: "consistency".to_string(),
+                            message: format!(
+                                "Task is done but depends on incomplete task {}",
+                                dep_id
+                            ),
+                            entity_id: Some(task.id.clone()),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Check for closed tasks without closed_at timestamp
+        if task.status == TaskStatus::Done && task.closed_at.is_none() {
+            issues.push(DoctorIssue {
+                severity: "info".to_string(),
+                category: "consistency".to_string(),
+                message: "Task is done but has no closed_at timestamp".to_string(),
+                entity_id: Some(task.id.clone()),
+            });
+        }
+    }
+
+    // Get commit count
+    let commit_count = storage.count_commit_links()?;
+
+    let stats = DoctorStats {
+        total_tasks: tasks.len(),
+        total_tests: tests.len(),
+        total_commits: commit_count,
+        storage_path: storage.root().to_string_lossy().to_string(),
+    };
+
+    Ok(DoctorResult {
+        healthy: issues.is_empty(),
+        issues,
+        stats,
+    })
+}
+
+// === Log Command ===
+
+/// A log entry representing a change.
+#[derive(Serialize, Clone)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub action: String, // "created", "updated", "closed", etc.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+}
+
+/// Result of the log command.
+#[derive(Serialize)]
+pub struct LogResult {
+    pub entries: Vec<LogEntry>,
+    pub count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filtered_by: Option<String>,
+}
+
+impl Output for LogResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.entries.is_empty() {
+            return "No log entries found.".to_string();
+        }
+
+        let mut lines = Vec::new();
+
+        if let Some(ref filter) = self.filtered_by {
+            lines.push(format!("Log entries for {}:\n", filter));
+        } else {
+            lines.push(format!("{} log entries:\n", self.count));
+        }
+
+        for entry in &self.entries {
+            let details = entry
+                .details
+                .as_ref()
+                .map(|d| format!(" - {}", d))
+                .unwrap_or_default();
+            lines.push(format!(
+                "  {} [{}] {} {}{}",
+                entry.timestamp, entry.entity_type, entry.entity_id, entry.action, details
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Get the audit log of changes.
+pub fn log(repo_path: &Path, task_id: Option<&str>) -> Result<LogResult> {
+    let storage = Storage::open(repo_path)?;
+    let entries = storage.get_log_entries(task_id)?;
+    let count = entries.len();
+
+    Ok(LogResult {
+        entries,
+        count,
+        filtered_by: task_id.map(|s| s.to_string()),
+    })
+}
+
+// === Config Commands ===
+
+/// Result of config get command.
+#[derive(Serialize)]
+pub struct ConfigValue {
+    pub key: String,
+    pub value: Option<String>,
+}
+
+impl Output for ConfigValue {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        match &self.value {
+            Some(v) => format!("{} = {}", self.key, v),
+            None => format!("{} is not set", self.key),
+        }
+    }
+}
+
+/// Get a configuration value.
+pub fn config_get(repo_path: &Path, key: &str) -> Result<ConfigValue> {
+    let storage = Storage::open(repo_path)?;
+    let value = storage.get_config(key)?;
+
+    Ok(ConfigValue {
+        key: key.to_string(),
+        value,
+    })
+}
+
+/// Result of config set command.
+#[derive(Serialize)]
+pub struct ConfigSet {
+    pub key: String,
+    pub value: String,
+}
+
+impl Output for ConfigSet {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Set {} = {}", self.key, self.value)
+    }
+}
+
+/// Set a configuration value.
+pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.set_config(key, value)?;
+
+    Ok(ConfigSet {
+        key: key.to_string(),
+        value: value.to_string(),
+    })
+}
+
+/// Result of config list command.
+#[derive(Serialize)]
+pub struct ConfigList {
+    pub configs: Vec<(String, String)>,
+    pub count: usize,
+}
+
+impl Output for ConfigList {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.configs.is_empty() {
+            return "No configuration values set.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("{} configuration value(s):\n", self.count));
+
+        for (key, value) in &self.configs {
+            lines.push(format!("  {} = {}", key, value));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// List all configuration values.
+pub fn config_list(repo_path: &Path) -> Result<ConfigList> {
+    let storage = Storage::open(repo_path)?;
+    let configs = storage.list_configs()?;
+    let count = configs.len();
+
+    Ok(ConfigList { configs, count })
+}
+
+// === Compact Command ===
+
+/// Result of the compact command.
+#[derive(Serialize)]
+pub struct CompactResult {
+    pub tasks_compacted: usize,
+    pub original_entries: usize,
+    pub final_entries: usize,
+    pub space_saved_bytes: usize,
+}
+
+impl Output for CompactResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push("Compact complete.".to_string());
+        lines.push(format!("  Tasks compacted: {}", self.tasks_compacted));
+        lines.push(format!(
+            "  Entries: {} -> {}",
+            self.original_entries, self.final_entries
+        ));
+        if self.space_saved_bytes > 0 {
+            lines.push(format!("  Space saved: {} bytes", self.space_saved_bytes));
+        }
+        lines.join("\n")
+    }
+}
+
+/// Compact the storage by removing duplicate entries and summarizing old closed tasks.
+pub fn compact(repo_path: &Path) -> Result<CompactResult> {
+    let mut storage = Storage::open(repo_path)?;
+    let result = storage.compact()?;
+
+    Ok(result)
+}
+
 #[derive(Serialize)]
 pub struct CommitLinked {
     pub sha: String,
@@ -1626,5 +1998,273 @@ mod tests {
 
         let result = commit_list(temp.path(), "bn-9999");
         assert!(result.is_err());
+    }
+
+    // === Doctor Command Tests ===
+
+    #[test]
+    fn test_doctor_healthy() {
+        let temp = setup();
+        task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        let result = doctor(temp.path()).unwrap();
+        assert!(result.healthy);
+        assert!(result.issues.is_empty());
+        assert_eq!(result.stats.total_tasks, 1);
+    }
+
+    #[test]
+    fn test_doctor_consistency_done_task_with_pending_dep() {
+        let temp = setup();
+
+        // Create two tasks: A depends on B
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // B depends on A
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // Close B (which depends on A, but A is still pending) - this creates inconsistency
+        task_close(temp.path(), &task_b.id, None).unwrap();
+
+        let result = doctor(temp.path()).unwrap();
+        // We should find the consistency warning (done task with pending dependency)
+        assert!(!result.healthy);
+        assert!(!result.issues.is_empty());
+        assert!(result.issues.iter().any(|i| i.category == "consistency"));
+    }
+
+    #[test]
+    fn test_doctor_stats() {
+        let temp = setup();
+        task_create(temp.path(), "Task 1".to_string(), None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task 2".to_string(), None, None, vec![], None).unwrap();
+        test_create(
+            temp.path(),
+            "Test 1".to_string(),
+            "echo test".to_string(),
+            ".".to_string(),
+            None,
+        )
+        .unwrap();
+
+        let result = doctor(temp.path()).unwrap();
+        assert_eq!(result.stats.total_tasks, 2);
+        assert_eq!(result.stats.total_tests, 1);
+    }
+
+    // === Log Command Tests ===
+
+    #[test]
+    fn test_log_basic() {
+        let temp = setup();
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        let result = log(temp.path(), None).unwrap();
+        assert!(result.count >= 1);
+        assert!(result.entries.iter().any(|e| e.entity_id == task.id));
+    }
+
+    #[test]
+    fn test_log_filter_by_task() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let _task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        let result = log(temp.path(), Some(&task_a.id)).unwrap();
+        assert!(result.entries.iter().all(|e| e.entity_id == task_a.id));
+        assert_eq!(result.filtered_by, Some(task_a.id.clone()));
+    }
+
+    #[test]
+    fn test_log_includes_updates() {
+        let temp = setup();
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        // Update the task
+        task_update(
+            temp.path(),
+            &task.id,
+            Some("Updated Title".to_string()),
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let result = log(temp.path(), Some(&task.id)).unwrap();
+        // Should have at least 2 entries: created and updated
+        assert!(result.count >= 2);
+        assert!(result.entries.iter().any(|e| e.action == "created"));
+        assert!(result.entries.iter().any(|e| e.action == "updated"));
+    }
+
+    #[test]
+    fn test_log_includes_close() {
+        let temp = setup();
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        task_close(temp.path(), &task.id, Some("Complete".to_string())).unwrap();
+
+        let result = log(temp.path(), Some(&task.id)).unwrap();
+        assert!(result.entries.iter().any(|e| e.action == "closed"));
+    }
+
+    // === Config Command Tests ===
+
+    #[test]
+    fn test_config_set_and_get() {
+        let temp = setup();
+
+        config_set(temp.path(), "test.key", "test_value").unwrap();
+        let result = config_get(temp.path(), "test.key").unwrap();
+
+        assert_eq!(result.key, "test.key");
+        assert_eq!(result.value, Some("test_value".to_string()));
+    }
+
+    #[test]
+    fn test_config_get_nonexistent() {
+        let temp = setup();
+
+        let result = config_get(temp.path(), "nonexistent.key").unwrap();
+        assert_eq!(result.key, "nonexistent.key");
+        assert_eq!(result.value, None);
+    }
+
+    #[test]
+    fn test_config_list() {
+        let temp = setup();
+
+        config_set(temp.path(), "key1", "value1").unwrap();
+        config_set(temp.path(), "key2", "value2").unwrap();
+
+        let result = config_list(temp.path()).unwrap();
+        assert_eq!(result.count, 2);
+        assert!(result
+            .configs
+            .iter()
+            .any(|(k, v)| k == "key1" && v == "value1"));
+        assert!(result
+            .configs
+            .iter()
+            .any(|(k, v)| k == "key2" && v == "value2"));
+    }
+
+    #[test]
+    fn test_config_list_empty() {
+        let temp = setup();
+
+        let result = config_list(temp.path()).unwrap();
+        assert_eq!(result.count, 0);
+    }
+
+    #[test]
+    fn test_config_overwrite() {
+        let temp = setup();
+
+        config_set(temp.path(), "key", "value1").unwrap();
+        config_set(temp.path(), "key", "value2").unwrap();
+
+        let result = config_get(temp.path(), "key").unwrap();
+        assert_eq!(result.value, Some("value2".to_string()));
+    }
+
+    // === Compact Command Tests ===
+
+    #[test]
+    fn test_compact_basic() {
+        let temp = setup();
+
+        // Create a task and update it multiple times
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        task_update(
+            temp.path(),
+            &task.id,
+            Some("Updated 1".to_string()),
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_update(
+            temp.path(),
+            &task.id,
+            Some("Updated 2".to_string()),
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let result = compact(temp.path()).unwrap();
+
+        // Should have compacted 3 entries (create + 2 updates) to 1
+        assert!(result.original_entries >= 3);
+        assert_eq!(result.final_entries, 1);
+        assert_eq!(result.tasks_compacted, 1);
+
+        // Verify the task still exists with the final title
+        let task = task_show(temp.path(), &task.id).unwrap();
+        assert_eq!(task.title, "Updated 2");
+    }
+
+    #[test]
+    fn test_compact_preserves_all_tasks() {
+        let temp = setup();
+
+        task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+
+        let result = compact(temp.path()).unwrap();
+        assert_eq!(result.tasks_compacted, 3);
+        assert_eq!(result.final_entries, 3);
+
+        // Verify all tasks still exist
+        let tasks = task_list(temp.path(), None, None, None).unwrap();
+        assert_eq!(tasks.count, 3);
+    }
+
+    #[test]
+    fn test_compact_with_tests() {
+        let temp = setup();
+
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        test_create(
+            temp.path(),
+            "Test 1".to_string(),
+            "echo test".to_string(),
+            ".".to_string(),
+            Some(task.id.clone()),
+        )
+        .unwrap();
+
+        let result = compact(temp.path()).unwrap();
+        assert_eq!(result.final_entries, 2); // 1 task + 1 test
+
+        // Verify both still exist
+        let tasks = task_list(temp.path(), None, None, None).unwrap();
+        assert_eq!(tasks.count, 1);
+        let tests = test_list(temp.path(), None).unwrap();
+        assert_eq!(tests.count, 1);
     }
 }
