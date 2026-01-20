@@ -1,5 +1,6 @@
 //! Binnacle CLI - A project state tracking tool for AI agents and humans.
 
+use binnacle::action_log;
 use binnacle::cli::{
     Cli, Commands, CommitCommands, ConfigCommands, DepCommands, McpCommands, TaskCommands,
     TestCommands,
@@ -10,6 +11,7 @@ use clap::Parser;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::time::Instant;
 
 fn main() {
     let cli = Cli::parse();
@@ -18,8 +20,28 @@ fn main() {
     // Get the current working directory as the repo path
     let repo_path = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
+    // Serialize command for logging
+    let (cmd_name, args_json) = serialize_command(&cli.command);
+
+    // Start timing
+    let start = Instant::now();
+
+    // Execute command
     let result = run_command(cli.command, &repo_path, human);
 
+    // Calculate duration
+    let duration = start.elapsed().as_millis() as u64;
+
+    // Determine success/error
+    let (success, error) = match &result {
+        Ok(_) => (true, None),
+        Err(e) => (false, Some(e.to_string())),
+    };
+
+    // Log the action (silently fails if logging is disabled or encounters errors)
+    let _ = action_log::log_action(&repo_path, &cmd_name, args_json, success, error, duration);
+
+    // Handle result
     if let Err(e) = result {
         if human {
             eprintln!("Error: {}", e);
@@ -276,5 +298,218 @@ fn not_implemented(command: &str, subcommand: &str, human: bool) {
             r#"{{"status": "not_implemented", "command": "{}", "subcommand": "{}"}}"#,
             command, subcommand
         );
+    }
+}
+
+/// Serialize command to extract name and arguments for logging.
+fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) {
+    match command {
+        Some(Commands::Init) => ("init".to_string(), serde_json::json!({})),
+
+        Some(Commands::Orient) => ("orient".to_string(), serde_json::json!({})),
+
+        Some(Commands::Task { command }) => match command {
+            TaskCommands::Create {
+                title,
+                priority,
+                tag,
+                assignee,
+                description,
+            } => (
+                "task create".to_string(),
+                serde_json::json!({
+                    "title": title,
+                    "priority": priority,
+                    "tag": tag,
+                    "assignee": assignee,
+                    "description": description,
+                }),
+            ),
+            TaskCommands::List {
+                status,
+                priority,
+                tag,
+            } => (
+                "task list".to_string(),
+                serde_json::json!({
+                    "status": status,
+                    "priority": priority,
+                    "tag": tag,
+                }),
+            ),
+            TaskCommands::Show { id } => (
+                "task show".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+            TaskCommands::Update {
+                id,
+                title,
+                description,
+                priority,
+                status,
+                add_tag,
+                remove_tag,
+                assignee,
+            } => (
+                "task update".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "title": title,
+                    "description": description,
+                    "priority": priority,
+                    "status": status,
+                    "add_tag": add_tag,
+                    "remove_tag": remove_tag,
+                    "assignee": assignee,
+                }),
+            ),
+            TaskCommands::Close { id, reason } => (
+                "task close".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "reason": reason,
+                }),
+            ),
+            TaskCommands::Reopen { id } => (
+                "task reopen".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+            TaskCommands::Delete { id } => (
+                "task delete".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+        },
+
+        Some(Commands::Dep { command }) => match command {
+            DepCommands::Add { child, parent } => (
+                "dep add".to_string(),
+                serde_json::json!({
+                    "child": child,
+                    "parent": parent,
+                }),
+            ),
+            DepCommands::Rm { child, parent } => (
+                "dep rm".to_string(),
+                serde_json::json!({
+                    "child": child,
+                    "parent": parent,
+                }),
+            ),
+            DepCommands::Show { id } => (
+                "dep show".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+        },
+
+        Some(Commands::Test { command }) => match command {
+            TestCommands::Create {
+                name,
+                cmd,
+                dir,
+                task,
+            } => (
+                "test create".to_string(),
+                serde_json::json!({
+                    "name": name,
+                    "cmd": cmd,
+                    "dir": dir,
+                    "task": task,
+                }),
+            ),
+            TestCommands::List { task } => (
+                "test list".to_string(),
+                serde_json::json!({ "task": task }),
+            ),
+            TestCommands::Show { id } => (
+                "test show".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+            TestCommands::Link { test_id, task_id } => (
+                "test link".to_string(),
+                serde_json::json!({
+                    "test_id": test_id,
+                    "task_id": task_id,
+                }),
+            ),
+            TestCommands::Unlink { test_id, task_id } => (
+                "test unlink".to_string(),
+                serde_json::json!({
+                    "test_id": test_id,
+                    "task_id": task_id,
+                }),
+            ),
+            TestCommands::Run {
+                id,
+                task,
+                all,
+                failed,
+            } => (
+                "test run".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "task": task,
+                    "all": all,
+                    "failed": failed,
+                }),
+            ),
+        },
+
+        Some(Commands::Commit { command }) => match command {
+            CommitCommands::Link { sha, task_id } => (
+                "commit link".to_string(),
+                serde_json::json!({
+                    "sha": sha,
+                    "task_id": task_id,
+                }),
+            ),
+            CommitCommands::Unlink { sha, task_id } => (
+                "commit unlink".to_string(),
+                serde_json::json!({
+                    "sha": sha,
+                    "task_id": task_id,
+                }),
+            ),
+            CommitCommands::List { task_id } => (
+                "commit list".to_string(),
+                serde_json::json!({ "task_id": task_id }),
+            ),
+        },
+
+        Some(Commands::Ready) => ("ready".to_string(), serde_json::json!({})),
+
+        Some(Commands::Blocked) => ("blocked".to_string(), serde_json::json!({})),
+
+        Some(Commands::Doctor) => ("doctor".to_string(), serde_json::json!({})),
+
+        Some(Commands::Log { task_id }) => (
+            "log".to_string(),
+            serde_json::json!({ "task_id": task_id }),
+        ),
+
+        Some(Commands::Compact) => ("compact".to_string(), serde_json::json!({})),
+
+        Some(Commands::Sync) => ("sync".to_string(), serde_json::json!({})),
+
+        Some(Commands::Config { command }) => match command {
+            ConfigCommands::Get { key } => (
+                "config get".to_string(),
+                serde_json::json!({ "key": key }),
+            ),
+            ConfigCommands::Set { key, value } => (
+                "config set".to_string(),
+                serde_json::json!({
+                    "key": key,
+                    "value": value,
+                }),
+            ),
+            ConfigCommands::List => ("config list".to_string(), serde_json::json!({})),
+        },
+
+        Some(Commands::Mcp { command }) => match command {
+            McpCommands::Serve => ("mcp serve".to_string(), serde_json::json!({})),
+            McpCommands::Manifest => ("mcp manifest".to_string(), serde_json::json!({})),
+        },
+
+        None => ("status".to_string(), serde_json::json!({})),
     }
 }

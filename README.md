@@ -29,6 +29,7 @@ bn task close bn-xxxx --reason "Implemented JWT auth"
 - **No repo pollution** - Data stored externally in `~/.local/share/binnacle/<repo-hash>/`
 - **Task dependencies** - Block tasks on other tasks, query what's ready
 - **Test tracking** - Link tests to tasks, auto-reopen tasks on regression
+- **Action logging** - Comprehensive audit log of all commands with timestamps and metadata
 - **MCP server** - Expose all operations as MCP tools for AI agents
 
 ## Commands
@@ -47,6 +48,41 @@ bn mcp serve          Start MCP server
 
 Use `bn --help` or `bn <command> --help` for full details.
 
+## Configuration
+
+Binnacle supports configuration via `bn config set/get/list`:
+
+```bash
+# Action logging (default: enabled)
+bn config set action_log_enabled true
+bn config set action_log_path ~/.local/share/binnacle/action.log
+bn config set action_log_sanitize true
+
+# View configuration
+bn config get action_log_enabled
+bn config list
+```
+
+### Action Logging
+
+All binnacle commands are automatically logged to a JSONL file with:
+- Timestamp
+- Command name and arguments
+- Success/failure status
+- Execution duration
+- Current user
+
+**Config keys:**
+- `action_log_enabled` - Enable/disable logging (default: `true`)
+- `action_log_path` - Log file path (default: `~/.local/share/binnacle/action.log`)
+- `action_log_sanitize` - Sanitize sensitive data and paths (default: `true`)
+
+Sanitization automatically:
+- Converts file paths to basenames
+- Redacts passwords, tokens, and secrets
+- Truncates long strings
+- Summarizes large arrays
+
 ## Status
 
 Core functionality is complete (Phases 0-7). The project tracks its own development with binnacle.
@@ -56,6 +92,7 @@ What works:
 - Dependency graph with cycle detection
 - Test nodes with regression detection
 - Commit tracking
+- Action logging with sanitization
 - MCP server with 30 tools
 - CI/CD via GitHub Actions
 
