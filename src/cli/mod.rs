@@ -21,6 +21,9 @@ pub enum Commands {
     /// Initialize binnacle for this repository
     Init,
 
+    /// Orient an AI agent to this project (auto-initializes if needed)
+    Orient,
+
     /// Task management commands
     Task {
         #[command(subcommand)]

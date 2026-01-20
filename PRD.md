@@ -41,6 +41,7 @@ Configurable alternatives:
 bn                              # Status summary (JSON)
 bn -H                           # Human-readable status
 bn init                         # Initialize for this repo
+bn orient                       # Onboarding for AI agents (auto-inits)
 ```
 
 ### Tasks (noun-verb)
@@ -397,7 +398,84 @@ tests/
 
 ---
 
-## Phase 7: Alternative Storage Backends (v1.1+)
+## Phase 7: Agent Onboarding (`bn orient`) ✅
+
+**Goal:** Self-documenting tooling that helps AI agents discover and use binnacle
+
+### Motivation
+Rather than requiring manual AGENTS.md maintenance, binnacle can bootstrap agent awareness automatically. When `bn init` runs, it adds a short blurb to AGENTS.md pointing agents to `bn orient`. The `bn orient` command then serves as the canonical, always-up-to-date source of truth for how to interact with binnacle.
+
+### Deliverables
+- [x] Update `bn init` to:
+  - Create or append to AGENTS.md with a `## Task Tracking` section
+  - Blurb explains the project uses **bn** (binnacle) for issue/test tracking
+  - Instructs agents to run `bn orient` to get oriented
+  - Skip if AGENTS.md already contains `bn orient` reference
+- [x] `bn orient` command that:
+  - Initializes binnacle for the repo if not already initialized
+  - Outputs a brief summary of current project state (tasks, ready items, blocked items)
+  - Explains binnacle's purpose and key commands
+  - Returns JSON by default, human-readable with `-H`
+
+### AGENTS.md Blurb (added by `bn init`)
+
+```markdown
+## Task Tracking
+
+This project uses **binnacle** (`bn`) for issue and test tracking.
+
+To get oriented, run:
+```bash
+bn orient
+```
+```
+
+### Example `bn orient` Output
+
+```bash
+$ bn orient -H
+Binnacle - AI agent task tracker
+
+This project uses binnacle (bn) for issue and test tracking.
+
+Current State:
+  Total tasks: 42
+  Ready: 3 (bn-a1b2, bn-c3d4, bn-e5f6)
+  Blocked: 2
+  In progress: 1
+
+Key Commands:
+  bn              Status summary (JSON, use -H for human-readable)
+  bn ready        Show tasks ready to work on
+  bn task list    List all tasks
+  bn task show X  Show task details
+  bn test run     Run linked tests
+
+Run 'bn --help' for full command reference.
+```
+
+### Unit Tests
+- [x] `bn init` creates AGENTS.md if missing
+- [x] `bn init` appends to existing AGENTS.md
+- [x] `bn init` skips if `bn orient` already mentioned
+- [x] Orient output includes current task counts
+- [x] Orient auto-initializes repo if needed
+
+### Integration Tests
+- [x] `bn init` in fresh repo creates AGENTS.md with blurb
+- [x] `bn init` with existing AGENTS.md appends section
+- [x] `bn init` is idempotent (doesn't duplicate blurb)
+- [x] `bn orient` works in uninitialized repo (auto-inits)
+- [x] `bn orient -H` produces human-readable output
+
+### Test Summary (Phase 7)
+- 132 unit tests (models, storage, commands, mcp including 9 new orient/init tests)
+- 138 CLI integration tests (35 task + 29 test + 18 commit + 27 maintenance + 16 MCP + 15 orient + 7 smoke - 9 overlap correction = tests counted)
+- **Total: 270 tests**
+
+---
+
+## Phase 8: Alternative Storage Backends (v1.1+)
 
 **Goal:** Orphan branch and git notes support
 
@@ -409,7 +487,7 @@ tests/
 
 ---
 
-## Phase 8: CI/CD Pipeline
+## Phase 9: CI/CD Pipeline
 
 **Goal:** Automated testing and quality checks
 
