@@ -59,6 +59,7 @@ impl<T: Serialize> CommandOutput<T> {
 pub struct InitResult {
     pub initialized: bool,
     pub storage_path: String,
+    pub agents_md_updated: bool,
 }
 
 impl Output for InitResult {
@@ -67,11 +68,19 @@ impl Output for InitResult {
     }
 
     fn to_human(&self) -> String {
+        let mut lines = Vec::new();
         if self.initialized {
-            format!("Initialized binnacle at {}", self.storage_path)
+            lines.push(format!("Initialized binnacle at {}", self.storage_path));
         } else {
-            format!("Binnacle already initialized at {}", self.storage_path)
+            lines.push(format!(
+                "Binnacle already initialized at {}",
+                self.storage_path
+            ));
         }
+        if self.agents_md_updated {
+            lines.push("Updated AGENTS.md with binnacle reference.".to_string());
+        }
+        lines.join("\n")
     }
 }
 
@@ -84,9 +93,177 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         Storage::init(repo_path)?
     };
 
+    // Create or update AGENTS.md with binnacle blurb
+    let agents_md_updated = update_agents_md(repo_path)?;
+
     Ok(InitResult {
         initialized: !already_exists,
         storage_path: storage.root().to_string_lossy().to_string(),
+        agents_md_updated,
+    })
+}
+
+/// The blurb to add to AGENTS.md
+const AGENTS_MD_BLURB: &str = r#"# Agent Instructions
+This project uses **bn** (binnacle) for long-horizon task/test status tracking. Run `bn orient` to get started!
+"#;
+
+/// Update AGENTS.md with the binnacle blurb.
+/// Returns true if the file was modified, false if it already contained the reference.
+fn update_agents_md(repo_path: &Path) -> Result<bool> {
+    use std::fs;
+    use std::io::Write;
+
+    let agents_path = repo_path.join("AGENTS.md");
+
+    // Check if file exists and already contains the blurb
+    if agents_path.exists() {
+        let contents = fs::read_to_string(&agents_path)
+            .map_err(|e| Error::Other(format!("Failed to read AGENTS.md: {}", e)))?;
+
+        // Skip if already contains reference to bn orient
+        if contents.contains("bn orient") {
+            return Ok(false);
+        }
+
+        // Append the blurb
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&agents_path)
+            .map_err(|e| Error::Other(format!("Failed to open AGENTS.md: {}", e)))?;
+
+        // Add a newline before the blurb if file doesn't end with one
+        let prefix = if contents.ends_with('\n') {
+            "\n"
+        } else {
+            "\n\n"
+        };
+        file.write_all(prefix.as_bytes())
+            .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
+        file.write_all(AGENTS_MD_BLURB.as_bytes())
+            .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
+
+        Ok(true)
+    } else {
+        // Create new AGENTS.md with the blurb
+        fs::write(&agents_path, AGENTS_MD_BLURB)
+            .map_err(|e| Error::Other(format!("Failed to create AGENTS.md: {}", e)))?;
+        Ok(true)
+    }
+}
+
+// === Orient Command ===
+
+#[derive(Serialize)]
+pub struct OrientResult {
+    pub initialized: bool,
+    pub total_tasks: usize,
+    pub ready_count: usize,
+    pub ready_ids: Vec<String>,
+    pub blocked_count: usize,
+    pub in_progress_count: usize,
+}
+
+impl Output for OrientResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        lines.push("Binnacle - AI agent task tracker".to_string());
+        lines.push(String::new());
+        lines.push("This project uses binnacle (bn) for issue and test tracking.".to_string());
+        lines.push(String::new());
+        lines.push("Current State:".to_string());
+        lines.push(format!("  Total tasks: {}", self.total_tasks));
+        if !self.ready_ids.is_empty() {
+            let ids = if self.ready_ids.len() <= 5 {
+                self.ready_ids.join(", ")
+            } else {
+                format!(
+                    "{}, ... ({} more)",
+                    self.ready_ids[..5].join(", "),
+                    self.ready_ids.len() - 5
+                )
+            };
+            lines.push(format!("  Ready: {} ({})", self.ready_count, ids));
+        } else {
+            lines.push(format!("  Ready: {}", self.ready_count));
+        }
+        lines.push(format!("  Blocked: {}", self.blocked_count));
+        lines.push(format!("  In progress: {}", self.in_progress_count));
+        lines.push(String::new());
+        lines.push("Key Commands:".to_string());
+        lines
+            .push("  bn              Status summary (JSON, use -H for human-readable)".to_string());
+        lines.push("  bn ready        Show tasks ready to work on".to_string());
+        lines.push("  bn task list    List all tasks".to_string());
+        lines.push("  bn task show X  Show task details".to_string());
+        lines.push("  bn test run     Run linked tests".to_string());
+        lines.push(String::new());
+        lines.push("Run 'bn --help' for full command reference.".to_string());
+
+        lines.join("\n")
+    }
+}
+
+/// Orient an AI agent to this project.
+/// Auto-initializes binnacle if not already initialized.
+pub fn orient(repo_path: &Path) -> Result<OrientResult> {
+    // Auto-initialize if needed
+    let initialized = if !Storage::exists(repo_path)? {
+        Storage::init(repo_path)?;
+        update_agents_md(repo_path)?;
+        true
+    } else {
+        false
+    };
+
+    // Get current state
+    let storage = Storage::open(repo_path)?;
+    let tasks = storage.list_tasks(None, None, None)?;
+
+    let mut ready_ids = Vec::new();
+    let mut blocked_count = 0;
+    let mut in_progress_count = 0;
+
+    for task in &tasks {
+        match task.status {
+            TaskStatus::InProgress => in_progress_count += 1,
+            TaskStatus::Blocked => blocked_count += 1,
+            TaskStatus::Pending | TaskStatus::Reopened => {
+                // Check if all dependencies are done
+                if task.depends_on.is_empty() {
+                    ready_ids.push(task.id.clone());
+                } else {
+                    let all_done = task.depends_on.iter().all(|dep_id| {
+                        storage
+                            .get_task(dep_id)
+                            .map(|t| t.status == TaskStatus::Done)
+                            .unwrap_or(false)
+                    });
+                    if all_done {
+                        ready_ids.push(task.id.clone());
+                    } else {
+                        blocked_count += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let ready_count = ready_ids.len();
+
+    Ok(OrientResult {
+        initialized,
+        total_tasks: tasks.len(),
+        ready_count,
+        ready_ids,
+        blocked_count,
+        in_progress_count,
     })
 }
 
@@ -2266,5 +2443,174 @@ mod tests {
         assert_eq!(tasks.count, 1);
         let tests = test_list(temp.path(), None).unwrap();
         assert_eq!(tests.count, 1);
+    }
+
+    // === Init AGENTS.md Tests ===
+
+    #[test]
+    fn test_init_creates_agents_md() {
+        let temp = TempDir::new().unwrap();
+        let agents_path = temp.path().join("AGENTS.md");
+
+        // Verify AGENTS.md doesn't exist yet
+        assert!(!agents_path.exists());
+
+        // Run init
+        let result = init(temp.path()).unwrap();
+        assert!(result.initialized);
+        assert!(result.agents_md_updated);
+
+        // Verify AGENTS.md was created
+        assert!(agents_path.exists());
+        let contents = std::fs::read_to_string(&agents_path).unwrap();
+        assert!(contents.contains("bn orient"));
+        assert!(contents.contains("binnacle"));
+    }
+
+    #[test]
+    fn test_init_appends_to_existing_agents_md() {
+        let temp = TempDir::new().unwrap();
+        let agents_path = temp.path().join("AGENTS.md");
+
+        // Create existing AGENTS.md
+        std::fs::write(&agents_path, "# My Existing Agents\n\nSome content here.\n").unwrap();
+
+        // Run init
+        let result = init(temp.path()).unwrap();
+        assert!(result.initialized);
+        assert!(result.agents_md_updated);
+
+        // Verify content was appended
+        let contents = std::fs::read_to_string(&agents_path).unwrap();
+        assert!(contents.contains("My Existing Agents"));
+        assert!(contents.contains("bn orient"));
+    }
+
+    #[test]
+    fn test_init_skips_agents_md_if_already_has_bn_orient() {
+        let temp = TempDir::new().unwrap();
+        let agents_path = temp.path().join("AGENTS.md");
+
+        // Create existing AGENTS.md that already references bn orient
+        std::fs::write(
+            &agents_path,
+            "# Agents\n\nRun `bn orient` to get started.\n",
+        )
+        .unwrap();
+
+        // Run init
+        let result = init(temp.path()).unwrap();
+        assert!(result.initialized);
+        assert!(!result.agents_md_updated); // Should NOT be updated
+
+        // Verify content wasn't duplicated
+        let contents = std::fs::read_to_string(&agents_path).unwrap();
+        assert_eq!(contents.matches("bn orient").count(), 1);
+    }
+
+    #[test]
+    fn test_init_idempotent_agents_md() {
+        let temp = TempDir::new().unwrap();
+
+        // Run init twice
+        init(temp.path()).unwrap();
+        let result = init(temp.path()).unwrap();
+
+        // Second run should not update AGENTS.md (already has bn orient)
+        assert!(!result.initialized); // binnacle already exists
+        assert!(!result.agents_md_updated); // AGENTS.md already has bn orient
+    }
+
+    // === Orient Command Tests ===
+
+    #[test]
+    fn test_orient_auto_initializes() {
+        let temp = TempDir::new().unwrap();
+
+        // Verify not initialized
+        assert!(!Storage::exists(temp.path()).unwrap());
+
+        // Run orient
+        let result = orient(temp.path()).unwrap();
+        assert!(result.initialized);
+
+        // Verify now initialized
+        assert!(Storage::exists(temp.path()).unwrap());
+
+        // Verify AGENTS.md was created
+        let agents_path = temp.path().join("AGENTS.md");
+        assert!(agents_path.exists());
+    }
+
+    #[test]
+    fn test_orient_shows_task_counts() {
+        let temp = setup();
+
+        // Create some tasks
+        task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        let result = orient(temp.path()).unwrap();
+        assert!(!result.initialized); // Already initialized in setup()
+        assert_eq!(result.total_tasks, 2);
+        assert_eq!(result.ready_count, 2); // Both pending tasks are ready
+    }
+
+    #[test]
+    fn test_orient_shows_blocked_tasks() {
+        let temp = setup();
+
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // B depends on A (so B is blocked)
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        let result = orient(temp.path()).unwrap();
+        assert_eq!(result.total_tasks, 2);
+        assert_eq!(result.ready_count, 1);
+        assert!(result.ready_ids.contains(&task_a.id));
+        assert_eq!(result.blocked_count, 1);
+    }
+
+    #[test]
+    fn test_orient_shows_in_progress_tasks() {
+        let temp = setup();
+
+        let task =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        // Update to in_progress
+        task_update(
+            temp.path(),
+            &task.id,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            vec![],
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let result = orient(temp.path()).unwrap();
+        assert_eq!(result.in_progress_count, 1);
+    }
+
+    #[test]
+    fn test_orient_human_output() {
+        let temp = setup();
+        task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+
+        let result = orient(temp.path()).unwrap();
+        let human = result.to_human();
+
+        assert!(human.contains("Binnacle - AI agent task tracker"));
+        assert!(human.contains("Total tasks: 1"));
+        assert!(human.contains("bn ready"));
+        assert!(human.contains("bn task list"));
     }
 }

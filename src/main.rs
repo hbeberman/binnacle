@@ -41,6 +41,11 @@ fn run_command(
             output(&result, human);
         }
 
+        Some(Commands::Orient) => {
+            let result = commands::orient(repo_path)?;
+            output(&result, human);
+        }
+
         Some(Commands::Task { command }) => match command {
             TaskCommands::Create {
                 title,
