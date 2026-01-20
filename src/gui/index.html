@@ -266,8 +266,12 @@
             cursor: default;
         }
 
-        #graph-canvas.hovering {
-            cursor: pointer;
+        #graph-canvas.hovering:not(.dragging) {
+            cursor: grab;
+        }
+
+        #graph-canvas.dragging {
+            cursor: grabbing;
         }
     </style>
 </head>
@@ -332,7 +336,19 @@
                     damping: 0.9,
                     springStrength: 0.05,
                     repulsionStrength: 5000
-                }
+                },
+                // Drag state
+                draggedNode: null,
+                isDragging: false,
+                dragStartX: 0,
+                dragStartY: 0,
+                dragNodeStartX: 0,
+                dragNodeStartY: 0,
+                dragStartTime: 0,
+                dragLastX: 0,
+                dragLastY: 0,
+                // Selection state
+                selectedNode: null
             }
         };
 
@@ -448,28 +464,151 @@
 
             finalCanvas.addEventListener('mousemove', (e) => {
                 const rect = finalCanvas.getBoundingClientRect();
-                state.graph.mouseX = e.clientX - rect.left;
-                state.graph.mouseY = e.clientY - rect.top;
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                if (state.graph.isDragging && state.graph.draggedNode) {
+                    // Update dragged node position
+                    const dx = mouseX - state.graph.dragStartX;
+                    const dy = mouseY - state.graph.dragStartY;
+                    const node = state.graph.draggedNode;
+                    
+                    node.x = state.graph.dragNodeStartX + dx;
+                    node.y = state.graph.dragNodeStartY + dy;
+                    
+                    // Clamp to canvas boundaries
+                    const margin = node.radius + 10;
+                    const canvas = finalCanvas;
+                    node.x = Math.max(margin, Math.min(canvas.width - margin, node.x));
+                    node.y = Math.max(margin, Math.min(canvas.height - margin, node.y));
+                    
+                    // Track for momentum calculation
+                    state.graph.dragLastX = mouseX;
+                    state.graph.dragLastY = mouseY;
+                    
+                    // Update tooltip position
+                    updateTooltip(node, e.clientX, e.clientY);
+                } else {
+                    // Normal hover behavior
+                    state.graph.mouseX = mouseX;
+                    state.graph.mouseY = mouseY;
 
-                // Find hovered node
-                const hoveredNode = state.graph.nodes.find(node => {
-                    const dx = state.graph.mouseX - node.x;
-                    const dy = state.graph.mouseY - node.y;
+                    // Find hovered node
+                    const hoveredNode = state.graph.nodes.find(node => {
+                        const dx = state.graph.mouseX - node.x;
+                        const dy = state.graph.mouseY - node.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        return distance <= node.radius;
+                    });
+
+                    if (hoveredNode !== state.graph.hoveredNode) {
+                        state.graph.hoveredNode = hoveredNode;
+                        updateTooltip(hoveredNode, e.clientX, e.clientY);
+                        finalCanvas.classList.toggle('hovering', !!hoveredNode);
+                    }
+                }
+            });
+
+            finalCanvas.addEventListener('mouseleave', () => {
+                // End any active drag
+                if (state.graph.isDragging && state.graph.draggedNode) {
+                    // Apply gentle stop (no momentum on mouse leave)
+                    state.graph.draggedNode.vx = 0;
+                    state.graph.draggedNode.vy = 0;
+                    state.graph.isDragging = false;
+                    state.graph.draggedNode = null;
+                }
+                
+                state.graph.hoveredNode = null;
+                updateTooltip(null);
+                finalCanvas.classList.remove('hovering', 'dragging');
+            });
+
+            finalCanvas.addEventListener('mousedown', (e) => {
+                const rect = finalCanvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                // Find node under mouse
+                const node = state.graph.nodes.find(n => {
+                    const dx = mouseX - n.x;
+                    const dy = mouseY - n.y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
-                    return distance <= node.radius;
+                    return distance <= n.radius;
                 });
+                
+                if (node) {
+                    state.graph.draggedNode = node;
+                    state.graph.isDragging = true;
+                    state.graph.dragStartX = mouseX;
+                    state.graph.dragStartY = mouseY;
+                    state.graph.dragNodeStartX = node.x;
+                    state.graph.dragNodeStartY = node.y;
+                    state.graph.dragStartTime = Date.now();
+                    state.graph.dragLastX = mouseX;
+                    state.graph.dragLastY = mouseY;
+                    finalCanvas.classList.add('dragging');
+                    e.preventDefault();
+                }
+            });
 
-                if (hoveredNode !== state.graph.hoveredNode) {
+            finalCanvas.addEventListener('mouseup', (e) => {
+                if (state.graph.isDragging && state.graph.draggedNode) {
+                    const rect = finalCanvas.getBoundingClientRect();
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    
+                    // Calculate momentum from recent drag motion
+                    const velocityX = (mouseX - state.graph.dragLastX) * 2.5;
+                    const velocityY = (mouseY - state.graph.dragLastY) * 2.5;
+                    
+                    state.graph.draggedNode.vx = velocityX;
+                    state.graph.draggedNode.vy = velocityY;
+                    
+                    // Clear drag state
+                    state.graph.isDragging = false;
+                    state.graph.draggedNode = null;
+                    finalCanvas.classList.remove('dragging');
+                    
+                    // Update hover state (mouse may still be over a node)
+                    const hoveredNode = state.graph.nodes.find(n => {
+                        const dx = mouseX - n.x;
+                        const dy = mouseY - n.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        return distance <= n.radius;
+                    });
                     state.graph.hoveredNode = hoveredNode;
                     updateTooltip(hoveredNode, e.clientX, e.clientY);
                     finalCanvas.classList.toggle('hovering', !!hoveredNode);
                 }
             });
 
-            finalCanvas.addEventListener('mouseleave', () => {
-                state.graph.hoveredNode = null;
-                updateTooltip(null);
-                finalCanvas.classList.remove('hovering');
+            finalCanvas.addEventListener('dblclick', (e) => {
+                const rect = finalCanvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                // Find node under mouse
+                const node = state.graph.nodes.find(n => {
+                    const dx = mouseX - n.x;
+                    const dy = mouseY - n.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    return distance <= n.radius;
+                });
+                
+                if (node) {
+                    // Toggle selection
+                    if (state.graph.selectedNode === node) {
+                        state.graph.selectedNode = null;
+                    } else {
+                        state.graph.selectedNode = node;
+                    }
+                } else {
+                    // Click on empty space deselects
+                    state.graph.selectedNode = null;
+                }
+                
+                e.preventDefault();
             });
         }
 
@@ -584,6 +723,7 @@
 
         function applySpringForces(nodes, edges, physics) {
             const hoveredNode = state.graph.hoveredNode;
+            const draggedNode = state.graph.draggedNode;
 
             edges.forEach(edge => {
                 const fromNode = nodes.find(n => n.id === edge.from);
@@ -599,12 +739,12 @@
                 const fx = (dx / distance) * force;
                 const fy = (dy / distance) * force;
 
-                // Don't apply forces to hovered node
-                if (fromNode !== hoveredNode) {
+                // Don't apply forces to hovered or dragged nodes
+                if (fromNode !== hoveredNode && fromNode !== draggedNode) {
                     fromNode.vx += fx;
                     fromNode.vy += fy;
                 }
-                if (toNode !== hoveredNode) {
+                if (toNode !== hoveredNode && toNode !== draggedNode) {
                     toNode.vx -= fx;
                     toNode.vy -= fy;
                 }
@@ -613,6 +753,7 @@
 
         function applyRepulsionForces(nodes, physics) {
             const hoveredNode = state.graph.hoveredNode;
+            const draggedNode = state.graph.draggedNode;
 
             for (let i = 0; i < nodes.length; i++) {
                 for (let j = i + 1; j < nodes.length; j++) {
@@ -628,12 +769,12 @@
                     const fx = (dx / distance) * force;
                     const fy = (dy / distance) * force;
 
-                    // Don't apply forces to hovered nodes
-                    if (n1 !== hoveredNode) {
+                    // Don't apply forces to hovered or dragged nodes
+                    if (n1 !== hoveredNode && n1 !== draggedNode) {
                         n1.vx -= fx;
                         n1.vy -= fy;
                     }
-                    if (n2 !== hoveredNode) {
+                    if (n2 !== hoveredNode && n2 !== draggedNode) {
                         n2.vx += fx;
                         n2.vy += fy;
                     }
@@ -643,10 +784,11 @@
 
         function updatePositions(nodes, physics, canvas) {
             const hoveredNode = state.graph.hoveredNode;
+            const draggedNode = state.graph.draggedNode;
 
             nodes.forEach(node => {
-                // Freeze hovered node
-                if (node === hoveredNode) {
+                // Freeze hovered or dragged node
+                if (node === hoveredNode || node === draggedNode) {
                     node.vx = 0;
                     node.vy = 0;
                     return;
@@ -671,6 +813,8 @@
 
         function drawNode(ctx, node) {
             const isHovered = node === state.graph.hoveredNode;
+            const isDragging = node === state.graph.draggedNode;
+            const isSelected = node === state.graph.selectedNode;
 
             // Node colors based on status
             const colors = {
@@ -681,8 +825,29 @@
             };
             const color = colors[node.status] || '#4a90e2';
 
+            // Draw selection highlight (persistent)
+            if (isSelected) {
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, node.radius + 10, 0, Math.PI * 2);
+                ctx.strokeStyle = '#f0ad4e';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(240, 173, 78, 0.15)';
+                ctx.fill();
+            }
+
+            // Draw drag highlight (active)
+            if (isDragging) {
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, node.radius + 8, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(74, 144, 226, 0.3)';
+                ctx.fill();
+                ctx.strokeStyle = '#4a90e2';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
             // Draw hover highlight
-            if (isHovered) {
+            else if (isHovered) {
                 ctx.beginPath();
                 ctx.arc(node.x, node.y, node.radius + 8, 0, Math.PI * 2);
                 ctx.fillStyle = 'rgba(74, 144, 226, 0.2)';
@@ -697,13 +862,13 @@
             ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
             ctx.fillStyle = color;
             ctx.fill();
-            ctx.strokeStyle = isHovered ? '#ffffff' : '#e8edf3';
-            ctx.lineWidth = isHovered ? 3 : 2;
+            ctx.strokeStyle = (isHovered || isDragging) ? '#ffffff' : '#e8edf3';
+            ctx.lineWidth = (isHovered || isDragging) ? 3 : 2;
             ctx.stroke();
 
             // Draw text
             ctx.fillStyle = '#1a2332';
-            ctx.font = isHovered ? 'bold 12px sans-serif' : '12px sans-serif';
+            ctx.font = (isHovered || isDragging) ? 'bold 12px sans-serif' : '12px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             const text = node.id;
