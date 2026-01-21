@@ -10,7 +10,7 @@ cargo install --path .
 
 # Initialize in your project
 cd your-project
-bn init
+bn system init
 
 # Create a task
 bn task create "Implement user authentication"
