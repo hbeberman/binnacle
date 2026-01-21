@@ -12,7 +12,7 @@ use crate::models::{Bug, BugSeverity, Task, TaskStatus, TestNode, TestResult};
 use crate::storage::{generate_id, parse_status, Storage};
 use crate::{Error, Result};
 use chrono::Utc;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -2990,7 +2990,7 @@ impl Output for StoreExportResult {
 }
 
 /// Manifest metadata for the export archive.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct ExportManifest {
     version: u32,
     format: String,
@@ -3128,6 +3128,278 @@ pub fn system_store_export(repo_path: &Path, output: &str, format: &str) -> Resu
         task_count: tasks.len(),
         test_count: tests.len(),
         commit_count,
+    })
+}
+
+/// Result of the store import command.
+#[derive(Serialize)]
+pub struct StoreImportResult {
+    pub imported: bool,
+    pub dry_run: bool,
+    pub input_path: String,
+    pub import_type: String,
+    pub tasks_imported: usize,
+    pub tasks_skipped: usize,
+    pub tests_imported: usize,
+    pub commits_imported: usize,
+    pub collisions: usize,
+    pub id_remappings: std::collections::HashMap<String, String>,
+}
+
+impl Output for StoreImportResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if self.dry_run {
+            lines.push("DRY RUN - No changes made".to_string());
+            lines.push(String::new());
+        }
+
+        if self.imported || self.dry_run {
+            if self.input_path == "-" {
+                lines.push("Imported from stdin".to_string());
+            } else {
+                lines.push(format!("Imported from {}", self.input_path));
+            }
+            lines.push(format!("  Type: {}", self.import_type));
+            lines.push(format!("  Tasks: {} imported, {} skipped", self.tasks_imported, self.tasks_skipped));
+            lines.push(format!("  Tests: {}", self.tests_imported));
+            lines.push(format!("  Commits: {}", self.commits_imported));
+
+            if self.collisions > 0 {
+                lines.push(String::new());
+                lines.push(format!("⚠️  WARNING: {} ID COLLISIONS DETECTED", self.collisions));
+                for (old_id, new_id) in &self.id_remappings {
+                    lines.push(format!("   {} → {}", old_id, new_id));
+                }
+            }
+        } else {
+            lines.push("Import failed".to_string());
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Import store from archive.
+pub fn system_store_import(
+    repo_path: &Path,
+    input: &str,
+    import_type: &str,
+    dry_run: bool,
+) -> Result<StoreImportResult> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    // Read input (file or stdin)
+    let archive_data = if input == "-" {
+        let mut buffer = Vec::new();
+        std::io::stdin().read_to_end(&mut buffer)?;
+        buffer
+    } else {
+        fs::read(input)?
+    };
+
+    // Extract archive
+    let decoder = GzDecoder::new(&archive_data[..]);
+    let mut archive = tar::Archive::new(decoder);
+
+    // Extract files to memory
+    let mut manifest: Option<ExportManifest> = None;
+    let mut tasks_jsonl: Option<Vec<u8>> = None;
+    let mut commits_jsonl: Option<Vec<u8>> = None;
+    let mut test_results_jsonl: Option<Vec<u8>> = None;
+
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.to_path_buf();
+        let path_str = path.to_string_lossy().to_string();
+
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data)?;
+
+        if path_str.ends_with("manifest.json") {
+            manifest = Some(serde_json::from_slice(&data)?);
+        } else if path_str.ends_with("tasks.jsonl") {
+            tasks_jsonl = Some(data);
+        } else if path_str.ends_with("commits.jsonl") {
+            commits_jsonl = Some(data);
+        } else if path_str.ends_with("test-results.jsonl") {
+            test_results_jsonl = Some(data);
+        }
+    }
+
+    let manifest = manifest.ok_or_else(|| {
+        Error::InvalidInput("Archive does not contain manifest.json".to_string())
+    })?;
+
+    // Validate version
+    if manifest.version != 1 {
+        return Err(Error::InvalidInput(format!(
+            "Incompatible archive version {}. Expected version 1.",
+            manifest.version
+        )));
+    }
+
+    if manifest.format != "binnacle-store-v1" {
+        return Err(Error::InvalidInput(format!(
+            "Incompatible archive format '{}'. Expected 'binnacle-store-v1'.",
+            manifest.format
+        )));
+    }
+
+    // Check if already initialized for replace mode
+    let storage = Storage::open(repo_path);
+    let is_initialized = storage.is_ok();
+
+    if import_type == "replace" && is_initialized {
+        return Err(Error::InvalidInput(
+            "Store already initialized. Use --type merge to append data, or reinitialize the repo.".to_string()
+        ));
+    }
+
+    // Initialize if needed
+    let mut storage = if is_initialized {
+        storage.unwrap()
+    } else {
+        // Auto-initialize for import
+        Storage::init(repo_path)?
+    };
+
+    // Parse imported tasks
+    let mut imported_tasks: Vec<Task> = Vec::new();
+    if let Some(tasks_data) = tasks_jsonl {
+        let tasks_str = String::from_utf8_lossy(&tasks_data);
+        for line in tasks_str.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let task: Task = serde_json::from_str(line)?;
+            imported_tasks.push(task);
+        }
+    }
+
+    // Detect ID collisions and create remapping
+    let mut id_remappings: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let existing_tasks = storage.list_tasks(None, None, None)?;
+    let existing_ids: std::collections::HashSet<String> =
+        existing_tasks.iter().map(|t| t.id.clone()).collect();
+
+    for task in &imported_tasks {
+        if existing_ids.contains(&task.id) {
+            // Generate new ID using task title as seed
+            let new_id = crate::storage::generate_id("bn", &task.title);
+            id_remappings.insert(task.id.clone(), new_id);
+        }
+    }
+
+    let collisions = id_remappings.len();
+
+    // If dry run, return early
+    if dry_run {
+        return Ok(StoreImportResult {
+            imported: false,
+            dry_run: true,
+            input_path: input.to_string(),
+            import_type: import_type.to_string(),
+            tasks_imported: imported_tasks.len(),
+            tasks_skipped: 0,
+            tests_imported: 0,
+            commits_imported: 0,
+            collisions,
+            id_remappings,
+        });
+    }
+
+    // Import tasks with remapping
+    let mut tasks_imported = 0;
+    let import_timestamp = Utc::now();
+
+    for mut task in imported_tasks {
+        // Remap task ID if needed
+        if let Some(new_id) = id_remappings.get(&task.id) {
+            task.id = new_id.clone();
+        }
+
+        // Remap dependencies
+        let mut new_depends_on = Vec::new();
+        for dep in &task.depends_on {
+            if let Some(new_dep_id) = id_remappings.get(dep) {
+                new_depends_on.push(new_dep_id.clone());
+            } else {
+                new_depends_on.push(dep.clone());
+            }
+        }
+        task.depends_on = new_depends_on;
+
+        // Set imported_on timestamp if merging
+        if import_type == "merge" {
+            task.imported_on = Some(import_timestamp);
+        }
+
+        // Create task
+        storage.create_task(&task)?;
+        tasks_imported += 1;
+    }
+
+    // Import commits (simple append, no ID remapping needed for now)
+    let mut commits_imported = 0;
+    if let Some(commits_data) = commits_jsonl {
+        let storage_root = storage.root();
+        let commits_file = storage_root.join("commits.jsonl");
+
+        // Append to existing file
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&commits_file)?;
+
+        file.write_all(&commits_data)?;
+
+        // Count commits
+        let commits_str = String::from_utf8_lossy(&commits_data);
+        commits_imported = commits_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Import test results
+    let mut tests_imported = 0;
+    if let Some(test_data) = test_results_jsonl {
+        let storage_root = storage.root();
+        let test_file = storage_root.join("test-results.jsonl");
+
+        // Append to existing file
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&test_file)?;
+
+        file.write_all(&test_data)?;
+
+        // Count tests
+        let test_str = String::from_utf8_lossy(&test_data);
+        tests_imported = test_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Rebuild cache
+    storage.rebuild_cache()?;
+
+    Ok(StoreImportResult {
+        imported: true,
+        dry_run: false,
+        input_path: input.to_string(),
+        import_type: import_type.to_string(),
+        tasks_imported,
+        tasks_skipped: 0,
+        tests_imported,
+        commits_imported,
+        collisions,
+        id_remappings,
     })
 }
 

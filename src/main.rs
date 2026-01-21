@@ -292,7 +292,8 @@ fn run_command(
                     r#type,
                     dry_run,
                 } => {
-                    not_implemented("system store", "import", human);
+                    let result = commands::system_store_import(&repo_path, &input, &r#type, dry_run)?;
+                    output(&result, human);
                 }
             },
         },
