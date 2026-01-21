@@ -2,8 +2,8 @@
 
 use binnacle::action_log;
 use binnacle::cli::{
-    Cli, Commands, CommitCommands, ConfigCommands, DepCommands, GraphCommands, McpCommands,
-    TaskCommands, TestCommands,
+    BugCommands, Cli, Commands, CommitCommands, ConfigCommands, DepCommands, GraphCommands,
+    McpCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -133,6 +133,30 @@ fn run_command(
             TaskCommands::Delete { id } => {
                 let result = commands::task_delete(repo_path, &id)?;
                 output(&result, human);
+            }
+        },
+
+        Some(Commands::Bug { command }) => match command {
+            BugCommands::Create { .. } => {
+                not_implemented("bug", "create", human);
+            }
+            BugCommands::List { .. } => {
+                not_implemented("bug", "list", human);
+            }
+            BugCommands::Show { .. } => {
+                not_implemented("bug", "show", human);
+            }
+            BugCommands::Update { .. } => {
+                not_implemented("bug", "update", human);
+            }
+            BugCommands::Close { .. } => {
+                not_implemented("bug", "close", human);
+            }
+            BugCommands::Reopen { .. } => {
+                not_implemented("bug", "reopen", human);
+            }
+            BugCommands::Delete { .. } => {
+                not_implemented("bug", "delete", human);
             }
         },
 
@@ -408,6 +432,90 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             ),
             TaskCommands::Delete { id } => (
                 "task delete".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+        },
+
+        Some(Commands::Bug { command }) => match command {
+            BugCommands::Create {
+                title,
+                priority,
+                severity,
+                tag,
+                assignee,
+                description,
+                reproduction_steps,
+                affected_component,
+            } => (
+                "bug create".to_string(),
+                serde_json::json!({
+                    "title": title,
+                    "priority": priority,
+                    "severity": severity,
+                    "tag": tag,
+                    "assignee": assignee,
+                    "description": description,
+                    "reproduction_steps": reproduction_steps,
+                    "affected_component": affected_component,
+                }),
+            ),
+            BugCommands::List {
+                status,
+                priority,
+                severity,
+                tag,
+            } => (
+                "bug list".to_string(),
+                serde_json::json!({
+                    "status": status,
+                    "priority": priority,
+                    "severity": severity,
+                    "tag": tag,
+                }),
+            ),
+            BugCommands::Show { id } => ("bug show".to_string(), serde_json::json!({ "id": id })),
+            BugCommands::Update {
+                id,
+                title,
+                description,
+                priority,
+                status,
+                severity,
+                add_tag,
+                remove_tag,
+                assignee,
+                reproduction_steps,
+                affected_component,
+            } => (
+                "bug update".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "title": title,
+                    "description": description,
+                    "priority": priority,
+                    "status": status,
+                    "severity": severity,
+                    "add_tag": add_tag,
+                    "remove_tag": remove_tag,
+                    "assignee": assignee,
+                    "reproduction_steps": reproduction_steps,
+                    "affected_component": affected_component,
+                }),
+            ),
+            BugCommands::Close { id, reason, force } => (
+                "bug close".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "reason": reason,
+                    "force": force,
+                }),
+            ),
+            BugCommands::Reopen { id } => (
+                "bug reopen".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+            BugCommands::Delete { id } => (
+                "bug delete".to_string(),
                 serde_json::json!({ "id": id }),
             ),
         },

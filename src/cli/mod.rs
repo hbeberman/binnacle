@@ -32,6 +32,12 @@ pub enum Commands {
         command: TaskCommands,
     },
 
+    /// Bug tracking commands
+    Bug {
+        #[command(subcommand)]
+        command: BugCommands,
+    },
+
     /// Dependency management commands
     Dep {
         #[command(subcommand)]
@@ -201,6 +207,141 @@ pub enum TaskCommands {
     /// Delete a task
     Delete {
         /// Task ID
+        id: String,
+    },
+}
+
+/// Bug subcommands
+#[derive(Subcommand, Debug)]
+pub enum BugCommands {
+    /// Create a new bug
+    Create {
+        /// Bug title
+        title: String,
+
+        /// Priority (0-4, lower is higher priority)
+        #[arg(short, long)]
+        priority: Option<u8>,
+
+        /// Severity (triage, low, medium, high, critical)
+        #[arg(long, value_parser = ["triage", "low", "medium", "high", "critical"])]
+        severity: Option<String>,
+
+        /// Tags for the bug
+        #[arg(short, long)]
+        tag: Vec<String>,
+
+        /// Assignee
+        #[arg(short, long)]
+        assignee: Option<String>,
+
+        /// Bug description
+        #[arg(short, long)]
+        description: Option<String>,
+
+        /// Steps to reproduce
+        #[arg(long)]
+        reproduction_steps: Option<String>,
+
+        /// Affected component or area
+        #[arg(long)]
+        affected_component: Option<String>,
+    },
+
+    /// List bugs
+    List {
+        /// Filter by status
+        #[arg(long)]
+        status: Option<String>,
+
+        /// Filter by priority
+        #[arg(long)]
+        priority: Option<u8>,
+
+        /// Filter by severity
+        #[arg(long, value_parser = ["triage", "low", "medium", "high", "critical"])]
+        severity: Option<String>,
+
+        /// Filter by tag
+        #[arg(long)]
+        tag: Option<String>,
+    },
+
+    /// Show bug details
+    Show {
+        /// Bug ID (e.g., bn-b1b2)
+        id: String,
+    },
+
+    /// Update a bug (status: pending, in_progress, partial, blocked)
+    Update {
+        /// Bug ID
+        id: String,
+
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// New priority
+        #[arg(long)]
+        priority: Option<u8>,
+
+        /// New status (pending, in_progress, partial, blocked)
+        #[arg(long)]
+        status: Option<String>,
+
+        /// New severity (triage, low, medium, high, critical)
+        #[arg(long, value_parser = ["triage", "low", "medium", "high", "critical"])]
+        severity: Option<String>,
+
+        /// Add a tag
+        #[arg(long)]
+        add_tag: Vec<String>,
+
+        /// Remove a tag
+        #[arg(long)]
+        remove_tag: Vec<String>,
+
+        /// New assignee
+        #[arg(long)]
+        assignee: Option<String>,
+
+        /// New steps to reproduce
+        #[arg(long)]
+        reproduction_steps: Option<String>,
+
+        /// New affected component or area
+        #[arg(long)]
+        affected_component: Option<String>,
+    },
+
+    /// Close a bug (marks as done)
+    Close {
+        /// Bug ID
+        id: String,
+
+        /// Reason for closing (describe what was accomplished)
+        #[arg(long)]
+        reason: Option<String>,
+
+        /// Force close even with incomplete dependencies (use with caution)
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Reopen a closed bug
+    Reopen {
+        /// Bug ID
+        id: String,
+    },
+
+    /// Delete a bug
+    Delete {
+        /// Bug ID
         id: String,
     },
 }
