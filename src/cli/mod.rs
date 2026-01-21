@@ -540,9 +540,9 @@ pub enum StoreCommands {
         format: String,
     },
 
-    /// Import store from archive file
+    /// Import store from archive file or storage folder
     Import {
-        /// Input path (use '-' for stdin)
+        /// Input path: archive file (.tar.gz), storage folder, or '-' for stdin
         input: String,
 
         /// Import type: 'replace' (error if initialized) or 'merge' (append with ID conflict handling)

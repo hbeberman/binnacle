@@ -92,6 +92,11 @@ pub struct Task {
     /// Reason for closing
     #[serde(skip_serializing_if = "Option::is_none")]
     pub closed_reason: Option<String>,
+
+    /// Timestamp when this task was imported from another store.
+    /// None for tasks created locally.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imported_on: Option<DateTime<Utc>>,
 }
 
 impl Task {
@@ -113,6 +118,7 @@ impl Task {
             updated_at: now,
             closed_at: None,
             closed_reason: None,
+            imported_on: None,
         }
     }
 }

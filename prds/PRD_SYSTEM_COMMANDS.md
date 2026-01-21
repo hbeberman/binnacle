@@ -238,12 +238,12 @@ binnacle-export/
 ### `bn system store import`
 
 ```
-Import store from archive file
+Import store from archive file or storage folder
 
 Usage: bn system store import [OPTIONS] <INPUT>
 
 Arguments:
-  <INPUT>  Input path (use '-' for stdin)
+  <INPUT>  Input path: archive file (.tar.gz), storage folder, or '-' for stdin
 
 Options:
       --type <TYPE>  Import type [default: replace] [possible values: replace, merge]
@@ -251,6 +251,14 @@ Options:
   -H, --human        Output in human-readable format instead of JSON
   -h, --help         Print help
 ```
+
+**Input Detection:**
+
+| Input | Behavior |
+|-------|----------|
+| `-` | Read archive from stdin |
+| Directory path | Import from folder (see Folder Import below) |
+| File path | Read as `.tar.gz` archive |
 
 **Import Types:**
 
@@ -313,6 +321,26 @@ With `--dry-run`, the import is simulated without writing any data:
 - `InvalidArchive` - Archive format not recognized
 - `VersionMismatch` - Archive from incompatible binnacle version
 - `IoError` - Cannot read input path
+
+**Folder Import:**
+
+When importing from a storage folder (instead of an archive), the folder must have this structure:
+
+```
+<folder>/
+├── tasks.jsonl         # Required (can be empty)
+├── commits.jsonl       # Optional
+├── test-results.jsonl  # Optional  
+├── bugs.jsonl          # Optional
+└── cache.db            # Ignored (rebuilt after import)
+```
+
+Use cases for folder import:
+- **Legacy import**: Import old binnacle data from before export was implemented
+- **Manual recovery**: Import from raw files without creating an archive first
+- **Cross-machine transfer**: Copy a folder via rsync/scp and import directly
+
+The same import types (`replace`, `merge`) and options (`--dry-run`) work for both archive and folder imports.
 
 ---
 
