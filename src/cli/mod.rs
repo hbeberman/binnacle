@@ -3,9 +3,11 @@
 use clap::{Parser, Subcommand};
 
 /// Binnacle - A project state tracking tool for AI agents and humans.
+///
+/// Start with `bn orient` to understand project state, then `bn ready` to find work.
 #[derive(Parser, Debug)]
 #[command(name = "bn")]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about = "A CLI tool for AI agents and humans to track project state", long_about = None)]
 pub struct Cli {
     /// Output in human-readable format instead of JSON
     #[arg(short = 'H', long = "human", global = true)]
@@ -21,7 +23,7 @@ pub enum Commands {
     /// Initialize binnacle for this repository
     Init,
 
-    /// Orient an AI agent to this project (auto-initializes if needed)
+    /// Get project overview and current state (start here!)
     Orient,
 
     /// Task management commands
@@ -48,7 +50,7 @@ pub enum Commands {
         command: CommitCommands,
     },
 
-    /// Show tasks with no open blockers
+    /// Show tasks ready to work on (no incomplete dependencies)
     Ready,
 
     /// Show tasks waiting on dependencies
@@ -130,13 +132,13 @@ pub enum TaskCommands {
         tag: Option<String>,
     },
 
-    /// Show task details
+    /// Show task details with blocker analysis
     Show {
         /// Task ID (e.g., bn-a1b2)
         id: String,
     },
 
-    /// Update a task
+    /// Update a task (status: pending, in_progress, partial, blocked)
     Update {
         /// Task ID
         id: String,
@@ -153,7 +155,7 @@ pub enum TaskCommands {
         #[arg(long)]
         priority: Option<u8>,
 
-        /// New status
+        /// New status (pending, in_progress, partial, blocked)
         #[arg(long)]
         status: Option<String>,
 
@@ -170,16 +172,16 @@ pub enum TaskCommands {
         assignee: Option<String>,
     },
 
-    /// Close a task
+    /// Close a task (marks as done)
     Close {
         /// Task ID
         id: String,
 
-        /// Reason for closing
+        /// Reason for closing (describe what was accomplished)
         #[arg(long)]
         reason: Option<String>,
 
-        /// Force close even with incomplete dependencies
+        /// Force close even with incomplete dependencies (use with caution)
         #[arg(long)]
         force: bool,
     },
