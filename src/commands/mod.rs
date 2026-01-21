@@ -585,10 +585,194 @@ impl Output for Task {
     }
 }
 
-/// Show a task by ID.
-pub fn task_show(repo_path: &Path, id: &str) -> Result<Task> {
+/// Information about what is blocking a task.
+#[derive(Serialize)]
+pub struct BlockingInfo {
+    pub is_blocked: bool,
+    pub blocker_count: usize,
+    pub direct_blockers: Vec<DirectBlocker>,
+    pub blocker_chain: Vec<String>,
+    pub summary: String,
+}
+
+/// A task that is directly blocking another task.
+#[derive(Serialize)]
+pub struct DirectBlocker {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignee: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub blocked_by: Vec<String>,
+}
+
+/// Result of task_show with optional blocking analysis.
+#[derive(Serialize)]
+pub struct TaskShowResult {
+    #[serde(flatten)]
+    pub task: Task,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocking_info: Option<BlockingInfo>,
+}
+
+impl Output for TaskShowResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = vec![
+            format!("Task: {}", self.task.id),
+            format!("Title: {}", self.task.title),
+            format!("Status: {:?}", self.task.status),
+            format!("Priority: P{}", self.task.priority),
+        ];
+
+        if !self.task.tags.is_empty() {
+            lines.push(format!("Tags: {}", self.task.tags.join(", ")));
+        }
+
+        if let Some(ref desc) = self.task.description {
+            lines.push(format!("Description: {}", desc));
+        }
+
+        if let Some(ref assignee) = self.task.assignee {
+            lines.push(format!("Assignee: {}", assignee));
+        }
+
+        if !self.task.depends_on.is_empty() {
+            lines.push(format!("\nDependencies ({}): {}",
+                self.task.depends_on.len(),
+                self.task.depends_on.join(", ")
+            ));
+        }
+
+        if let Some(ref blocking) = self.blocking_info {
+            if blocking.is_blocked {
+                lines.push(format!("\n{}", blocking.summary));
+            }
+        }
+
+        if let Some(ref closed_at) = self.task.closed_at {
+            lines.push(format!("\nClosed at: {}", closed_at));
+            if let Some(ref reason) = self.task.closed_reason {
+                lines.push(format!("Reason: {}", reason));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Analyze what is blocking a task from completion.
+fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
+    let mut direct_blockers = Vec::new();
+    let mut blocker_chain = Vec::new();
+
+    for dep_id in &task.depends_on {
+        if let Ok(dep) = storage.get_task(dep_id) {
+            // Only consider incomplete dependencies as blockers
+            if dep.status != TaskStatus::Done && dep.status != TaskStatus::Cancelled {
+                // Find what's blocking this dependency (transitive blockers)
+                let dep_blockers: Vec<String> = dep
+                    .depends_on
+                    .iter()
+                    .filter(|d| {
+                        storage
+                            .get_task(d)
+                            .map(|t| t.status != TaskStatus::Done && t.status != TaskStatus::Cancelled)
+                            .unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect();
+
+                direct_blockers.push(DirectBlocker {
+                    id: dep.id.clone(),
+                    title: dep.title.clone(),
+                    status: format!("{:?}", dep.status).to_lowercase(),
+                    assignee: dep.assignee.clone(),
+                    blocked_by: dep_blockers.clone(),
+                });
+
+                // Build chain representation
+                if dep_blockers.is_empty() {
+                    blocker_chain.push(format!(
+                        "{} <- {} ({})",
+                        task.id,
+                        dep.id,
+                        format!("{:?}", dep.status).to_lowercase()
+                    ));
+                } else {
+                    for blocker in &dep_blockers {
+                        if let Ok(b) = storage.get_task(blocker) {
+                            blocker_chain.push(format!(
+                                "{} <- {} <- {} ({})",
+                                task.id,
+                                dep.id,
+                                blocker,
+                                format!("{:?}", b.status).to_lowercase()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let is_blocked = !direct_blockers.is_empty();
+    let blocker_count = direct_blockers.len();
+
+    let summary = if is_blocked {
+        build_blocker_summary(&direct_blockers, blocker_count)
+    } else {
+        "All dependencies complete.".to_string()
+    };
+
+    Ok(BlockingInfo {
+        is_blocked,
+        blocker_count,
+        direct_blockers,
+        blocker_chain,
+        summary,
+    })
+}
+
+/// Build a human-readable summary of blocking dependencies.
+fn build_blocker_summary(blockers: &[DirectBlocker], count: usize) -> String {
+    let mut parts = Vec::new();
+    parts.push(format!("Blocked by {} incomplete dependencies.", count));
+
+    for blocker in blockers {
+        let mut desc = format!("- {} is {}", blocker.id, blocker.status);
+        if let Some(ref assignee) = blocker.assignee {
+            desc.push_str(&format!(" (assigned: {})", assignee));
+        }
+        if !blocker.blocked_by.is_empty() {
+            desc.push_str(&format!(", blocked by {}", blocker.blocked_by.join(", ")));
+        }
+        parts.push(desc);
+    }
+
+    parts.join("\n")
+}
+
+/// Show a task by ID with optional blocking analysis.
+pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResult> {
     let storage = Storage::open(repo_path)?;
-    storage.get_task(id)
+    let task = storage.get_task(id)?;
+
+    // Analyze blocking status if task has dependencies
+    let blocking_info = if !task.depends_on.is_empty() {
+        Some(analyze_blockers(&storage, &task)?)
+    } else {
+        None
+    };
+
+    Ok(TaskShowResult {
+        task,
+        blocking_info,
+    })
 }
 
 #[derive(Serialize)]
@@ -2168,8 +2352,9 @@ mod tests {
         let temp = setup();
         let created =
             task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
-        let task = task_show(temp.path(), &created.id).unwrap();
-        assert_eq!(task.id, created.id);
+        let result = task_show(temp.path(), &created.id).unwrap();
+        assert_eq!(result.task.id, created.id);
+        assert!(result.blocking_info.is_none()); // No dependencies
     }
 
     #[test]
@@ -2227,9 +2412,9 @@ mod tests {
         assert!(updated.updated_fields.contains(&"title".to_string()));
         assert!(updated.updated_fields.contains(&"priority".to_string()));
 
-        let task = task_show(temp.path(), &created.id).unwrap();
-        assert_eq!(task.title, "Updated");
-        assert_eq!(task.priority, 1);
+        let result = task_show(temp.path(), &created.id).unwrap();
+        assert_eq!(result.task.title, "Updated");
+        assert_eq!(result.task.priority, 1);
     }
 
     #[test]
@@ -2239,14 +2424,14 @@ mod tests {
             task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
 
         task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
-        let task = task_show(temp.path(), &created.id).unwrap();
-        assert_eq!(task.status, TaskStatus::Done);
-        assert!(task.closed_at.is_some());
+        let result = task_show(temp.path(), &created.id).unwrap();
+        assert_eq!(result.task.status, TaskStatus::Done);
+        assert!(result.task.closed_at.is_some());
 
         task_reopen(temp.path(), &created.id).unwrap();
-        let task = task_show(temp.path(), &created.id).unwrap();
-        assert_eq!(task.status, TaskStatus::Reopened);
-        assert!(task.closed_at.is_none());
+        let result = task_show(temp.path(), &created.id).unwrap();
+        assert_eq!(result.task.status, TaskStatus::Reopened);
+        assert!(result.task.closed_at.is_none());
     }
 
     #[test]
@@ -2286,8 +2471,8 @@ mod tests {
         assert!(result.warning.unwrap().contains("incomplete dependencies"));
 
         // Verify task is actually closed
-        let task = task_show(temp.path(), &task_b.id).unwrap();
-        assert_eq!(task.status, TaskStatus::Done);
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+        assert_eq!(result.task.status, TaskStatus::Done);
     }
 
     #[test]
@@ -2310,8 +2495,8 @@ mod tests {
         assert!(result.warning.is_none());
 
         // Verify task is closed
-        let task = task_show(temp.path(), &task_b.id).unwrap();
-        assert_eq!(task.status, TaskStatus::Done);
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+        assert_eq!(result.task.status, TaskStatus::Done);
     }
 
     #[test]
@@ -2340,8 +2525,8 @@ mod tests {
         assert_eq!(result.parent, task_a.id);
 
         // Verify task B now depends on A
-        let task = task_show(temp.path(), &task_b.id).unwrap();
-        assert!(task.depends_on.contains(&task_a.id));
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+        assert!(result.task.depends_on.contains(&task_a.id));
     }
 
     #[test]
@@ -2372,8 +2557,8 @@ mod tests {
         dep_rm(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         // Verify task B no longer depends on A
-        let task = task_show(temp.path(), &task_b.id).unwrap();
-        assert!(!task.depends_on.contains(&task_a.id));
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+        assert!(!result.task.depends_on.contains(&task_a.id));
     }
 
     #[test]
@@ -2771,8 +2956,8 @@ mod tests {
         assert_eq!(result.tasks_compacted, 1);
 
         // Verify the task still exists with the final title
-        let task = task_show(temp.path(), &task.id).unwrap();
-        assert_eq!(task.title, "Updated 2");
+        let result = task_show(temp.path(), &task.id).unwrap();
+        assert_eq!(result.task.title, "Updated 2");
     }
 
     #[test]
@@ -2985,5 +3170,214 @@ mod tests {
         assert!(human.contains("Total tasks: 1"));
         assert!(human.contains("bn ready"));
         assert!(human.contains("bn task list"));
+    }
+
+    // === Blocker Analysis Tests ===
+
+    #[test]
+    fn test_task_show_no_dependencies_no_blocking_info() {
+        let temp = setup();
+        let task = task_create(temp.path(), "Solo Task".to_string(), None, None, vec![], None)
+            .unwrap();
+
+        let result = task_show(temp.path(), &task.id).unwrap();
+
+        // No dependencies means no blocking info
+        assert!(result.blocking_info.is_none());
+    }
+
+    #[test]
+    fn test_task_show_all_dependencies_complete() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // Close both dependencies
+        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+
+        // Create task C that depends on A and B
+        let task_c =
+            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
+
+        let result = task_show(temp.path(), &task_c.id).unwrap();
+
+        // Has dependencies but all are complete
+        assert!(result.blocking_info.is_some());
+        let blocking = result.blocking_info.unwrap();
+        assert!(!blocking.is_blocked);
+        assert_eq!(blocking.blocker_count, 0);
+        assert_eq!(blocking.direct_blockers.len(), 0);
+        assert!(blocking.summary.contains("All dependencies complete"));
+    }
+
+    #[test]
+    fn test_task_show_direct_blockers() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            vec![],
+            Some("agent-1".to_string()),
+        )
+        .unwrap();
+        let task_c =
+            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+
+        // Set task A to in_progress
+        task_update(
+            temp.path(),
+            &task_a.id,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            vec![],
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Set task B to pending (default)
+        // Task C depends on A and B
+        dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
+
+        let result = task_show(temp.path(), &task_c.id).unwrap();
+
+        assert!(result.blocking_info.is_some());
+        let blocking = result.blocking_info.unwrap();
+        assert!(blocking.is_blocked);
+        assert_eq!(blocking.blocker_count, 2);
+        assert_eq!(blocking.direct_blockers.len(), 2);
+
+        // Check direct blocker details
+        let blocker_a = blocking
+            .direct_blockers
+            .iter()
+            .find(|b| b.id == task_a.id)
+            .unwrap();
+        assert_eq!(blocker_a.title, "Task A");
+        assert_eq!(blocker_a.status, "inprogress");
+        assert!(blocker_a.assignee.is_none());
+        assert_eq!(blocker_a.blocked_by.len(), 0);
+
+        let blocker_b = blocking
+            .direct_blockers
+            .iter()
+            .find(|b| b.id == task_b.id)
+            .unwrap();
+        assert_eq!(blocker_b.title, "Task B");
+        assert_eq!(blocker_b.status, "pending");
+        assert_eq!(blocker_b.assignee, Some("agent-1".to_string()));
+        assert_eq!(blocker_b.blocked_by.len(), 0);
+    }
+
+    #[test]
+    fn test_task_show_transitive_blockers() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+        let task_c =
+            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+
+        // Create chain: C depends on B, B depends on A
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
+
+        let result = task_show(temp.path(), &task_c.id).unwrap();
+
+        assert!(result.blocking_info.is_some());
+        let blocking = result.blocking_info.unwrap();
+        assert!(blocking.is_blocked);
+        assert_eq!(blocking.blocker_count, 1);
+        assert_eq!(blocking.direct_blockers.len(), 1);
+
+        // Task B is the direct blocker
+        let blocker_b = &blocking.direct_blockers[0];
+        assert_eq!(blocker_b.id, task_b.id);
+        assert_eq!(blocker_b.title, "Task B");
+        assert_eq!(blocker_b.status, "pending");
+
+        // Task B is itself blocked by A
+        assert_eq!(blocker_b.blocked_by.len(), 1);
+        assert!(blocker_b.blocked_by.contains(&task_a.id));
+
+        // Check blocker chain format
+        assert_eq!(blocking.blocker_chain.len(), 1);
+        assert!(blocking.blocker_chain[0].contains(&task_c.id));
+        assert!(blocking.blocker_chain[0].contains(&task_b.id));
+        assert!(blocking.blocker_chain[0].contains(&task_a.id));
+    }
+
+    #[test]
+    fn test_task_show_mixed_complete_incomplete_deps() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+        let task_c =
+            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+
+        // Close task A
+        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+
+        // Task C depends on both A (done) and B (pending)
+        dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
+
+        let result = task_show(temp.path(), &task_c.id).unwrap();
+
+        assert!(result.blocking_info.is_some());
+        let blocking = result.blocking_info.unwrap();
+        assert!(blocking.is_blocked);
+        assert_eq!(blocking.blocker_count, 1); // Only task B is blocking
+
+        // Only task B should appear as a blocker
+        assert_eq!(blocking.direct_blockers.len(), 1);
+        assert_eq!(blocking.direct_blockers[0].id, task_b.id);
+    }
+
+    #[test]
+    fn test_task_show_blocker_summary_format() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            vec![],
+            Some("alice".to_string()),
+        )
+        .unwrap();
+        let task_c =
+            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+
+        // Task C depends on A and B
+        dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
+
+        let result = task_show(temp.path(), &task_c.id).unwrap();
+        let blocking = result.blocking_info.unwrap();
+
+        // Check summary format
+        assert!(blocking.summary.contains("Blocked by 2 incomplete dependencies"));
+        assert!(blocking.summary.contains(&task_a.id));
+        assert!(blocking.summary.contains("pending"));
+        assert!(blocking.summary.contains(&task_b.id));
+        assert!(blocking.summary.contains("alice"));
     }
 }
