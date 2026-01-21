@@ -3,7 +3,7 @@
 use binnacle::action_log;
 use binnacle::cli::{
     BugCommands, Cli, Commands, CommitCommands, ConfigCommands, DepCommands, GraphCommands,
-    McpCommands, TaskCommands, TestCommands,
+    McpCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -274,6 +274,27 @@ fn run_command(
             GraphCommands::Components => {
                 not_implemented("graph components", "", human);
             }
+        },
+        Some(Commands::System { command }) => match command {
+            SystemCommands::Init => {
+                let result = commands::init(repo_path)?;
+                output(&result, human);
+            }
+            SystemCommands::Store { command } => match command {
+                StoreCommands::Show => {
+                    not_implemented("system store", "show", human);
+                }
+                StoreCommands::Export { output, format } => {
+                    not_implemented("system store", "export", human);
+                }
+                StoreCommands::Import {
+                    input,
+                    r#type,
+                    dry_run,
+                } => {
+                    not_implemented("system store", "import", human);
+                }
+            },
         },
         #[cfg(feature = "gui")]
         Some(Commands::Gui { port }) => {
@@ -652,6 +673,32 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
 
         Some(Commands::Graph { command }) => match command {
             GraphCommands::Components => ("graph components".to_string(), serde_json::json!({})),
+        },
+
+        Some(Commands::System { command }) => match command {
+            SystemCommands::Init => ("system init".to_string(), serde_json::json!({})),
+            SystemCommands::Store { command } => match command {
+                StoreCommands::Show => ("system store show".to_string(), serde_json::json!({})),
+                StoreCommands::Export { output, format } => (
+                    "system store export".to_string(),
+                    serde_json::json!({
+                        "output": output,
+                        "format": format,
+                    }),
+                ),
+                StoreCommands::Import {
+                    input,
+                    r#type,
+                    dry_run,
+                } => (
+                    "system store import".to_string(),
+                    serde_json::json!({
+                        "input": input,
+                        "type": r#type,
+                        "dry_run": dry_run,
+                    }),
+                ),
+            },
         },
 
         #[cfg(feature = "gui")]
