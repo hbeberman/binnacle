@@ -418,8 +418,8 @@ impl Storage {
     /// - The dependency already exists
     pub fn add_dependency(&mut self, child_id: &str, parent_id: &str) -> Result<()> {
         // Validate both tasks exist
-        self.get_task(child_id)?;
-        self.get_task(parent_id)?;
+        let mut child = self.get_task(child_id)?;
+        let parent = self.get_task(parent_id)?;
 
         // Check for self-dependency
         if child_id == parent_id {
@@ -427,13 +427,7 @@ impl Storage {
         }
 
         // Check if dependency already exists
-        let exists: bool = self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM task_dependencies WHERE child_id = ?1 AND parent_id = ?2)",
-            params![child_id, parent_id],
-            |row| row.get(0),
-        )?;
-
-        if exists {
+        if child.depends_on.iter().any(|id| id == parent_id) {
             return Err(Error::Other(format!(
                 "Dependency already exists: {} -> {}",
                 child_id, parent_id
@@ -445,24 +439,18 @@ impl Storage {
             return Err(Error::CycleDetected);
         }
 
-        // Add the dependency to the cache
-        self.conn.execute(
-            "INSERT INTO task_dependencies (child_id, parent_id) VALUES (?1, ?2)",
-            params![child_id, parent_id],
-        )?;
+        // Update the task's depends_on list and status, then persist.
+        child.depends_on.push(parent_id.to_string());
+        child.updated_at = chrono::Utc::now();
 
-        // Update the task's depends_on list and append to JSONL
-        let mut task = self.get_task(child_id)?;
-        if !task.depends_on.contains(&parent_id.to_string()) {
-            task.depends_on.push(parent_id.to_string());
-            task.updated_at = chrono::Utc::now();
-
-            // Append updated task to JSONL
-            let tasks_path = self.root.join("tasks.jsonl");
-            let mut file = OpenOptions::new().append(true).open(&tasks_path)?;
-            let json = serde_json::to_string(&task)?;
-            writeln!(file, "{}", json)?;
+        let parent_incomplete = !matches!(parent.status, TaskStatus::Done | TaskStatus::Cancelled);
+        if child.status == TaskStatus::Done && parent_incomplete {
+            child.status = TaskStatus::Partial;
+            child.closed_at = None;
+            child.closed_reason = None;
         }
+
+        self.update_task(&child)?;
 
         Ok(())
     }

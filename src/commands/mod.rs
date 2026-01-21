@@ -2593,6 +2593,27 @@ mod tests {
     }
 
     #[test]
+    fn test_dep_add_transitions_done_to_partial() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+        assert_eq!(result.task.status, TaskStatus::Done);
+        assert!(result.task.closed_at.is_some());
+
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+        assert_eq!(result.task.status, TaskStatus::Partial);
+        assert!(result.task.closed_at.is_none());
+        assert!(result.task.closed_reason.is_none());
+    }
+
+    #[test]
     fn test_dep_add_cycle_rejected() {
         let temp = setup();
         let task_a =
