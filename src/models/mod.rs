@@ -5,6 +5,8 @@
 //! - `TestNode` - Test definitions linked to tasks
 //! - `CommitLink` - Associations between commits and tasks
 
+pub mod graph;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
