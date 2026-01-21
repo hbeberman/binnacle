@@ -33,6 +33,10 @@ dirs = "5"
 # Error handling
 thiserror = "1"
 
+# Archive/compression
+tar = "0.4"
+flate2 = "1.0"
+
 # GUI dependencies (feature-gated)
 axum = { version = "0.7", features = ["ws"], optional = true }
 tokio = { version = "1", features = ["full"], optional = true }

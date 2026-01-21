@@ -280,8 +280,12 @@ fn run_command(
                     let result = commands::system_store_show(repo_path)?;
                     output(&result, human);
                 }
-                StoreCommands::Export { output, format } => {
-                    not_implemented("system store", "export", human);
+                StoreCommands::Export { output: out_path, format } => {
+                    let result = commands::system_store_export(repo_path, &out_path, &format)?;
+                    // Don't output anything when writing to stdout (would corrupt the binary data)
+                    if out_path != "-" {
+                        output(&result, human);
+                    }
                 }
                 StoreCommands::Import {
                     input,

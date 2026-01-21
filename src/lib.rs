@@ -33,6 +33,9 @@ pub enum Error {
     #[error("Invalid ID format: {0}")]
     InvalidId(String),
 
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
     #[error("Cycle detected in dependencies")]
     CycleDetected,
 

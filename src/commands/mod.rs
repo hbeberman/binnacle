@@ -13,6 +13,7 @@ use crate::storage::{generate_id, parse_status, Storage};
 use crate::{Error, Result};
 use chrono::Utc;
 use serde::Serialize;
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
@@ -2947,6 +2948,186 @@ pub fn system_store_show(repo_path: &Path) -> Result<StoreShowResult> {
         files,
         created_at,
         last_modified,
+    })
+}
+
+// === Store Export Command ===
+
+/// Result of the `bn system store export` command.
+#[derive(Serialize)]
+pub struct StoreExportResult {
+    pub exported: bool,
+    pub output_path: String,
+    pub size_bytes: u64,
+    pub task_count: usize,
+    pub test_count: usize,
+    pub commit_count: usize,
+}
+
+impl Output for StoreExportResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        if self.exported {
+            if self.output_path == "-" {
+                lines.push("Exported to stdout".to_string());
+            } else {
+                lines.push(format!("Exported to {}", self.output_path));
+            }
+            let size_kb = self.size_bytes as f64 / 1024.0;
+            lines.push(format!("  Size: {:.1} KB", size_kb));
+            lines.push(format!("  Tasks: {}", self.task_count));
+            lines.push(format!("  Tests: {}", self.test_count));
+            lines.push(format!("  Commits: {}", self.commit_count));
+        } else {
+            lines.push("Export failed".to_string());
+        }
+        lines.join("\n")
+    }
+}
+
+/// Manifest metadata for the export archive.
+#[derive(Serialize)]
+struct ExportManifest {
+    version: u32,
+    format: String,
+    exported_at: String,
+    source_repo: String,
+    binnacle_version: String,
+    task_count: usize,
+    test_count: usize,
+    commit_count: usize,
+    checksums: std::collections::HashMap<String, String>,
+}
+
+/// Config metadata for the export archive.
+#[derive(Serialize)]
+struct ExportConfig {
+    repo_path: String,
+    exported_at: String,
+}
+
+/// Calculate SHA256 checksum of file contents.
+fn calculate_checksum(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    format!("{:x}", hasher.finalize())
+}
+
+/// Export store to gzip tar archive.
+pub fn system_store_export(repo_path: &Path, output: &str, format: &str) -> Result<StoreExportResult> {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+
+    if format != "archive" {
+        return Err(Error::InvalidInput(format!(
+            "Unsupported format '{}'. Only 'archive' is currently supported.",
+            format
+        )));
+    }
+
+    let storage = Storage::open(repo_path)?;
+    let storage_root = storage.root();
+
+    // Read all JSONL files (skip missing files for backwards compatibility)
+    let files_to_export = ["tasks.jsonl", "bugs.jsonl", "commits.jsonl", "test-results.jsonl"];
+    let mut file_contents = std::collections::HashMap::new();
+    let mut checksums = std::collections::HashMap::new();
+
+    for filename in &files_to_export {
+        let file_path = storage_root.join(filename);
+        if file_path.exists() {
+            let data = fs::read(&file_path)?;
+            let checksum = calculate_checksum(&data);
+            checksums.insert(filename.to_string(), checksum);
+            file_contents.insert(filename.to_string(), data);
+        }
+    }
+
+    // Count tasks, tests, and commits
+    let tasks = storage.list_tasks(None, None, None)?;
+    let tests = storage.list_tests(None)?;
+    let commit_count = storage.count_commit_links()?;
+
+    // Create manifest
+    let manifest = ExportManifest {
+        version: 1,
+        format: "binnacle-store-v1".to_string(),
+        exported_at: Utc::now().to_rfc3339(),
+        source_repo: repo_path.to_string_lossy().to_string(),
+        binnacle_version: env!("CARGO_PKG_VERSION").to_string(),
+        task_count: tasks.len(),
+        test_count: tests.len(),
+        commit_count,
+        checksums: checksums.clone(),
+    };
+    let manifest_json = serde_json::to_string_pretty(&manifest)?;
+
+    // Create config
+    let config = ExportConfig {
+        repo_path: repo_path.to_string_lossy().to_string(),
+        exported_at: Utc::now().to_rfc3339(),
+    };
+    let config_json = serde_json::to_string_pretty(&config)?;
+
+    // Create tar.gz archive in memory
+    let mut archive_buffer = Vec::new();
+    {
+        let encoder = GzEncoder::new(&mut archive_buffer, Compression::default());
+        let mut tar = tar::Builder::new(encoder);
+
+        // Add manifest.json
+        let manifest_bytes = manifest_json.as_bytes();
+        let mut header = tar::Header::new_gnu();
+        header.set_path("binnacle-export/manifest.json")?;
+        header.set_size(manifest_bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar.append(&header, manifest_bytes)?;
+
+        // Add config.json
+        let config_bytes = config_json.as_bytes();
+        let mut header = tar::Header::new_gnu();
+        header.set_path("binnacle-export/config.json")?;
+        header.set_size(config_bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar.append(&header, config_bytes)?;
+
+        // Add JSONL files
+        for (filename, data) in &file_contents {
+            let mut header = tar::Header::new_gnu();
+            header.set_path(format!("binnacle-export/{}", filename))?;
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            tar.append(&header, data.as_slice())?;
+        }
+
+        tar.finish()?;
+    }
+
+    let size_bytes = archive_buffer.len() as u64;
+
+    // Write to output (file or stdout)
+    if output == "-" {
+        use std::io::{self, Write};
+        io::stdout().write_all(&archive_buffer)?;
+    } else {
+        fs::write(output, &archive_buffer)?;
+    }
+
+    Ok(StoreExportResult {
+        exported: true,
+        output_path: output.to_string(),
+        size_bytes,
+        task_count: tasks.len(),
+        test_count: tests.len(),
+        commit_count,
     })
 }
 
