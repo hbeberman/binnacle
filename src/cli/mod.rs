@@ -83,6 +83,12 @@ pub enum Commands {
         command: McpCommands,
     },
 
+    /// Graph analysis commands
+    Graph {
+        #[command(subcommand)]
+        command: GraphCommands,
+    },
+
     /// Start the web GUI (requires 'gui' feature)
     #[cfg(feature = "gui")]
     Gui {
@@ -349,6 +355,13 @@ pub enum McpCommands {
 
     /// Output tool definitions
     Manifest,
+}
+
+/// Graph analysis subcommands
+#[derive(Subcommand, Debug)]
+pub enum GraphCommands {
+    /// Analyze task graph for disconnected components
+    Components,
 }
 
 #[cfg(test)]
