@@ -9,3 +9,5 @@
 - [ ] Add arrows to the springs so its clear which direction the dependency is, the pointy bit of the arrow should be on the dependant task to present a logical flow of following the arrows until completion
 - [ ] Enable theming support as a configuration option for `bn gui`
 - [ ] Make tests use a separate bn storage that isn't the actual repo's storage to avoid polluting the real task graph with test fixtures
+- [ ] Offer to include auto-approve rules for copilot, codex, opencode, and claude
+- [ ] Add the concept of a question that can be linked to any other resource type, and a user then links an answer off of it
