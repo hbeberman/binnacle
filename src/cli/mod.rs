@@ -95,6 +95,15 @@ pub enum Commands {
         command: GraphCommands,
     },
 
+    /// System administration commands (human-operated)
+    ///
+    /// Note: These commands are for human operators, not AI agents.
+    /// Agents should use 'bn orient' which auto-initializes.
+    System {
+        #[command(subcommand)]
+        command: SystemCommands,
+    },
+
     /// Start the web GUI (requires 'gui' feature)
     #[cfg(feature = "gui")]
     Gui {
@@ -503,6 +512,50 @@ pub enum McpCommands {
 pub enum GraphCommands {
     /// Analyze task graph for disconnected components
     Components,
+}
+
+/// System administration subcommands (human-operated)
+#[derive(Subcommand, Debug)]
+pub enum SystemCommands {
+    /// Initialize binnacle for this repository
+    Init,
+
+    /// Data store management (import/export/inspect)
+    Store {
+        #[command(subcommand)]
+        command: StoreCommands,
+    },
+}
+
+/// Store management subcommands
+#[derive(Subcommand, Debug)]
+pub enum StoreCommands {
+    /// Display summary of current store contents
+    Show,
+
+    /// Export store to archive file
+    Export {
+        /// Output path (use '-' for stdout)
+        output: String,
+
+        /// Export format (currently only 'archive' is supported)
+        #[arg(long, default_value = "archive")]
+        format: String,
+    },
+
+    /// Import store from archive file
+    Import {
+        /// Input path (use '-' for stdin)
+        input: String,
+
+        /// Import type: 'replace' (error if initialized) or 'merge' (append with ID conflict handling)
+        #[arg(long, default_value = "replace", value_parser = ["replace", "merge"])]
+        r#type: String,
+
+        /// Preview import without making changes (shows ID remappings)
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[cfg(test)]
