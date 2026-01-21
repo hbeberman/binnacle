@@ -8,16 +8,18 @@
 //!
 //! - **File backend** (default): External storage at `~/.local/share/binnacle/<repo-hash>/`
 //! - **Orphan branch backend**: Git orphan branch `binnacle-data` within the repository
-//! - **Git notes backend**: Git notes at `refs/notes/binnacle` (future)
+//! - **Git notes backend**: Git notes at `refs/notes/binnacle`
 //!
 //! All backends use:
 //! - JSONL files for append-only data (tasks.jsonl, commits.jsonl, test-results.jsonl)
 //! - SQLite for indexed queries (cache.db) - file backend only
 
 pub mod backend;
+pub mod git_notes;
 pub mod orphan_branch;
 
 pub use backend::{BackendType, StorageBackend};
+pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
 use crate::models::{CommitLink, Task, TaskStatus, TestNode, TestResult};
