@@ -120,8 +120,8 @@ fn run_command(
                 output(&result, human);
             }
 
-            TaskCommands::Close { id, reason } => {
-                let result = commands::task_close(repo_path, &id, reason)?;
+            TaskCommands::Close { id, reason, force } => {
+                let result = commands::task_close(repo_path, &id, reason, force)?;
                 output(&result, human);
             }
 
@@ -389,11 +389,12 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "assignee": assignee,
                 }),
             ),
-            TaskCommands::Close { id, reason } => (
+            TaskCommands::Close { id, reason, force } => (
                 "task close".to_string(),
                 serde_json::json!({
                     "id": id,
                     "reason": reason,
+                    "force": force,
                 }),
             ),
             TaskCommands::Reopen { id } => (

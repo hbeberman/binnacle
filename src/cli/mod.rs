@@ -178,6 +178,10 @@ pub enum TaskCommands {
         /// Reason for closing
         #[arg(long)]
         reason: Option<String>,
+
+        /// Force close even with incomplete dependencies
+        #[arg(long)]
+        force: bool,
     },
 
     /// Reopen a closed task
