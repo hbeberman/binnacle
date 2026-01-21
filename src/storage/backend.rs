@@ -3,6 +3,7 @@
 //! This module provides different storage backends for binnacle data:
 //! - `FileBackend` - External file storage (default)
 //! - `OrphanBranchBackend` - Git orphan branch storage
+//! - `GitNotesBackend` - Git notes storage
 
 use crate::Result;
 use std::path::Path;
