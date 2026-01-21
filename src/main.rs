@@ -132,26 +132,88 @@ fn run_command(
         },
 
         Some(Commands::Bug { command }) => match command {
-            BugCommands::Create { .. } => {
-                not_implemented("bug", "create", human);
+            BugCommands::Create {
+                title,
+                priority,
+                severity,
+                tag,
+                assignee,
+                description,
+                reproduction_steps,
+                affected_component,
+            } => {
+                let result = commands::bug_create(
+                    repo_path,
+                    title,
+                    description,
+                    priority,
+                    severity,
+                    tag,
+                    assignee,
+                    reproduction_steps,
+                    affected_component,
+                )?;
+                output(&result, human);
             }
-            BugCommands::List { .. } => {
-                not_implemented("bug", "list", human);
+            BugCommands::List {
+                status,
+                priority,
+                severity,
+                tag,
+            } => {
+                let result = commands::bug_list(
+                    repo_path,
+                    status.as_deref(),
+                    priority,
+                    severity.as_deref(),
+                    tag.as_deref(),
+                )?;
+                output(&result, human);
             }
-            BugCommands::Show { .. } => {
-                not_implemented("bug", "show", human);
+            BugCommands::Show { id } => {
+                let result = commands::bug_show(repo_path, &id)?;
+                output(&result, human);
             }
-            BugCommands::Update { .. } => {
-                not_implemented("bug", "update", human);
+            BugCommands::Update {
+                id,
+                title,
+                description,
+                priority,
+                status,
+                severity,
+                add_tag,
+                remove_tag,
+                assignee,
+                reproduction_steps,
+                affected_component,
+            } => {
+                let result = commands::bug_update(
+                    repo_path,
+                    &id,
+                    title,
+                    description,
+                    priority,
+                    status.as_deref(),
+                    severity,
+                    add_tag,
+                    remove_tag,
+                    assignee,
+                    reproduction_steps,
+                    affected_component,
+                )?;
+                output(&result, human);
             }
-            BugCommands::Close { .. } => {
-                not_implemented("bug", "close", human);
+            BugCommands::Close { id, reason, force } => {
+                let result = commands::bug_close(repo_path, &id, reason, force)?;
+                output(&result, human);
             }
-            BugCommands::Reopen { .. } => {
-                not_implemented("bug", "reopen", human);
+            BugCommands::Reopen { id } => {
+                let result = commands::bug_reopen(repo_path, &id)?;
+                output(&result, human);
             }
-            BugCommands::Delete { .. } => {
-                not_implemented("bug", "delete", human);
+            BugCommands::Delete { id } => {
+                let result = commands::bug_delete(repo_path, &id)?;
+                output(&result, human);
             }
         },
 
