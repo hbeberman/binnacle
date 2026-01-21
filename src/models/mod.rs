@@ -26,6 +26,18 @@ pub enum TaskStatus {
     Partial,
 }
 
+/// Bug severity in the workflow.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BugSeverity {
+    #[default]
+    Triage,
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
 /// A work item tracked by Binnacle.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
@@ -131,8 +143,8 @@ pub struct Bug {
     pub status: TaskStatus,
 
     /// Severity level (e.g., "low", "medium", "high", "critical")
-    #[serde(default = "default_bug_severity")]
-    pub severity: String,
+    #[serde(default)]
+    pub severity: BugSeverity,
 
     /// Steps to reproduce
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -180,7 +192,7 @@ impl Bug {
             description: None,
             priority: 2,
             status: TaskStatus::default(),
-            severity: default_bug_severity(),
+            severity: BugSeverity::default(),
             reproduction_steps: None,
             affected_component: None,
             tags: Vec::new(),
@@ -228,10 +240,6 @@ pub struct TestNode {
 
 fn default_working_dir() -> String {
     ".".to_string()
-}
-
-fn default_bug_severity() -> String {
-    "medium".to_string()
 }
 
 impl TestNode {
@@ -324,7 +332,14 @@ mod tests {
     fn test_bug_default_severity() {
         let json = r#"{"id":"bn-bug","type":"bug","title":"Bug","priority":1,"status":"pending","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#;
         let bug: Bug = serde_json::from_str(json).unwrap();
-        assert_eq!(bug.severity, "medium");
+        assert_eq!(bug.severity, BugSeverity::Triage);
+    }
+
+    #[test]
+    fn test_bug_severity_serialization() {
+        let severity = BugSeverity::High;
+        let json = serde_json::to_string(&severity).unwrap();
+        assert_eq!(json, r#""high""#);
     }
 
     #[test]
