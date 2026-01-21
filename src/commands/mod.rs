@@ -649,9 +649,7 @@ impl Output for TaskShowResult {
         }
 
         if let Some(ref blocking) = self.blocking_info {
-            if blocking.is_blocked {
-                lines.push(format!("\n{}", blocking.summary));
-            }
+            lines.push(format!("\n{}", blocking.summary));
         }
 
         if let Some(ref closed_at) = self.task.closed_at {
@@ -3379,5 +3377,296 @@ mod tests {
         assert!(blocking.summary.contains("pending"));
         assert!(blocking.summary.contains(&task_b.id));
         assert!(blocking.summary.contains("alice"));
+    }
+
+    #[test]
+    fn test_task_show_cancelled_dependencies_dont_block() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+        let task_c =
+            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+
+        // Cancel task A
+        task_update(
+            temp.path(),
+            &task_a.id,
+            None,
+            None,
+            None,
+            Some("cancelled"),
+            vec![],
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Close task B normally
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+
+        // Task C depends on both A (cancelled) and B (done)
+        dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
+
+        let result = task_show(temp.path(), &task_c.id).unwrap();
+
+        assert!(result.blocking_info.is_some());
+        let blocking = result.blocking_info.unwrap();
+        // Neither cancelled nor done should block
+        assert!(!blocking.is_blocked);
+        assert_eq!(blocking.blocker_count, 0);
+        assert_eq!(blocking.direct_blockers.len(), 0);
+        assert!(blocking.summary.contains("All dependencies complete"));
+    }
+
+    #[test]
+    fn test_task_show_blocked_status_is_blocker() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // Set task A to blocked status
+        task_update(
+            temp.path(),
+            &task_a.id,
+            None,
+            None,
+            None,
+            Some("blocked"),
+            vec![],
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Task B depends on A (blocked)
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+
+        assert!(result.blocking_info.is_some());
+        let blocking = result.blocking_info.unwrap();
+        assert!(blocking.is_blocked);
+        assert_eq!(blocking.blocker_count, 1);
+        assert_eq!(blocking.direct_blockers[0].id, task_a.id);
+        assert_eq!(blocking.direct_blockers[0].status, "blocked");
+    }
+
+    #[test]
+    fn test_task_show_partial_status_is_blocker() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // Set task A to partial status
+        task_update(
+            temp.path(),
+            &task_a.id,
+            None,
+            None,
+            None,
+            Some("partial"),
+            vec![],
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Task B depends on A (partial)
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+
+        assert!(result.blocking_info.is_some());
+        let blocking = result.blocking_info.unwrap();
+        assert!(blocking.is_blocked);
+        assert_eq!(blocking.blocker_count, 1);
+        assert_eq!(blocking.direct_blockers[0].id, task_a.id);
+        assert_eq!(blocking.direct_blockers[0].status, "partial");
+    }
+
+    #[test]
+    fn test_task_show_reopened_status_is_blocker() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // Close then reopen task A
+        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+        task_reopen(temp.path(), &task_a.id).unwrap();
+
+        // Task B depends on A (reopened)
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+
+        assert!(result.blocking_info.is_some());
+        let blocking = result.blocking_info.unwrap();
+        assert!(blocking.is_blocked);
+        assert_eq!(blocking.blocker_count, 1);
+        assert_eq!(blocking.direct_blockers[0].id, task_a.id);
+        assert_eq!(blocking.direct_blockers[0].status, "reopened");
+    }
+
+    #[test]
+    fn test_task_show_deep_transitive_blocker_chain() {
+        let temp = setup();
+        // Create chain: D -> C -> B -> A
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+        let task_c =
+            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+        let task_d =
+            task_create(temp.path(), "Task D".to_string(), None, None, vec![], None).unwrap();
+
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
+        dep_add(temp.path(), &task_d.id, &task_c.id).unwrap();
+
+        let result = task_show(temp.path(), &task_d.id).unwrap();
+
+        assert!(result.blocking_info.is_some());
+        let blocking = result.blocking_info.unwrap();
+        assert!(blocking.is_blocked);
+        assert_eq!(blocking.blocker_count, 1);
+
+        // Task C is the direct blocker of D
+        let blocker_c = &blocking.direct_blockers[0];
+        assert_eq!(blocker_c.id, task_c.id);
+
+        // Task C is blocked by B (transitive)
+        assert_eq!(blocker_c.blocked_by.len(), 1);
+        assert!(blocker_c.blocked_by.contains(&task_b.id));
+
+        // Blocker chain should show the path
+        assert_eq!(blocking.blocker_chain.len(), 1);
+        assert!(blocking.blocker_chain[0].contains(&task_d.id));
+        assert!(blocking.blocker_chain[0].contains(&task_c.id));
+        assert!(blocking.blocker_chain[0].contains(&task_b.id));
+    }
+
+    #[test]
+    fn test_task_show_multiple_transitive_blockers() {
+        let temp = setup();
+        // Create diamond: D depends on B and C, both B and C depend on A
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+        let task_c =
+            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+        let task_d =
+            task_create(temp.path(), "Task D".to_string(), None, None, vec![], None).unwrap();
+
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_d.id, &task_b.id).unwrap();
+        dep_add(temp.path(), &task_d.id, &task_c.id).unwrap();
+
+        let result = task_show(temp.path(), &task_d.id).unwrap();
+
+        assert!(result.blocking_info.is_some());
+        let blocking = result.blocking_info.unwrap();
+        assert!(blocking.is_blocked);
+        assert_eq!(blocking.blocker_count, 2); // Both B and C block D
+
+        // Both B and C should be blocked by A
+        for blocker in &blocking.direct_blockers {
+            assert_eq!(blocker.blocked_by.len(), 1);
+            assert!(blocker.blocked_by.contains(&task_a.id));
+        }
+
+        // Should have two chains in the blocker chain
+        assert_eq!(blocking.blocker_chain.len(), 2);
+    }
+
+    #[test]
+    fn test_build_blocker_summary_single() {
+        let blockers = vec![DirectBlocker {
+            id: "bn-test1".to_string(),
+            title: "Test Task".to_string(),
+            status: "pending".to_string(),
+            assignee: None,
+            blocked_by: vec![],
+        }];
+
+        let summary = build_blocker_summary(&blockers, 1);
+
+        assert!(summary.contains("Blocked by 1 incomplete dependencies"));
+        assert!(summary.contains("bn-test1"));
+        assert!(summary.contains("pending"));
+    }
+
+    #[test]
+    fn test_build_blocker_summary_multiple_with_assignees() {
+        let blockers = vec![
+            DirectBlocker {
+                id: "bn-test1".to_string(),
+                title: "Test Task 1".to_string(),
+                status: "in_progress".to_string(),
+                assignee: Some("alice".to_string()),
+                blocked_by: vec![],
+            },
+            DirectBlocker {
+                id: "bn-test2".to_string(),
+                title: "Test Task 2".to_string(),
+                status: "blocked".to_string(),
+                assignee: Some("bob".to_string()),
+                blocked_by: vec!["bn-test3".to_string()],
+            },
+        ];
+
+        let summary = build_blocker_summary(&blockers, 2);
+
+        assert!(summary.contains("Blocked by 2 incomplete dependencies"));
+        assert!(summary.contains("bn-test1"));
+        assert!(summary.contains("in_progress"));
+        assert!(summary.contains("alice"));
+        assert!(summary.contains("bn-test2"));
+        assert!(summary.contains("blocked"));
+        assert!(summary.contains("bob"));
+        assert!(summary.contains("bn-test3"));
+    }
+
+    #[test]
+    fn test_build_blocker_summary_no_assignee() {
+        let blockers = vec![DirectBlocker {
+            id: "bn-test1".to_string(),
+            title: "Test Task".to_string(),
+            status: "pending".to_string(),
+            assignee: None,
+            blocked_by: vec![],
+        }];
+
+        let summary = build_blocker_summary(&blockers, 1);
+
+        assert!(summary.contains("bn-test1 is pending"));
+        assert!(!summary.contains("assigned"));
+    }
+
+    #[test]
+    fn test_build_blocker_summary_with_transitive_blockers() {
+        let blockers = vec![DirectBlocker {
+            id: "bn-test1".to_string(),
+            title: "Test Task".to_string(),
+            status: "pending".to_string(),
+            assignee: None,
+            blocked_by: vec!["bn-test2".to_string(), "bn-test3".to_string()],
+        }];
+
+        let summary = build_blocker_summary(&blockers, 1);
+
+        assert!(summary.contains("bn-test1"));
+        assert!(summary.contains("blocked by bn-test2, bn-test3"));
     }
 }
