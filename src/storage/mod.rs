@@ -1415,6 +1415,7 @@ pub fn parse_status(s: &str) -> Result<TaskStatus> {
         "blocked" => Ok(TaskStatus::Blocked),
         "cancelled" | "canceled" => Ok(TaskStatus::Cancelled),
         "reopened" => Ok(TaskStatus::Reopened),
+        "partial" => Ok(TaskStatus::Partial),
         _ => Err(Error::Other(format!("Invalid status: {}", s))),
     }
 }
@@ -1588,6 +1589,7 @@ mod tests {
         assert_eq!(parse_status("in_progress").unwrap(), TaskStatus::InProgress);
         assert_eq!(parse_status("in-progress").unwrap(), TaskStatus::InProgress);
         assert_eq!(parse_status("done").unwrap(), TaskStatus::Done);
+        assert_eq!(parse_status("partial").unwrap(), TaskStatus::Partial);
         assert!(parse_status("invalid").is_err());
     }
 

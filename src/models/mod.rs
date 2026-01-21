@@ -19,6 +19,8 @@ pub enum TaskStatus {
     Blocked,
     Cancelled,
     Reopened,
+    /// Started but incomplete because dependencies aren't done
+    Partial,
 }
 
 /// A work item tracked by Binnacle.
@@ -210,6 +212,17 @@ mod tests {
         let status = TaskStatus::InProgress;
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(json, r#""in_progress""#);
+    }
+
+    #[test]
+    fn test_partial_status_serialization() {
+        let status = TaskStatus::Partial;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, r#""partial""#);
+
+        // Test deserialization
+        let deserialized: TaskStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, TaskStatus::Partial);
     }
 
     #[test]

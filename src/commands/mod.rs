@@ -618,6 +618,7 @@ impl Output for TaskList {
                 TaskStatus::Blocked => "!",
                 TaskStatus::Cancelled => "-",
                 TaskStatus::Reopened => "?",
+                TaskStatus::Partial => "~",
             };
             let tags = if task.tags.is_empty() {
                 String::new()
