@@ -2,8 +2,8 @@
 
 use binnacle::action_log;
 use binnacle::cli::{
-    Cli, Commands, CommitCommands, ConfigCommands, DepCommands, McpCommands, TaskCommands,
-    TestCommands,
+    Cli, Commands, CommitCommands, ConfigCommands, DepCommands, GraphCommands, McpCommands,
+    TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -244,6 +244,11 @@ fn run_command(
             }
             McpCommands::Manifest => {
                 mcp::manifest();
+            }
+        },
+        Some(Commands::Graph { command }) => match command {
+            GraphCommands::Components => {
+                not_implemented("graph components", "", human);
             }
         },
         #[cfg(feature = "gui")]
@@ -535,6 +540,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         Some(Commands::Mcp { command }) => match command {
             McpCommands::Serve => ("mcp serve".to_string(), serde_json::json!({})),
             McpCommands::Manifest => ("mcp manifest".to_string(), serde_json::json!({})),
+        },
+
+        Some(Commands::Graph { command }) => match command {
+            GraphCommands::Components => ("graph components".to_string(), serde_json::json!({})),
         },
 
         #[cfg(feature = "gui")]
