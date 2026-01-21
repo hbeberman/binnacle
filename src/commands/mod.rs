@@ -1380,6 +1380,12 @@ pub fn bug_list(
     Ok(BugList { bugs, count })
 }
 
+/// Show a bug by ID.
+pub fn bug_show(repo_path: &Path, id: &str) -> Result<Bug> {
+    let storage = Storage::open(repo_path)?;
+    storage.get_bug(id)
+}
+
 #[derive(Serialize)]
 pub struct BugUpdated {
     pub id: String,
