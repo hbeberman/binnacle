@@ -8,7 +8,7 @@
 //! - `test` - Test node operations
 //! - `commit` - Commit tracking
 
-use crate::models::{Task, TaskStatus, TestNode, TestResult};
+use crate::models::{Bug, BugSeverity, Task, TaskStatus, TestNode, TestResult};
 use crate::storage::{generate_id, parse_status, Storage};
 use crate::{Error, Result};
 use chrono::Utc;
@@ -1165,6 +1165,439 @@ pub fn task_delete(repo_path: &Path, id: &str) -> Result<TaskDeleted> {
     storage.delete_task(id)?;
 
     Ok(TaskDeleted { id: id.to_string() })
+}
+
+// === Bug Commands ===
+
+fn parse_severity(s: &str) -> Result<BugSeverity> {
+    match s.to_lowercase().as_str() {
+        "triage" => Ok(BugSeverity::Triage),
+        "low" => Ok(BugSeverity::Low),
+        "medium" => Ok(BugSeverity::Medium),
+        "high" => Ok(BugSeverity::High),
+        "critical" => Ok(BugSeverity::Critical),
+        _ => Err(Error::Other(format!("Invalid severity: {}", s))),
+    }
+}
+
+#[derive(Serialize)]
+pub struct BugCreated {
+    pub id: String,
+    pub title: String,
+}
+
+impl Output for BugCreated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Created bug {} \"{}\"", self.id, self.title)
+    }
+}
+
+/// Create a new bug.
+#[allow(clippy::too_many_arguments)]
+pub fn bug_create(
+    repo_path: &Path,
+    title: String,
+    description: Option<String>,
+    priority: Option<u8>,
+    severity: Option<String>,
+    tags: Vec<String>,
+    assignee: Option<String>,
+    reproduction_steps: Option<String>,
+    affected_component: Option<String>,
+) -> Result<BugCreated> {
+    let mut storage = Storage::open(repo_path)?;
+
+    if let Some(p) = priority {
+        if p > 4 {
+            return Err(Error::Other("Priority must be 0-4".to_string()));
+        }
+    }
+
+    let id = generate_id("bn", &title);
+    let mut bug = Bug::new(id.clone(), title.clone());
+    bug.description = description;
+    bug.priority = priority.unwrap_or(2);
+    bug.severity = severity
+        .as_deref()
+        .map(parse_severity)
+        .transpose()?
+        .unwrap_or_default();
+    bug.tags = tags;
+    bug.assignee = assignee;
+    bug.reproduction_steps = reproduction_steps;
+    bug.affected_component = affected_component;
+
+    storage.add_bug(&bug)?;
+
+    Ok(BugCreated { id, title })
+}
+
+impl Output for Bug {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("{} {}", self.id, self.title));
+        lines.push(format!(
+            "  Status: {:?}  Priority: {}  Severity: {:?}",
+            self.status, self.priority, self.severity
+        ));
+        if let Some(ref desc) = self.description {
+            lines.push(format!("  Description: {}", desc));
+        }
+        if let Some(ref steps) = self.reproduction_steps {
+            lines.push(format!("  Reproduction steps: {}", steps));
+        }
+        if let Some(ref component) = self.affected_component {
+            lines.push(format!("  Affected component: {}", component));
+        }
+        if !self.tags.is_empty() {
+            lines.push(format!("  Tags: {}", self.tags.join(", ")));
+        }
+        if let Some(ref assignee) = self.assignee {
+            lines.push(format!("  Assignee: {}", assignee));
+        }
+        if !self.depends_on.is_empty() {
+            lines.push(format!("  Depends on: {}", self.depends_on.join(", ")));
+        }
+        lines.push(format!(
+            "  Created: {}",
+            self.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.push(format!(
+            "  Updated: {}",
+            self.updated_at.format("%Y-%m-%d %H:%M")
+        ));
+        if let Some(closed) = self.closed_at {
+            lines.push(format!("  Closed: {}", closed.format("%Y-%m-%d %H:%M")));
+            if let Some(ref reason) = self.closed_reason {
+                lines.push(format!("  Reason: {}", reason));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct BugList {
+    pub bugs: Vec<Bug>,
+    pub count: usize,
+}
+
+impl Output for BugList {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.bugs.is_empty() {
+            return "No bugs found.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("{} bug(s):\n", self.count));
+
+        for bug in &self.bugs {
+            let status_char = match bug.status {
+                TaskStatus::Pending => " ",
+                TaskStatus::InProgress => ">",
+                TaskStatus::Done => "x",
+                TaskStatus::Blocked => "!",
+                TaskStatus::Cancelled => "-",
+                TaskStatus::Reopened => "?",
+                TaskStatus::Partial => "~",
+            };
+            let tags = if bug.tags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", bug.tags.join(", "))
+            };
+            lines.push(format!(
+                "[{}] {} P{} S:{} {}{}",
+                status_char,
+                bug.id,
+                bug.priority,
+                format!("{:?}", bug.severity).to_lowercase(),
+                bug.title,
+                tags
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// List bugs with optional filters.
+pub fn bug_list(
+    repo_path: &Path,
+    status: Option<&str>,
+    priority: Option<u8>,
+    severity: Option<&str>,
+    tag: Option<&str>,
+) -> Result<BugList> {
+    let storage = Storage::open(repo_path)?;
+    let bugs = storage.list_bugs(status, priority, severity, tag)?;
+    let count = bugs.len();
+    Ok(BugList { bugs, count })
+}
+
+#[derive(Serialize)]
+pub struct BugUpdated {
+    pub id: String,
+    pub updated_fields: Vec<String>,
+}
+
+impl Output for BugUpdated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Updated bug {}: {}",
+            self.id,
+            self.updated_fields.join(", ")
+        )
+    }
+}
+
+/// Update a bug.
+#[allow(clippy::too_many_arguments)]
+pub fn bug_update(
+    repo_path: &Path,
+    id: &str,
+    title: Option<String>,
+    description: Option<String>,
+    priority: Option<u8>,
+    status: Option<&str>,
+    severity: Option<String>,
+    add_tags: Vec<String>,
+    remove_tags: Vec<String>,
+    assignee: Option<String>,
+    reproduction_steps: Option<String>,
+    affected_component: Option<String>,
+) -> Result<BugUpdated> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut bug = storage.get_bug(id)?;
+    let mut updated_fields = Vec::new();
+
+    if let Some(t) = title {
+        bug.title = t;
+        updated_fields.push("title".to_string());
+    }
+
+    if let Some(d) = description {
+        bug.description = Some(d);
+        updated_fields.push("description".to_string());
+    }
+
+    if let Some(p) = priority {
+        if p > 4 {
+            return Err(Error::Other("Priority must be 0-4".to_string()));
+        }
+        bug.priority = p;
+        updated_fields.push("priority".to_string());
+    }
+
+    if let Some(s) = status {
+        bug.status = parse_status(s)?;
+        updated_fields.push("status".to_string());
+    }
+
+    if let Some(s) = severity {
+        bug.severity = parse_severity(&s)?;
+        updated_fields.push("severity".to_string());
+    }
+
+    if !add_tags.is_empty() {
+        for tag in add_tags {
+            if !bug.tags.contains(&tag) {
+                bug.tags.push(tag);
+            }
+        }
+        updated_fields.push("tags".to_string());
+    }
+
+    if !remove_tags.is_empty() {
+        bug.tags.retain(|t| !remove_tags.contains(t));
+        if !updated_fields.contains(&"tags".to_string()) {
+            updated_fields.push("tags".to_string());
+        }
+    }
+
+    if let Some(a) = assignee {
+        bug.assignee = Some(a);
+        updated_fields.push("assignee".to_string());
+    }
+
+    if let Some(steps) = reproduction_steps {
+        bug.reproduction_steps = Some(steps);
+        updated_fields.push("reproduction_steps".to_string());
+    }
+
+    if let Some(component) = affected_component {
+        bug.affected_component = Some(component);
+        updated_fields.push("affected_component".to_string());
+    }
+
+    if updated_fields.is_empty() {
+        return Err(Error::Other("No fields to update".to_string()));
+    }
+
+    bug.updated_at = Utc::now();
+    storage.update_bug(&bug)?;
+
+    Ok(BugUpdated {
+        id: id.to_string(),
+        updated_fields,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct BugClosed {
+    pub id: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+impl Output for BugClosed {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut output = format!("Closed bug {}", self.id);
+        if let Some(warning) = &self.warning {
+            output.push_str(&format!("\nWarning: {}", warning));
+        }
+        output
+    }
+}
+
+/// Close a bug.
+pub fn bug_close(
+    repo_path: &Path,
+    id: &str,
+    reason: Option<String>,
+    force: bool,
+) -> Result<BugClosed> {
+    let mut storage = Storage::open(repo_path)?;
+    let bug = storage.get_bug(id)?;
+
+    let incomplete_deps: Vec<Bug> = bug
+        .depends_on
+        .iter()
+        .filter_map(|dep_id| storage.get_bug(dep_id).ok())
+        .filter(|dep| dep.status != TaskStatus::Done && dep.status != TaskStatus::Cancelled)
+        .collect();
+
+    if !incomplete_deps.is_empty() && !force {
+        let dep_list: Vec<String> = incomplete_deps
+            .iter()
+            .map(|d| {
+                format!(
+                    "{}: \"{}\" ({})",
+                    d.id,
+                    d.title,
+                    format!("{:?}", d.status).to_lowercase()
+                )
+            })
+            .collect();
+
+        return Err(Error::Other(format!(
+            "Cannot close bug {}. It has {} incomplete dependencies:\n  - {}\n\nUse --force to close anyway, or complete the dependencies first.",
+            id,
+            incomplete_deps.len(),
+            dep_list.join("\n  - ")
+        )));
+    }
+
+    let mut bug = bug;
+    bug.status = TaskStatus::Done;
+    bug.closed_at = Some(Utc::now());
+    bug.closed_reason = reason;
+    bug.updated_at = Utc::now();
+
+    storage.update_bug(&bug)?;
+
+    let warning = if !incomplete_deps.is_empty() {
+        Some(format!(
+            "Closed with {} incomplete dependencies",
+            incomplete_deps.len()
+        ))
+    } else {
+        None
+    };
+
+    Ok(BugClosed {
+        id: id.to_string(),
+        status: "done".to_string(),
+        warning,
+    })
+}
+
+#[derive(Serialize)]
+pub struct BugReopened {
+    pub id: String,
+    pub status: String,
+}
+
+impl Output for BugReopened {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Reopened bug {}", self.id)
+    }
+}
+
+/// Reopen a closed bug.
+pub fn bug_reopen(repo_path: &Path, id: &str) -> Result<BugReopened> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut bug = storage.get_bug(id)?;
+
+    bug.status = TaskStatus::Reopened;
+    bug.closed_at = None;
+    bug.closed_reason = None;
+    bug.updated_at = Utc::now();
+
+    storage.update_bug(&bug)?;
+
+    Ok(BugReopened {
+        id: id.to_string(),
+        status: "reopened".to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct BugDeleted {
+    pub id: String,
+}
+
+impl Output for BugDeleted {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Deleted bug {}", self.id)
+    }
+}
+
+/// Delete a bug.
+pub fn bug_delete(repo_path: &Path, id: &str) -> Result<BugDeleted> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.delete_bug(id)?;
+
+    Ok(BugDeleted { id: id.to_string() })
 }
 
 // === Status Summary ===
