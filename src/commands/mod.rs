@@ -83,6 +83,7 @@ pub struct InitResult {
     pub storage_path: String,
     pub agents_md_updated: bool,
     pub skills_file_created: bool,
+    pub codex_skills_file_created: bool,
 }
 
 impl Output for InitResult {
@@ -108,6 +109,10 @@ impl Output for InitResult {
                 "Created Claude Code skills file at ~/.claude/skills/binnacle/SKILL.md".to_string(),
             );
         }
+        if self.codex_skills_file_created {
+            lines
+                .push("Created Codex skills file at ~/.codex/skills/binnacle/SKILL.md".to_string());
+        }
         lines.join("\n")
     }
 }
@@ -117,13 +122,24 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
     // Prompt for AGENTS.md update (default Yes)
     let update_agents_md = prompt_yes_no("Add binnacle reference to AGENTS.md?", true);
 
-    // Prompt for skills file creation (default Yes)
-    let create_skills = prompt_yes_no(
-        "Create Claude Code skills file for binnacle at ~/.claude/skills/binnacle/SKILL.md?",
+    // Prompt for Claude Code skills file creation (default Yes)
+    let create_claude_skills = prompt_yes_no(
+        "Create Claude Code skills file at ~/.claude/skills/binnacle/SKILL.md?",
         true,
     );
 
-    init_with_options(repo_path, update_agents_md, create_skills)
+    // Prompt for Codex skills file creation (default Yes)
+    let create_codex_skills = prompt_yes_no(
+        "Create Codex skills file at ~/.codex/skills/binnacle/SKILL.md?",
+        true,
+    );
+
+    init_with_options(
+        repo_path,
+        update_agents_md,
+        create_claude_skills,
+        create_codex_skills,
+    )
 }
 
 /// Initialize binnacle for the current repository with explicit options.
@@ -131,7 +147,8 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
 fn init_with_options(
     repo_path: &Path,
     update_agents: bool,
-    create_skills: bool,
+    create_claude_skills: bool,
+    create_codex_skills: bool,
 ) -> Result<InitResult> {
     let already_exists = Storage::exists(repo_path)?;
     let storage = if already_exists {
@@ -147,9 +164,16 @@ fn init_with_options(
         false
     };
 
-    // Create skills file if requested
-    let skills_file_created = if create_skills {
-        create_skills_file()?
+    // Create Claude Code skills file if requested
+    let skills_file_created = if create_claude_skills {
+        create_claude_skills_file()?
+    } else {
+        false
+    };
+
+    // Create Codex skills file if requested
+    let codex_skills_file_created = if create_codex_skills {
+        create_codex_skills_file()?
     } else {
         false
     };
@@ -159,11 +183,13 @@ fn init_with_options(
         storage_path: storage.root().to_string_lossy().to_string(),
         agents_md_updated,
         skills_file_created,
+        codex_skills_file_created,
     })
 }
 
 /// The blurb to add to AGENTS.md
-const AGENTS_MD_BLURB: &str = r#"# Agent Instructions
+const AGENTS_MD_BLURB: &str = r#"<!-- BEGIN BINNACLE SECTION -->
+# Agent Instructions
 This project uses **bn** (binnacle) for long-horizon task/test status tracking. Run `bn orient` to get started!
 
 ## Task Workflow (IMPORTANT)
@@ -177,6 +203,7 @@ The task graph drives development priorities. Always update task status to keep 
 1. Run `bn ready` to check if any related tasks should also be closed
 2. Close ALL tasks you completed, not just the one you started with
 3. Verify the task graph is accurate before finalizing your work
+<!-- END BINNACLE SECTION -->
 "#;
 
 /// The skills file content for Claude Code
@@ -302,7 +329,7 @@ bn test run --all
 /// Create the Claude Code skills file for binnacle.
 /// Always overwrites if the file already exists.
 /// Returns true if the file was created/updated.
-fn create_skills_file() -> Result<bool> {
+fn create_claude_skills_file() -> Result<bool> {
     use std::fs;
 
     // Get home directory
@@ -314,17 +341,44 @@ fn create_skills_file() -> Result<bool> {
 
     // Create directory if it doesn't exist
     fs::create_dir_all(&skills_dir)
-        .map_err(|e| Error::Other(format!("Failed to create skills directory: {}", e)))?;
+        .map_err(|e| Error::Other(format!("Failed to create Claude skills directory: {}", e)))?;
 
     // Write the skills file (overwrites if exists)
     fs::write(&skills_path, SKILLS_FILE_CONTENT)
-        .map_err(|e| Error::Other(format!("Failed to create skills file: {}", e)))?;
+        .map_err(|e| Error::Other(format!("Failed to create Claude skills file: {}", e)))?;
 
     Ok(true)
 }
 
+/// Create the Codex skills file for binnacle.
+/// Always overwrites if the file already exists.
+/// Returns true if the file was created/updated.
+fn create_codex_skills_file() -> Result<bool> {
+    use std::fs;
+
+    // Get home directory
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| Error::Other("Could not determine home directory".to_string()))?;
+
+    let skills_dir = home_dir.join(".codex").join("skills").join("binnacle");
+    let skills_path = skills_dir.join("SKILL.md");
+
+    // Create directory if it doesn't exist
+    fs::create_dir_all(&skills_dir)
+        .map_err(|e| Error::Other(format!("Failed to create Codex skills directory: {}", e)))?;
+
+    // Write the skills file (overwrites if exists)
+    fs::write(&skills_path, SKILLS_FILE_CONTENT)
+        .map_err(|e| Error::Other(format!("Failed to create Codex skills file: {}", e)))?;
+
+    Ok(true)
+}
+
+/// Marker used to detect if AGENTS.md already has the binnacle section.
+const BINNACLE_SECTION_MARKER: &str = "<!-- BEGIN BINNACLE SECTION -->";
+
 /// Update AGENTS.md with the binnacle blurb.
-/// If the file exists and already has "bn orient", prompts user to append.
+/// If the file exists and already has the binnacle section marker, prompts user to append.
 /// Returns true if the file was modified.
 fn update_agents_md(repo_path: &Path, prompt_if_exists: bool) -> Result<bool> {
     use std::fs;
@@ -337,8 +391,11 @@ fn update_agents_md(repo_path: &Path, prompt_if_exists: bool) -> Result<bool> {
         let contents = fs::read_to_string(&agents_path)
             .map_err(|e| Error::Other(format!("Failed to read AGENTS.md: {}", e)))?;
 
-        // If already contains reference to bn orient
-        if contents.contains("bn orient") {
+        // Check for the binnacle section marker (preferred) or legacy "bn orient" reference
+        let has_binnacle_section =
+            contents.contains(BINNACLE_SECTION_MARKER) || contents.contains("bn orient");
+
+        if has_binnacle_section {
             // If we should prompt, ask user
             if prompt_if_exists {
                 if !prompt_yes_no(
@@ -642,7 +699,8 @@ impl Output for TaskShowResult {
         }
 
         if !self.task.depends_on.is_empty() {
-            lines.push(format!("\nDependencies ({}): {}",
+            lines.push(format!(
+                "\nDependencies ({}): {}",
                 self.task.depends_on.len(),
                 self.task.depends_on.join(", ")
             ));
@@ -679,7 +737,9 @@ fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
                     .filter(|d| {
                         storage
                             .get_task(d)
-                            .map(|t| t.status != TaskStatus::Done && t.status != TaskStatus::Cancelled)
+                            .map(|t| {
+                                t.status != TaskStatus::Done && t.status != TaskStatus::Cancelled
+                            })
                             .unwrap_or(false)
                     })
                     .cloned()
@@ -968,7 +1028,14 @@ pub fn task_close(
     if !incomplete_deps.is_empty() && !force {
         let dep_list: Vec<String> = incomplete_deps
             .iter()
-            .map(|d| format!("{}: \"{}\" ({})", d.id, d.title, format!("{:?}", d.status).to_lowercase()))
+            .map(|d| {
+                format!(
+                    "{}: \"{}\" ({})",
+                    d.id,
+                    d.title,
+                    format!("{:?}", d.status).to_lowercase()
+                )
+            })
             .collect();
 
         return Err(Error::Other(format!(
@@ -2106,9 +2173,7 @@ pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet>
         "action_log_path" => {
             // Validate path is not empty
             if value.trim().is_empty() {
-                return Err(Error::Other(
-                    "action_log_path cannot be empty".to_string(),
-                ));
+                return Err(Error::Other("action_log_path cannot be empty".to_string()));
             }
         }
         _ => {
@@ -2317,7 +2382,7 @@ mod tests {
     #[test]
     fn test_init_new() {
         let temp = TempDir::new().unwrap();
-        let result = init_with_options(temp.path(), false, false).unwrap();
+        let result = init_with_options(temp.path(), false, false, false).unwrap();
         assert!(result.initialized);
     }
 
@@ -2325,7 +2390,7 @@ mod tests {
     fn test_init_existing() {
         let temp = TempDir::new().unwrap();
         Storage::init(temp.path()).unwrap();
-        let result = init_with_options(temp.path(), false, false).unwrap();
+        let result = init_with_options(temp.path(), false, false, false).unwrap();
         assert!(!result.initialized);
     }
 
@@ -3011,7 +3076,7 @@ mod tests {
         assert!(!agents_path.exists());
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
         assert!(!result.skills_file_created);
@@ -3032,7 +3097,7 @@ mod tests {
         std::fs::write(&agents_path, "# My Existing Agents\n\nSome content here.\n").unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
 
@@ -3055,7 +3120,7 @@ mod tests {
         .unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false).unwrap();
         assert!(result.initialized);
         assert!(!result.agents_md_updated); // Should NOT be updated
 
@@ -3069,12 +3134,48 @@ mod tests {
         let temp = TempDir::new().unwrap();
 
         // Run init twice with AGENTS.md enabled
-        init_with_options(temp.path(), true, false).unwrap();
-        let result = init_with_options(temp.path(), true, false).unwrap();
+        init_with_options(temp.path(), true, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false).unwrap();
 
         // Second run should not update AGENTS.md (already has bn orient)
         assert!(!result.initialized); // binnacle already exists
         assert!(!result.agents_md_updated); // AGENTS.md already has bn orient
+    }
+
+    #[test]
+    fn test_init_skips_agents_md_if_has_binnacle_section_marker() {
+        let temp = TempDir::new().unwrap();
+        let agents_path = temp.path().join("AGENTS.md");
+
+        // Create existing AGENTS.md that already has the binnacle section marker
+        std::fs::write(
+            &agents_path,
+            "# Agents\n\n<!-- BEGIN BINNACLE SECTION -->\nCustom content\n<!-- END BINNACLE SECTION -->\n",
+        )
+        .unwrap();
+
+        // Run init with AGENTS.md update enabled
+        let result = init_with_options(temp.path(), true, false, false).unwrap();
+        assert!(result.initialized);
+        assert!(!result.agents_md_updated); // Should NOT be updated
+
+        // Verify content wasn't modified
+        let contents = std::fs::read_to_string(&agents_path).unwrap();
+        assert_eq!(contents.matches("BEGIN BINNACLE SECTION").count(), 1);
+    }
+
+    #[test]
+    fn test_agents_md_has_html_markers() {
+        let temp = TempDir::new().unwrap();
+        let agents_path = temp.path().join("AGENTS.md");
+
+        // Run init with AGENTS.md update enabled
+        init_with_options(temp.path(), true, false, false).unwrap();
+
+        // Verify AGENTS.md contains HTML markers
+        let contents = std::fs::read_to_string(&agents_path).unwrap();
+        assert!(contents.contains("<!-- BEGIN BINNACLE SECTION -->"));
+        assert!(contents.contains("<!-- END BINNACLE SECTION -->"));
     }
 
     // === Orient Command Tests ===
@@ -3175,8 +3276,15 @@ mod tests {
     #[test]
     fn test_task_show_no_dependencies_no_blocking_info() {
         let temp = setup();
-        let task = task_create(temp.path(), "Solo Task".to_string(), None, None, vec![], None)
-            .unwrap();
+        let task = task_create(
+            temp.path(),
+            "Solo Task".to_string(),
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let result = task_show(temp.path(), &task.id).unwrap();
 
@@ -3372,7 +3480,9 @@ mod tests {
         let blocking = result.blocking_info.unwrap();
 
         // Check summary format
-        assert!(blocking.summary.contains("Blocked by 2 incomplete dependencies"));
+        assert!(blocking
+            .summary
+            .contains("Blocked by 2 incomplete dependencies"));
         assert!(blocking.summary.contains(&task_a.id));
         assert!(blocking.summary.contains("pending"));
         assert!(blocking.summary.contains(&task_b.id));
