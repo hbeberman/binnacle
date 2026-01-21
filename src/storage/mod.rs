@@ -11,7 +11,7 @@
 //! - **Git notes backend**: Git notes at `refs/notes/binnacle`
 //!
 //! All backends use:
-//! - JSONL files for append-only data (tasks.jsonl, commits.jsonl, test-results.jsonl)
+//! - JSONL files for append-only data (tasks.jsonl, bugs.jsonl, commits.jsonl, test-results.jsonl)
 //! - SQLite for indexed queries (cache.db) - file backend only
 
 pub mod backend;
@@ -22,7 +22,7 @@ pub use backend::{BackendType, StorageBackend};
 pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
-use crate::models::{CommitLink, Task, TaskStatus, TestNode, TestResult};
+use crate::models::{Bug, CommitLink, Task, TaskStatus, TestNode, TestResult};
 use crate::{Error, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection};
@@ -50,6 +50,7 @@ impl Storage {
 
         let db_path = root.join("cache.db");
         let conn = Connection::open(&db_path)?;
+        Self::init_schema(&conn)?;
 
         Ok(Self { root, conn })
     }
@@ -62,7 +63,7 @@ impl Storage {
         fs::create_dir_all(&root)?;
 
         // Create empty JSONL files
-        let files = ["tasks.jsonl", "commits.jsonl", "test-results.jsonl"];
+        let files = ["tasks.jsonl", "bugs.jsonl", "commits.jsonl", "test-results.jsonl"];
         for file in files {
             let path = root.join(file);
             if !path.exists() {
@@ -117,9 +118,45 @@ impl Storage {
                 FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS bugs (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority INTEGER NOT NULL DEFAULT 2,
+                status TEXT NOT NULL DEFAULT 'pending',
+                severity TEXT NOT NULL DEFAULT 'triage',
+                reproduction_steps TEXT,
+                affected_component TEXT,
+                assignee TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                closed_at TEXT,
+                closed_reason TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS bug_tags (
+                bug_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (bug_id, tag),
+                FOREIGN KEY (bug_id) REFERENCES bugs(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS bug_dependencies (
+                child_id TEXT NOT NULL,
+                parent_id TEXT NOT NULL,
+                PRIMARY KEY (child_id, parent_id),
+                FOREIGN KEY (child_id) REFERENCES bugs(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_id) REFERENCES bugs(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
             CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
             CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag);
+
+            CREATE INDEX IF NOT EXISTS idx_bugs_status ON bugs(status);
+            CREATE INDEX IF NOT EXISTS idx_bugs_priority ON bugs(priority);
+            CREATE INDEX IF NOT EXISTS idx_bugs_severity ON bugs(severity);
+            CREATE INDEX IF NOT EXISTS idx_bug_tags_tag ON bug_tags(tag);
 
             -- Test node tables
             CREATE TABLE IF NOT EXISTS tests (
@@ -184,6 +221,9 @@ impl Storage {
             DELETE FROM task_dependencies;
             DELETE FROM task_tags;
             DELETE FROM tasks;
+            DELETE FROM bug_dependencies;
+            DELETE FROM bug_tags;
+            DELETE FROM bugs;
             DELETE FROM test_links;
             DELETE FROM tests;
             "#,
@@ -221,6 +261,25 @@ impl Storage {
                 if let Ok(test) = serde_json::from_str::<TestNode>(&line) {
                     if test.entity_type == "test" {
                         self.cache_test(&test)?;
+                    }
+                }
+            }
+        }
+
+        // Re-read bugs from bugs.jsonl
+        let bugs_path = self.root.join("bugs.jsonl");
+        if bugs_path.exists() {
+            let file = File::open(&bugs_path)?;
+            let reader = BufReader::new(file);
+
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(bug) = serde_json::from_str::<Bug>(&line) {
+                    if bug.entity_type == "bug" {
+                        self.cache_bug(&bug)?;
                     }
                 }
             }
@@ -273,6 +332,55 @@ impl Storage {
             self.conn.execute(
                 "INSERT INTO task_dependencies (child_id, parent_id) VALUES (?1, ?2)",
                 params![task.id, parent_id],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Cache a bug in SQLite for fast querying.
+    fn cache_bug(&self, bug: &Bug) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT OR REPLACE INTO bugs
+            (id, title, description, priority, status, severity, reproduction_steps,
+             affected_component, assignee, created_at, updated_at, closed_at, closed_reason)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            "#,
+            params![
+                bug.id,
+                bug.title,
+                bug.description,
+                bug.priority,
+                serde_json::to_string(&bug.status)?.trim_matches('"'),
+                serde_json::to_string(&bug.severity)?.trim_matches('"'),
+                bug.reproduction_steps,
+                bug.affected_component,
+                bug.assignee,
+                bug.created_at.to_rfc3339(),
+                bug.updated_at.to_rfc3339(),
+                bug.closed_at.map(|t| t.to_rfc3339()),
+                bug.closed_reason,
+            ],
+        )?;
+
+        self.conn
+            .execute("DELETE FROM bug_tags WHERE bug_id = ?1", [&bug.id])?;
+        for tag in &bug.tags {
+            self.conn.execute(
+                "INSERT INTO bug_tags (bug_id, tag) VALUES (?1, ?2)",
+                params![bug.id, tag],
+            )?;
+        }
+
+        self.conn.execute(
+            "DELETE FROM bug_dependencies WHERE child_id = ?1",
+            [&bug.id],
+        )?;
+        for parent_id in &bug.depends_on {
+            self.conn.execute(
+                "INSERT INTO bug_dependencies (child_id, parent_id) VALUES (?1, ?2)",
+                params![bug.id, parent_id],
             )?;
         }
 
@@ -402,6 +510,133 @@ impl Storage {
             .execute("DELETE FROM task_tags WHERE task_id = ?", [id])?;
         self.conn.execute(
             "DELETE FROM task_dependencies WHERE child_id = ? OR parent_id = ?",
+            [id, id],
+        )?;
+
+        Ok(())
+    }
+
+    // === Bug Operations ===
+
+    /// Add a new bug.
+    pub fn add_bug(&mut self, bug: &Bug) -> Result<()> {
+        let bugs_path = self.root.join("bugs.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&bugs_path)?;
+
+        let json = serde_json::to_string(bug)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_bug(bug)?;
+
+        Ok(())
+    }
+
+    /// Get a bug by ID.
+    pub fn get_bug(&self, id: &str) -> Result<Bug> {
+        let bugs_path = self.root.join("bugs.jsonl");
+        if !bugs_path.exists() {
+            return Err(Error::NotFound(format!("Bug not found: {}", id)));
+        }
+
+        let file = File::open(&bugs_path)?;
+        let reader = BufReader::new(file);
+
+        let mut latest: Option<Bug> = None;
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(bug) = serde_json::from_str::<Bug>(&line) {
+                if bug.id == id {
+                    latest = Some(bug);
+                }
+            }
+        }
+
+        latest.ok_or_else(|| Error::NotFound(format!("Bug not found: {}", id)))
+    }
+
+    /// List all bugs, optionally filtered.
+    pub fn list_bugs(
+        &self,
+        status: Option<&str>,
+        priority: Option<u8>,
+        severity: Option<&str>,
+        tag: Option<&str>,
+    ) -> Result<Vec<Bug>> {
+        let mut sql = String::from(
+            "SELECT DISTINCT b.id FROM bugs b 
+             LEFT JOIN bug_tags bt ON b.id = bt.bug_id 
+             WHERE 1=1",
+        );
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(s) = status {
+            sql.push_str(" AND b.status = ?");
+            params_vec.push(Box::new(s.to_string()));
+        }
+        if let Some(p) = priority {
+            sql.push_str(" AND b.priority = ?");
+            params_vec.push(Box::new(p));
+        }
+        if let Some(s) = severity {
+            sql.push_str(" AND b.severity = ?");
+            params_vec.push(Box::new(s.to_string()));
+        }
+        if let Some(t) = tag {
+            sql.push_str(" AND bt.tag = ?");
+            params_vec.push(Box::new(t.to_string()));
+        }
+
+        sql.push_str(" ORDER BY b.priority ASC, b.created_at DESC");
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids: Vec<String> = stmt
+            .query_map(params_refs.as_slice(), |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut bugs = Vec::new();
+        for id in ids {
+            if let Ok(bug) = self.get_bug(&id) {
+                bugs.push(bug);
+            }
+        }
+
+        Ok(bugs)
+    }
+
+    /// Update a bug.
+    pub fn update_bug(&mut self, bug: &Bug) -> Result<()> {
+        self.get_bug(&bug.id)?;
+
+        let bugs_path = self.root.join("bugs.jsonl");
+        let mut file = OpenOptions::new().append(true).open(&bugs_path)?;
+
+        let json = serde_json::to_string(bug)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_bug(bug)?;
+
+        Ok(())
+    }
+
+    /// Delete a bug by ID.
+    pub fn delete_bug(&mut self, id: &str) -> Result<()> {
+        self.get_bug(id)?;
+
+        self.conn.execute("DELETE FROM bugs WHERE id = ?", [id])?;
+        self.conn
+            .execute("DELETE FROM bug_tags WHERE bug_id = ?", [id])?;
+        self.conn.execute(
+            "DELETE FROM bug_dependencies WHERE child_id = ? OR parent_id = ?",
             [id, id],
         )?;
 
@@ -1441,6 +1676,7 @@ pub fn validate_sha(sha: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::BugSeverity;
     use tempfile::TempDir;
 
     fn create_test_storage() -> (TempDir, Storage) {
@@ -1490,6 +1726,7 @@ mod tests {
 
         assert!(storage.root.exists());
         assert!(storage.root.join("tasks.jsonl").exists());
+        assert!(storage.root.join("bugs.jsonl").exists());
         assert!(storage.root.join("cache.db").exists());
     }
 
@@ -1512,6 +1749,35 @@ mod tests {
         let retrieved = storage.get_task("bn-test").unwrap();
         assert_eq!(retrieved.id, "bn-test");
         assert_eq!(retrieved.title, "Test task");
+    }
+
+    #[test]
+    fn test_create_and_get_bug() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let bug = Bug::new("bn-bug".to_string(), "Test bug".to_string());
+        storage.add_bug(&bug).unwrap();
+
+        let retrieved = storage.get_bug("bn-bug").unwrap();
+        assert_eq!(retrieved.id, "bn-bug");
+        assert_eq!(retrieved.title, "Test bug");
+        assert_eq!(retrieved.severity, BugSeverity::Triage);
+    }
+
+    #[test]
+    fn test_list_bugs_with_filters() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let bug = Bug::new("bn-bug".to_string(), "Test bug".to_string());
+        storage.add_bug(&bug).unwrap();
+
+        let filtered = storage
+            .list_bugs(Some("pending"), Some(2), Some("triage"), None)
+            .unwrap();
+        assert_eq!(filtered.len(), 1);
+
+        let none = storage.list_bugs(Some("done"), None, None, None).unwrap();
+        assert!(none.is_empty());
     }
 
     #[test]
