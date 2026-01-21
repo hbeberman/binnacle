@@ -1,7 +1,7 @@
 //! Integration tests for Task CRUD operations via CLI.
 //!
 //! These tests verify that task commands work correctly through the CLI:
-//! - `bn init` creates directory structure
+//! - `bn system init` creates directory structure
 //! - `bn task create/list/show/update/close/reopen/delete` all work
 //! - JSON and human-readable output formats are correct
 //! - Filtering by status, priority, and tags works
@@ -20,7 +20,7 @@ fn bn_in(dir: &TempDir) -> Command {
 /// Initialize binnacle in a temp directory and return the temp dir.
 fn init_binnacle() -> TempDir {
     let temp = TempDir::new().unwrap();
-    bn_in(&temp).arg("init").assert().success();
+    bn_in(&temp).args(["system", "init"]).assert().success();
     temp
 }
 
@@ -31,7 +31,7 @@ fn test_init_creates_storage() {
     let temp = TempDir::new().unwrap();
 
     bn_in(&temp)
-        .arg("init")
+        .args(["system", "init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":true"));
@@ -42,7 +42,7 @@ fn test_init_human_readable() {
     let temp = TempDir::new().unwrap();
 
     bn_in(&temp)
-        .args(["init", "-H"])
+        .args(["system", "init", "-H"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Initialized binnacle"));
@@ -53,7 +53,7 @@ fn test_init_already_initialized() {
     let temp = init_binnacle();
 
     bn_in(&temp)
-        .arg("init")
+        .args(["system", "init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":false"));

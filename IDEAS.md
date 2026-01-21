@@ -11,3 +11,4 @@
 - [ ] Make tests use a separate bn storage that isn't the actual repo's storage to avoid polluting the real task graph with test fixtures
 - [ ] Offer to include auto-approve rules for copilot, codex, opencode, and claude
 - [ ] Add the concept of a question that can be linked to any other resource type, and a user then links an answer off of it
+- [ ] Make `bn gui` automatically pick the first available port

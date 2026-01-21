@@ -3,7 +3,7 @@
 //! These tests verify that the orient command and AGENTS.md functionality
 //! work correctly through the CLI:
 //! - `bn orient` - Auto-initializes and shows project state
-//! - `bn init` - Creates/updates AGENTS.md with binnacle reference
+//! - `bn system init` - Creates/updates AGENTS.md with binnacle reference
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -20,7 +20,7 @@ fn bn_in(dir: &TempDir) -> Command {
 /// Initialize binnacle in a temp directory and return the temp dir.
 fn init_binnacle() -> TempDir {
     let temp = TempDir::new().unwrap();
-    bn_in(&temp).arg("init").assert().success();
+    bn_in(&temp).args(["system", "init"]).assert().success();
     temp
 }
 
@@ -41,7 +41,7 @@ fn create_task(dir: &TempDir, title: &str) -> String {
     stdout[id_start..id_end].to_string()
 }
 
-// === bn init AGENTS.md Tests ===
+// === bn system init AGENTS.md Tests ===
 
 #[test]
 fn test_init_creates_agents_md() {
@@ -53,7 +53,7 @@ fn test_init_creates_agents_md() {
 
     // Run init
     bn_in(&temp)
-        .arg("init")
+        .args(["system", "init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"agents_md_updated\":true"));
@@ -75,7 +75,7 @@ fn test_init_appends_to_existing_agents_md() {
 
     // Run init
     bn_in(&temp)
-        .arg("init")
+        .args(["system", "init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"agents_md_updated\":true"));
@@ -100,7 +100,7 @@ fn test_init_appends_markers_if_legacy_bn_orient() {
 
     // Run init - should append section with markers
     bn_in(&temp)
-        .arg("init")
+        .args(["system", "init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"agents_md_updated\":true"));
@@ -117,10 +117,10 @@ fn test_init_idempotent_agents_md() {
     let temp = TempDir::new().unwrap();
 
     // Run init twice
-    bn_in(&temp).arg("init").assert().success();
+    bn_in(&temp).args(["system", "init"]).assert().success();
 
     bn_in(&temp)
-        .arg("init")
+        .args(["system", "init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":false"))
@@ -132,7 +132,7 @@ fn test_init_human_shows_agents_md_update() {
     let temp = TempDir::new().unwrap();
 
     bn_in(&temp)
-        .args(["-H", "init"])
+        .args(["-H", "system", "init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Initialized binnacle"))

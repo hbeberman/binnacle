@@ -14,7 +14,7 @@ fn create_git_repo() -> TempDir {
 
     // Initialize git repo
     StdCommand::new("git")
-        .args(["init"])
+        .args(["system", "init"])
         .current_dir(temp.path())
         .output()
         .expect("Failed to init git repo");
