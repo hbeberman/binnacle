@@ -20,7 +20,7 @@ fn bn_in(dir: &TempDir) -> Command {
 /// Initialize binnacle in a temp directory and return the temp dir.
 fn init_binnacle() -> TempDir {
     let temp = TempDir::new().unwrap();
-    bn_in(&temp).arg("init").assert().success();
+    bn_in(&temp).args(["system", "init"]).assert().success();
     temp
 }
 

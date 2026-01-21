@@ -24,7 +24,7 @@ pub enum Error {
     #[error("Database error: {0}")]
     Database(#[from] rusqlite::Error),
 
-    #[error("Not initialized: run `bn init` first")]
+    #[error("Not initialized: run `bn system init` first")]
     NotInitialized,
 
     #[error("Entity not found: {0}")]

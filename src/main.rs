@@ -58,11 +58,6 @@ fn run_command(
     human: bool,
 ) -> Result<(), binnacle::Error> {
     match command {
-        Some(Commands::Init) => {
-            let result = commands::init(repo_path)?;
-            output(&result, human);
-        }
-
         Some(Commands::Orient) => {
             let result = commands::orient(repo_path)?;
             output(&result, human);
@@ -308,7 +303,7 @@ fn run_command(
                     if human {
                         println!("Binnacle - Not initialized.");
                         println!(
-                            "Run `bn init` to initialize, then `bn task create \"Title\"` to add tasks."
+                            "Run `bn system init` to initialize, then `bn task create \"Title\"` to add tasks."
                         );
                     } else {
                         println!(r#"{{"initialized": false, "tasks": [], "ready": []}}"#);
@@ -380,8 +375,6 @@ fn not_implemented(command: &str, subcommand: &str, human: bool) {
 /// Serialize command to extract name and arguments for logging.
 fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) {
     match command {
-        Some(Commands::Init) => ("init".to_string(), serde_json::json!({})),
-
         Some(Commands::Orient) => ("orient".to_string(), serde_json::json!({})),
 
         Some(Commands::Task { command }) => match command {

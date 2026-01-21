@@ -20,9 +20,6 @@ pub struct Cli {
 /// Top-level commands
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Initialize binnacle for this repository
-    Init,
-
     /// Get project overview and current state (start here!)
     Orient,
 
