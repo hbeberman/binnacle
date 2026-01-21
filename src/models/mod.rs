@@ -2,6 +2,7 @@
 //!
 //! This module defines the core data structures:
 //! - `Task` - Work items with status, priority, dependencies
+//! - `Bug` - Defects with severity, reproduction steps, and components
 //! - `TestNode` - Test definitions linked to tasks
 //! - `CommitLink` - Associations between commits and tasks
 
@@ -104,6 +105,95 @@ impl Task {
     }
 }
 
+/// A defect tracked by Binnacle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Bug {
+    /// Unique identifier (e.g., "bn-b1b2")
+    pub id: String,
+
+    /// Entity type marker
+    #[serde(rename = "type")]
+    pub entity_type: String,
+
+    /// Bug title
+    pub title: String,
+
+    /// Detailed description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// Priority level (0-4, lower is higher priority)
+    #[serde(default)]
+    pub priority: u8,
+
+    /// Current status
+    #[serde(default)]
+    pub status: TaskStatus,
+
+    /// Severity level (e.g., "low", "medium", "high", "critical")
+    #[serde(default = "default_bug_severity")]
+    pub severity: String,
+
+    /// Steps to reproduce
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reproduction_steps: Option<String>,
+
+    /// Affected component or area
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub affected_component: Option<String>,
+
+    /// Tags for categorization
+    #[serde(default)]
+    pub tags: Vec<String>,
+
+    /// Assigned user or agent
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignee: Option<String>,
+
+    /// IDs this bug depends on
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+
+    /// Creation timestamp
+    pub created_at: DateTime<Utc>,
+
+    /// Last update timestamp
+    pub updated_at: DateTime<Utc>,
+
+    /// Closure timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_at: Option<DateTime<Utc>>,
+
+    /// Reason for closing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_reason: Option<String>,
+}
+
+impl Bug {
+    /// Create a new bug with the given ID and title.
+    pub fn new(id: String, title: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            entity_type: "bug".to_string(),
+            title,
+            description: None,
+            priority: 2,
+            status: TaskStatus::default(),
+            severity: default_bug_severity(),
+            reproduction_steps: None,
+            affected_component: None,
+            tags: Vec::new(),
+            assignee: None,
+            depends_on: Vec::new(),
+            created_at: now,
+            updated_at: now,
+            closed_at: None,
+            closed_reason: None,
+        }
+    }
+}
+
 /// A test node linked to tasks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestNode {
@@ -138,6 +228,10 @@ pub struct TestNode {
 
 fn default_working_dir() -> String {
     ".".to_string()
+}
+
+fn default_bug_severity() -> String {
+    "medium".to_string()
 }
 
 impl TestNode {
@@ -214,6 +308,23 @@ mod tests {
         let status = TaskStatus::InProgress;
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(json, r#""in_progress""#);
+    }
+
+    #[test]
+    fn test_bug_serialization_roundtrip() {
+        let bug = Bug::new("bn-bug".to_string(), "Test bug".to_string());
+        let json = serde_json::to_string(&bug).unwrap();
+        let deserialized: Bug = serde_json::from_str(&json).unwrap();
+        assert_eq!(bug.id, deserialized.id);
+        assert_eq!(bug.title, deserialized.title);
+        assert_eq!(bug.severity, deserialized.severity);
+    }
+
+    #[test]
+    fn test_bug_default_severity() {
+        let json = r#"{"id":"bn-bug","type":"bug","title":"Bug","priority":1,"status":"pending","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#;
+        let bug: Bug = serde_json::from_str(json).unwrap();
+        assert_eq!(bug.severity, "medium");
     }
 
     #[test]
