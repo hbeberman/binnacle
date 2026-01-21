@@ -157,9 +157,9 @@ fn init_with_options(
         Storage::init(repo_path)?
     };
 
-    // Update AGENTS.md if requested (with prompting enabled in interactive mode)
+    // Update AGENTS.md if requested (idempotent: create/replace as needed)
     let agents_md_updated = if update_agents {
-        update_agents_md(repo_path, true)?
+        update_agents_md(repo_path)?
     } else {
         false
     };
@@ -190,9 +190,11 @@ fn init_with_options(
 /// The blurb to add to AGENTS.md
 const AGENTS_MD_BLURB: &str = r#"<!-- BEGIN BINNACLE SECTION -->
 # Agent Instructions
+
 This project uses **bn** (binnacle) for long-horizon task/test status tracking. Run `bn orient` to get started!
 
 ## Task Workflow (IMPORTANT)
+
 1. **Before starting work**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress`
 2. **After completing work**: Run `bn task close <id> --reason "brief description"`
 3. **If blocked**: Run `bn task update <id> --status blocked`
@@ -200,6 +202,7 @@ This project uses **bn** (binnacle) for long-horizon task/test status tracking. 
 The task graph drives development priorities. Always update task status to keep it accurate.
 
 ## Before you mark task done (IMPORTANT)
+
 1. Run `bn ready` to check if any related tasks should also be closed
 2. Close ALL tasks you completed, not just the one you started with
 3. Verify the task graph is accurate before finalizing your work
@@ -374,63 +377,92 @@ fn create_codex_skills_file() -> Result<bool> {
     Ok(true)
 }
 
-/// Marker used to detect if AGENTS.md already has the binnacle section.
-const BINNACLE_SECTION_MARKER: &str = "<!-- BEGIN BINNACLE SECTION -->";
+/// Marker used to detect the start of the binnacle section.
+const BINNACLE_SECTION_START: &str = "<!-- BEGIN BINNACLE SECTION -->";
+/// Marker used to detect the end of the binnacle section.
+const BINNACLE_SECTION_END: &str = "<!-- END BINNACLE SECTION -->";
+
+/// Replace the binnacle section in the given content with the new blurb.
+/// Returns the new content with the section replaced.
+/// Assumes the content contains both BEGIN and END markers.
+fn replace_binnacle_section(content: &str) -> Result<String> {
+    let start_idx = content
+        .find(BINNACLE_SECTION_START)
+        .ok_or_else(|| Error::Other("BEGIN BINNACLE SECTION marker not found".to_string()))?;
+
+    // Find end marker - must search AFTER start to handle nested content
+    let search_start = start_idx + BINNACLE_SECTION_START.len();
+    let end_marker_relative = content[search_start..]
+        .find(BINNACLE_SECTION_END)
+        .ok_or_else(|| Error::Other("END BINNACLE SECTION marker not found".to_string()))?;
+    let end_idx = search_start + end_marker_relative + BINNACLE_SECTION_END.len();
+
+    // Build new content: before + new blurb + after
+    let before = &content[..start_idx];
+    let after = &content[end_idx..];
+
+    Ok(format!("{}{}{}", before, AGENTS_MD_BLURB.trim_end(), after))
+}
 
 /// Update AGENTS.md with the binnacle blurb.
-/// If the file exists and already has the binnacle section marker, prompts user to append.
-/// Returns true if the file was modified.
-fn update_agents_md(repo_path: &Path, prompt_if_exists: bool) -> Result<bool> {
+/// - If file doesn't exist: create with binnacle section
+/// - If file exists with markers: replace section between markers (only if different)
+/// - If file exists without markers: append binnacle section
+/// Returns true if the file was actually modified.
+fn update_agents_md(repo_path: &Path) -> Result<bool> {
     use std::fs;
     use std::io::Write;
 
     let agents_path = repo_path.join("AGENTS.md");
 
-    // Check if file exists and already contains the blurb
     if agents_path.exists() {
         let contents = fs::read_to_string(&agents_path)
             .map_err(|e| Error::Other(format!("Failed to read AGENTS.md: {}", e)))?;
 
-        // Check for the binnacle section marker (preferred) or legacy "bn orient" reference
-        let has_binnacle_section =
-            contents.contains(BINNACLE_SECTION_MARKER) || contents.contains("bn orient");
+        // Check if file has binnacle section markers
+        let has_start = contents.contains(BINNACLE_SECTION_START);
+        let has_end = contents.contains(BINNACLE_SECTION_END);
 
-        if has_binnacle_section {
-            // If we should prompt, ask user
-            if prompt_if_exists {
-                if !prompt_yes_no(
-                    "AGENTS.md already contains binnacle reference. Append updated context anyway?",
-                    false,
-                ) {
-                    return Ok(false);
-                }
-            } else {
-                // Non-interactive mode, skip
-                return Ok(false);
-            }
+        // Warn about malformed markers (one without the other)
+        if has_start != has_end {
+            eprintln!(
+                "Warning: AGENTS.md has {} but not {}. Appending fresh section.",
+                if has_start { "BEGIN marker" } else { "END marker" },
+                if has_start { "END marker" } else { "BEGIN marker" }
+            );
         }
 
-        // Append the blurb
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(&agents_path)
-            .map_err(|e| Error::Other(format!("Failed to open AGENTS.md: {}", e)))?;
-
-        // Add a newline before the blurb if file doesn't end with one
-        let prefix = if contents.ends_with('\n') {
-            "\n"
+        if has_start && has_end {
+            // Replace existing section
+            let new_contents = replace_binnacle_section(&contents)?;
+            // Only write if content actually changed
+            if new_contents != contents {
+                fs::write(&agents_path, new_contents)
+                    .map_err(|e| Error::Other(format!("Failed to write AGENTS.md: {}", e)))?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
         } else {
-            "\n\n"
-        };
-        file.write_all(prefix.as_bytes())
-            .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
-        file.write_all(AGENTS_MD_BLURB.as_bytes())
-            .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
+            // Append new section
+            let mut file = fs::OpenOptions::new()
+                .append(true)
+                .open(&agents_path)
+                .map_err(|e| Error::Other(format!("Failed to open AGENTS.md: {}", e)))?;
 
-        Ok(true)
+            // Add a newline before the blurb if file doesn't end with one
+            let prefix = if contents.ends_with('\n') { "\n" } else { "\n\n" };
+            file.write_all(prefix.as_bytes())
+                .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
+            file.write_all(AGENTS_MD_BLURB.trim_end().as_bytes())
+                .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
+            file.write_all(b"\n")
+                .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
+            Ok(true)
+        }
     } else {
         // Create new AGENTS.md with the blurb
-        fs::write(&agents_path, AGENTS_MD_BLURB)
+        fs::write(&agents_path, format!("{}\n", AGENTS_MD_BLURB.trim_end()))
             .map_err(|e| Error::Other(format!("Failed to create AGENTS.md: {}", e)))?;
         Ok(true)
     }
@@ -499,8 +531,8 @@ pub fn orient(repo_path: &Path) -> Result<OrientResult> {
     // Auto-initialize if needed (without prompts)
     let initialized = if !Storage::exists(repo_path)? {
         Storage::init(repo_path)?;
-        // Auto-update AGENTS.md without prompting (non-interactive)
-        let _ = update_agents_md(repo_path, false);
+        // Auto-update AGENTS.md (idempotent)
+        let _ = update_agents_md(repo_path);
         true
     } else {
         false
@@ -3623,11 +3655,11 @@ mod tests {
     }
 
     #[test]
-    fn test_init_skips_agents_md_if_already_has_bn_orient() {
+    fn test_init_appends_section_if_legacy_bn_orient() {
         let temp = TempDir::new().unwrap();
         let agents_path = temp.path().join("AGENTS.md");
 
-        // Create existing AGENTS.md that already references bn orient
+        // Create existing AGENTS.md that references bn orient but lacks markers
         std::fs::write(
             &agents_path,
             "# Agents\n\nRun `bn orient` to get started.\n",
@@ -3637,11 +3669,13 @@ mod tests {
         // Run init with AGENTS.md update enabled
         let result = init_with_options(temp.path(), true, false, false).unwrap();
         assert!(result.initialized);
-        assert!(!result.agents_md_updated); // Should NOT be updated
+        assert!(result.agents_md_updated); // Should be updated to add markers
 
-        // Verify content wasn't duplicated
+        // Verify markers were added and original content preserved
         let contents = std::fs::read_to_string(&agents_path).unwrap();
-        assert_eq!(contents.matches("bn orient").count(), 1);
+        assert!(contents.contains("# Agents")); // Original content preserved
+        assert!(contents.contains("<!-- BEGIN BINNACLE SECTION -->")); // Markers added
+        assert!(contents.contains("<!-- END BINNACLE SECTION -->"));
     }
 
     #[test]
@@ -3652,17 +3686,38 @@ mod tests {
         init_with_options(temp.path(), true, false, false).unwrap();
         let result = init_with_options(temp.path(), true, false, false).unwrap();
 
-        // Second run should not update AGENTS.md (already has bn orient)
+        // Second run should not update AGENTS.md (content unchanged)
         assert!(!result.initialized); // binnacle already exists
-        assert!(!result.agents_md_updated); // AGENTS.md already has bn orient
+        assert!(!result.agents_md_updated); // AGENTS.md content unchanged
     }
 
     #[test]
-    fn test_init_skips_agents_md_if_has_binnacle_section_marker() {
+    fn test_init_no_change_when_standard_blurb_already_present() {
         let temp = TempDir::new().unwrap();
         let agents_path = temp.path().join("AGENTS.md");
 
-        // Create existing AGENTS.md that already has the binnacle section marker
+        // Pre-create AGENTS.md with the exact standard content (with trailing newline)
+        std::fs::write(&agents_path, format!("{}\n", AGENTS_MD_BLURB.trim_end())).unwrap();
+
+        // Initialize binnacle storage (without AGENTS.md update first)
+        Storage::init(temp.path()).unwrap();
+
+        // Now run init with AGENTS.md update - should detect no change needed
+        let result = init_with_options(temp.path(), true, false, false).unwrap();
+        assert!(!result.initialized); // binnacle already exists
+        assert!(!result.agents_md_updated); // Content already matches exactly
+
+        // Verify file wasn't modified (content identical)
+        let contents = std::fs::read_to_string(&agents_path).unwrap();
+        assert_eq!(contents, format!("{}\n", AGENTS_MD_BLURB.trim_end()));
+    }
+
+    #[test]
+    fn test_init_replaces_custom_binnacle_section() {
+        let temp = TempDir::new().unwrap();
+        let agents_path = temp.path().join("AGENTS.md");
+
+        // Create existing AGENTS.md with custom binnacle section
         std::fs::write(
             &agents_path,
             "# Agents\n\n<!-- BEGIN BINNACLE SECTION -->\nCustom content\n<!-- END BINNACLE SECTION -->\n",
@@ -3672,10 +3727,13 @@ mod tests {
         // Run init with AGENTS.md update enabled
         let result = init_with_options(temp.path(), true, false, false).unwrap();
         assert!(result.initialized);
-        assert!(!result.agents_md_updated); // Should NOT be updated
+        assert!(result.agents_md_updated); // Section was replaced with standard content
 
-        // Verify content wasn't modified
+        // Verify section was replaced with standard content
         let contents = std::fs::read_to_string(&agents_path).unwrap();
+        assert!(contents.contains("# Agents")); // User content preserved
+        assert!(contents.contains("bn orient")); // Standard section added
+        assert!(!contents.contains("Custom content")); // Custom content replaced
         assert_eq!(contents.matches("BEGIN BINNACLE SECTION").count(), 1);
     }
 
