@@ -928,3 +928,317 @@ fn test_transitive_dependencies() {
         .stdout(predicate::str::contains("transitive_deps"))
         .stdout(predicate::str::contains(&id_b));
 }
+
+// === Blocker Analysis Tests (task show with blocking info) ===
+
+#[test]
+fn test_task_show_no_blocking_info_when_no_deps() {
+    let temp = init_binnacle();
+
+    let output = bn_in(&temp)
+        .args(["task", "create", "Solo Task"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // JSON output should not have blocking_info field
+    bn_in(&temp)
+        .args(["task", "show", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&id))
+        .stdout(predicate::str::contains("blocking_info").not());
+}
+
+#[test]
+fn test_task_show_blocking_info_json_format() {
+    let temp = init_binnacle();
+
+    // Create A and B
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A (pending)
+    bn_in(&temp)
+        .args(["dep", "add", &id_b, &id_a])
+        .assert()
+        .success();
+
+    // Show B, should have blocking_info
+    bn_in(&temp)
+        .args(["task", "show", &id_b])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("blocking_info"))
+        .stdout(predicate::str::contains("is_blocked"))
+        .stdout(predicate::str::contains("blocker_count"))
+        .stdout(predicate::str::contains("direct_blockers"))
+        .stdout(predicate::str::contains(&id_a));
+}
+
+#[test]
+fn test_task_show_blocking_info_human_readable() {
+    let temp = init_binnacle();
+
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
+    bn_in(&temp)
+        .args(["dep", "add", &id_b, &id_a])
+        .assert()
+        .success();
+
+    // Show B with -H, should show blocker summary
+    bn_in(&temp)
+        .args(["task", "show", &id_b, "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Blocked by"))
+        .stdout(predicate::str::contains("incomplete dependencies"))
+        .stdout(predicate::str::contains(&id_a));
+}
+
+#[test]
+fn test_task_show_all_deps_complete() {
+    let temp = init_binnacle();
+
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // Close A
+    bn_in(&temp)
+        .args(["task", "close", &id_a, "--reason", "Done"])
+        .assert()
+        .success();
+
+    // B depends on A (done)
+    bn_in(&temp)
+        .args(["dep", "add", &id_b, &id_a])
+        .assert()
+        .success();
+
+    // Show B, should show not blocked
+    bn_in(&temp)
+        .args(["task", "show", &id_b, "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("All dependencies complete"));
+}
+
+#[test]
+fn test_task_show_transitive_blockers_json() {
+    let temp = init_binnacle();
+
+    // Create chain: C -> B -> A
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    let output_c = bn_in(&temp)
+        .args(["task", "create", "Task C"])
+        .output()
+        .unwrap();
+    let id_c = extract_task_id(&output_c);
+
+    bn_in(&temp)
+        .args(["dep", "add", &id_b, &id_a])
+        .assert()
+        .success();
+    bn_in(&temp)
+        .args(["dep", "add", &id_c, &id_b])
+        .assert()
+        .success();
+
+    // Show C, should show B as blocker with A in blocked_by
+    bn_in(&temp)
+        .args(["task", "show", &id_c])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("blocking_info"))
+        .stdout(predicate::str::contains(&id_b))
+        .stdout(predicate::str::contains("blocked_by"))
+        .stdout(predicate::str::contains(&id_a))
+        .stdout(predicate::str::contains("blocker_chain"));
+}
+
+#[test]
+fn test_task_show_multiple_blockers() {
+    let temp = init_binnacle();
+
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Task B", "--assignee", "alice"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    let output_c = bn_in(&temp)
+        .args(["task", "create", "Task C"])
+        .output()
+        .unwrap();
+    let id_c = extract_task_id(&output_c);
+
+    // C depends on both A and B
+    bn_in(&temp)
+        .args(["dep", "add", &id_c, &id_a])
+        .assert()
+        .success();
+    bn_in(&temp)
+        .args(["dep", "add", &id_c, &id_b])
+        .assert()
+        .success();
+
+    // Show C with both blockers
+    bn_in(&temp)
+        .args(["task", "show", &id_c, "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Blocked by 2 incomplete dependencies"))
+        .stdout(predicate::str::contains(&id_a))
+        .stdout(predicate::str::contains(&id_b))
+        .stdout(predicate::str::contains("alice"));
+}
+
+#[test]
+fn test_task_show_cancelled_deps_dont_block() {
+    let temp = init_binnacle();
+
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // Cancel A
+    bn_in(&temp)
+        .args(["task", "update", &id_a, "--status", "cancelled"])
+        .assert()
+        .success();
+
+    // B depends on A (cancelled)
+    bn_in(&temp)
+        .args(["dep", "add", &id_b, &id_a])
+        .assert()
+        .success();
+
+    // Show B, should not be blocked
+    bn_in(&temp)
+        .args(["task", "show", &id_b, "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("All dependencies complete"));
+}
+
+#[test]
+fn test_task_show_mixed_status_blockers() {
+    let temp = init_binnacle();
+
+    // Create A (pending), B (in_progress), C (done)
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    let output_c = bn_in(&temp)
+        .args(["task", "create", "Task C"])
+        .output()
+        .unwrap();
+    let id_c = extract_task_id(&output_c);
+
+    let output_d = bn_in(&temp)
+        .args(["task", "create", "Task D"])
+        .output()
+        .unwrap();
+    let id_d = extract_task_id(&output_d);
+
+    // Set statuses
+    bn_in(&temp)
+        .args(["task", "update", &id_b, "--status", "in_progress"])
+        .assert()
+        .success();
+    bn_in(&temp)
+        .args(["task", "close", &id_c, "--reason", "Done"])
+        .assert()
+        .success();
+
+    // D depends on all three
+    bn_in(&temp)
+        .args(["dep", "add", &id_d, &id_a])
+        .assert()
+        .success();
+    bn_in(&temp)
+        .args(["dep", "add", &id_d, &id_b])
+        .assert()
+        .success();
+    bn_in(&temp)
+        .args(["dep", "add", &id_d, &id_c])
+        .assert()
+        .success();
+
+    // Show D, should show only A and B as blockers (not C which is done)
+    let output = bn_in(&temp)
+        .args(["task", "show", &id_d])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(stdout.contains("\"blocker_count\":2"));
+    assert!(stdout.contains(&id_a));
+    assert!(stdout.contains(&id_b));
+    assert!(stdout.contains("pending"));
+    assert!(stdout.contains("inprogress"));
+}
