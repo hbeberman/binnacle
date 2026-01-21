@@ -8,7 +8,7 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_help() {
-        let mut cmd = Command::cargo_bin("bn").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.arg("gui").arg("--help");
         cmd.assert()
             .success()
@@ -18,7 +18,7 @@ mod gui_enabled {
     #[test]
     fn test_gui_requires_init() {
         let temp = tempfile::tempdir().unwrap();
-        let mut cmd = Command::cargo_bin("bn").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(&temp);
         cmd.arg("gui");
         cmd.assert()
@@ -30,7 +30,7 @@ mod gui_enabled {
     fn test_gui_custom_port_parsing() {
         // Just test that the CLI accepts a custom port argument
         // (actual server won't start in test, but parsing should work)
-        let mut cmd = Command::cargo_bin("bn").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.arg("gui").arg("--port").arg("8080").arg("--help");
         cmd.assert().success();
     }
@@ -42,7 +42,7 @@ mod gui_disabled {
 
     #[test]
     fn test_gui_command_not_available() {
-        let mut cmd = Command::cargo_bin("bn").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.arg("gui").arg("--help");
         // When GUI feature is disabled, the command should not exist
         cmd.assert().failure();
