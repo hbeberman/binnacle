@@ -87,27 +87,29 @@ fn test_init_appends_to_existing_agents_md() {
 }
 
 #[test]
-fn test_init_skips_agents_md_if_already_has_bn_orient() {
+fn test_init_appends_markers_if_legacy_bn_orient() {
     let temp = TempDir::new().unwrap();
     let agents_path = temp.path().join("AGENTS.md");
 
-    // Create existing AGENTS.md that already references bn orient
+    // Create existing AGENTS.md that references bn orient but lacks markers
     fs::write(
         &agents_path,
         "# Agents\n\nRun `bn orient` to get started.\n",
     )
     .unwrap();
 
-    // Run init
+    // Run init - should append section with markers
     bn_in(&temp)
         .arg("init")
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"agents_md_updated\":false"));
+        .stdout(predicate::str::contains("\"agents_md_updated\":true"));
 
-    // Verify content wasn't duplicated
+    // Verify markers were added and original content preserved
     let contents = fs::read_to_string(&agents_path).unwrap();
-    assert_eq!(contents.matches("bn orient").count(), 1);
+    assert!(contents.contains("# Agents")); // Original content preserved
+    assert!(contents.contains("<!-- BEGIN BINNACLE SECTION -->")); // Markers added
+    assert!(contents.contains("<!-- END BINNACLE SECTION -->"));
 }
 
 #[test]
