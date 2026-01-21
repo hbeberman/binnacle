@@ -1,0 +1,1 @@
+Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. You're encouraged to ask me lots of clarifying questions. Look for newly created tasks first. Remember to claim the task with bn, and mark it complete when you finish.
