@@ -742,10 +742,12 @@ pub fn task_update(
     })
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct TaskClosed {
     pub id: String,
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 impl Output for TaskClosed {
@@ -754,15 +756,49 @@ impl Output for TaskClosed {
     }
 
     fn to_human(&self) -> String {
-        format!("Closed task {}", self.id)
+        let mut output = format!("Closed task {}", self.id);
+        if let Some(warning) = &self.warning {
+            output.push_str(&format!("\nWarning: {}", warning));
+        }
+        output
     }
 }
 
 /// Close a task.
-pub fn task_close(repo_path: &Path, id: &str, reason: Option<String>) -> Result<TaskClosed> {
+pub fn task_close(
+    repo_path: &Path,
+    id: &str,
+    reason: Option<String>,
+    force: bool,
+) -> Result<TaskClosed> {
     let mut storage = Storage::open(repo_path)?;
-    let mut task = storage.get_task(id)?;
+    let task = storage.get_task(id)?;
 
+    // Check for incomplete dependencies
+    let incomplete_deps: Vec<Task> = task
+        .depends_on
+        .iter()
+        .filter_map(|dep_id| storage.get_task(dep_id).ok())
+        .filter(|dep| dep.status != TaskStatus::Done && dep.status != TaskStatus::Cancelled)
+        .collect();
+
+    // If there are incomplete dependencies and force is false, return error
+    if !incomplete_deps.is_empty() && !force {
+        let dep_list: Vec<String> = incomplete_deps
+            .iter()
+            .map(|d| format!("{}: \"{}\" ({})", d.id, d.title, format!("{:?}", d.status).to_lowercase()))
+            .collect();
+
+        return Err(Error::Other(format!(
+            "Cannot close task {}. It has {} incomplete dependencies:\n  - {}\n\nUse --force to close anyway, or complete the dependencies first.",
+            id,
+            incomplete_deps.len(),
+            dep_list.join("\n  - ")
+        )));
+    }
+
+    // Proceed with close
+    let mut task = task;
     task.status = TaskStatus::Done;
     task.closed_at = Some(Utc::now());
     task.closed_reason = reason;
@@ -770,9 +806,20 @@ pub fn task_close(repo_path: &Path, id: &str, reason: Option<String>) -> Result<
 
     storage.update_task(&task)?;
 
+    // Generate warning if force was used with incomplete deps
+    let warning = if !incomplete_deps.is_empty() {
+        Some(format!(
+            "Closed with {} incomplete dependencies",
+            incomplete_deps.len()
+        ))
+    } else {
+        None
+    };
+
     Ok(TaskClosed {
         id: id.to_string(),
         status: "done".to_string(),
+        warning,
     })
 }
 
@@ -2191,7 +2238,7 @@ mod tests {
         let created =
             task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
 
-        task_close(temp.path(), &created.id, Some("Done".to_string())).unwrap();
+        task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
         let task = task_show(temp.path(), &created.id).unwrap();
         assert_eq!(task.status, TaskStatus::Done);
         assert!(task.closed_at.is_some());
@@ -2200,6 +2247,71 @@ mod tests {
         let task = task_show(temp.path(), &created.id).unwrap();
         assert_eq!(task.status, TaskStatus::Reopened);
         assert!(task.closed_at.is_none());
+    }
+
+    #[test]
+    fn test_task_close_with_incomplete_deps_fails() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // B depends on A
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // Try to close B without force (A is still pending)
+        let result = task_close(temp.path(), &task_b.id, None, false);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("incomplete dependencies"));
+        assert!(err_msg.contains(&task_a.id));
+    }
+
+    #[test]
+    fn test_task_close_with_incomplete_deps_force() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // B depends on A
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // Close B with force (A is still pending)
+        let result = task_close(temp.path(), &task_b.id, None, true).unwrap();
+        assert_eq!(result.status, "done");
+        assert!(result.warning.is_some());
+        assert!(result.warning.unwrap().contains("incomplete dependencies"));
+
+        // Verify task is actually closed
+        let task = task_show(temp.path(), &task_b.id).unwrap();
+        assert_eq!(task.status, TaskStatus::Done);
+    }
+
+    #[test]
+    fn test_task_close_with_complete_deps_success() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        // B depends on A
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // Close A first
+        task_close(temp.path(), &task_a.id, None, false).unwrap();
+
+        // Now close B (all deps are complete)
+        let result = task_close(temp.path(), &task_b.id, None, false).unwrap();
+        assert_eq!(result.status, "done");
+        assert!(result.warning.is_none());
+
+        // Verify task is closed
+        let task = task_show(temp.path(), &task_b.id).unwrap();
+        assert_eq!(task.status, TaskStatus::Done);
     }
 
     #[test]
@@ -2334,7 +2446,7 @@ mod tests {
         assert_eq!(blocked_result.count, 1);
 
         // Close task A
-        task_close(temp.path(), &task_a.id, None).unwrap();
+        task_close(temp.path(), &task_a.id, None, false).unwrap();
 
         // Now B should be ready
         let ready_result = ready(temp.path()).unwrap();
@@ -2463,8 +2575,8 @@ mod tests {
         // B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        // Close B (which depends on A, but A is still pending) - this creates inconsistency
-        task_close(temp.path(), &task_b.id, None).unwrap();
+        // Close B (which depends on A, but A is still pending) - use force to allow this
+        task_close(temp.path(), &task_b.id, None, true).unwrap();
 
         let result = doctor(temp.path()).unwrap();
         // We should find the consistency warning (done task with pending dependency)
@@ -2551,7 +2663,7 @@ mod tests {
         let task =
             task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
 
-        task_close(temp.path(), &task.id, Some("Complete".to_string())).unwrap();
+        task_close(temp.path(), &task.id, Some("Complete".to_string()), false).unwrap();
 
         let result = log(temp.path(), Some(&task.id)).unwrap();
         assert!(result.entries.iter().any(|e| e.action == "closed"));

@@ -381,7 +381,8 @@ impl McpServer {
             "bn_task_close" => {
                 let id = get_string_arg(args, "id")?;
                 let reason = get_optional_string(args, "reason");
-                let result = commands::task_close(repo, &id, reason)?;
+                let force = get_optional_bool(args, "force").unwrap_or(false);
+                let result = commands::task_close(repo, &id, reason, force)?;
                 Ok(result.to_json())
             }
             "bn_task_reopen" => {
@@ -663,6 +664,10 @@ fn get_optional_string(args: &Value, key: &str) -> Option<String> {
 
 fn get_optional_u8(args: &Value, key: &str) -> Option<u8> {
     args.get(key).and_then(|v| v.as_u64()).map(|n| n as u8)
+}
+
+fn get_optional_bool(args: &Value, key: &str) -> Option<bool> {
+    args.get(key).and_then(|v| v.as_bool())
 }
 
 fn get_string_array(args: &Value, key: &str) -> Vec<String> {
