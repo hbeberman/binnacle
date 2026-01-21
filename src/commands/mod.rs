@@ -1213,7 +1213,7 @@ fn parse_severity(s: &str) -> Result<BugSeverity> {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct BugCreated {
     pub id: String,
     pub title: String,
@@ -1386,7 +1386,7 @@ pub fn bug_show(repo_path: &Path, id: &str) -> Result<Bug> {
     storage.get_bug(id)
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct BugUpdated {
     pub id: String,
     pub updated_fields: Vec<String>,
@@ -3201,6 +3201,12 @@ pub fn system_store_import(
     use flate2::read::GzDecoder;
     use std::io::Read;
 
+    // Detect input type: stdin, directory, or archive file
+    let input_path = Path::new(input);
+    if input != "-" && input_path.is_dir() {
+        return system_store_import_from_folder(repo_path, input_path, import_type, dry_run);
+    }
+
     // Read input (file or stdin)
     let archive_data = if input == "-" {
         let mut buffer = Vec::new();
@@ -3399,6 +3405,220 @@ pub fn system_store_import(
         imported: true,
         dry_run: false,
         input_path: input.to_string(),
+        import_type: import_type.to_string(),
+        tasks_imported,
+        tasks_skipped: 0,
+        tests_imported,
+        commits_imported,
+        collisions,
+        id_remappings,
+    })
+}
+
+/// Import store from a folder containing JSONL files.
+///
+/// Expected folder structure:
+/// - tasks.jsonl (required)
+/// - commits.jsonl (optional)
+/// - test-results.jsonl (optional)
+/// - cache.db (ignored - rebuilt after import)
+fn system_store_import_from_folder(
+    repo_path: &Path,
+    folder_path: &Path,
+    import_type: &str,
+    dry_run: bool,
+) -> Result<StoreImportResult> {
+    // Validate required tasks.jsonl exists
+    let tasks_file = folder_path.join("tasks.jsonl");
+    if !tasks_file.exists() {
+        return Err(Error::InvalidInput(format!(
+            "Folder '{}' missing required tasks.jsonl",
+            folder_path.display()
+        )));
+    }
+
+    // Read JSONL files from folder
+    let tasks_jsonl = Some(fs::read(&tasks_file)?);
+
+    let commits_file = folder_path.join("commits.jsonl");
+    let commits_jsonl = if commits_file.exists() {
+        Some(fs::read(&commits_file)?)
+    } else {
+        None
+    };
+
+    let test_results_file = folder_path.join("test-results.jsonl");
+    let test_results_jsonl = if test_results_file.exists() {
+        Some(fs::read(&test_results_file)?)
+    } else {
+        None
+    };
+
+    // Check if already initialized for replace mode
+    let storage = Storage::open(repo_path);
+    let is_initialized = storage.is_ok();
+
+    if import_type == "replace" && is_initialized {
+        return Err(Error::InvalidInput(
+            "Store already initialized. Use --type merge to append data, or reinitialize the repo."
+                .to_string(),
+        ));
+    }
+
+    // Initialize if needed
+    let mut storage = if is_initialized {
+        storage.unwrap()
+    } else {
+        // Auto-initialize for import
+        Storage::init(repo_path)?
+    };
+
+    // Parse imported tasks
+    let mut imported_tasks: Vec<Task> = Vec::new();
+    if let Some(tasks_data) = tasks_jsonl {
+        let tasks_str = String::from_utf8_lossy(&tasks_data);
+        for line in tasks_str.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let task: Task = serde_json::from_str(line)?;
+            imported_tasks.push(task);
+        }
+    }
+
+    // Detect ID collisions and create remapping
+    let mut id_remappings: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let existing_tasks = storage.list_tasks(None, None, None)?;
+    let existing_ids: std::collections::HashSet<String> =
+        existing_tasks.iter().map(|t| t.id.clone()).collect();
+
+    for task in &imported_tasks {
+        if existing_ids.contains(&task.id) {
+            // Generate new ID using task title as seed
+            let new_id = crate::storage::generate_id("bn", &task.title);
+            id_remappings.insert(task.id.clone(), new_id);
+        }
+    }
+
+    let collisions = id_remappings.len();
+    let input_path_str = folder_path.display().to_string();
+
+    // Count tests and commits for dry-run (without importing)
+    let tests_count = test_results_jsonl
+        .as_ref()
+        .map(|data| {
+            String::from_utf8_lossy(data)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+
+    let commits_count = commits_jsonl
+        .as_ref()
+        .map(|data| {
+            String::from_utf8_lossy(data)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+
+    // If dry run, return early
+    if dry_run {
+        return Ok(StoreImportResult {
+            imported: false,
+            dry_run: true,
+            input_path: input_path_str,
+            import_type: import_type.to_string(),
+            tasks_imported: imported_tasks.len(),
+            tasks_skipped: 0,
+            tests_imported: tests_count,
+            commits_imported: commits_count,
+            collisions,
+            id_remappings,
+        });
+    }
+
+    // Import tasks with remapping
+    let mut tasks_imported = 0;
+    let import_timestamp = Utc::now();
+
+    for mut task in imported_tasks {
+        // Remap task ID if needed
+        if let Some(new_id) = id_remappings.get(&task.id) {
+            task.id = new_id.clone();
+        }
+
+        // Remap dependencies
+        let mut new_depends_on = Vec::new();
+        for dep in &task.depends_on {
+            if let Some(new_dep_id) = id_remappings.get(dep) {
+                new_depends_on.push(new_dep_id.clone());
+            } else {
+                new_depends_on.push(dep.clone());
+            }
+        }
+        task.depends_on = new_depends_on;
+
+        // Set imported_on timestamp if merging
+        if import_type == "merge" {
+            task.imported_on = Some(import_timestamp);
+        }
+
+        // Create task
+        storage.create_task(&task)?;
+        tasks_imported += 1;
+    }
+
+    // Import commits (simple append, no ID remapping needed for now)
+    let mut commits_imported = 0;
+    if let Some(commits_data) = commits_jsonl {
+        let storage_root = storage.root();
+        let commits_file = storage_root.join("commits.jsonl");
+
+        // Append to existing file
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&commits_file)?;
+
+        file.write_all(&commits_data)?;
+
+        // Count commits
+        let commits_str = String::from_utf8_lossy(&commits_data);
+        commits_imported = commits_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Import test results
+    let mut tests_imported = 0;
+    if let Some(test_data) = test_results_jsonl {
+        let storage_root = storage.root();
+        let test_file = storage_root.join("test-results.jsonl");
+
+        // Append to existing file
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&test_file)?;
+
+        file.write_all(&test_data)?;
+
+        // Count tests
+        let test_str = String::from_utf8_lossy(&test_data);
+        tests_imported = test_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Rebuild cache
+    storage.rebuild_cache()?;
+
+    Ok(StoreImportResult {
+        imported: true,
+        dry_run: false,
+        input_path: input_path_str,
         import_type: import_type.to_string(),
         tasks_imported,
         tasks_skipped: 0,
@@ -5030,5 +5250,629 @@ mod tests {
 
         assert!(summary.contains("bn-test1"));
         assert!(summary.contains("blocked by bn-test2, bn-test3"));
+    }
+
+    // === Bug Command Tests ===
+
+    #[test]
+    fn test_bug_create() {
+        let temp = setup();
+        let result = bug_create(
+            temp.path(),
+            "Test bug".to_string(),
+            Some("Description".to_string()),
+            Some(1),
+            Some("high".to_string()),
+            vec!["frontend".to_string()],
+            Some("alice".to_string()),
+            Some("1. Open app\n2. Click button".to_string()),
+            Some("ui".to_string()),
+        )
+        .unwrap();
+        assert!(result.id.starts_with("bn-"));
+        assert_eq!(result.title, "Test bug");
+    }
+
+    #[test]
+    fn test_bug_create_defaults() {
+        let temp = setup();
+        let result = bug_create(
+            temp.path(),
+            "Minimal bug".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let bug = bug_show(temp.path(), &result.id).unwrap();
+        assert_eq!(bug.priority, 2); // default priority
+        assert_eq!(bug.severity, BugSeverity::Triage); // default severity
+        assert!(bug.description.is_none());
+        assert!(bug.tags.is_empty());
+    }
+
+    #[test]
+    fn test_bug_create_invalid_priority() {
+        let temp = setup();
+        let result = bug_create(
+            temp.path(),
+            "Bad priority".to_string(),
+            None,
+            Some(5), // invalid: must be 0-4
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Priority must be 0-4"));
+    }
+
+    #[test]
+    fn test_bug_show() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Test bug".to_string(),
+            Some("Bug description".to_string()),
+            Some(1),
+            Some("critical".to_string()),
+            vec!["security".to_string()],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let bug = bug_show(temp.path(), &created.id).unwrap();
+        assert_eq!(bug.id, created.id);
+        assert_eq!(bug.title, "Test bug");
+        assert_eq!(bug.description, Some("Bug description".to_string()));
+        assert_eq!(bug.priority, 1);
+        assert_eq!(bug.severity, BugSeverity::Critical);
+        assert!(bug.tags.contains(&"security".to_string()));
+    }
+
+    #[test]
+    fn test_bug_show_not_found() {
+        let temp = setup();
+        let result = bug_show(temp.path(), "bn-nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_bug_list() {
+        let temp = setup();
+        bug_create(
+            temp.path(),
+            "Bug 1".to_string(),
+            None,
+            Some(1),
+            Some("high".to_string()),
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        bug_create(
+            temp.path(),
+            "Bug 2".to_string(),
+            None,
+            Some(2),
+            Some("low".to_string()),
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let list = bug_list(temp.path(), None, None, None, None).unwrap();
+        assert_eq!(list.count, 2);
+    }
+
+    #[test]
+    fn test_bug_list_filter_by_status() {
+        let temp = setup();
+        let bug1 = bug_create(
+            temp.path(),
+            "Bug 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        bug_create(
+            temp.path(),
+            "Bug 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Close bug 1
+        bug_close(temp.path(), &bug1.id, None, false).unwrap();
+
+        let pending_list = bug_list(temp.path(), Some("pending"), None, None, None).unwrap();
+        assert_eq!(pending_list.count, 1);
+
+        let done_list = bug_list(temp.path(), Some("done"), None, None, None).unwrap();
+        assert_eq!(done_list.count, 1);
+    }
+
+    #[test]
+    fn test_bug_list_filter_by_priority() {
+        let temp = setup();
+        bug_create(
+            temp.path(),
+            "High priority".to_string(),
+            None,
+            Some(0),
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        bug_create(
+            temp.path(),
+            "Low priority".to_string(),
+            None,
+            Some(3),
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let high_list = bug_list(temp.path(), None, Some(0), None, None).unwrap();
+        assert_eq!(high_list.count, 1);
+        assert_eq!(high_list.bugs[0].title, "High priority");
+    }
+
+    #[test]
+    fn test_bug_list_filter_by_severity() {
+        let temp = setup();
+        bug_create(
+            temp.path(),
+            "Critical bug".to_string(),
+            None,
+            None,
+            Some("critical".to_string()),
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        bug_create(
+            temp.path(),
+            "Low severity".to_string(),
+            None,
+            None,
+            Some("low".to_string()),
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let critical_list = bug_list(temp.path(), None, None, Some("critical"), None).unwrap();
+        assert_eq!(critical_list.count, 1);
+        assert_eq!(critical_list.bugs[0].title, "Critical bug");
+    }
+
+    #[test]
+    fn test_bug_list_filter_by_tag() {
+        let temp = setup();
+        bug_create(
+            temp.path(),
+            "UI bug".to_string(),
+            None,
+            None,
+            None,
+            vec!["ui".to_string()],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        bug_create(
+            temp.path(),
+            "API bug".to_string(),
+            None,
+            None,
+            None,
+            vec!["api".to_string()],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let ui_list = bug_list(temp.path(), None, None, None, Some("ui")).unwrap();
+        assert_eq!(ui_list.count, 1);
+        assert_eq!(ui_list.bugs[0].title, "UI bug");
+    }
+
+    #[test]
+    fn test_bug_update() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Original bug".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let updated = bug_update(
+            temp.path(),
+            &created.id,
+            Some("Updated bug".to_string()),
+            Some("New description".to_string()),
+            Some(1),
+            None,
+            Some("high".to_string()),
+            vec!["new-tag".to_string()],
+            vec![],
+            Some("bob".to_string()),
+            Some("Steps to reproduce".to_string()),
+            Some("backend".to_string()),
+        )
+        .unwrap();
+
+        assert!(updated.updated_fields.contains(&"title".to_string()));
+        assert!(updated.updated_fields.contains(&"description".to_string()));
+        assert!(updated.updated_fields.contains(&"priority".to_string()));
+        assert!(updated.updated_fields.contains(&"severity".to_string()));
+        assert!(updated.updated_fields.contains(&"tags".to_string()));
+        assert!(updated.updated_fields.contains(&"assignee".to_string()));
+        assert!(updated.updated_fields.contains(&"reproduction_steps".to_string()));
+        assert!(updated.updated_fields.contains(&"affected_component".to_string()));
+
+        let bug = bug_show(temp.path(), &created.id).unwrap();
+        assert_eq!(bug.title, "Updated bug");
+        assert_eq!(bug.description, Some("New description".to_string()));
+        assert_eq!(bug.priority, 1);
+        assert_eq!(bug.severity, BugSeverity::High);
+        assert!(bug.tags.contains(&"new-tag".to_string()));
+        assert_eq!(bug.assignee, Some("bob".to_string()));
+    }
+
+    #[test]
+    fn test_bug_update_status() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        bug_update(
+            temp.path(),
+            &created.id,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            None,
+            vec![],
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let bug = bug_show(temp.path(), &created.id).unwrap();
+        assert_eq!(bug.status, TaskStatus::InProgress);
+    }
+
+    #[test]
+    fn test_bug_update_add_remove_tags() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            vec!["old-tag".to_string()],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        bug_update(
+            temp.path(),
+            &created.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec!["new-tag".to_string()],
+            vec!["old-tag".to_string()],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let bug = bug_show(temp.path(), &created.id).unwrap();
+        assert!(bug.tags.contains(&"new-tag".to_string()));
+        assert!(!bug.tags.contains(&"old-tag".to_string()));
+    }
+
+    #[test]
+    fn test_bug_update_no_fields_error() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let result = bug_update(
+            temp.path(),
+            &created.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+            None,
+            None,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("No fields to update"));
+    }
+
+    #[test]
+    fn test_bug_update_invalid_priority() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let result = bug_update(
+            temp.path(),
+            &created.id,
+            None,
+            None,
+            Some(5), // invalid
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+            None,
+            None,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Priority must be 0-4"));
+    }
+
+    #[test]
+    fn test_bug_close() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let result = bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
+        assert_eq!(result.id, created.id);
+        assert_eq!(result.status, "done");
+        assert!(result.warning.is_none());
+
+        let bug = bug_show(temp.path(), &created.id).unwrap();
+        assert_eq!(bug.status, TaskStatus::Done);
+        assert!(bug.closed_at.is_some());
+        assert_eq!(bug.closed_reason, Some("Fixed".to_string()));
+    }
+
+    #[test]
+    fn test_bug_reopen() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
+        let result = bug_reopen(temp.path(), &created.id).unwrap();
+        assert_eq!(result.id, created.id);
+        assert_eq!(result.status, "reopened");
+
+        let bug = bug_show(temp.path(), &created.id).unwrap();
+        assert_eq!(bug.status, TaskStatus::Reopened);
+        assert!(bug.closed_at.is_none());
+        assert!(bug.closed_reason.is_none());
+    }
+
+    #[test]
+    fn test_bug_delete() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let result = bug_delete(temp.path(), &created.id).unwrap();
+        assert_eq!(result.id, created.id);
+
+        let list = bug_list(temp.path(), None, None, None, None).unwrap();
+        assert_eq!(list.count, 0);
+    }
+
+    #[test]
+    fn test_bug_severity_values() {
+        let temp = setup();
+
+        for (severity_str, expected) in [
+            ("triage", BugSeverity::Triage),
+            ("low", BugSeverity::Low),
+            ("medium", BugSeverity::Medium),
+            ("high", BugSeverity::High),
+            ("critical", BugSeverity::Critical),
+        ] {
+            let result = bug_create(
+                temp.path(),
+                format!("Bug with {} severity", severity_str),
+                None,
+                None,
+                Some(severity_str.to_string()),
+                vec![],
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+
+            let bug = bug_show(temp.path(), &result.id).unwrap();
+            assert_eq!(bug.severity, expected);
+        }
+    }
+
+    #[test]
+    fn test_bug_output_human_format() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Test bug".to_string(),
+            Some("Description".to_string()),
+            Some(1),
+            Some("high".to_string()),
+            vec!["ui".to_string()],
+            Some("alice".to_string()),
+            Some("1. Click\n2. See error".to_string()),
+            Some("frontend".to_string()),
+        )
+        .unwrap();
+
+        let bug = bug_show(temp.path(), &created.id).unwrap();
+        let human = bug.to_human();
+
+        assert!(human.contains("Test bug"));
+        assert!(human.contains("Status: Pending"));
+        assert!(human.contains("Priority: 1"));
+        assert!(human.contains("Severity: High"));
+        assert!(human.contains("Description: Description"));
+        assert!(human.contains("Reproduction steps: 1. Click"));
+        assert!(human.contains("Affected component: frontend"));
+        assert!(human.contains("Tags: ui"));
+        assert!(human.contains("Assignee: alice"));
+    }
+
+    #[test]
+    fn test_bug_list_output_human_format() {
+        let temp = setup();
+        bug_create(
+            temp.path(),
+            "Bug 1".to_string(),
+            None,
+            Some(0),
+            Some("critical".to_string()),
+            vec!["urgent".to_string()],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let list = bug_list(temp.path(), None, None, None, None).unwrap();
+        let human = list.to_human();
+
+        assert!(human.contains("1 bug(s)"));
+        assert!(human.contains("P0"));
+        assert!(human.contains("S:critical"));
+        assert!(human.contains("Bug 1"));
+        assert!(human.contains("[urgent]"));
+    }
+
+    #[test]
+    fn test_bug_list_empty_output() {
+        let temp = setup();
+        let list = bug_list(temp.path(), None, None, None, None).unwrap();
+        let human = list.to_human();
+        assert_eq!(human, "No bugs found.");
     }
 }
