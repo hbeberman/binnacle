@@ -1006,6 +1006,43 @@ impl Output for TaskClosed {
     }
 }
 
+fn promote_partial_tasks(storage: &mut Storage) -> Result<Vec<String>> {
+    let mut promoted = Vec::new();
+
+    loop {
+        let tasks = storage.list_tasks(None, None, None)?;
+        let mut did_promote = false;
+
+        for mut task in tasks {
+            if task.status != TaskStatus::Partial {
+                continue;
+            }
+
+            let all_done = task.depends_on.iter().all(|dep_id| {
+                storage
+                    .get_task(dep_id)
+                    .map(|dep| matches!(dep.status, TaskStatus::Done | TaskStatus::Cancelled))
+                    .unwrap_or(false)
+            });
+
+            if all_done {
+                task.status = TaskStatus::Done;
+                task.closed_at = Some(Utc::now());
+                task.updated_at = Utc::now();
+                storage.update_task(&task)?;
+                promoted.push(task.id.clone());
+                did_promote = true;
+            }
+        }
+
+        if !did_promote {
+            break;
+        }
+    }
+
+    Ok(promoted)
+}
+
 /// Close a task.
 pub fn task_close(
     repo_path: &Path,
@@ -1054,6 +1091,7 @@ pub fn task_close(
     task.updated_at = Utc::now();
 
     storage.update_task(&task)?;
+    promote_partial_tasks(&mut storage)?;
 
     // Generate warning if force was used with incomplete deps
     let warning = if !incomplete_deps.is_empty() {
@@ -2560,6 +2598,29 @@ mod tests {
         // Verify task is closed
         let result = task_show(temp.path(), &task_b.id).unwrap();
         assert_eq!(result.task.status, TaskStatus::Done);
+    }
+
+    #[test]
+    fn test_task_close_promotes_partial_dependents() {
+        let temp = setup();
+        let task_a =
+            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        let task_b =
+            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+        assert_eq!(result.task.status, TaskStatus::Partial);
+        assert!(result.task.closed_at.is_none());
+        assert!(result.task.closed_reason.is_none());
+
+        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+
+        let result = task_show(temp.path(), &task_b.id).unwrap();
+        assert_eq!(result.task.status, TaskStatus::Done);
+        assert!(result.task.closed_at.is_some());
     }
 
     #[test]
