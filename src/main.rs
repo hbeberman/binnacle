@@ -277,7 +277,8 @@ fn run_command(
             }
             SystemCommands::Store { command } => match command {
                 StoreCommands::Show => {
-                    not_implemented("system store", "show", human);
+                    let result = commands::system_store_show(repo_path)?;
+                    output(&result, human);
                 }
                 StoreCommands::Export { output, format } => {
                     not_implemented("system store", "export", human);

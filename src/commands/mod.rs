@@ -2730,6 +2730,226 @@ pub fn config_list(repo_path: &Path) -> Result<ConfigList> {
     Ok(ConfigList { configs, count })
 }
 
+// === System Store Commands ===
+
+/// File information for store show output.
+#[derive(Serialize)]
+pub struct StoreFileInfo {
+    pub size_bytes: u64,
+    pub entries: usize,
+}
+
+/// Task count breakdown by status.
+#[derive(Serialize)]
+pub struct TasksByStatus {
+    pub pending: usize,
+    pub in_progress: usize,
+    pub blocked: usize,
+    pub done: usize,
+}
+
+/// Tasks information for store show output.
+#[derive(Serialize)]
+pub struct TasksInfo {
+    pub total: usize,
+    pub by_status: TasksByStatus,
+}
+
+/// Tests information for store show output.
+#[derive(Serialize)]
+pub struct TestsInfo {
+    pub total: usize,
+    pub linked: usize,
+}
+
+/// Commits information for store show output.
+#[derive(Serialize)]
+pub struct CommitsInfo {
+    pub total: usize,
+}
+
+/// Result of the `bn system store show` command.
+#[derive(Serialize)]
+pub struct StoreShowResult {
+    pub storage_path: String,
+    pub repo_path: String,
+    pub tasks: TasksInfo,
+    pub tests: TestsInfo,
+    pub commits: CommitsInfo,
+    pub files: std::collections::HashMap<String, StoreFileInfo>,
+    pub created_at: Option<String>,
+    pub last_modified: Option<String>,
+}
+
+impl Output for StoreShowResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        lines.push(format!("Store: {}", self.storage_path));
+        lines.push(format!("Repo:  {}", self.repo_path));
+        lines.push(String::new());
+
+        lines.push(format!("Tasks: {} total", self.tasks.total));
+        lines.push(format!("  - pending:     {}", self.tasks.by_status.pending));
+        lines.push(format!("  - in_progress: {}", self.tasks.by_status.in_progress));
+        lines.push(format!("  - blocked:     {}", self.tasks.by_status.blocked));
+        lines.push(format!("  - done:        {}", self.tasks.by_status.done));
+        lines.push(String::new());
+
+        lines.push(format!(
+            "Tests: {} total ({} linked to tasks)",
+            self.tests.total, self.tests.linked
+        ));
+        lines.push(format!("Commits: {} linked", self.commits.total));
+        lines.push(String::new());
+
+        lines.push("Files:".to_string());
+        let mut file_names: Vec<_> = self.files.keys().collect();
+        file_names.sort();
+        for file_name in file_names {
+            let info = &self.files[file_name];
+            let size_kb = info.size_bytes as f64 / 1024.0;
+            lines.push(format!(
+                "  {:<18} {:>7.1} KB  ({} entries)",
+                file_name, size_kb, info.entries
+            ));
+        }
+
+        if let (Some(created), Some(modified)) = (&self.created_at, &self.last_modified) {
+            lines.push(String::new());
+            lines.push(format!("Created:  {}", created));
+            lines.push(format!("Modified: {}", modified));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Display summary of current store contents.
+pub fn system_store_show(repo_path: &Path) -> Result<StoreShowResult> {
+    let storage = Storage::open(repo_path)?;
+    let storage_path = storage.root().to_string_lossy().to_string();
+    let repo_path_str = repo_path.to_string_lossy().to_string();
+
+    // Get tasks and count by status
+    let tasks = storage.list_tasks(None, None, None)?;
+    let total_tasks = tasks.len();
+    let mut pending = 0;
+    let mut in_progress = 0;
+    let mut blocked = 0;
+    let mut done = 0;
+
+    for task in &tasks {
+        match task.status {
+            TaskStatus::Pending => pending += 1,
+            TaskStatus::InProgress => in_progress += 1,
+            TaskStatus::Blocked => blocked += 1,
+            TaskStatus::Done => done += 1,
+            _ => {}
+        }
+    }
+
+    // Get tests and count linked ones
+    let tests = storage.list_tests(None)?;
+    let total_tests = tests.len();
+    let linked_tests = tests.iter().filter(|t| !t.linked_tasks.is_empty()).count();
+
+    // Get commit count
+    let total_commits = storage.count_commit_links()?;
+
+    // Get file information
+    use std::collections::HashMap;
+    let mut files = HashMap::new();
+
+    let file_names = ["tasks.jsonl", "bugs.jsonl", "commits.jsonl", "test-results.jsonl", "cache.db"];
+    for file_name in &file_names {
+        let file_path = storage.root().join(file_name);
+        if let Ok(metadata) = std::fs::metadata(&file_path) {
+            let size_bytes = metadata.len();
+
+            // Count entries for JSONL files
+            let entries = if file_name.ends_with(".jsonl") {
+                std::fs::read_to_string(&file_path)
+                    .map(|content| content.lines().filter(|line| !line.trim().is_empty()).count())
+                    .unwrap_or(0)
+            } else {
+                0 // cache.db doesn't have "entries" in the same sense
+            };
+
+            files.insert(
+                file_name.to_string(),
+                StoreFileInfo {
+                    size_bytes,
+                    entries,
+                },
+            );
+        }
+    }
+
+    // Get creation and modification times from tasks.jsonl
+    let tasks_file = storage.root().join("tasks.jsonl");
+    let (created_at, last_modified) = if let Ok(metadata) = std::fs::metadata(&tasks_file) {
+        use std::time::SystemTime;
+
+        let created = metadata.created()
+            .or_else(|_| metadata.modified())
+            .ok()
+            .and_then(|time| {
+                time.duration_since(SystemTime::UNIX_EPOCH).ok()
+            })
+            .map(|duration| {
+                chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
+                    .unwrap_or_default()
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string()
+            });
+
+        let modified = metadata.modified()
+            .ok()
+            .and_then(|time| {
+                time.duration_since(SystemTime::UNIX_EPOCH).ok()
+            })
+            .map(|duration| {
+                chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
+                    .unwrap_or_default()
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string()
+            });
+
+        (created, modified)
+    } else {
+        (None, None)
+    };
+
+    Ok(StoreShowResult {
+        storage_path,
+        repo_path: repo_path_str,
+        tasks: TasksInfo {
+            total: total_tasks,
+            by_status: TasksByStatus {
+                pending,
+                in_progress,
+                blocked,
+                done,
+            },
+        },
+        tests: TestsInfo {
+            total: total_tests,
+            linked: linked_tests,
+        },
+        commits: CommitsInfo {
+            total: total_commits,
+        },
+        files,
+        created_at,
+        last_modified,
+    })
+}
+
 // === Compact Command ===
 
 /// Result of the compact command.
