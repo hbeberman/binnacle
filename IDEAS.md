@@ -12,3 +12,5 @@
 - [ ] Offer to include auto-approve rules for copilot, codex, opencode, and claude
 - [ ] Add the concept of a question that can be linked to any other resource type, and a user then links an answer off of it
 - [ ] Make `bn gui` automatically pick the first available port
+- [ ] Require bugs to be linked to existing tasks (or other objects) so we can trace bugs back to the original intent of the feature
+- [ ] Add PRD as a first-class object in binnacle, programmatically linked to tasks so each task can trace back to its owning PRD (instead of separate .md files)
