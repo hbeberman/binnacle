@@ -118,6 +118,10 @@ pub enum TaskCommands {
         /// Task title
         title: String,
 
+        /// Short display name for GUI (recommended: 1-2 words, ~12 chars max)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
         /// Priority (0-4, lower is higher priority)
         #[arg(short, long)]
         priority: Option<u8>,
@@ -164,6 +168,10 @@ pub enum TaskCommands {
         /// New title
         #[arg(long)]
         title: Option<String>,
+
+        /// New short display name for GUI (recommended: 1-2 words, ~12 chars max)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
 
         /// New description
         #[arg(long)]

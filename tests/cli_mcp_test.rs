@@ -211,6 +211,52 @@ fn test_mcp_manifest_prompt_has_arguments() {
     }
 }
 
+#[test]
+fn test_mcp_manifest_task_tools_have_short_name() {
+    let temp = setup();
+
+    let output = bn()
+        .args(["mcp", "manifest"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+
+    // Find bn_task_create and verify it has short_name in schema
+    let task_create = tools
+        .iter()
+        .find(|t| t["name"] == "bn_task_create")
+        .expect("bn_task_create tool not found");
+    let create_props = &task_create["inputSchema"]["properties"];
+    assert!(
+        create_props.get("short_name").is_some(),
+        "bn_task_create should have short_name property"
+    );
+    assert_eq!(
+        create_props["short_name"]["type"], "string",
+        "short_name should be a string"
+    );
+
+    // Find bn_task_update and verify it has short_name in schema
+    let task_update = tools
+        .iter()
+        .find(|t| t["name"] == "bn_task_update")
+        .expect("bn_task_update tool not found");
+    let update_props = &task_update["inputSchema"]["properties"];
+    assert!(
+        update_props.get("short_name").is_some(),
+        "bn_task_update should have short_name property"
+    );
+    assert_eq!(
+        update_props["short_name"]["type"], "string",
+        "short_name should be a string"
+    );
+}
+
 // === MCP Server Protocol Tests ===
 
 /// Helper to spawn MCP server and interact with it

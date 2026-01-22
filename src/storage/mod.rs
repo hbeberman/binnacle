@@ -92,6 +92,7 @@ impl Storage {
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
+                short_name TEXT,
                 description TEXT,
                 priority INTEGER NOT NULL DEFAULT 2,
                 status TEXT NOT NULL DEFAULT 'pending',
@@ -210,6 +211,30 @@ impl Storage {
             );
             "#,
         )?;
+
+        // Run migrations for schema changes
+        Self::run_migrations(conn)?;
+
+        Ok(())
+    }
+
+    /// Run database migrations for schema changes.
+    /// This handles adding new columns to existing databases.
+    fn run_migrations(conn: &Connection) -> Result<()> {
+        // Migration: Add short_name column to tasks table if it doesn't exist
+        // SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so we check the schema first
+        let has_short_name: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('tasks') WHERE name = 'short_name'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_short_name {
+            conn.execute("ALTER TABLE tasks ADD COLUMN short_name TEXT", [])?;
+        }
+
         Ok(())
     }
 
@@ -293,14 +318,15 @@ impl Storage {
         // Insert or replace task
         self.conn.execute(
             r#"
-            INSERT OR REPLACE INTO tasks 
-            (id, title, description, priority, status, parent, assignee, 
+            INSERT OR REPLACE INTO tasks
+            (id, title, short_name, description, priority, status, parent, assignee,
              created_at, updated_at, closed_at, closed_reason)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
             "#,
             params![
                 task.id,
                 task.title,
+                task.short_name,
                 task.description,
                 task.priority,
                 serde_json::to_string(&task.status)?.trim_matches('"'),
@@ -439,8 +465,8 @@ impl Storage {
     ) -> Result<Vec<Task>> {
         // Build query
         let mut sql = String::from(
-            "SELECT DISTINCT t.id FROM tasks t 
-             LEFT JOIN task_tags tt ON t.id = tt.task_id 
+            "SELECT DISTINCT t.id FROM tasks t
+             LEFT JOIN task_tags tt ON t.id = tt.task_id
              WHERE 1=1",
         );
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -569,8 +595,8 @@ impl Storage {
         tag: Option<&str>,
     ) -> Result<Vec<Bug>> {
         let mut sql = String::from(
-            "SELECT DISTINCT b.id FROM bugs b 
-             LEFT JOIN bug_tags bt ON b.id = bt.bug_id 
+            "SELECT DISTINCT b.id FROM bugs b
+             LEFT JOIN bug_tags bt ON b.id = bt.bug_id
              WHERE 1=1",
         );
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -1683,6 +1709,33 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let storage = Storage::init(temp_dir.path()).unwrap();
         (temp_dir, storage)
+    }
+
+    #[test]
+    fn test_migration_adds_short_name_column() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Initialize storage (creates schema with short_name)
+        let storage = Storage::init(temp_dir.path()).unwrap();
+
+        // Simulate an "old" database by dropping the short_name column
+        storage
+            .conn
+            .execute("ALTER TABLE tasks DROP COLUMN short_name", [])
+            .ok(); // SQLite may not support DROP COLUMN, but that's fine
+
+        // Re-open storage - this should run migrations and add the column back
+        drop(storage);
+        let mut storage2 = Storage::open(temp_dir.path()).unwrap();
+
+        // Verify we can create a task with short_name
+        let mut task = Task::new("bn-test".to_string(), "Test".to_string());
+        task.short_name = Some("Short".to_string());
+        storage2.create_task(&task).unwrap();
+
+        // Verify we can retrieve it with short_name intact
+        let retrieved = storage2.get_task("bn-test").unwrap();
+        assert_eq!(retrieved.short_name, Some("Short".to_string()));
     }
 
     #[test]

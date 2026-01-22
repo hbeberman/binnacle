@@ -335,12 +335,13 @@ impl McpServer {
             }
             "bn_task_create" => {
                 let title = get_string_arg(args, "title")?;
+                let short_name = get_optional_string(args, "short_name");
                 let description = get_optional_string(args, "description");
                 let priority = get_optional_u8(args, "priority");
                 let tags = get_string_array(args, "tags");
                 let assignee = get_optional_string(args, "assignee");
                 let result =
-                    commands::task_create(repo, title, description, priority, tags, assignee)?;
+                    commands::task_create(repo, title, short_name, description, priority, tags, assignee)?;
                 Ok(result.to_json())
             }
             "bn_task_list" => {
@@ -359,6 +360,7 @@ impl McpServer {
             "bn_task_update" => {
                 let id = get_string_arg(args, "id")?;
                 let title = get_optional_string(args, "title");
+                let short_name = get_optional_string(args, "short_name");
                 let description = get_optional_string(args, "description");
                 let priority = get_optional_u8(args, "priority");
                 let status = get_optional_string(args, "status");
@@ -369,6 +371,7 @@ impl McpServer {
                     repo,
                     &id,
                     title,
+                    short_name,
                     description,
                     priority,
                     status.as_deref(),
@@ -714,6 +717,10 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                         "type": "string",
                         "description": "Task title"
                     },
+                    "short_name": {
+                        "type": "string",
+                        "description": "Short display name for GUI (recommended: 1-2 words, ~12 chars max)"
+                    },
                     "description": {
                         "type": "string",
                         "description": "Task description"
@@ -786,6 +793,10 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "title": {
                         "type": "string",
                         "description": "New title"
+                    },
+                    "short_name": {
+                        "type": "string",
+                        "description": "New short display name for GUI (recommended: 1-2 words, ~12 chars max)"
                     },
                     "description": {
                         "type": "string",

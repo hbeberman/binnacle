@@ -66,13 +66,16 @@ fn run_command(
         Some(Commands::Task { command }) => match command {
             TaskCommands::Create {
                 title,
+                short_name,
                 priority,
                 tag,
                 assignee,
                 description,
             } => {
+                // Convert empty or whitespace-only string to None
+                let short_name = short_name.filter(|s| !s.trim().is_empty());
                 let result =
-                    commands::task_create(repo_path, title, description, priority, tag, assignee)?;
+                    commands::task_create(repo_path, title, short_name, description, priority, tag, assignee)?;
                 output(&result, human);
             }
 
@@ -94,6 +97,7 @@ fn run_command(
             TaskCommands::Update {
                 id,
                 title,
+                short_name,
                 description,
                 priority,
                 status,
@@ -105,6 +109,7 @@ fn run_command(
                     repo_path,
                     &id,
                     title,
+                    short_name,
                     description,
                     priority,
                     status.as_deref(),
@@ -448,6 +453,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         Some(Commands::Task { command }) => match command {
             TaskCommands::Create {
                 title,
+                short_name,
                 priority,
                 tag,
                 assignee,
@@ -456,6 +462,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 "task create".to_string(),
                 serde_json::json!({
                     "title": title,
+                    "short_name": short_name,
                     "priority": priority,
                     "tag": tag,
                     "assignee": assignee,
@@ -481,6 +488,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             TaskCommands::Update {
                 id,
                 title,
+                short_name,
                 description,
                 priority,
                 status,
@@ -492,6 +500,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 serde_json::json!({
                     "id": id,
                     "title": title,
+                    "short_name": short_name,
                     "description": description,
                     "priority": priority,
                     "status": status,

@@ -389,8 +389,23 @@
             font-size: 1.1rem;
             font-weight: 600;
             color: var(--text-primary);
-            margin-bottom: 1rem;
+            margin-bottom: 0.5rem;
             line-height: 1.4;
+        }
+
+        .info-panel-short-name-row {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .info-panel-label {
+            font-weight: 500;
+            margin-right: 0.5rem;
+        }
+
+        .info-panel-short-name {
+            color: var(--accent-light);
         }
 
         .info-panel-meta {
@@ -487,6 +502,10 @@
                     </div>
                     <div id="info-panel-id" class="info-panel-id"></div>
                     <div id="info-panel-task-title" class="info-panel-task-title"></div>
+                    <div id="info-panel-short-name-row" class="info-panel-short-name-row" style="display: none;">
+                        <span class="info-panel-label">Display Name:</span>
+                        <span id="info-panel-short-name" class="info-panel-short-name"></span>
+                    </div>
                     <div id="info-panel-meta" class="info-panel-meta"></div>
                     <div id="info-panel-description-section" class="info-panel-section">
                         <div class="info-panel-section-title">Description</div>
@@ -978,8 +997,8 @@
             const task = state.tasks.find(t => t.id === node.id);
             if (!task) return;
 
-            // Update tooltip content
-            titleEl.textContent = task.title;
+            // Update tooltip content - show short_name if available, otherwise title
+            titleEl.textContent = task.short_name || task.title;
             idEl.textContent = task.id;
 
             // Build metadata badges
@@ -1033,6 +1052,16 @@
             // Update panel content
             idEl.textContent = task.id;
             titleEl.textContent = task.title;
+
+            // Show short_name if set (after title)
+            const shortNameEl = document.getElementById('info-panel-short-name');
+            const shortNameRow = document.getElementById('info-panel-short-name-row');
+            if (task.short_name) {
+                shortNameEl.textContent = task.short_name;
+                shortNameRow.style.display = 'block';
+            } else {
+                shortNameRow.style.display = 'none';
+            }
 
             // Build metadata badges
             metaEl.innerHTML = `
@@ -1111,6 +1140,7 @@
                     return {
                         id: task.id,
                         title: task.title,
+                        short_name: task.short_name,
                         status: task.status,
                         priority: task.priority,
                         x: existing.x,
@@ -1128,6 +1158,7 @@
                     return {
                         id: task.id,
                         title: task.title,
+                        short_name: task.short_name,
                         status: task.status,
                         priority: task.priority,
                         x: Math.cos(angle) * radius,
@@ -1175,7 +1206,7 @@
                 const fromNode = nodes.find(n => n.id === edge.from);
                 const toNode = nodes.find(n => n.id === edge.to);
                 if (fromNode && toNode) {
-                    drawArrow(ctx, fromNode.x, fromNode.y, toNode.x, toNode.y, canvas);
+                    drawArrow(ctx, fromNode.x, fromNode.y, toNode.x, toNode.y, canvas, fromNode.radius, toNode.radius);
                 }
             });
 
@@ -1310,6 +1341,50 @@
             });
         }
 
+        // Format node label with word wrap and truncation
+        // Returns array of lines (max 2 lines, max 8 chars per line)
+        // NOTE: Uses string length (UTF-16 code units), not grapheme clusters.
+        // Emoji/complex Unicode may appear shorter visually than their length suggests.
+        function formatNodeLabel(text, maxCharsPerLine = 8, maxLines = 2) {
+            if (!text) return [];
+
+            const maxTotal = maxCharsPerLine * maxLines;
+
+            // If text fits on one line, return early
+            if (text.length <= maxCharsPerLine) {
+                return [text];
+            }
+
+            // Truncate if too long overall (with ellipsis)
+            if (text.length > maxTotal) {
+                text = text.substring(0, maxTotal - 1) + '…';
+            }
+
+            const lines = [];
+            let remaining = text;
+
+            while (remaining.length > 0 && lines.length < maxLines) {
+                if (remaining.length <= maxCharsPerLine) {
+                    lines.push(remaining);
+                    break;
+                }
+
+                // Try to break at a reasonable point (space, hyphen, underscore)
+                let breakPoint = maxCharsPerLine;
+                for (let i = maxCharsPerLine - 1; i >= Math.floor(maxCharsPerLine / 2); i--) {
+                    if (remaining[i] === ' ' || remaining[i] === '-' || remaining[i] === '_') {
+                        breakPoint = i + 1;
+                        break;
+                    }
+                }
+
+                lines.push(remaining.substring(0, breakPoint).trim());
+                remaining = remaining.substring(breakPoint).trim();
+            }
+
+            return lines;
+        }
+
         function drawNode(ctx, node, canvas) {
             const isHovered = node === state.graph.hoveredNode;
             const isDragging = node === state.graph.draggedNode;
@@ -1370,41 +1445,86 @@
             ctx.lineWidth = (isHovered || isDragging) ? 3 : 2;
             ctx.stroke();
 
-            // Draw text
+            // Draw text - show short_name if set, with task ID below in smaller font
             ctx.fillStyle = '#1a2332';
-            const fontSize = 12 * Math.max(0.8, Math.min(1.5, zoom));
-            ctx.font = (isHovered || isDragging) ? `bold ${fontSize}px sans-serif` : `${fontSize}px sans-serif`;
+            const baseFontSize = 12 * Math.max(0.8, Math.min(1.5, zoom));
+            const smallFontSize = baseFontSize * 0.75;
             ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            const text = node.id;
-            ctx.fillText(text, screenPos.x, screenPos.y);
+
+            if (node.short_name) {
+                // Format short_name with word wrap
+                const labelLines = formatNodeLabel(node.short_name, 8, 2);
+                const lineHeight = baseFontSize * 1.2;
+                
+                // Calculate total height for centering
+                const totalLines = labelLines.length + 1; // +1 for ID below
+                const totalHeight = (totalLines - 1) * lineHeight;
+                const startY = screenPos.y - totalHeight / 2 + baseFontSize / 2;
+                
+                // Draw short_name lines
+                ctx.font = (isHovered || isDragging) ? `bold ${baseFontSize}px sans-serif` : `${baseFontSize}px sans-serif`;
+                ctx.textBaseline = 'middle';
+                labelLines.forEach((line, i) => {
+                    ctx.fillText(line, screenPos.x, startY + i * lineHeight);
+                });
+                
+                // Draw task ID below in smaller font
+                ctx.font = `${smallFontSize}px sans-serif`;
+                ctx.fillStyle = 'rgba(26, 35, 50, 0.7)';
+                ctx.fillText(node.id, screenPos.x, startY + labelLines.length * lineHeight);
+            } else {
+                // No short_name - just show task ID centered
+                ctx.font = (isHovered || isDragging) ? `bold ${baseFontSize}px sans-serif` : `${baseFontSize}px sans-serif`;
+                ctx.textBaseline = 'middle';
+                ctx.fillText(node.id, screenPos.x, screenPos.y);
+            }
         }
 
-        function drawArrow(ctx, x1, y1, x2, y2, canvas) {
-            // Transform world coordinates to screen coordinates
-            const p1 = worldToScreen(x1, y1, canvas);
-            const p2 = worldToScreen(x2, y2, canvas);
+        function drawArrow(ctx, x1, y1, x2, y2, canvas, fromRadius = 30, toRadius = 30) {
+            // Calculate the angle of the line
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            const angle = Math.atan2(dy, dx);
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // If nodes are overlapping, skip drawing
+            if (distance < fromRadius + toRadius) return;
+
+            // Calculate start point at edge of fromNode
+            const startX = x1 + Math.cos(angle) * fromRadius;
+            const startY = y1 + Math.sin(angle) * fromRadius;
+
+            // Calculate end point at edge of toNode
+            const endX = x2 - Math.cos(angle) * toRadius;
+            const endY = y2 - Math.sin(angle) * toRadius;
+
+            // Transform to screen coordinates
+            const p1 = worldToScreen(startX, startY, canvas);
+            const p2 = worldToScreen(endX, endY, canvas);
+
+            // Calculate midpoint for arrow head
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2;
 
             const headLength = 10 * state.graph.viewport.zoom;
-            const dx = p2.x - p1.x;
-            const dy = p2.y - p1.y;
-            const angle = Math.atan2(dy, dx);
+            const screenAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
 
+            // Draw line from start to end
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
             ctx.stroke();
 
-            // Arrow head
+            // Arrow head at midpoint
             ctx.beginPath();
-            ctx.moveTo(p2.x, p2.y);
+            ctx.moveTo(midX, midY);
             ctx.lineTo(
-                p2.x - headLength * Math.cos(angle - Math.PI / 6),
-                p2.y - headLength * Math.sin(angle - Math.PI / 6)
+                midX - headLength * Math.cos(screenAngle - Math.PI / 6),
+                midY - headLength * Math.sin(screenAngle - Math.PI / 6)
             );
             ctx.lineTo(
-                p2.x - headLength * Math.cos(angle + Math.PI / 6),
-                p2.y - headLength * Math.sin(angle + Math.PI / 6)
+                midX - headLength * Math.cos(screenAngle + Math.PI / 6),
+                midY - headLength * Math.sin(screenAngle + Math.PI / 6)
             );
             ctx.closePath();
             ctx.fillStyle = ctx.strokeStyle;
