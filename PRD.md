@@ -541,6 +541,25 @@ This keeps all data within the repository without polluting the main branch or w
 
 ---
 
+## Phase 10: Crates.io Publish Workflow (Alpha)
+
+**Goal:** Publish alpha releases to crates.io via GitHub Actions with safety checks.
+
+### Deliverables
+- [ ] GitHub Actions workflow (`.github/workflows/publish.yml`) triggered by version tags (e.g., `v0.1.0-alpha.1`)
+- [ ] Preflight validation job: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features`
+- [ ] Publish job guarded by preflight success and `CARGO_REGISTRY_TOKEN` secret
+- [ ] Dry-run step (`cargo publish --dry-run`) before actual publish
+- [ ] Tag format documented in README (alpha versioning policy)
+
+### Workflow Outline
+1. On tag push matching `v*`.
+2. Run preflight checks and `cargo publish --dry-run`.
+3. If all checks pass, run `cargo publish` with the registry token.
+4. Fail fast on any step; no retries on publish.
+
+---
+
 ## Future Considerations (v2+)
 
 - Agent sessions (multi-agent coordination)
