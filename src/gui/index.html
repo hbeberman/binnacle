@@ -792,7 +792,9 @@
                 panStartOffsetX: 0,
                 panStartOffsetY: 0,
                 // Selection state
-                selectedNode: null
+                selectedNode: null,
+                // Camera pan animation state
+                followAnimation: null  // { startPanX, startPanY, targetPanX, targetPanY, startTime, duration }
             }
         };
 
@@ -1024,6 +1026,7 @@
 
                 // Middle mouse or Shift+Left mouse = always canvas pan
                 if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+                    cancelPanAnimation();  // Cancel any ongoing camera animation
                     state.graph.isPanning = true;
                     state.graph.panStartX = mouseX;
                     state.graph.panStartY = mouseY;
@@ -1061,6 +1064,7 @@
                         e.preventDefault();
                     } else {
                         // No node found - pan the canvas
+                        cancelPanAnimation();  // Cancel any ongoing camera animation
                         state.graph.isPanning = true;
                         state.graph.panStartX = mouseX;
                         state.graph.panStartY = mouseY;
@@ -1208,6 +1212,87 @@
             if (zoomLevelEl) {
                 const percent = Math.round(state.graph.viewport.zoom * 100);
                 zoomLevelEl.textContent = `${percent}%`;
+            }
+        }
+
+        // Ease-in-out-cubic easing function
+        function easeInOutCubic(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        // Calculate adaptive pan duration based on distance
+        function getPanDuration(distance) {
+            if (distance < 300) return 300;
+            if (distance <= 800) return 500;
+            return 800;
+        }
+
+        // Pan camera smoothly to center on a world position
+        function panToWorldPosition(targetX, targetY) {
+            const canvas = document.getElementById('graph-canvas');
+            const { viewport } = state.graph;
+
+            // Target pan values to center the position on screen
+            // worldToScreen: screenX = (worldX + panX) * zoom + canvas.width / 2
+            // To center targetX, we need: canvas.width / 2 = (targetX + panX) * zoom + canvas.width / 2
+            // => 0 = (targetX + panX) * zoom
+            // => panX = -targetX
+            const targetPanX = -targetX;
+            const targetPanY = -targetY;
+
+            // Calculate distance in screen pixels for duration
+            const startPanX = viewport.panX;
+            const startPanY = viewport.panY;
+            const dx = (targetPanX - startPanX) * viewport.zoom;
+            const dy = (targetPanY - startPanY) * viewport.zoom;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Skip animation if already centered (within 1 pixel)
+            if (distance < 1) return;
+
+            const duration = getPanDuration(distance);
+
+            // Start the animation
+            state.graph.followAnimation = {
+                startPanX,
+                startPanY,
+                targetPanX,
+                targetPanY,
+                startTime: performance.now(),
+                duration
+            };
+        }
+
+        // Pan camera smoothly to center on a node by ID
+        function panToNode(nodeId) {
+            const node = state.graph.nodes.find(n => n.id === nodeId);
+            if (node) {
+                panToWorldPosition(node.x, node.y);
+            }
+        }
+
+        // Cancel any ongoing pan animation
+        function cancelPanAnimation() {
+            state.graph.followAnimation = null;
+        }
+
+        // Update pan animation (called from animateGraph)
+        function updatePanAnimation() {
+            const anim = state.graph.followAnimation;
+            if (!anim) return;
+
+            const now = performance.now();
+            const elapsed = now - anim.startTime;
+            const progress = Math.min(elapsed / anim.duration, 1);
+            const easedProgress = easeInOutCubic(progress);
+
+            // Interpolate pan values
+            state.graph.viewport.panX = anim.startPanX + (anim.targetPanX - anim.startPanX) * easedProgress;
+            state.graph.viewport.panY = anim.startPanY + (anim.targetPanY - anim.startPanY) * easedProgress;
+
+            // Animation complete
+            if (progress >= 1) {
+                state.graph.followAnimation = null;
             }
         }
 
@@ -1547,6 +1632,9 @@
             const canvas = document.getElementById('graph-canvas');
             const ctx = canvas.getContext('2d');
             const { nodes, edges, physics } = state.graph;
+
+            // Update camera pan animation if active
+            updatePanAnimation();
 
             // Clear canvas
             ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary');
