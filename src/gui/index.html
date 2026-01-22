@@ -1100,6 +1100,8 @@
         // WebSocket connection
         let pendingReload = null;
         const RELOAD_DEBOUNCE_MS = 100;  // Client-side debounce as backup
+        let wasConnected = false;  // Track connection state for toast notifications
+        let disconnectToast = null;  // Track active disconnect toast
 
         function connectWebSocket() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1107,6 +1109,16 @@
 
             state.ws.onopen = () => {
                 updateConnectionStatus(true);
+                // Show reconnection toast only if we were previously connected
+                if (wasConnected) {
+                    // Dismiss any active disconnect toast
+                    if (disconnectToast) {
+                        dismissToast(disconnectToast);
+                        disconnectToast = null;
+                    }
+                    showToast('Connection restored', 'success', 3000);
+                }
+                wasConnected = true;
                 loadData();
             };
 
@@ -1140,6 +1152,10 @@
 
             state.ws.onclose = () => {
                 updateConnectionStatus(false);
+                // Show disconnect toast if we were connected (and don't have one already)
+                if (wasConnected && !disconnectToast) {
+                    disconnectToast = showToast('Connection lost, reconnecting...', 'warning', 0);
+                }
                 setTimeout(connectWebSocket, 2000);
             };
 
