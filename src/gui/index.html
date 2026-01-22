@@ -797,6 +797,9 @@
         };
 
         // WebSocket connection
+        let pendingReload = null;
+        const RELOAD_DEBOUNCE_MS = 100;  // Client-side debounce as backup
+
         function connectWebSocket() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
             state.ws = new WebSocket(`${protocol}//${location.host}/ws`);
@@ -809,7 +812,12 @@
             state.ws.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 if (msg.type === 'reload') {
-                    loadData();
+                    // Debounce rapid reload messages
+                    if (pendingReload) clearTimeout(pendingReload);
+                    pendingReload = setTimeout(() => {
+                        pendingReload = null;
+                        loadData();
+                    }, RELOAD_DEBOUNCE_MS);
                 }
             };
 

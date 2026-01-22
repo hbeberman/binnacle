@@ -131,7 +131,9 @@ async fn get_edges(State(state): State<AppState>) -> Result<Json<serde_json::Val
     Ok(Json(serde_json::json!({ "edges": edges_with_meta })))
 }
 
-/// Get activity log
+/// Get activity log (limited to most recent entries to reduce bandwidth)
+const MAX_LOG_ENTRIES: usize = 100;
+
 async fn get_log(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
     let storage = state.storage.lock().await;
 
@@ -140,10 +142,13 @@ async fn get_log(State(state): State<AppState>) -> Result<Json<serde_json::Value
     let log_entries = if log_path.exists() {
         std::fs::read_to_string(&log_path)
             .map(|content| {
-                content
+                let entries: Vec<_> = content
                     .lines()
                     .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-                    .collect::<Vec<_>>()
+                    .collect();
+                // Return only the most recent entries to limit bandwidth
+                let start = entries.len().saturating_sub(MAX_LOG_ENTRIES);
+                entries[start..].to_vec()
             })
             .unwrap_or_default()
     } else {
