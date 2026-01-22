@@ -245,10 +245,10 @@ Use `bn` (binnacle) for managing tasks, tests, and project planning across multi
 - `bn task close <id> --reason "completed"` - Close a task
 - `bn task update <id> --title "New title"` - Update task details
 
-### Dependencies
-- `bn dep add <child-id> <parent-id>` - Add dependency (child depends on parent)
-- `bn dep show <id>` - Show dependency graph
-- `bn dep rm <child-id> <parent-id>` - Remove dependency
+### Links (Dependencies & Relationships)
+- `bn link add <source> <target> --type depends_on` - Add dependency
+- `bn link list <id>` - Show links for an entity
+- `bn link rm <source> <target>` - Remove a link
 
 ### Test Tracking
 - `bn test create "Name" --cmd "cargo test" --task <id>` - Create and link test
@@ -280,7 +280,7 @@ Use `bn` (binnacle) for managing tasks, tests, and project planning across multi
 
 - **Always update task status** - Keep the task graph accurate
 - **Close all related tasks** - Don't leave completed work marked as pending
-- **Use dependencies** - Model blockers explicitly with `bn dep add`
+- **Use dependencies** - Model blockers explicitly with `bn link add --type depends_on`
 - **Link tests to tasks** - Enables regression detection
 - **Run `bn doctor` regularly** - Catch inconsistencies early
 - **Tag tasks** - Use tags for categorization (feature, bug, refactor, etc.)
@@ -307,7 +307,7 @@ bn task update bn-a1b2 --status in_progress
 
 # Discover a blocker, create it
 bn task create "Fix authentication bug" -p 0 --tag bug
-bn dep add bn-a1b2 bn-c3d4  # bn-a1b2 depends on bn-c3d4
+bn link add bn-a1b2 bn-c3d4 --type depends_on  # bn-a1b2 depends on bn-c3d4
 
 # Work on the blocker instead
 bn task update bn-c3d4 --status in_progress

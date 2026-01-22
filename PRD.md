@@ -55,11 +55,11 @@ bn task reopen bn-a1b2
 bn task delete bn-a1b2
 ```
 
-### Dependencies
+### Links (Dependencies & Relationships)
 ```bash
-bn dep add <child> <parent>     # child depends on parent
-bn dep rm <child> <parent>
-bn dep show bn-a1b2             # Show dependency graph
+bn link add <source> <target> --type depends_on  # source depends on target
+bn link rm <source> <target>
+bn link list bn-a1b2            # Show links for an entity
 ```
 
 ### Queries

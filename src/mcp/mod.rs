@@ -698,7 +698,7 @@ impl McpServer {
                             "I'm starting work on task {}. Please:\n\
                             1. Show me the task details with `bn task show {}`\n\
                             2. Update the task status to in_progress with `bn task update {} --status in_progress`\n\
-                            3. Show any dependencies with `bn dep show {}`\n\
+                            3. Show any links with `bn link list {}`\n\
                             4. List any linked tests with `bn test list --task {}`\n\
                             Then provide a summary of what needs to be done.",
                             task_id, task_id, task_id, task_id, task_id
@@ -759,7 +759,7 @@ impl McpServer {
                             Please help me plan this feature by:\n\
                             1. Breaking it down into discrete tasks\n\
                             2. Creating tasks with `bn task create \"title\" -p <priority>`\n\
-                            3. Setting up dependencies with `bn dep add <child> <parent>`\n\
+                            3. Setting up dependencies with `bn link add <child> <parent> --type depends_on`\n\
                             4. Creating test nodes for key functionality\n\
                             Show me the final task graph when done.",
                             feature

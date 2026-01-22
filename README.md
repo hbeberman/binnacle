@@ -38,7 +38,7 @@ bn task close bn-xxxx --reason "Implemented JWT auth"
 bn                    Status summary
 bn orient             Onboarding for AI agents
 bn task create/list/show/update/close/delete
-bn dep add/rm/show    Manage dependencies
+bn link add/rm/list   Manage relationships (dependencies, etc.)
 bn ready              Tasks with no blockers
 bn blocked            Tasks waiting on dependencies
 bn test create/run    Test node management
