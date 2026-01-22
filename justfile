@@ -24,14 +24,23 @@ install: (build "release" "gui")
 
 gui:
     #!/usr/bin/env bash
-    pkill bn || :
+    set -e
+    export BN_GUI_PORT="${BN_GUI_PORT:-3030}"
+    
+    # Check if port is already in use by a binnacle GUI
+    if lsof -i :$BN_GUI_PORT -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "⚠️  Port $BN_GUI_PORT is already in use."
+        echo "   A binnacle GUI may already be running - check your browser at http://127.0.0.1:$BN_GUI_PORT"
+        echo "   To restart: kill the existing process and run 'just gui' again"
+        echo "   To use a different port: BN_GUI_PORT=3031 just gui"
+        exit 1
+    fi
+    
     just install
     # Copy to temp location so builds can replace the original while GUI runs
     CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/binnacle"
     mkdir -p "$CACHE_DIR"
     cp ~/.local/bin/bn "$CACHE_DIR/bn-gui"
-    # Use fixed port (3030) for predictable testing - can be overridden with BN_GUI_PORT env var
-    export BN_GUI_PORT="${BN_GUI_PORT:-3030}"
     "$CACHE_DIR/bn-gui" gui&
     echo "Launched binnacle GUI at http://127.0.0.1:$BN_GUI_PORT (PID $!)"
 

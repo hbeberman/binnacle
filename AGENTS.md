@@ -21,3 +21,15 @@ The task graph drives development priorities. Always update task status to keep 
 ## Build and Test
 
 1. When testing gui use "just gui" to launch it
+
+## GUI Testing Best Practices
+
+When testing GUI changes, follow this workflow to avoid excessive port approval requests:
+
+1. **Use `just gui`** - This builds with `--features gui`, installs to ~/.local/bin, and launches on a consistent port (3030)
+2. **Check if GUI is already running** - `just gui` will warn you if port 3030 is in use. The user may already have a GUI open in their browser
+3. **For iterative changes** - After making code changes:
+   - Run `just install` to rebuild and install (doesn't launch a new instance)
+   - The user can refresh their browser to pick up changes (if the binary wasn't replaced while running)
+   - Or stop the existing GUI and run `just gui` again
+4. **Different port** - Use `BN_GUI_PORT=3031 just gui` if you need a separate instance
