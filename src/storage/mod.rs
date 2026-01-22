@@ -22,7 +22,7 @@ pub use backend::{BackendType, StorageBackend};
 pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
-use crate::models::{Bug, CommitLink, Edge, EdgeType, HydratedEdge, EdgeDirection, Task, TaskStatus, TestNode, TestResult};
+use crate::models::{Bug, CommitLink, Edge, EdgeType, HydratedEdge, EdgeDirection, Milestone, MilestoneProgress, Task, TaskStatus, TestNode, TestResult};
 use crate::{Error, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection};
@@ -63,7 +63,7 @@ impl Storage {
         fs::create_dir_all(&root)?;
 
         // Create empty JSONL files
-        let files = ["tasks.jsonl", "bugs.jsonl", "edges.jsonl", "commits.jsonl", "test-results.jsonl"];
+        let files = ["tasks.jsonl", "bugs.jsonl", "milestones.jsonl", "edges.jsonl", "commits.jsonl", "test-results.jsonl"];
         for file in files {
             let path = root.join(file);
             if !path.exists() {
@@ -158,6 +158,32 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_bugs_priority ON bugs(priority);
             CREATE INDEX IF NOT EXISTS idx_bugs_severity ON bugs(severity);
             CREATE INDEX IF NOT EXISTS idx_bug_tags_tag ON bug_tags(tag);
+
+            -- Milestone tables
+            CREATE TABLE IF NOT EXISTS milestones (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority INTEGER NOT NULL DEFAULT 2,
+                status TEXT NOT NULL DEFAULT 'pending',
+                due_date TEXT,
+                assignee TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                closed_at TEXT,
+                closed_reason TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS milestone_tags (
+                milestone_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (milestone_id, tag),
+                FOREIGN KEY (milestone_id) REFERENCES milestones(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_milestones_status ON milestones(status);
+            CREATE INDEX IF NOT EXISTS idx_milestones_priority ON milestones(priority);
+            CREATE INDEX IF NOT EXISTS idx_milestone_tags_tag ON milestone_tags(tag);
 
             -- Test node tables
             CREATE TABLE IF NOT EXISTS tests (
@@ -266,6 +292,8 @@ impl Storage {
             DELETE FROM bug_dependencies;
             DELETE FROM bug_tags;
             DELETE FROM bugs;
+            DELETE FROM milestone_tags;
+            DELETE FROM milestones;
             DELETE FROM test_links;
             DELETE FROM tests;
             DELETE FROM edges;
@@ -323,6 +351,25 @@ impl Storage {
                 if let Ok(bug) = serde_json::from_str::<Bug>(&line) {
                     if bug.entity_type == "bug" {
                         self.cache_bug(&bug)?;
+                    }
+                }
+            }
+        }
+
+        // Re-read milestones from milestones.jsonl
+        let milestones_path = self.root.join("milestones.jsonl");
+        if milestones_path.exists() {
+            let file = File::open(&milestones_path)?;
+            let reader = BufReader::new(file);
+
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(milestone) = serde_json::from_str::<Milestone>(&line) {
+                    if milestone.entity_type == "milestone" {
+                        self.cache_milestone(&milestone)?;
                     }
                 }
             }
@@ -724,6 +771,191 @@ impl Storage {
             "DELETE FROM bug_dependencies WHERE child_id = ? OR parent_id = ?",
             [id, id],
         )?;
+
+        Ok(())
+    }
+
+    // === Milestone Operations ===
+
+    /// Add a new milestone.
+    pub fn add_milestone(&mut self, milestone: &Milestone) -> Result<()> {
+        let milestones_path = self.root.join("milestones.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&milestones_path)?;
+
+        let json = serde_json::to_string(milestone)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_milestone(milestone)?;
+
+        Ok(())
+    }
+
+    /// Get a milestone by ID.
+    pub fn get_milestone(&self, id: &str) -> Result<Milestone> {
+        let milestones_path = self.root.join("milestones.jsonl");
+        if !milestones_path.exists() {
+            return Err(Error::NotFound(format!("Milestone not found: {}", id)));
+        }
+
+        let file = File::open(&milestones_path)?;
+        let reader = BufReader::new(file);
+
+        let mut latest: Option<Milestone> = None;
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(milestone) = serde_json::from_str::<Milestone>(&line) {
+                if milestone.id == id {
+                    latest = Some(milestone);
+                }
+            }
+        }
+
+        latest.ok_or_else(|| Error::NotFound(format!("Milestone not found: {}", id)))
+    }
+
+    /// List all milestones, optionally filtered.
+    pub fn list_milestones(
+        &self,
+        status: Option<&str>,
+        priority: Option<u8>,
+        tag: Option<&str>,
+    ) -> Result<Vec<Milestone>> {
+        let mut sql = String::from(
+            "SELECT DISTINCT m.id FROM milestones m
+             LEFT JOIN milestone_tags mt ON m.id = mt.milestone_id
+             WHERE 1=1",
+        );
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(s) = status {
+            sql.push_str(" AND m.status = ?");
+            params_vec.push(Box::new(s.to_string()));
+        }
+        if let Some(p) = priority {
+            sql.push_str(" AND m.priority = ?");
+            params_vec.push(Box::new(p));
+        }
+        if let Some(t) = tag {
+            sql.push_str(" AND mt.tag = ?");
+            params_vec.push(Box::new(t.to_string()));
+        }
+
+        sql.push_str(" ORDER BY m.priority ASC, m.created_at DESC");
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids: Vec<String> = stmt
+            .query_map(params_refs.as_slice(), |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut milestones = Vec::new();
+        for id in ids {
+            if let Ok(milestone) = self.get_milestone(&id) {
+                milestones.push(milestone);
+            }
+        }
+
+        Ok(milestones)
+    }
+
+    /// Update a milestone.
+    pub fn update_milestone(&mut self, milestone: &Milestone) -> Result<()> {
+        self.get_milestone(&milestone.id)?;
+
+        let milestones_path = self.root.join("milestones.jsonl");
+        let mut file = OpenOptions::new().append(true).open(&milestones_path)?;
+
+        let json = serde_json::to_string(milestone)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_milestone(milestone)?;
+
+        Ok(())
+    }
+
+    /// Delete a milestone by ID.
+    pub fn delete_milestone(&mut self, id: &str) -> Result<()> {
+        self.get_milestone(id)?;
+
+        self.conn.execute("DELETE FROM milestones WHERE id = ?", [id])?;
+        self.conn
+            .execute("DELETE FROM milestone_tags WHERE milestone_id = ?", [id])?;
+
+        Ok(())
+    }
+
+    /// Get progress statistics for a milestone.
+    /// Child items are identified by parent_of edges from this milestone.
+    pub fn get_milestone_progress(&self, milestone_id: &str) -> Result<MilestoneProgress> {
+        // Get all children via parent_of edges from this milestone
+        let edges = self.list_edges(Some(EdgeType::ParentOf), Some(milestone_id), None)?;
+        let child_ids: Vec<&str> = edges
+            .iter()
+            .map(|e| e.target.as_str())
+            .collect();
+
+        let mut total = 0;
+        let mut completed = 0;
+
+        for child_id in &child_ids {
+            // Try task first, then bug
+            if let Ok(task) = self.get_task(child_id) {
+                total += 1;
+                if task.status == TaskStatus::Done {
+                    completed += 1;
+                }
+            } else if let Ok(bug) = self.get_bug(child_id) {
+                total += 1;
+                if bug.status == TaskStatus::Done {
+                    completed += 1;
+                }
+            }
+        }
+
+        Ok(MilestoneProgress::new(total, completed))
+    }
+
+    /// Cache a milestone in SQLite for fast querying.
+    fn cache_milestone(&self, milestone: &Milestone) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT OR REPLACE INTO milestones
+            (id, title, description, priority, status, due_date, assignee,
+             created_at, updated_at, closed_at, closed_reason)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "#,
+            params![
+                milestone.id,
+                milestone.title,
+                milestone.description,
+                milestone.priority,
+                serde_json::to_string(&milestone.status)?.trim_matches('"'),
+                milestone.due_date.map(|t| t.to_rfc3339()),
+                milestone.assignee,
+                milestone.created_at.to_rfc3339(),
+                milestone.updated_at.to_rfc3339(),
+                milestone.closed_at.map(|t| t.to_rfc3339()),
+                milestone.closed_reason,
+            ],
+        )?;
+
+        self.conn
+            .execute("DELETE FROM milestone_tags WHERE milestone_id = ?1", [&milestone.id])?;
+        for tag in &milestone.tags {
+            self.conn.execute(
+                "INSERT INTO milestone_tags (milestone_id, tag) VALUES (?1, ?2)",
+                params![milestone.id, tag],
+            )?;
+        }
 
         Ok(())
     }

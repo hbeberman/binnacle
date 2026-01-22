@@ -3,7 +3,7 @@
 use binnacle::action_log;
 use binnacle::cli::{
     BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands,
-    LinkCommands, McpCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
+    LinkCommands, McpCommands, MilestoneCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -218,6 +218,86 @@ fn run_command(
             }
             BugCommands::Delete { id } => {
                 let result = commands::bug_delete(repo_path, &id)?;
+                output(&result, human);
+            }
+        },
+
+        Some(Commands::Milestone { command }) => match command {
+            MilestoneCommands::Create {
+                title,
+                priority,
+                tag,
+                assignee,
+                description,
+                due_date,
+            } => {
+                let result = commands::milestone_create(
+                    repo_path,
+                    title,
+                    description,
+                    priority,
+                    tag,
+                    assignee,
+                    due_date,
+                )?;
+                output(&result, human);
+            }
+            MilestoneCommands::List {
+                status,
+                priority,
+                tag,
+            } => {
+                let result = commands::milestone_list(
+                    repo_path,
+                    status.as_deref(),
+                    priority,
+                    tag.as_deref(),
+                )?;
+                output(&result, human);
+            }
+            MilestoneCommands::Show { id } => {
+                let result = commands::milestone_show(repo_path, &id)?;
+                output(&result, human);
+            }
+            MilestoneCommands::Update {
+                id,
+                title,
+                description,
+                priority,
+                status,
+                add_tag,
+                remove_tag,
+                assignee,
+                due_date,
+            } => {
+                let result = commands::milestone_update(
+                    repo_path,
+                    &id,
+                    title,
+                    description,
+                    priority,
+                    status.as_deref(),
+                    add_tag,
+                    remove_tag,
+                    assignee,
+                    due_date,
+                )?;
+                output(&result, human);
+            }
+            MilestoneCommands::Close { id, reason, force } => {
+                let result = commands::milestone_close(repo_path, &id, reason, force)?;
+                output(&result, human);
+            }
+            MilestoneCommands::Reopen { id } => {
+                let result = commands::milestone_reopen(repo_path, &id)?;
+                output(&result, human);
+            }
+            MilestoneCommands::Delete { id } => {
+                let result = commands::milestone_delete(repo_path, &id)?;
+                output(&result, human);
+            }
+            MilestoneCommands::Progress { id } => {
+                let result = commands::milestone_progress(repo_path, &id)?;
                 output(&result, human);
             }
         },
@@ -636,6 +716,87 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             ),
             BugCommands::Delete { id } => (
                 "bug delete".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+        },
+
+        Some(Commands::Milestone { command }) => match command {
+            MilestoneCommands::Create {
+                title,
+                priority,
+                tag,
+                assignee,
+                description,
+                due_date,
+            } => (
+                "milestone create".to_string(),
+                serde_json::json!({
+                    "title": title,
+                    "priority": priority,
+                    "tag": tag,
+                    "assignee": assignee,
+                    "description": description,
+                    "due_date": due_date,
+                }),
+            ),
+            MilestoneCommands::List {
+                status,
+                priority,
+                tag,
+            } => (
+                "milestone list".to_string(),
+                serde_json::json!({
+                    "status": status,
+                    "priority": priority,
+                    "tag": tag,
+                }),
+            ),
+            MilestoneCommands::Show { id } => (
+                "milestone show".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+            MilestoneCommands::Update {
+                id,
+                title,
+                description,
+                priority,
+                status,
+                add_tag,
+                remove_tag,
+                assignee,
+                due_date,
+            } => (
+                "milestone update".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "title": title,
+                    "description": description,
+                    "priority": priority,
+                    "status": status,
+                    "add_tag": add_tag,
+                    "remove_tag": remove_tag,
+                    "assignee": assignee,
+                    "due_date": due_date,
+                }),
+            ),
+            MilestoneCommands::Close { id, reason, force } => (
+                "milestone close".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "reason": reason,
+                    "force": force,
+                }),
+            ),
+            MilestoneCommands::Reopen { id } => (
+                "milestone reopen".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+            MilestoneCommands::Delete { id } => (
+                "milestone delete".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+            MilestoneCommands::Progress { id } => (
+                "milestone progress".to_string(),
                 serde_json::json!({ "id": id }),
             ),
         },

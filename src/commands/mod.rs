@@ -2157,6 +2157,461 @@ pub fn bug_delete(repo_path: &Path, id: &str) -> Result<BugDeleted> {
     Ok(BugDeleted { id: id.to_string() })
 }
 
+// === Milestone Commands ===
+
+use crate::models::{Milestone, MilestoneProgress};
+
+#[derive(Serialize)]
+pub struct MilestoneCreated {
+    pub id: String,
+    pub title: String,
+}
+
+impl Output for MilestoneCreated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Created milestone {} \"{}\"", self.id, self.title)
+    }
+}
+
+/// Create a new milestone.
+pub fn milestone_create(
+    repo_path: &Path,
+    title: String,
+    description: Option<String>,
+    priority: Option<u8>,
+    tags: Vec<String>,
+    assignee: Option<String>,
+    due_date: Option<String>,
+) -> Result<MilestoneCreated> {
+    let mut storage = Storage::open(repo_path)?;
+
+    if let Some(p) = priority {
+        if p > 4 {
+            return Err(Error::Other("Priority must be 0-4".to_string()));
+        }
+    }
+
+    let id = generate_id("bn", &title);
+    let mut milestone = Milestone::new(id.clone(), title.clone());
+    milestone.description = description;
+    milestone.priority = priority.unwrap_or(2);
+    milestone.tags = tags;
+    milestone.assignee = assignee;
+    milestone.due_date = due_date
+        .map(|d| chrono::DateTime::parse_from_rfc3339(&d))
+        .transpose()
+        .map_err(|e| Error::Other(format!("Invalid due_date format: {}. Use ISO 8601 format.", e)))?
+        .map(|d| d.with_timezone(&chrono::Utc));
+
+    storage.add_milestone(&milestone)?;
+
+    Ok(MilestoneCreated { id, title })
+}
+
+impl Output for Milestone {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("{} {}", self.id, self.title));
+        lines.push(format!(
+            "  Status: {:?}  Priority: {}",
+            self.status, self.priority
+        ));
+        if let Some(ref desc) = self.description {
+            lines.push(format!("  Description: {}", desc));
+        }
+        if let Some(due) = self.due_date {
+            lines.push(format!("  Due date: {}", due.format("%Y-%m-%d")));
+        }
+        if !self.tags.is_empty() {
+            lines.push(format!("  Tags: {}", self.tags.join(", ")));
+        }
+        if let Some(ref assignee) = self.assignee {
+            lines.push(format!("  Assignee: {}", assignee));
+        }
+        lines.push(format!(
+            "  Created: {}",
+            self.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.push(format!(
+            "  Updated: {}",
+            self.updated_at.format("%Y-%m-%d %H:%M")
+        ));
+        if let Some(closed) = self.closed_at {
+            lines.push(format!("  Closed: {}", closed.format("%Y-%m-%d %H:%M")));
+            if let Some(ref reason) = self.closed_reason {
+                lines.push(format!("  Reason: {}", reason));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct MilestoneList {
+    pub milestones: Vec<Milestone>,
+    pub count: usize,
+}
+
+impl Output for MilestoneList {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.milestones.is_empty() {
+            return "No milestones found.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("{} milestone(s):\n", self.count));
+
+        for milestone in &self.milestones {
+            let status_char = match milestone.status {
+                TaskStatus::Pending => " ",
+                TaskStatus::InProgress => ">",
+                TaskStatus::Done => "x",
+                TaskStatus::Blocked => "!",
+                TaskStatus::Cancelled => "-",
+                TaskStatus::Reopened => "?",
+                TaskStatus::Partial => "~",
+            };
+            let tags = if milestone.tags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", milestone.tags.join(", "))
+            };
+            let due = milestone
+                .due_date
+                .map(|d| format!(" due:{}", d.format("%Y-%m-%d")))
+                .unwrap_or_default();
+            lines.push(format!(
+                "[{}] {} P{} {}{}{}",
+                status_char, milestone.id, milestone.priority, milestone.title, tags, due
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// List milestones with optional filters.
+pub fn milestone_list(
+    repo_path: &Path,
+    status: Option<&str>,
+    priority: Option<u8>,
+    tag: Option<&str>,
+) -> Result<MilestoneList> {
+    let storage = Storage::open(repo_path)?;
+    let milestones = storage.list_milestones(status, priority, tag)?;
+    let count = milestones.len();
+    Ok(MilestoneList { milestones, count })
+}
+
+/// Result of milestone_show with progress and edge information.
+#[derive(Serialize)]
+pub struct MilestoneShowResult {
+    pub milestone: Milestone,
+    pub progress: MilestoneProgress,
+    pub edges: Vec<Edge>,
+}
+
+impl Output for MilestoneShowResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = vec![self.milestone.to_human()];
+        
+        // Add progress info
+        lines.push(format!(
+            "  Progress: {}/{} ({:.1}%)",
+            self.progress.completed, self.progress.total, self.progress.percentage
+        ));
+
+        // Add edge info
+        if !self.edges.is_empty() {
+            lines.push("  Relationships:".to_string());
+            for edge in &self.edges {
+                let direction = if edge.source == self.milestone.id {
+                    format!("{} → {}", edge.edge_type, edge.target)
+                } else {
+                    format!("{} ← {}", edge.edge_type, edge.source)
+                };
+                lines.push(format!("    {}", direction));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Show milestone details with progress.
+pub fn milestone_show(repo_path: &Path, id: &str) -> Result<MilestoneShowResult> {
+    let storage = Storage::open(repo_path)?;
+    let milestone = storage.get_milestone(id)?;
+    let progress = storage.get_milestone_progress(id)?;
+    
+    // Get edges for this milestone - use get_edges_for_entity which returns both in/outbound
+    let hydrated_edges = storage.get_edges_for_entity(id)?;
+    let edges: Vec<Edge> = hydrated_edges.into_iter().map(|he| he.edge).collect();
+
+    Ok(MilestoneShowResult {
+        milestone,
+        progress,
+        edges,
+    })
+}
+
+#[derive(Serialize)]
+pub struct MilestoneUpdated {
+    pub id: String,
+    pub updated_fields: Vec<String>,
+}
+
+impl Output for MilestoneUpdated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Updated milestone {}: {}",
+            self.id,
+            self.updated_fields.join(", ")
+        )
+    }
+}
+
+/// Update a milestone.
+#[allow(clippy::too_many_arguments)]
+pub fn milestone_update(
+    repo_path: &Path,
+    id: &str,
+    title: Option<String>,
+    description: Option<String>,
+    priority: Option<u8>,
+    status: Option<&str>,
+    add_tags: Vec<String>,
+    remove_tags: Vec<String>,
+    assignee: Option<String>,
+    due_date: Option<String>,
+) -> Result<MilestoneUpdated> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut milestone = storage.get_milestone(id)?;
+    let mut updated_fields = Vec::new();
+
+    if let Some(t) = title {
+        milestone.title = t;
+        updated_fields.push("title".to_string());
+    }
+
+    if let Some(d) = description {
+        milestone.description = Some(d);
+        updated_fields.push("description".to_string());
+    }
+
+    if let Some(p) = priority {
+        if p > 4 {
+            return Err(Error::Other("Priority must be 0-4".to_string()));
+        }
+        milestone.priority = p;
+        updated_fields.push("priority".to_string());
+    }
+
+    if let Some(s) = status {
+        milestone.status = parse_status(s)?;
+        updated_fields.push("status".to_string());
+    }
+
+    for tag in add_tags {
+        if !milestone.tags.contains(&tag) {
+            milestone.tags.push(tag.clone());
+            updated_fields.push(format!("added tag: {}", tag));
+        }
+    }
+
+    for tag in remove_tags {
+        if let Some(pos) = milestone.tags.iter().position(|t| t == &tag) {
+            milestone.tags.remove(pos);
+            updated_fields.push(format!("removed tag: {}", tag));
+        }
+    }
+
+    if let Some(a) = assignee {
+        milestone.assignee = Some(a);
+        updated_fields.push("assignee".to_string());
+    }
+
+    if let Some(d) = due_date {
+        milestone.due_date = Some(
+            chrono::DateTime::parse_from_rfc3339(&d)
+                .map_err(|e| Error::Other(format!("Invalid due_date format: {}. Use ISO 8601 format.", e)))?
+                .with_timezone(&chrono::Utc),
+        );
+        updated_fields.push("due_date".to_string());
+    }
+
+    if updated_fields.is_empty() {
+        return Err(Error::Other("No updates specified".to_string()));
+    }
+
+    milestone.updated_at = chrono::Utc::now();
+    storage.update_milestone(&milestone)?;
+
+    Ok(MilestoneUpdated {
+        id: id.to_string(),
+        updated_fields,
+    })
+}
+
+#[derive(Serialize)]
+pub struct MilestoneClosed {
+    pub id: String,
+    pub reason: Option<String>,
+}
+
+impl Output for MilestoneClosed {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        match &self.reason {
+            Some(r) => format!("Closed milestone {}: {}", self.id, r),
+            None => format!("Closed milestone {}", self.id),
+        }
+    }
+}
+
+/// Close a milestone.
+pub fn milestone_close(
+    repo_path: &Path,
+    id: &str,
+    reason: Option<String>,
+    force: bool,
+) -> Result<MilestoneClosed> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut milestone = storage.get_milestone(id)?;
+
+    // Check if already closed
+    if milestone.status == TaskStatus::Done {
+        return Err(Error::Other(format!("Milestone {} is already closed", id)));
+    }
+
+    // Check progress (unless force is set)
+    if !force {
+        let progress = storage.get_milestone_progress(id)?;
+        if progress.total > 0 && progress.completed < progress.total {
+            return Err(Error::Other(format!(
+                "Milestone has incomplete children ({}/{}). Use --force to close anyway.",
+                progress.completed, progress.total
+            )));
+        }
+    }
+
+    milestone.status = TaskStatus::Done;
+    milestone.closed_at = Some(chrono::Utc::now());
+    milestone.closed_reason = reason.clone();
+    milestone.updated_at = chrono::Utc::now();
+
+    storage.update_milestone(&milestone)?;
+
+    Ok(MilestoneClosed {
+        id: id.to_string(),
+        reason,
+    })
+}
+
+#[derive(Serialize)]
+pub struct MilestoneReopened {
+    pub id: String,
+}
+
+impl Output for MilestoneReopened {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Reopened milestone {}", self.id)
+    }
+}
+
+/// Reopen a closed milestone.
+pub fn milestone_reopen(repo_path: &Path, id: &str) -> Result<MilestoneReopened> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut milestone = storage.get_milestone(id)?;
+
+    if milestone.status != TaskStatus::Done && milestone.status != TaskStatus::Cancelled {
+        return Err(Error::Other(format!(
+            "Milestone {} is not closed (status: {:?})",
+            id, milestone.status
+        )));
+    }
+
+    milestone.status = TaskStatus::Reopened;
+    milestone.closed_at = None;
+    milestone.closed_reason = None;
+    milestone.updated_at = chrono::Utc::now();
+
+    storage.update_milestone(&milestone)?;
+
+    Ok(MilestoneReopened { id: id.to_string() })
+}
+
+#[derive(Serialize)]
+pub struct MilestoneDeleted {
+    pub id: String,
+}
+
+impl Output for MilestoneDeleted {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Deleted milestone {}", self.id)
+    }
+}
+
+/// Delete a milestone.
+pub fn milestone_delete(repo_path: &Path, id: &str) -> Result<MilestoneDeleted> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.delete_milestone(id)?;
+
+    Ok(MilestoneDeleted { id: id.to_string() })
+}
+
+impl Output for MilestoneProgress {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "{}/{} completed ({:.1}%)",
+            self.completed, self.total, self.percentage
+        )
+    }
+}
+
+/// Get milestone progress.
+pub fn milestone_progress(repo_path: &Path, id: &str) -> Result<MilestoneProgress> {
+    let storage = Storage::open(repo_path)?;
+    // Verify milestone exists
+    storage.get_milestone(id)?;
+    storage.get_milestone_progress(id)
+}
+
 // === Status Summary ===
 
 #[derive(Serialize)]
@@ -2457,7 +2912,7 @@ pub fn link_add(
     })
 }
 
-/// Validate that an entity exists (task, bug, or test).
+/// Validate that an entity exists (task, bug, milestone, or test).
 fn validate_entity_exists(storage: &Storage, id: &str) -> Result<()> {
     // Try task first
     if storage.get_task(id).is_ok() {
@@ -2465,6 +2920,10 @@ fn validate_entity_exists(storage: &Storage, id: &str) -> Result<()> {
     }
     // Try bug
     if storage.get_bug(id).is_ok() {
+        return Ok(());
+    }
+    // Try milestone
+    if storage.get_milestone(id).is_ok() {
         return Ok(());
     }
     // Try test
@@ -2480,6 +2939,8 @@ fn get_entity_type(storage: &Storage, id: &str) -> Option<&'static str> {
         Some("task")
     } else if storage.get_bug(id).is_ok() {
         Some("bug")
+    } else if storage.get_milestone(id).is_ok() {
+        Some("milestone")
     } else if storage.get_test(id).is_ok() {
         Some("test")
     } else {

@@ -35,6 +35,12 @@ pub enum Commands {
         command: BugCommands,
     },
 
+    /// Milestone management commands
+    Milestone {
+        #[command(subcommand)]
+        command: MilestoneCommands,
+    },
+
     /// Link management commands (relationships between entities)
     Link {
         #[command(subcommand)]
@@ -374,6 +380,127 @@ pub enum BugCommands {
     /// Delete a bug
     Delete {
         /// Bug ID
+        id: String,
+    },
+}
+
+/// Milestone subcommands
+#[derive(Subcommand, Debug)]
+pub enum MilestoneCommands {
+    /// Create a new milestone
+    Create {
+        /// Milestone title
+        title: String,
+
+        /// Priority (0-4, lower is higher priority)
+        #[arg(short, long)]
+        priority: Option<u8>,
+
+        /// Tags for the milestone
+        #[arg(short, long)]
+        tag: Vec<String>,
+
+        /// Assignee
+        #[arg(short, long)]
+        assignee: Option<String>,
+
+        /// Milestone description
+        #[arg(short, long)]
+        description: Option<String>,
+
+        /// Target due date (ISO 8601 format, e.g., 2026-02-01T00:00:00Z)
+        #[arg(long)]
+        due_date: Option<String>,
+    },
+
+    /// List milestones
+    List {
+        /// Filter by status
+        #[arg(long)]
+        status: Option<String>,
+
+        /// Filter by priority
+        #[arg(long)]
+        priority: Option<u8>,
+
+        /// Filter by tag
+        #[arg(long)]
+        tag: Option<String>,
+    },
+
+    /// Show milestone details with progress
+    Show {
+        /// Milestone ID (e.g., bn-m1b2)
+        id: String,
+    },
+
+    /// Update a milestone (status: pending, in_progress, partial, blocked)
+    Update {
+        /// Milestone ID
+        id: String,
+
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// New priority
+        #[arg(long)]
+        priority: Option<u8>,
+
+        /// New status (pending, in_progress, partial, blocked)
+        #[arg(long)]
+        status: Option<String>,
+
+        /// Add a tag
+        #[arg(long)]
+        add_tag: Vec<String>,
+
+        /// Remove a tag
+        #[arg(long)]
+        remove_tag: Vec<String>,
+
+        /// New assignee
+        #[arg(long)]
+        assignee: Option<String>,
+
+        /// New due date (ISO 8601 format, e.g., 2026-02-01T00:00:00Z)
+        #[arg(long)]
+        due_date: Option<String>,
+    },
+
+    /// Close a milestone (marks as done)
+    Close {
+        /// Milestone ID
+        id: String,
+
+        /// Reason for closing (describe what was accomplished)
+        #[arg(long)]
+        reason: Option<String>,
+
+        /// Force close even with incomplete children (use with caution)
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Reopen a closed milestone
+    Reopen {
+        /// Milestone ID
+        id: String,
+    },
+
+    /// Delete a milestone
+    Delete {
+        /// Milestone ID
+        id: String,
+    },
+
+    /// Show progress for a milestone
+    Progress {
+        /// Milestone ID
         id: String,
     },
 }

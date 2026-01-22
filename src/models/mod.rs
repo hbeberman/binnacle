@@ -3,6 +3,7 @@
 //! This module defines the core data structures:
 //! - `Task` - Work items with status, priority, dependencies
 //! - `Bug` - Defects with severity, reproduction steps, and components
+//! - `Milestone` - Collection of tasks/bugs with progress tracking
 //! - `TestNode` - Test definitions linked to tasks
 //! - `CommitLink` - Associations between commits and tasks
 //! - `Edge` - Relationships between entities (dependencies, blocks, related, etc.)
@@ -215,6 +216,107 @@ impl Bug {
             updated_at: now,
             closed_at: None,
             closed_reason: None,
+        }
+    }
+}
+
+/// A milestone for grouping and tracking progress of tasks and bugs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Milestone {
+    /// Unique identifier (e.g., "bn-m1b2")
+    pub id: String,
+
+    /// Entity type marker
+    #[serde(rename = "type")]
+    pub entity_type: String,
+
+    /// Milestone title
+    pub title: String,
+
+    /// Detailed description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// Priority level (0-4, lower is higher priority)
+    #[serde(default)]
+    pub priority: u8,
+
+    /// Current status
+    #[serde(default)]
+    pub status: TaskStatus,
+
+    /// Target completion date
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due_date: Option<DateTime<Utc>>,
+
+    /// Tags for categorization
+    #[serde(default)]
+    pub tags: Vec<String>,
+
+    /// Assigned user or agent
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignee: Option<String>,
+
+    /// Creation timestamp
+    pub created_at: DateTime<Utc>,
+
+    /// Last update timestamp
+    pub updated_at: DateTime<Utc>,
+
+    /// Closure timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_at: Option<DateTime<Utc>>,
+
+    /// Reason for closing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_reason: Option<String>,
+}
+
+impl Milestone {
+    /// Create a new milestone with the given ID and title.
+    pub fn new(id: String, title: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            entity_type: "milestone".to_string(),
+            title,
+            description: None,
+            priority: 2,
+            status: TaskStatus::default(),
+            due_date: None,
+            tags: Vec::new(),
+            assignee: None,
+            created_at: now,
+            updated_at: now,
+            closed_at: None,
+            closed_reason: None,
+        }
+    }
+}
+
+/// Progress statistics for a milestone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MilestoneProgress {
+    /// Total number of child items (tasks + bugs)
+    pub total: usize,
+    /// Number of completed items
+    pub completed: usize,
+    /// Completion percentage (0-100)
+    pub percentage: f64,
+}
+
+impl MilestoneProgress {
+    /// Create new progress stats.
+    pub fn new(total: usize, completed: usize) -> Self {
+        let percentage = if total > 0 {
+            (completed as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+        Self {
+            total,
+            completed,
+            percentage,
         }
     }
 }
@@ -557,6 +659,41 @@ mod tests {
         // Test deserialization
         let deserialized: TaskStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, TaskStatus::Partial);
+    }
+
+    #[test]
+    fn test_milestone_serialization_roundtrip() {
+        let milestone = Milestone::new("bn-mile".to_string(), "Test milestone".to_string());
+        let json = serde_json::to_string(&milestone).unwrap();
+        let deserialized: Milestone = serde_json::from_str(&json).unwrap();
+        assert_eq!(milestone.id, deserialized.id);
+        assert_eq!(milestone.title, deserialized.title);
+        assert_eq!(milestone.entity_type, "milestone");
+    }
+
+    #[test]
+    fn test_milestone_default_values() {
+        let json = r#"{"id":"bn-mile","type":"milestone","title":"M1","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#;
+        let milestone: Milestone = serde_json::from_str(json).unwrap();
+        // serde(default) for u8 is 0; Milestone::new() uses 2 for creation
+        assert_eq!(milestone.priority, 0);
+        assert_eq!(milestone.status, TaskStatus::Pending);
+        assert!(milestone.tags.is_empty());
+    }
+
+    #[test]
+    fn test_milestone_progress_calculation() {
+        // No items
+        let progress = MilestoneProgress::new(0, 0);
+        assert_eq!(progress.percentage, 0.0);
+
+        // 3 of 5 done
+        let progress = MilestoneProgress::new(5, 3);
+        assert_eq!(progress.percentage, 60.0);
+
+        // All done
+        let progress = MilestoneProgress::new(4, 4);
+        assert_eq!(progress.percentage, 100.0);
     }
 
     #[test]
