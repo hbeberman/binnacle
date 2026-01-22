@@ -3053,18 +3053,24 @@ pub fn blocked(repo_path: &Path) -> Result<BlockedTasks> {
 
     let mut blocked_tasks = Vec::new();
     for task in tasks {
-        // Find which dependencies are blocking
-        let blocking: Vec<String> = task
+        // Find which legacy dependencies are blocking
+        let mut blocking: Vec<String> = task
             .depends_on
             .iter()
             .filter(|dep_id| {
-                storage
-                    .get_task(dep_id)
-                    .map(|t| t.status != TaskStatus::Done)
-                    .unwrap_or(true)
+                !storage.is_entity_done(dep_id)
             })
             .cloned()
             .collect();
+
+        // Also include edge-based dependencies that are blocking
+        if let Ok(edge_deps) = storage.get_edge_dependencies(&task.id) {
+            for dep_id in edge_deps {
+                if !storage.is_entity_done(&dep_id) && !blocking.contains(&dep_id) {
+                    blocking.push(dep_id);
+                }
+            }
+        }
 
         blocked_tasks.push(BlockedTask {
             task,

@@ -842,6 +842,7 @@ impl Storage {
     ///
     /// This uses DFS to check if there's a path from parent to child.
     /// If there is, adding child->parent would create a cycle.
+    /// Checks both legacy depends_on fields AND edge-based dependencies.
     fn would_create_cycle(&self, child_id: &str, parent_id: &str) -> Result<bool> {
         let mut visited = std::collections::HashSet::new();
         let mut stack = vec![parent_id.to_string()];
@@ -856,9 +857,17 @@ impl Storage {
             }
             visited.insert(current.clone());
 
-            // Get all tasks that the current task depends on
-            let deps = self.get_dependencies(&current)?;
-            for dep in deps {
+            // Get legacy dependencies (from task.depends_on)
+            let legacy_deps = self.get_dependencies(&current)?;
+            for dep in legacy_deps {
+                if !visited.contains(&dep) {
+                    stack.push(dep);
+                }
+            }
+
+            // Get edge-based dependencies
+            let edge_deps = self.get_edge_dependencies(&current).unwrap_or_default();
+            for dep in edge_deps {
                 if !visited.contains(&dep) {
                     stack.push(dep);
                 }
@@ -900,7 +909,7 @@ impl Storage {
     }
 
     /// Check if an entity (task or bug) is in a "done" state.
-    fn is_entity_done(&self, id: &str) -> bool {
+    pub fn is_entity_done(&self, id: &str) -> bool {
         if let Ok(task) = self.get_task(id) {
             return task.status == TaskStatus::Done;
         }
@@ -1127,6 +1136,7 @@ impl Storage {
     }
 
     /// Check if adding an edge would create a cycle (for blocking edge types).
+    /// Checks both edge-based dependencies AND legacy depends_on fields.
     pub fn would_edge_create_cycle(&self, source: &str, target: &str, edge_type: EdgeType) -> Result<bool> {
         // Only check for cycles on blocking edge types
         if !edge_type.is_blocking() {
@@ -1153,6 +1163,16 @@ impl Storage {
             for edge in deps {
                 if !visited.contains(&edge.target) {
                     stack.push(edge.target);
+                }
+            }
+
+            // Also check legacy depends_on for DependsOn edge type
+            if edge_type == EdgeType::DependsOn {
+                let legacy_deps = self.get_dependencies(&current).unwrap_or_default();
+                for dep in legacy_deps {
+                    if !visited.contains(&dep) {
+                        stack.push(dep);
+                    }
                 }
             }
         }

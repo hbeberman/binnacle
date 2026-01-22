@@ -1503,3 +1503,65 @@ fn test_task_update_clear_short_name() {
         .success()
         .stdout(predicate::str::contains("\"short_name\"").not());
 }
+
+#[test]
+fn test_blocked_shows_edge_based_blockers() {
+    let temp = init_binnacle();
+
+    // Create two tasks
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Blocker Task"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Blocked Task"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A via edge (not legacy depends_on)
+    bn_in(&temp)
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .assert()
+        .success();
+
+    // Blocked command should show A as the blocker for B
+    bn_in(&temp)
+        .args(["blocked"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&id_b))
+        .stdout(predicate::str::contains(&id_a)); // Blocker should be shown
+}
+
+#[test]
+fn test_blocked_human_shows_edge_blocker_id() {
+    let temp = init_binnacle();
+
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Blocker"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Blocked"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    bn_in(&temp)
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .assert()
+        .success();
+
+    // Human-readable blocked should show blocker ID
+    bn_in(&temp)
+        .args(["-H", "blocked"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("blocked by"))
+        .stdout(predicate::str::contains(&id_a));
+}
