@@ -530,7 +530,7 @@ fn extract_task_id(output: &std::process::Output) -> String {
 }
 
 #[test]
-fn test_dep_add() {
+fn test_link_add() {
     let temp = init_binnacle();
 
     // Create two tasks
@@ -548,11 +548,11 @@ fn test_dep_add() {
 
     // B depends on A
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"child\""))
-        .stdout(predicate::str::contains("\"parent\""));
+        .stdout(predicate::str::contains("\"source\""))
+        .stdout(predicate::str::contains("\"target\""));
 
     // Verify B now depends on A
     bn_in(&temp)
@@ -563,7 +563,7 @@ fn test_dep_add() {
 }
 
 #[test]
-fn test_dep_add_human_readable() {
+fn test_link_add_human_readable() {
     let temp = init_binnacle();
 
     let output_a = bn_in(&temp)
@@ -579,15 +579,14 @@ fn test_dep_add_human_readable() {
     let id_b = extract_task_id(&output_b);
 
     bn_in(&temp)
-        .args(["-H", "dep", "add", &id_b, &id_a])
+        .args(["-H", "link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Added dependency"))
-        .stdout(predicate::str::contains("depends on"));
+        .stdout(predicate::str::contains("Created link"));
 }
 
 #[test]
-fn test_dep_add_cycle_rejected() {
+fn test_link_add_cycle_rejected() {
     let temp = init_binnacle();
 
     let output_a = bn_in(&temp)
@@ -604,20 +603,20 @@ fn test_dep_add_cycle_rejected() {
 
     // A depends on B
     bn_in(&temp)
-        .args(["dep", "add", &id_a, &id_b])
+        .args(["link", "add", &id_a, &id_b, "--type", "depends_on"])
         .assert()
         .success();
 
     // B depends on A should fail (cycle)
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Cycle"));
 }
 
 #[test]
-fn test_dep_rm() {
+fn test_link_rm() {
     let temp = init_binnacle();
 
     let output_a = bn_in(&temp)
@@ -634,15 +633,15 @@ fn test_dep_rm() {
 
     // Add then remove dependency
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
 
     bn_in(&temp)
-        .args(["dep", "rm", &id_b, &id_a])
+        .args(["link", "rm", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"child\""));
+        .stdout(predicate::str::contains("\"source\""));
 
     // Verify dependency is removed
     let show_output = bn_in(&temp).args(["task", "show", &id_b]).output().unwrap();
@@ -651,7 +650,7 @@ fn test_dep_rm() {
 }
 
 #[test]
-fn test_dep_show() {
+fn test_link_list() {
     let temp = init_binnacle();
 
     let output_a = bn_in(&temp)
@@ -674,27 +673,26 @@ fn test_dep_show() {
 
     // B depends on A, C depends on B
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["dep", "add", &id_c, &id_b])
+        .args(["link", "add", &id_c, &id_b, "--type", "depends_on"])
         .assert()
         .success();
 
-    // Show B's dependencies
+    // Show B's links (should show outbound to A and inbound from C)
     bn_in(&temp)
-        .args(["dep", "show", &id_b])
+        .args(["link", "list", &id_b])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"depends_on\""))
-        .stdout(predicate::str::contains("\"dependents\""))
+        .stdout(predicate::str::contains("\"edge_type\""))
         .stdout(predicate::str::contains(&id_a))
         .stdout(predicate::str::contains(&id_c));
 }
 
 #[test]
-fn test_dep_show_human_readable() {
+fn test_link_list_human_readable() {
     let temp = init_binnacle();
 
     let output_a = bn_in(&temp)
@@ -703,13 +701,24 @@ fn test_dep_show_human_readable() {
         .unwrap();
     let id_a = extract_task_id(&output_a);
 
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
     bn_in(&temp)
-        .args(["-H", "dep", "show", &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["-H", "link", "list", &id_b])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Dependency graph"))
-        .stdout(predicate::str::contains("Depends on"))
-        .stdout(predicate::str::contains("Dependents"));
+        .stdout(predicate::str::contains("link(s)"))
+        .stdout(predicate::str::contains(&id_a));
 }
 
 // === Ready/Blocked Query Tests ===
@@ -732,7 +741,7 @@ fn test_ready_command() {
 
     // B depends on A (which is pending, so B is blocked)
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -779,7 +788,7 @@ fn test_blocked_command() {
 
     // B depends on A
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -810,7 +819,7 @@ fn test_blocked_command_human_readable() {
     let id_b = extract_task_id(&output_b);
 
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -819,7 +828,7 @@ fn test_blocked_command_human_readable() {
         .assert()
         .success()
         .stdout(predicate::str::contains("blocked task"))
-        .stdout(predicate::str::contains("blocked by"));
+        .stdout(predicate::str::contains("Task B"));
 }
 
 #[test]
@@ -840,7 +849,7 @@ fn test_ready_after_closing_dependency() {
 
     // B depends on A
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -897,11 +906,11 @@ fn test_transitive_dependencies() {
     let id_c = extract_task_id(&output_c);
 
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["dep", "add", &id_c, &id_b])
+        .args(["link", "add", &id_c, &id_b, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -920,12 +929,11 @@ fn test_transitive_dependencies() {
         .success()
         .stdout(predicate::str::contains("\"count\":2"));
 
-    // dep show for C should show transitive deps
+    // link list for C should show its direct link to B
     bn_in(&temp)
-        .args(["dep", "show", &id_c])
+        .args(["link", "list", &id_c])
         .assert()
         .success()
-        .stdout(predicate::str::contains("transitive_deps"))
         .stdout(predicate::str::contains(&id_b));
 }
 
@@ -969,7 +977,7 @@ fn test_task_show_blocking_info_json_format() {
 
     // B depends on A (pending)
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -1003,7 +1011,7 @@ fn test_task_show_blocking_info_human_readable() {
 
     // B depends on A
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -1041,7 +1049,7 @@ fn test_task_show_all_deps_complete() {
 
     // B depends on A (done)
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -1077,11 +1085,11 @@ fn test_task_show_transitive_blockers_json() {
     let id_c = extract_task_id(&output_c);
 
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["dep", "add", &id_c, &id_b])
+        .args(["link", "add", &id_c, &id_b, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -1121,11 +1129,11 @@ fn test_task_show_multiple_blockers() {
 
     // C depends on both A and B
     bn_in(&temp)
-        .args(["dep", "add", &id_c, &id_a])
+        .args(["link", "add", &id_c, &id_a, "--type", "depends_on"])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["dep", "add", &id_c, &id_b])
+        .args(["link", "add", &id_c, &id_b, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -1164,7 +1172,7 @@ fn test_task_show_cancelled_deps_dont_block() {
 
     // B depends on A (cancelled)
     bn_in(&temp)
-        .args(["dep", "add", &id_b, &id_a])
+        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -1217,15 +1225,15 @@ fn test_task_show_mixed_status_blockers() {
 
     // D depends on all three
     bn_in(&temp)
-        .args(["dep", "add", &id_d, &id_a])
+        .args(["link", "add", &id_d, &id_a, "--type", "depends_on"])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["dep", "add", &id_d, &id_b])
+        .args(["link", "add", &id_d, &id_b, "--type", "depends_on"])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["dep", "add", &id_d, &id_c])
+        .args(["link", "add", &id_d, &id_c, "--type", "depends_on"])
         .assert()
         .success();
 

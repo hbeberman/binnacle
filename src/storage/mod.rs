@@ -22,7 +22,7 @@ pub use backend::{BackendType, StorageBackend};
 pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
-use crate::models::{Bug, CommitLink, Task, TaskStatus, TestNode, TestResult};
+use crate::models::{Bug, CommitLink, Edge, EdgeType, HydratedEdge, EdgeDirection, Task, TaskStatus, TestNode, TestResult};
 use crate::{Error, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection};
@@ -63,7 +63,7 @@ impl Storage {
         fs::create_dir_all(&root)?;
 
         // Create empty JSONL files
-        let files = ["tasks.jsonl", "bugs.jsonl", "commits.jsonl", "test-results.jsonl"];
+        let files = ["tasks.jsonl", "bugs.jsonl", "edges.jsonl", "commits.jsonl", "test-results.jsonl"];
         for file in files {
             let path = root.join(file);
             if !path.exists() {
@@ -204,6 +204,23 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_commit_links_task ON commit_links(task_id);
             CREATE INDEX IF NOT EXISTS idx_commit_links_sha ON commit_links(sha);
 
+            -- Edge tables (generic relationships between entities)
+            CREATE TABLE IF NOT EXISTS edges (
+                id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                target TEXT NOT NULL,
+                edge_type TEXT NOT NULL,
+                weight REAL NOT NULL DEFAULT 1.0,
+                reason TEXT,
+                created_at TEXT NOT NULL,
+                created_by TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source);
+            CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
+            CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
+            CREATE INDEX IF NOT EXISTS idx_edges_source_target ON edges(source, target);
+
             -- Configuration table
             CREATE TABLE IF NOT EXISTS config (
                 key TEXT PRIMARY KEY,
@@ -251,6 +268,7 @@ impl Storage {
             DELETE FROM bugs;
             DELETE FROM test_links;
             DELETE FROM tests;
+            DELETE FROM edges;
             "#,
         )?;
 
@@ -305,6 +323,25 @@ impl Storage {
                 if let Ok(bug) = serde_json::from_str::<Bug>(&line) {
                     if bug.entity_type == "bug" {
                         self.cache_bug(&bug)?;
+                    }
+                }
+            }
+        }
+
+        // Re-read edges from edges.jsonl
+        let edges_path = self.root.join("edges.jsonl");
+        if edges_path.exists() {
+            let file = File::open(&edges_path)?;
+            let reader = BufReader::new(file);
+
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(edge) = serde_json::from_str::<Edge>(&line) {
+                    if edge.entity_type == "edge" {
+                        self.cache_edge(&edge)?;
                     }
                 }
             }
@@ -410,6 +447,28 @@ impl Storage {
             )?;
         }
 
+        Ok(())
+    }
+
+    /// Cache an edge in SQLite for fast querying.
+    fn cache_edge(&self, edge: &Edge) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT OR REPLACE INTO edges
+            (id, source, target, edge_type, weight, reason, created_at, created_by)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                edge.id,
+                edge.source,
+                edge.target,
+                edge.edge_type.to_string(),
+                edge.weight,
+                edge.reason,
+                edge.created_at.to_rfc3339(),
+                edge.created_by,
+            ],
+        )?;
         Ok(())
     }
 
@@ -810,6 +869,7 @@ impl Storage {
     }
 
     /// Get tasks that are ready (pending/reopened with all dependencies done).
+    /// Checks both the legacy depends_on field and edge-based dependencies.
     pub fn get_ready_tasks(&self) -> Result<Vec<Task>> {
         let tasks = self.list_tasks(None, None, None)?;
         let mut ready = Vec::new();
@@ -817,17 +877,19 @@ impl Storage {
         for task in tasks {
             match task.status {
                 TaskStatus::Pending | TaskStatus::Reopened => {
-                    if task.depends_on.is_empty() {
+                    // Check legacy depends_on field
+                    let legacy_deps_done = task.depends_on.is_empty() || task.depends_on.iter().all(|dep_id| {
+                        self.is_entity_done(dep_id)
+                    });
+
+                    // Check edge-based dependencies
+                    let edge_deps = self.get_edge_dependencies(&task.id).unwrap_or_default();
+                    let edge_deps_done = edge_deps.is_empty() || edge_deps.iter().all(|dep_id| {
+                        self.is_entity_done(dep_id)
+                    });
+
+                    if legacy_deps_done && edge_deps_done {
                         ready.push(task);
-                    } else {
-                        let all_done = task.depends_on.iter().all(|dep_id| {
-                            self.get_task(dep_id)
-                                .map(|t| t.status == TaskStatus::Done)
-                                .unwrap_or(false)
-                        });
-                        if all_done {
-                            ready.push(task);
-                        }
                     }
                 }
                 _ => {}
@@ -837,7 +899,19 @@ impl Storage {
         Ok(ready)
     }
 
+    /// Check if an entity (task or bug) is in a "done" state.
+    fn is_entity_done(&self, id: &str) -> bool {
+        if let Ok(task) = self.get_task(id) {
+            return task.status == TaskStatus::Done;
+        }
+        if let Ok(bug) = self.get_bug(id) {
+            return bug.status == TaskStatus::Done;
+        }
+        false
+    }
+
     /// Get tasks that are blocked (have open dependencies).
+    /// Checks both the legacy depends_on field and edge-based dependencies.
     pub fn get_blocked_tasks(&self) -> Result<Vec<Task>> {
         let tasks = self.list_tasks(None, None, None)?;
         let mut blocked = Vec::new();
@@ -845,15 +919,19 @@ impl Storage {
         for task in tasks {
             match task.status {
                 TaskStatus::Pending | TaskStatus::Reopened => {
-                    if !task.depends_on.is_empty() {
-                        let has_open_deps = task.depends_on.iter().any(|dep_id| {
-                            self.get_task(dep_id)
-                                .map(|t| t.status != TaskStatus::Done)
-                                .unwrap_or(true)
-                        });
-                        if has_open_deps {
-                            blocked.push(task);
-                        }
+                    // Check legacy depends_on field
+                    let has_open_legacy_deps = !task.depends_on.is_empty() && task.depends_on.iter().any(|dep_id| {
+                        !self.is_entity_done(dep_id)
+                    });
+
+                    // Check edge-based dependencies
+                    let edge_deps = self.get_edge_dependencies(&task.id).unwrap_or_default();
+                    let has_open_edge_deps = !edge_deps.is_empty() && edge_deps.iter().any(|dep_id| {
+                        !self.is_entity_done(dep_id)
+                    });
+
+                    if has_open_legacy_deps || has_open_edge_deps {
+                        blocked.push(task);
                     }
                 }
                 TaskStatus::Blocked => {
@@ -870,6 +948,228 @@ impl Storage {
     /// Get the storage root path.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    // === Edge Operations ===
+
+    /// Generate a unique edge ID.
+    pub fn generate_edge_id(&self, source: &str, target: &str, edge_type: EdgeType) -> String {
+        let seed = format!("{}-{}-{}", source, target, edge_type);
+        generate_id("bne", &seed)
+    }
+
+    /// Add a new edge.
+    pub fn add_edge(&mut self, edge: &Edge) -> Result<()> {
+        // Check if edge already exists between source and target with same type
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM edges WHERE source = ?1 AND target = ?2 AND edge_type = ?3)",
+            params![edge.source, edge.target, edge.edge_type.to_string()],
+            |row| row.get(0),
+        )?;
+
+        if exists {
+            return Err(Error::Other(format!(
+                "Edge already exists: {} --[{}]--> {}",
+                edge.source, edge.edge_type, edge.target
+            )));
+        }
+
+        // Append to JSONL
+        let edges_path = self.root.join("edges.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&edges_path)?;
+
+        let json = serde_json::to_string(edge)?;
+        writeln!(file, "{}", json)?;
+
+        // Update cache
+        self.cache_edge(edge)?;
+
+        Ok(())
+    }
+
+    /// Get an edge by ID.
+    pub fn get_edge(&self, id: &str) -> Result<Edge> {
+        let edges_path = self.root.join("edges.jsonl");
+        if !edges_path.exists() {
+            return Err(Error::NotFound(format!("Edge not found: {}", id)));
+        }
+
+        let file = File::open(&edges_path)?;
+        let reader = BufReader::new(file);
+
+        let mut latest: Option<Edge> = None;
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(edge) = serde_json::from_str::<Edge>(&line) {
+                if edge.id == id {
+                    latest = Some(edge);
+                }
+            }
+        }
+
+        latest.ok_or_else(|| Error::NotFound(format!("Edge not found: {}", id)))
+    }
+
+    /// List all edges, optionally filtered.
+    pub fn list_edges(
+        &self,
+        edge_type: Option<EdgeType>,
+        source: Option<&str>,
+        target: Option<&str>,
+    ) -> Result<Vec<Edge>> {
+        let mut sql = String::from("SELECT id FROM edges WHERE 1=1");
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(et) = edge_type {
+            sql.push_str(" AND edge_type = ?");
+            params_vec.push(Box::new(et.to_string()));
+        }
+        if let Some(s) = source {
+            sql.push_str(" AND source = ?");
+            params_vec.push(Box::new(s.to_string()));
+        }
+        if let Some(t) = target {
+            sql.push_str(" AND target = ?");
+            params_vec.push(Box::new(t.to_string()));
+        }
+
+        sql.push_str(" ORDER BY created_at DESC");
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids: Vec<String> = stmt
+            .query_map(params_refs.as_slice(), |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut edges = Vec::new();
+        for id in ids {
+            if let Ok(edge) = self.get_edge(&id) {
+                edges.push(edge);
+            }
+        }
+
+        Ok(edges)
+    }
+
+    /// Remove an edge by source, target, and type.
+    pub fn remove_edge(&mut self, source: &str, target: &str, edge_type: EdgeType) -> Result<()> {
+        // Find the edge
+        let edge_id: Option<String> = self.conn.query_row(
+            "SELECT id FROM edges WHERE source = ?1 AND target = ?2 AND edge_type = ?3",
+            params![source, target, edge_type.to_string()],
+            |row| row.get(0),
+        ).ok();
+
+        let edge_id = edge_id.ok_or_else(|| Error::NotFound(format!(
+            "Edge not found: {} --[{}]--> {}",
+            source, edge_type, target
+        )))?;
+
+        // Remove from cache
+        self.conn.execute("DELETE FROM edges WHERE id = ?", [&edge_id])?;
+
+        Ok(())
+    }
+
+    /// Get edges for a specific entity (both outbound and inbound).
+    pub fn get_edges_for_entity(&self, entity_id: &str) -> Result<Vec<HydratedEdge>> {
+        let mut edges = Vec::new();
+
+        // Outbound edges (source = this entity)
+        let outbound = self.list_edges(None, Some(entity_id), None)?;
+        for edge in outbound {
+            let direction = if edge.is_bidirectional() {
+                EdgeDirection::Both
+            } else {
+                EdgeDirection::Outbound
+            };
+            edges.push(HydratedEdge { edge, direction });
+        }
+
+        // Inbound edges (target = this entity)
+        let inbound = self.list_edges(None, None, Some(entity_id))?;
+        for edge in inbound {
+            // Skip bidirectional edges we already added (to avoid duplicates)
+            if edge.is_bidirectional() {
+                continue;
+            }
+            edges.push(HydratedEdge {
+                edge,
+                direction: EdgeDirection::Inbound,
+            });
+        }
+
+        Ok(edges)
+    }
+
+    /// Get edges between two entities.
+    pub fn get_edges_between(&self, source: &str, target: &str) -> Result<Vec<Edge>> {
+        let mut edges = self.list_edges(None, Some(source), Some(target))?;
+        
+        // Also include bidirectional edges from the other direction
+        let reverse = self.list_edges(None, Some(target), Some(source))?;
+        for edge in reverse {
+            if edge.is_bidirectional() {
+                edges.push(edge);
+            }
+        }
+
+        Ok(edges)
+    }
+
+    /// Check if adding an edge would create a cycle (for blocking edge types).
+    pub fn would_edge_create_cycle(&self, source: &str, target: &str, edge_type: EdgeType) -> Result<bool> {
+        // Only check for cycles on blocking edge types
+        if !edge_type.is_blocking() {
+            return Ok(false);
+        }
+
+        // For depends_on: source depends on target, so check if target depends on source (directly or indirectly)
+        // For blocks: source blocks target, so check if target blocks source (directly or indirectly)
+        let mut visited = std::collections::HashSet::new();
+        let mut stack = vec![target.to_string()];
+
+        while let Some(current) = stack.pop() {
+            if current == source {
+                return Ok(true); // Found a path back to source, would create cycle
+            }
+
+            if visited.contains(&current) {
+                continue;
+            }
+            visited.insert(current.clone());
+
+            // Get all blocking edges where current is the source
+            let deps = self.list_edges(Some(edge_type), Some(&current), None)?;
+            for edge in deps {
+                if !visited.contains(&edge.target) {
+                    stack.push(edge.target);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Get dependencies for an entity using the edge model (replaces get_dependencies for tasks).
+    pub fn get_edge_dependencies(&self, entity_id: &str) -> Result<Vec<String>> {
+        let edges = self.list_edges(Some(EdgeType::DependsOn), Some(entity_id), None)?;
+        Ok(edges.into_iter().map(|e| e.target).collect())
+    }
+
+    /// Get dependents for an entity using the edge model (replaces get_dependents for tasks).
+    pub fn get_edge_dependents(&self, entity_id: &str) -> Result<Vec<String>> {
+        let edges = self.list_edges(Some(EdgeType::DependsOn), None, Some(entity_id))?;
+        Ok(edges.into_iter().map(|e| e.source).collect())
     }
 
     // === Config Operations ===

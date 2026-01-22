@@ -4,11 +4,11 @@
 //! Commands are organized by entity type:
 //! - `init` - Initialize binnacle for a repository
 //! - `task` - Task CRUD operations
-//! - `dep` - Dependency management
+//! - `link` - Relationship management (edges)
 //! - `test` - Test node operations
 //! - `commit` - Commit tracking
 
-use crate::models::{Bug, BugSeverity, Task, TaskStatus, TestNode, TestResult};
+use crate::models::{Bug, BugSeverity, Edge, EdgeType, EdgeDirection, Task, TaskStatus, TestNode, TestResult};
 use crate::storage::{generate_id, parse_status, Storage};
 use crate::{Error, Result};
 use chrono::Utc;
@@ -552,21 +552,31 @@ pub fn orient(repo_path: &Path) -> Result<OrientResult> {
             TaskStatus::InProgress => in_progress_count += 1,
             TaskStatus::Blocked => blocked_count += 1,
             TaskStatus::Pending | TaskStatus::Reopened => {
-                // Check if all dependencies are done
-                if task.depends_on.is_empty() {
+                // Check legacy dependencies
+                let legacy_deps_done = task.depends_on.is_empty() || task.depends_on.iter().all(|dep_id| {
+                    storage
+                        .get_task(dep_id)
+                        .map(|t| t.status == TaskStatus::Done)
+                        .unwrap_or(false)
+                });
+
+                // Check edge-based dependencies
+                let edge_deps = storage.get_edge_dependencies(&task.id).unwrap_or_default();
+                let edge_deps_done = edge_deps.is_empty() || edge_deps.iter().all(|dep_id| {
+                    // Check if it's a task or bug
+                    if let Ok(t) = storage.get_task(dep_id) {
+                        t.status == TaskStatus::Done
+                    } else if let Ok(b) = storage.get_bug(dep_id) {
+                        b.status == TaskStatus::Done
+                    } else {
+                        false
+                    }
+                });
+
+                if legacy_deps_done && edge_deps_done {
                     ready_ids.push(task.id.clone());
                 } else {
-                    let all_done = task.depends_on.iter().all(|dep_id| {
-                        storage
-                            .get_task(dep_id)
-                            .map(|t| t.status == TaskStatus::Done)
-                            .unwrap_or(false)
-                    });
-                    if all_done {
-                        ready_ids.push(task.id.clone());
-                    } else {
-                        blocked_count += 1;
-                    }
+                    blocked_count += 1;
                 }
             }
             _ => {}
@@ -731,6 +741,20 @@ pub struct TaskShowResult {
     pub task: Task,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocking_info: Option<BlockingInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub edges: Vec<TaskEdgeInfo>,
+}
+
+/// Edge information for task display.
+#[derive(Serialize)]
+pub struct TaskEdgeInfo {
+    pub edge_type: String,
+    pub direction: String,
+    pub related_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub related_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub related_status: Option<String>,
 }
 
 impl Output for TaskShowResult {
@@ -763,12 +787,75 @@ impl Output for TaskShowResult {
             lines.push(format!("Assignee: {}", assignee));
         }
 
+        // Show legacy dependencies (if any)
         if !self.task.depends_on.is_empty() {
             lines.push(format!(
                 "\nDependencies ({}): {}",
                 self.task.depends_on.len(),
                 self.task.depends_on.join(", ")
             ));
+        }
+
+        // Show edge-based relationships grouped by type
+        if !self.edges.is_empty() {
+            lines.push(String::new());
+            
+            // Group edges by type and direction
+            let mut depends_on: Vec<&TaskEdgeInfo> = Vec::new();
+            let mut blocks: Vec<&TaskEdgeInfo> = Vec::new();
+            let mut related: Vec<&TaskEdgeInfo> = Vec::new();
+            let mut other: Vec<&TaskEdgeInfo> = Vec::new();
+
+            for edge in &self.edges {
+                match edge.edge_type.as_str() {
+                    "depends_on" if edge.direction == "outbound" => depends_on.push(edge),
+                    "depends_on" if edge.direction == "inbound" => blocks.push(edge),
+                    "blocks" if edge.direction == "outbound" => blocks.push(edge),
+                    "related_to" => related.push(edge),
+                    _ => other.push(edge),
+                }
+            }
+
+            if !depends_on.is_empty() {
+                lines.push("Dependencies (edges):".to_string());
+                for e in depends_on {
+                    let status = e.related_status.as_deref().unwrap_or("unknown");
+                    let title = e.related_title.as_deref().unwrap_or("");
+                    lines.push(format!("  → {} \"{}\" [{}]", e.related_id, title, status));
+                }
+            }
+
+            if !blocks.is_empty() {
+                lines.push("Blocks:".to_string());
+                for e in blocks {
+                    let status = e.related_status.as_deref().unwrap_or("unknown");
+                    let title = e.related_title.as_deref().unwrap_or("");
+                    lines.push(format!("  ← {} \"{}\" [{}]", e.related_id, title, status));
+                }
+            }
+
+            if !related.is_empty() {
+                lines.push("Related:".to_string());
+                for e in related {
+                    let status = e.related_status.as_deref().unwrap_or("unknown");
+                    let title = e.related_title.as_deref().unwrap_or("");
+                    lines.push(format!("  ↔ {} \"{}\" [{}]", e.related_id, title, status));
+                }
+            }
+
+            if !other.is_empty() {
+                lines.push("Other links:".to_string());
+                for e in other {
+                    let arrow = match e.direction.as_str() {
+                        "outbound" => "→",
+                        "inbound" => "←",
+                        _ => "↔",
+                    };
+                    let status = e.related_status.as_deref().unwrap_or("unknown");
+                    let title = e.related_title.as_deref().unwrap_or("");
+                    lines.push(format!("  {} {} \"{}\" ({}) [{}]", arrow, e.related_id, title, e.edge_type, status));
+                }
+            }
         }
 
         if let Some(ref blocking) = self.blocking_info {
@@ -791,53 +878,88 @@ fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
     let mut direct_blockers = Vec::new();
     let mut blocker_chain = Vec::new();
 
-    for dep_id in &task.depends_on {
-        if let Ok(dep) = storage.get_task(dep_id) {
-            // Only consider incomplete dependencies as blockers
-            if dep.status != TaskStatus::Done && dep.status != TaskStatus::Cancelled {
-                // Find what's blocking this dependency (transitive blockers)
-                let dep_blockers: Vec<String> = dep
-                    .depends_on
-                    .iter()
-                    .filter(|d| {
-                        storage
-                            .get_task(d)
-                            .map(|t| {
-                                t.status != TaskStatus::Done && t.status != TaskStatus::Cancelled
-                            })
-                            .unwrap_or(false)
-                    })
-                    .cloned()
-                    .collect();
+    // Combine legacy depends_on and edge-based dependencies
+    let mut all_deps: Vec<String> = task.depends_on.clone();
+    let edge_deps = storage.get_edge_dependencies(&task.id).unwrap_or_default();
+    for dep in edge_deps {
+        if !all_deps.contains(&dep) {
+            all_deps.push(dep);
+        }
+    }
 
-                direct_blockers.push(DirectBlocker {
-                    id: dep.id.clone(),
-                    title: dep.title.clone(),
-                    status: format!("{:?}", dep.status).to_lowercase(),
-                    assignee: dep.assignee.clone(),
-                    blocked_by: dep_blockers.clone(),
-                });
+    for dep_id in &all_deps {
+        // Try to get as task first, then as bug
+        let (dep_status, dep_title, dep_assignee, dep_deps) = if let Ok(dep) = storage.get_task(dep_id) {
+            let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
+            let mut combined_deps = dep.depends_on.clone();
+            for d in dep_edge_deps {
+                if !combined_deps.contains(&d) {
+                    combined_deps.push(d);
+                }
+            }
+            (dep.status.clone(), dep.title.clone(), dep.assignee.clone(), combined_deps)
+        } else if let Ok(bug) = storage.get_bug(dep_id) {
+            let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
+            let mut combined_deps = bug.depends_on.clone();
+            for d in dep_edge_deps {
+                if !combined_deps.contains(&d) {
+                    combined_deps.push(d);
+                }
+            }
+            (bug.status.clone(), bug.title.clone(), bug.assignee.clone(), combined_deps)
+        } else {
+            continue; // Skip if entity not found
+        };
 
-                // Build chain representation
-                if dep_blockers.is_empty() {
-                    blocker_chain.push(format!(
-                        "{} <- {} ({})",
-                        task.id,
-                        dep.id,
-                        format!("{:?}", dep.status).to_lowercase()
-                    ));
-                } else {
-                    for blocker in &dep_blockers {
-                        if let Ok(b) = storage.get_task(blocker) {
-                            blocker_chain.push(format!(
-                                "{} <- {} <- {} ({})",
-                                task.id,
-                                dep.id,
-                                blocker,
-                                format!("{:?}", b.status).to_lowercase()
-                            ));
-                        }
+        // Only consider incomplete dependencies as blockers
+        if dep_status != TaskStatus::Done && dep_status != TaskStatus::Cancelled {
+            // Find what's blocking this dependency (transitive blockers)
+            let dep_blockers: Vec<String> = dep_deps
+                .iter()
+                .filter(|d| {
+                    if let Ok(t) = storage.get_task(d) {
+                        t.status != TaskStatus::Done && t.status != TaskStatus::Cancelled
+                    } else if let Ok(b) = storage.get_bug(d) {
+                        b.status != TaskStatus::Done && b.status != TaskStatus::Cancelled
+                    } else {
+                        false
                     }
+                })
+                .cloned()
+                .collect();
+
+            direct_blockers.push(DirectBlocker {
+                id: dep_id.clone(),
+                title: dep_title,
+                status: format!("{:?}", dep_status).to_lowercase(),
+                assignee: dep_assignee,
+                blocked_by: dep_blockers.clone(),
+            });
+
+            // Build chain representation
+            if dep_blockers.is_empty() {
+                blocker_chain.push(format!(
+                    "{} <- {} ({})",
+                    task.id,
+                    dep_id,
+                    format!("{:?}", dep_status).to_lowercase()
+                ));
+            } else {
+                for blocker in &dep_blockers {
+                    let blocker_status = if let Ok(b) = storage.get_task(blocker) {
+                        format!("{:?}", b.status).to_lowercase()
+                    } else if let Ok(b) = storage.get_bug(blocker) {
+                        format!("{:?}", b.status).to_lowercase()
+                    } else {
+                        "unknown".to_string()
+                    };
+                    blocker_chain.push(format!(
+                        "{} <- {} <- {} ({})",
+                        task.id,
+                        dep_id,
+                        blocker,
+                        blocker_status
+                    ));
                 }
             }
         }
@@ -885,16 +1007,56 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResult> {
     let storage = Storage::open(repo_path)?;
     let task = storage.get_task(id)?;
 
-    // Analyze blocking status if task has dependencies
-    let blocking_info = if !task.depends_on.is_empty() {
+    // Analyze blocking status if task has dependencies (legacy or edge-based)
+    let edge_deps = storage.get_edge_dependencies(id).unwrap_or_default();
+    let blocking_info = if !task.depends_on.is_empty() || !edge_deps.is_empty() {
         Some(analyze_blockers(&storage, &task)?)
     } else {
         None
     };
 
+    // Fetch edges for this task
+    let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
+    let edges: Vec<TaskEdgeInfo> = hydrated_edges
+        .into_iter()
+        .map(|he| {
+            let related_id = if he.direction == EdgeDirection::Inbound {
+                he.edge.source.clone()
+            } else {
+                he.edge.target.clone()
+            };
+            
+            // Try to get title and status of related entity
+            let (related_title, related_status) = if let Ok(t) = storage.get_task(&related_id) {
+                (Some(t.title), Some(format!("{:?}", t.status).to_lowercase()))
+            } else if let Ok(b) = storage.get_bug(&related_id) {
+                (Some(b.title), Some(format!("{:?}", b.status).to_lowercase()))
+            } else if let Ok(test) = storage.get_test(&related_id) {
+                (Some(test.name), None)
+            } else {
+                (None, None)
+            };
+
+            let direction = match he.direction {
+                EdgeDirection::Outbound => "outbound",
+                EdgeDirection::Inbound => "inbound",
+                EdgeDirection::Both => "both",
+            };
+
+            TaskEdgeInfo {
+                edge_type: he.edge.edge_type.to_string(),
+                direction: direction.to_string(),
+                related_id,
+                related_title,
+                related_status,
+            }
+        })
+        .collect();
+
     Ok(TaskShowResult {
         task,
         blocking_info,
+        edges,
     })
 }
 
@@ -1911,6 +2073,462 @@ pub fn dep_show(repo_path: &Path, id: &str) -> Result<DepGraph> {
         depends_on,
         dependents,
         transitive_deps,
+    })
+}
+
+// === Link Commands (Edge Management) ===
+
+#[derive(Serialize)]
+pub struct LinkAdded {
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    pub edge_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl Output for LinkAdded {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let reason_str = self
+            .reason
+            .as_ref()
+            .map(|r| format!(" ({})", r))
+            .unwrap_or_default();
+        format!(
+            "Created link: {} --[{}]--> {}{}",
+            self.source, self.edge_type, self.target, reason_str
+        )
+    }
+}
+
+/// Add a link (edge) between two entities.
+pub fn link_add(
+    repo_path: &Path,
+    source: &str,
+    target: &str,
+    edge_type_str: &str,
+    reason: Option<String>,
+) -> Result<LinkAdded> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Parse edge type
+    let edge_type: EdgeType = edge_type_str
+        .parse()
+        .map_err(|e: String| Error::Other(e))?;
+
+    // Validate entities exist
+    validate_entity_exists(&storage, source)?;
+    validate_entity_exists(&storage, target)?;
+
+    // Check for self-link
+    if source == target {
+        return Err(Error::Other("Cannot create a link from an entity to itself".to_string()));
+    }
+
+    // Check for cycles on blocking edge types
+    if storage.would_edge_create_cycle(source, target, edge_type)? {
+        return Err(Error::CycleDetected);
+    }
+
+    // Validate edge type constraints
+    validate_edge_type_constraints(&storage, source, target, edge_type)?;
+
+    // Generate edge ID and create edge
+    let id = storage.generate_edge_id(source, target, edge_type);
+    let mut edge = Edge::new(id.clone(), source.to_string(), target.to_string(), edge_type);
+    edge.reason = reason.clone();
+
+    storage.add_edge(&edge)?;
+
+    Ok(LinkAdded {
+        id,
+        source: source.to_string(),
+        target: target.to_string(),
+        edge_type: edge_type.to_string(),
+        reason,
+    })
+}
+
+/// Validate that an entity exists (task, bug, or test).
+fn validate_entity_exists(storage: &Storage, id: &str) -> Result<()> {
+    // Try task first
+    if storage.get_task(id).is_ok() {
+        return Ok(());
+    }
+    // Try bug
+    if storage.get_bug(id).is_ok() {
+        return Ok(());
+    }
+    // Try test
+    if storage.get_test(id).is_ok() {
+        return Ok(());
+    }
+    Err(Error::NotFound(format!("Entity not found: {}", id)))
+}
+
+/// Get the entity type for an ID.
+fn get_entity_type(storage: &Storage, id: &str) -> Option<&'static str> {
+    if storage.get_task(id).is_ok() {
+        Some("task")
+    } else if storage.get_bug(id).is_ok() {
+        Some("bug")
+    } else if storage.get_test(id).is_ok() {
+        Some("test")
+    } else {
+        None
+    }
+}
+
+/// Validate edge type constraints based on source/target entity types.
+fn validate_edge_type_constraints(
+    storage: &Storage,
+    source: &str,
+    target: &str,
+    edge_type: EdgeType,
+) -> Result<()> {
+    let source_type = get_entity_type(storage, source)
+        .ok_or_else(|| Error::NotFound(format!("Source entity not found: {}", source)))?;
+    let target_type = get_entity_type(storage, target)
+        .ok_or_else(|| Error::NotFound(format!("Target entity not found: {}", target)))?;
+
+    match edge_type {
+        EdgeType::Fixes => {
+            // Only Task → Bug
+            if source_type != "task" {
+                return Err(Error::Other(format!(
+                    "fixes edge requires source to be a task, got: {}",
+                    source_type
+                )));
+            }
+            if target_type != "bug" {
+                return Err(Error::Other(format!(
+                    "fixes edge requires target to be a bug, got: {}",
+                    target_type
+                )));
+            }
+        }
+        EdgeType::Duplicates | EdgeType::Supersedes => {
+            // Same type only (Task→Task or Bug→Bug)
+            if source_type != target_type {
+                return Err(Error::Other(format!(
+                    "{} edge requires source and target to be the same type, got: {} -> {}",
+                    edge_type, source_type, target_type
+                )));
+            }
+            if source_type == "test" {
+                return Err(Error::Other(format!(
+                    "{} edge is not valid for test entities",
+                    edge_type
+                )));
+            }
+        }
+        EdgeType::Tests => {
+            // Test → Task/Bug
+            if source_type != "test" {
+                return Err(Error::Other(format!(
+                    "tests edge requires source to be a test, got: {}",
+                    source_type
+                )));
+            }
+            if target_type == "test" {
+                return Err(Error::Other(
+                    "tests edge requires target to be a task or bug, not a test".to_string()
+                ));
+            }
+        }
+        EdgeType::ParentOf => {
+            // Task/Milestone → Task/Bug (no milestones yet, so just task → task/bug)
+            if source_type == "test" {
+                return Err(Error::Other(
+                    "parent_of edge source cannot be a test".to_string()
+                ));
+            }
+        }
+        EdgeType::ChildOf => {
+            // Task/Bug → Task/Milestone
+            if source_type == "test" {
+                return Err(Error::Other(
+                    "child_of edge source cannot be a test".to_string()
+                ));
+            }
+        }
+        EdgeType::CausedBy => {
+            // Bug → Task/Commit (no commit edges yet, so just bug → task)
+            if source_type != "bug" {
+                return Err(Error::Other(format!(
+                    "caused_by edge requires source to be a bug, got: {}",
+                    source_type
+                )));
+            }
+        }
+        // Other types are permissive
+        EdgeType::DependsOn | EdgeType::Blocks | EdgeType::RelatedTo => {}
+    }
+
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct LinkRemoved {
+    pub source: String,
+    pub target: String,
+    pub edge_type: String,
+}
+
+impl Output for LinkRemoved {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Removed link: {} --[{}]--> {}",
+            self.source, self.edge_type, self.target
+        )
+    }
+}
+
+#[derive(Serialize)]
+pub struct LinksBetween {
+    pub source: String,
+    pub target: String,
+    pub edges: Vec<EdgeInfo>,
+}
+
+#[derive(Serialize)]
+pub struct EdgeInfo {
+    pub edge_type: String,
+    pub direction: String,
+}
+
+impl Output for LinksBetween {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "Found {} edge(s) between {} and {}:",
+            self.edges.len(),
+            self.source,
+            self.target
+        ));
+        for edge in &self.edges {
+            lines.push(format!("  - {} ({})", edge.edge_type, edge.direction));
+        }
+        lines.push("\nUse --type <type> to remove a specific edge.".to_string());
+        lines.join("\n")
+    }
+}
+
+/// Result of link_rm - either removal confirmation or guidance about existing edges.
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum LinkRmResult {
+    Removed(LinkRemoved),
+    Guidance(LinksBetween),
+}
+
+impl Output for LinkRmResult {
+    fn to_json(&self) -> String {
+        match self {
+            LinkRmResult::Removed(r) => r.to_json(),
+            LinkRmResult::Guidance(g) => g.to_json(),
+        }
+    }
+
+    fn to_human(&self) -> String {
+        match self {
+            LinkRmResult::Removed(r) => r.to_human(),
+            LinkRmResult::Guidance(g) => g.to_human(),
+        }
+    }
+}
+
+/// Remove a link (edge) between two entities.
+pub fn link_rm(
+    repo_path: &Path,
+    source: &str,
+    target: &str,
+    edge_type_str: Option<&str>,
+) -> Result<LinkRmResult> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // If no edge type specified, show existing edges and guidance
+    if edge_type_str.is_none() {
+        let edges = storage.get_edges_between(source, target)?;
+        if edges.is_empty() {
+            return Err(Error::NotFound(format!(
+                "No edges found between {} and {}",
+                source, target
+            )));
+        }
+
+        let edge_infos: Vec<EdgeInfo> = edges
+            .iter()
+            .map(|e| EdgeInfo {
+                edge_type: e.edge_type.to_string(),
+                direction: if e.source == source {
+                    format!("{} → {}", source, target)
+                } else {
+                    format!("{} → {} (bidirectional)", target, source)
+                },
+            })
+            .collect();
+
+        return Ok(LinkRmResult::Guidance(LinksBetween {
+            source: source.to_string(),
+            target: target.to_string(),
+            edges: edge_infos,
+        }));
+    }
+
+    let edge_type: EdgeType = edge_type_str
+        .unwrap()
+        .parse()
+        .map_err(|e: String| Error::Other(e))?;
+
+    storage.remove_edge(source, target, edge_type)?;
+
+    Ok(LinkRmResult::Removed(LinkRemoved {
+        source: source.to_string(),
+        target: target.to_string(),
+        edge_type: edge_type.to_string(),
+    }))
+}
+
+#[derive(Serialize)]
+pub struct LinkList {
+    pub entity_id: Option<String>,
+    pub edges: Vec<LinkListEdge>,
+    pub count: usize,
+}
+
+#[derive(Serialize)]
+pub struct LinkListEdge {
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    pub edge_type: String,
+    pub direction: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl Output for LinkList {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.edges.is_empty() {
+            return if let Some(id) = &self.entity_id {
+                format!("No links for {}.", id)
+            } else {
+                "No links found.".to_string()
+            };
+        }
+
+        let mut lines = Vec::new();
+        let header = if let Some(id) = &self.entity_id {
+            format!("{} link(s) for {}:\n", self.count, id)
+        } else {
+            format!("{} link(s):\n", self.count)
+        };
+        lines.push(header);
+
+        for edge in &self.edges {
+            let arrow = match edge.direction.as_str() {
+                "outbound" => "→",
+                "inbound" => "←",
+                "both" => "↔",
+                _ => "→",
+            };
+            let reason_str = edge
+                .reason
+                .as_ref()
+                .map(|r| format!(" \"{}\"", r))
+                .unwrap_or_default();
+            lines.push(format!(
+                "  {} {} {} ({}){}",
+                edge.source, arrow, edge.target, edge.edge_type, reason_str
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// List links for an entity or all links.
+pub fn link_list(
+    repo_path: &Path,
+    entity_id: Option<&str>,
+    all: bool,
+    edge_type_str: Option<&str>,
+) -> Result<LinkList> {
+    let storage = Storage::open(repo_path)?;
+
+    let edge_type: Option<EdgeType> = edge_type_str
+        .map(|s| s.parse())
+        .transpose()
+        .map_err(|e: String| Error::Other(e))?;
+
+    let edges: Vec<LinkListEdge> = if all {
+        // List all edges
+        let all_edges = storage.list_edges(edge_type, None, None)?;
+        all_edges
+            .into_iter()
+            .map(|e| LinkListEdge {
+                id: e.id,
+                source: e.source,
+                target: e.target,
+                edge_type: e.edge_type.to_string(),
+                direction: "outbound".to_string(),
+                reason: e.reason,
+            })
+            .collect()
+    } else if let Some(id) = entity_id {
+        // Validate entity exists
+        validate_entity_exists(&storage, id)?;
+
+        // List edges for this entity
+        let hydrated = storage.get_edges_for_entity(id)?;
+        hydrated
+            .into_iter()
+            .filter(|he| edge_type.is_none() || he.edge.edge_type == edge_type.unwrap())
+            .map(|he| {
+                let direction = match he.direction {
+                    EdgeDirection::Outbound => "outbound",
+                    EdgeDirection::Inbound => "inbound",
+                    EdgeDirection::Both => "both",
+                };
+                LinkListEdge {
+                    id: he.edge.id,
+                    source: he.edge.source,
+                    target: he.edge.target,
+                    edge_type: he.edge.edge_type.to_string(),
+                    direction: direction.to_string(),
+                    reason: he.edge.reason,
+                }
+            })
+            .collect()
+    } else {
+        return Err(Error::Other(
+            "Either provide an entity ID or use --all to list all links".to_string(),
+        ));
+    };
+
+    let count = edges.len();
+    Ok(LinkList {
+        entity_id: entity_id.map(|s| s.to_string()),
+        edges,
+        count,
     })
 }
 
@@ -3093,7 +3711,7 @@ pub fn system_store_export(repo_path: &Path, output: &str, format: &str) -> Resu
     let storage_root = storage.root();
 
     // Read all JSONL files (skip missing files for backwards compatibility)
-    let files_to_export = ["tasks.jsonl", "bugs.jsonl", "commits.jsonl", "test-results.jsonl"];
+    let files_to_export = ["tasks.jsonl", "bugs.jsonl", "edges.jsonl", "commits.jsonl", "test-results.jsonl"];
     let mut file_contents = std::collections::HashMap::new();
     let mut checksums = std::collections::HashMap::new();
 
@@ -3276,6 +3894,7 @@ pub fn system_store_import(
     // Extract files to memory
     let mut manifest: Option<ExportManifest> = None;
     let mut tasks_jsonl: Option<Vec<u8>> = None;
+    let mut edges_jsonl: Option<Vec<u8>> = None;
     let mut commits_jsonl: Option<Vec<u8>> = None;
     let mut test_results_jsonl: Option<Vec<u8>> = None;
 
@@ -3291,6 +3910,8 @@ pub fn system_store_import(
             manifest = Some(serde_json::from_slice(&data)?);
         } else if path_str.ends_with("tasks.jsonl") {
             tasks_jsonl = Some(data);
+        } else if path_str.ends_with("edges.jsonl") {
+            edges_jsonl = Some(data);
         } else if path_str.ends_with("commits.jsonl") {
             commits_jsonl = Some(data);
         } else if path_str.ends_with("test-results.jsonl") {
@@ -3429,6 +4050,20 @@ pub fn system_store_import(
         // Count commits
         let commits_str = String::from_utf8_lossy(&commits_data);
         commits_imported = commits_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Import edges
+    if let Some(edges_data) = edges_jsonl {
+        let storage_root = storage.root();
+        let edges_file = storage_root.join("edges.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&edges_file)?;
+
+        file.write_all(&edges_data)?;
     }
 
     // Import test results

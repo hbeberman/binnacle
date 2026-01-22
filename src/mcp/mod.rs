@@ -398,21 +398,29 @@ impl McpServer {
                 let result = commands::task_delete(repo, &id)?;
                 Ok(result.to_json())
             }
-            "bn_dep_add" => {
-                let child = get_string_arg(args, "child")?;
-                let parent = get_string_arg(args, "parent")?;
-                let result = commands::dep_add(repo, &child, &parent)?;
+            "bn_link_add" => {
+                let source = get_string_arg(args, "source")?;
+                let target = get_string_arg(args, "target")?;
+                let edge_type = get_string_arg(args, "edge_type")?;
+                let reason = get_optional_string(args, "reason");
+                let result = commands::link_add(repo, &source, &target, &edge_type, reason)?;
                 Ok(result.to_json())
             }
-            "bn_dep_rm" => {
-                let child = get_string_arg(args, "child")?;
-                let parent = get_string_arg(args, "parent")?;
-                let result = commands::dep_rm(repo, &child, &parent)?;
+            "bn_link_rm" => {
+                let source = get_string_arg(args, "source")?;
+                let target = get_string_arg(args, "target")?;
+                let edge_type = get_optional_string(args, "edge_type");
+                let result = commands::link_rm(repo, &source, &target, edge_type.as_deref())?;
                 Ok(result.to_json())
             }
-            "bn_dep_show" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::dep_show(repo, &id)?;
+            "bn_link_list" => {
+                let entity_id = get_optional_string(args, "entity_id");
+                let all = args
+                    .get("all")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let edge_type = get_optional_string(args, "edge_type");
+                let result = commands::link_list(repo, entity_id.as_deref(), all, edge_type.as_deref())?;
                 Ok(result.to_json())
             }
             "bn_ready" => {
@@ -875,53 +883,76 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
-            name: "bn_dep_add".to_string(),
-            description: "Add a dependency (child depends on parent)".to_string(),
+            name: "bn_link_add".to_string(),
+            description: "Create a link (edge) between two entities".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "child": {
+                    "source": {
                         "type": "string",
-                        "description": "Child task ID (the task that depends on another)"
+                        "description": "Source entity ID (e.g., bn-1234)"
                     },
-                    "parent": {
+                    "target": {
                         "type": "string",
-                        "description": "Parent task ID (the task being depended on)"
+                        "description": "Target entity ID (e.g., bn-5678)"
+                    },
+                    "edge_type": {
+                        "type": "string",
+                        "description": "Type of relationship",
+                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"]
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional reason for creating this link"
                     }
                 },
-                "required": ["child", "parent"]
+                "required": ["source", "target", "edge_type"]
             }),
         },
         ToolDef {
-            name: "bn_dep_rm".to_string(),
-            description: "Remove a dependency".to_string(),
+            name: "bn_link_rm".to_string(),
+            description: "Remove a link between two entities".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "child": {
+                    "source": {
                         "type": "string",
-                        "description": "Child task ID"
+                        "description": "Source entity ID"
                     },
-                    "parent": {
+                    "target": {
                         "type": "string",
-                        "description": "Parent task ID"
+                        "description": "Target entity ID"
+                    },
+                    "edge_type": {
+                        "type": "string",
+                        "description": "Type of relationship (required to identify which edge to remove)",
+                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"]
                     }
                 },
-                "required": ["child", "parent"]
+                "required": ["source", "target", "edge_type"]
             }),
         },
         ToolDef {
-            name: "bn_dep_show".to_string(),
-            description: "Show dependency graph for a task".to_string(),
+            name: "bn_link_list".to_string(),
+            description: "List links for an entity or all links".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "id": {
+                    "entity_id": {
                         "type": "string",
-                        "description": "Task ID"
+                        "description": "Entity ID to list links for (omit for --all)"
+                    },
+                    "all": {
+                        "type": "boolean",
+                        "description": "List all links in the system"
+                    },
+                    "edge_type": {
+                        "type": "string",
+                        "description": "Filter by edge type",
+                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"]
                     }
                 },
-                "required": ["id"]
+                "required": []
             }),
         },
         ToolDef {
@@ -1665,17 +1696,18 @@ mod tests {
         let task2: serde_json::Value = serde_json::from_str(&result2).unwrap();
         let child_id = task2["id"].as_str().unwrap();
 
-        // Add dependency
-        let dep_result = server
+        // Add link (dependency)
+        let link_result = server
             .execute_tool(
-                "bn_dep_add",
+                "bn_link_add",
                 &json!({
-                    "child": child_id,
-                    "parent": parent_id
+                    "source": child_id,
+                    "target": parent_id,
+                    "edge_type": "depends_on"
                 }),
             )
             .unwrap();
-        assert!(dep_result.contains(child_id));
+        assert!(link_result.contains(child_id));
 
         // Check blocked
         let blocked = server.execute_tool("bn_blocked", &json!({})).unwrap();

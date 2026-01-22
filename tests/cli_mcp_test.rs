@@ -55,16 +55,16 @@ fn test_mcp_manifest_contains_task_tools() {
 }
 
 #[test]
-fn test_mcp_manifest_contains_dep_tools() {
+fn test_mcp_manifest_contains_link_tools() {
     let temp = setup();
 
     bn().args(["mcp", "manifest"])
         .current_dir(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("bn_dep_add"))
-        .stdout(predicate::str::contains("bn_dep_rm"))
-        .stdout(predicate::str::contains("bn_dep_show"));
+        .stdout(predicate::str::contains("bn_link_add"))
+        .stdout(predicate::str::contains("bn_link_rm"))
+        .stdout(predicate::str::contains("bn_link_list"));
 }
 
 #[test]
@@ -362,7 +362,7 @@ fn test_task_create_schema_has_required_title() {
 }
 
 #[test]
-fn test_dep_add_schema_requires_child_and_parent() {
+fn test_link_add_schema_requires_source_and_target() {
     let temp = setup();
 
     let output = bn()
@@ -375,11 +375,11 @@ fn test_dep_add_schema_requires_child_and_parent() {
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 
     let tools = manifest["tools"].as_array().unwrap();
-    let dep_add = tools.iter().find(|t| t["name"] == "bn_dep_add").unwrap();
+    let link_add = tools.iter().find(|t| t["name"] == "bn_link_add").unwrap();
 
-    let required = dep_add["inputSchema"]["required"].as_array().unwrap();
-    assert!(required.iter().any(|r| r == "child"));
-    assert!(required.iter().any(|r| r == "parent"));
+    let required = link_add["inputSchema"]["required"].as_array().unwrap();
+    assert!(required.iter().any(|r| r == "source"));
+    assert!(required.iter().any(|r| r == "target"));
 }
 
 #[test]

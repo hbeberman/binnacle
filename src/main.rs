@@ -2,8 +2,8 @@
 
 use binnacle::action_log;
 use binnacle::cli::{
-    BugCommands, Cli, Commands, CommitCommands, ConfigCommands, DepCommands, GraphCommands,
-    McpCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
+    BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands,
+    LinkCommands, McpCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -222,17 +222,26 @@ fn run_command(
             }
         },
 
-        Some(Commands::Dep { command }) => match command {
-            DepCommands::Add { child, parent } => {
-                let result = commands::dep_add(repo_path, &child, &parent)?;
+        Some(Commands::Link { command }) => match command {
+            LinkCommands::Add {
+                source,
+                target,
+                edge_type,
+                reason,
+            } => {
+                let result = commands::link_add(repo_path, &source, &target, &edge_type, reason)?;
                 output(&result, human);
             }
-            DepCommands::Rm { child, parent } => {
-                let result = commands::dep_rm(repo_path, &child, &parent)?;
+            LinkCommands::Rm {
+                source,
+                target,
+                edge_type,
+            } => {
+                let result = commands::link_rm(repo_path, &source, &target, edge_type.as_deref())?;
                 output(&result, human);
             }
-            DepCommands::Show { id } => {
-                let result = commands::dep_show(repo_path, &id)?;
+            LinkCommands::List { id, all, edge_type } => {
+                let result = commands::link_list(repo_path, id.as_deref(), all, edge_type.as_deref())?;
                 output(&result, human);
             }
         },
@@ -611,24 +620,40 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             ),
         },
 
-        Some(Commands::Dep { command }) => match command {
-            DepCommands::Add { child, parent } => (
-                "dep add".to_string(),
+        Some(Commands::Link { command }) => match command {
+            LinkCommands::Add {
+                source,
+                target,
+                edge_type,
+                reason,
+            } => (
+                "link add".to_string(),
                 serde_json::json!({
-                    "child": child,
-                    "parent": parent,
+                    "source": source,
+                    "target": target,
+                    "edge_type": edge_type,
+                    "reason": reason,
                 }),
             ),
-            DepCommands::Rm { child, parent } => (
-                "dep rm".to_string(),
+            LinkCommands::Rm {
+                source,
+                target,
+                edge_type,
+            } => (
+                "link rm".to_string(),
                 serde_json::json!({
-                    "child": child,
-                    "parent": parent,
+                    "source": source,
+                    "target": target,
+                    "edge_type": edge_type,
                 }),
             ),
-            DepCommands::Show { id } => (
-                "dep show".to_string(),
-                serde_json::json!({ "id": id }),
+            LinkCommands::List { id, all, edge_type } => (
+                "link list".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "all": all,
+                    "edge_type": edge_type,
+                }),
             ),
         },
 

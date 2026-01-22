@@ -35,10 +35,10 @@ pub enum Commands {
         command: BugCommands,
     },
 
-    /// Dependency management commands
-    Dep {
+    /// Link management commands (relationships between entities)
+    Link {
         #[command(subcommand)]
-        command: DepCommands,
+        command: LinkCommands,
     },
 
     /// Test node management commands
@@ -360,29 +360,45 @@ pub enum BugCommands {
     },
 }
 
-/// Dependency subcommands
+/// Link subcommands (relationship management)
 #[derive(Subcommand, Debug)]
-pub enum DepCommands {
-    /// Add a dependency (child depends on parent)
+pub enum LinkCommands {
+    /// Create a link between two entities
+    #[command(name = "add", visible_alias = "create")]
     Add {
-        /// Child task ID (the task that depends on another)
-        child: String,
-        /// Parent task ID (the task being depended on)
-        parent: String,
+        /// Source entity ID (e.g., bn-1234)
+        source: String,
+        /// Target entity ID (e.g., bn-5678)
+        target: String,
+        /// Type of relationship
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"])]
+        edge_type: String,
+        /// Reason for creating this relationship
+        #[arg(long)]
+        reason: Option<String>,
     },
 
-    /// Remove a dependency
+    /// Remove a link between two entities
     Rm {
-        /// Child task ID
-        child: String,
-        /// Parent task ID
-        parent: String,
+        /// Source entity ID
+        source: String,
+        /// Target entity ID
+        target: String,
+        /// Type of relationship (required)
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"])]
+        edge_type: Option<String>,
     },
 
-    /// Show dependency graph for a task
-    Show {
-        /// Task ID
-        id: String,
+    /// List links for an entity or all links
+    List {
+        /// Entity ID to list links for (omit for --all)
+        id: Option<String>,
+        /// List all links in the system
+        #[arg(long)]
+        all: bool,
+        /// Filter by edge type
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"])]
+        edge_type: Option<String>,
     },
 }
 

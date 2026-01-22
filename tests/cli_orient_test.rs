@@ -198,7 +198,7 @@ fn test_orient_shows_blocked_tasks() {
 
     // B depends on A
     bn_in(&temp)
-        .args(["dep", "add", &task_b, &task_a])
+        .args(["link", "add", &task_b, &task_a, "--type", "depends_on"])
         .assert()
         .success();
 

@@ -662,7 +662,7 @@ fn test_export_import_roundtrip() {
 
     // Create dependency
     bn_in(&temp1)
-        .args(["dep", "add", &task_b, &task_a])
+        .args(["link", "add", &task_b, &task_a, "--type", "depends_on"])
         .assert()
         .success();
 
@@ -702,7 +702,7 @@ fn test_export_import_roundtrip() {
 
     // Verify dependency preserved
     let dep_output = bn_in(&temp2)
-        .args(["dep", "show", &task_b])
+        .args(["link", "list", &task_b])
         .assert()
         .success()
         .get_output()

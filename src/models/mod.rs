@@ -5,11 +5,13 @@
 //! - `Bug` - Defects with severity, reproduction steps, and components
 //! - `TestNode` - Test definitions linked to tasks
 //! - `CommitLink` - Associations between commits and tasks
+//! - `Edge` - Relationships between entities (dependencies, blocks, related, etc.)
 
 pub mod graph;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Task status in the workflow.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -309,6 +311,199 @@ pub struct CommitLink {
     pub linked_at: DateTime<Utc>,
 }
 
+/// Type of relationship between entities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EdgeType {
+    /// Source blocks until target completes (Task/Bug/Milestone → Task/Bug)
+    DependsOn,
+    /// Source prevents target from progressing (Task/Bug → Task/Bug/Milestone)
+    Blocks,
+    /// Informational bidirectional link (Any ↔ Any)
+    RelatedTo,
+    /// Source is duplicate of target (same type only: Task→Task or Bug→Bug)
+    Duplicates,
+    /// Task fixes the bug (Task → Bug)
+    Fixes,
+    /// Bug was caused by this work (Bug → Task/Commit)
+    CausedBy,
+    /// Source replaces target (same type only: Task→Task or Bug→Bug)
+    Supersedes,
+    /// Containment relationship (Task/Milestone → Task/Bug)
+    ParentOf,
+    /// Inverse of parent_of (Task/Bug → Task/Milestone)
+    ChildOf,
+    /// Test verifies this work (Test → Task/Bug)
+    Tests,
+}
+
+impl EdgeType {
+    /// Returns true if this edge type is bidirectional.
+    pub fn is_bidirectional(&self) -> bool {
+        matches!(self, EdgeType::RelatedTo)
+    }
+
+    /// Returns true if this edge type affects blocking/ready status.
+    pub fn is_blocking(&self) -> bool {
+        matches!(self, EdgeType::DependsOn | EdgeType::Blocks)
+    }
+
+    /// Get all edge types.
+    pub fn all() -> &'static [EdgeType] {
+        &[
+            EdgeType::DependsOn,
+            EdgeType::Blocks,
+            EdgeType::RelatedTo,
+            EdgeType::Duplicates,
+            EdgeType::Fixes,
+            EdgeType::CausedBy,
+            EdgeType::Supersedes,
+            EdgeType::ParentOf,
+            EdgeType::ChildOf,
+            EdgeType::Tests,
+        ]
+    }
+}
+
+impl fmt::Display for EdgeType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            EdgeType::DependsOn => "depends_on",
+            EdgeType::Blocks => "blocks",
+            EdgeType::RelatedTo => "related_to",
+            EdgeType::Duplicates => "duplicates",
+            EdgeType::Fixes => "fixes",
+            EdgeType::CausedBy => "caused_by",
+            EdgeType::Supersedes => "supersedes",
+            EdgeType::ParentOf => "parent_of",
+            EdgeType::ChildOf => "child_of",
+            EdgeType::Tests => "tests",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::str::FromStr for EdgeType {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "depends_on" => Ok(EdgeType::DependsOn),
+            "blocks" => Ok(EdgeType::Blocks),
+            "related_to" => Ok(EdgeType::RelatedTo),
+            "duplicates" => Ok(EdgeType::Duplicates),
+            "fixes" => Ok(EdgeType::Fixes),
+            "caused_by" => Ok(EdgeType::CausedBy),
+            "supersedes" => Ok(EdgeType::Supersedes),
+            "parent_of" => Ok(EdgeType::ParentOf),
+            "child_of" => Ok(EdgeType::ChildOf),
+            "tests" => Ok(EdgeType::Tests),
+            _ => Err(format!("Unknown edge type: {}", s)),
+        }
+    }
+}
+
+/// A relationship between two entities.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Edge {
+    /// Unique identifier (e.g., "bne-a1b2")
+    pub id: String,
+
+    /// Entity type marker
+    #[serde(rename = "type")]
+    pub entity_type: String,
+
+    /// Source entity ID (e.g., "bn-1234")
+    pub source: String,
+
+    /// Target entity ID (e.g., "bn-5678")
+    pub target: String,
+
+    /// Type of relationship
+    pub edge_type: EdgeType,
+
+    /// Weight for prioritization (default 1.0, reserved for future use)
+    #[serde(default = "default_weight")]
+    pub weight: f64,
+
+    /// Reason for creating this relationship
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+
+    /// When the edge was created
+    pub created_at: DateTime<Utc>,
+
+    /// Who created the edge (user or agent)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+}
+
+fn default_weight() -> f64 {
+    1.0
+}
+
+impl Edge {
+    /// Create a new edge with the given source, target, and type.
+    pub fn new(id: String, source: String, target: String, edge_type: EdgeType) -> Self {
+        Self {
+            id,
+            entity_type: "edge".to_string(),
+            source,
+            target,
+            edge_type,
+            weight: 1.0,
+            reason: None,
+            created_at: Utc::now(),
+            created_by: None,
+        }
+    }
+
+    /// Returns true if this is a bidirectional edge.
+    pub fn is_bidirectional(&self) -> bool {
+        self.edge_type.is_bidirectional()
+    }
+
+    /// Returns true if this edge affects blocking/ready status.
+    pub fn is_blocking(&self) -> bool {
+        self.edge_type.is_blocking()
+    }
+
+    /// Create a flipped version of this edge (for bidirectional display).
+    pub fn flip(&self) -> Edge {
+        Edge {
+            id: self.id.clone(),
+            entity_type: self.entity_type.clone(),
+            source: self.target.clone(),
+            target: self.source.clone(),
+            edge_type: self.edge_type,
+            weight: self.weight,
+            reason: self.reason.clone(),
+            created_at: self.created_at,
+            created_by: self.created_by.clone(),
+        }
+    }
+}
+
+/// Direction of an edge relative to a node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeDirection {
+    /// This node is the source
+    Outbound,
+    /// This node is the target
+    Inbound,
+    /// Bidirectional relationship
+    Both,
+}
+
+/// An edge with direction info for display purposes.
+#[derive(Debug, Clone)]
+pub struct HydratedEdge {
+    /// The underlying edge
+    pub edge: Edge,
+    /// Direction relative to the queried node
+    pub direction: EdgeDirection,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,5 +570,100 @@ mod tests {
         let deserialized: TestNode = serde_json::from_str(&json).unwrap();
         assert_eq!(test.id, deserialized.id);
         assert_eq!(test.command, deserialized.command);
+    }
+
+    #[test]
+    fn test_edge_serialization_roundtrip() {
+        let edge = Edge::new(
+            "bne-test".to_string(),
+            "bn-1234".to_string(),
+            "bn-5678".to_string(),
+            EdgeType::DependsOn,
+        );
+        let json = serde_json::to_string(&edge).unwrap();
+        let deserialized: Edge = serde_json::from_str(&json).unwrap();
+        assert_eq!(edge.id, deserialized.id);
+        assert_eq!(edge.source, deserialized.source);
+        assert_eq!(edge.target, deserialized.target);
+        assert_eq!(edge.edge_type, deserialized.edge_type);
+        assert_eq!(edge.entity_type, "edge");
+    }
+
+    #[test]
+    fn test_edge_type_serialization() {
+        let edge_type = EdgeType::DependsOn;
+        let json = serde_json::to_string(&edge_type).unwrap();
+        assert_eq!(json, r#""depends_on""#);
+
+        let edge_type = EdgeType::RelatedTo;
+        let json = serde_json::to_string(&edge_type).unwrap();
+        assert_eq!(json, r#""related_to""#);
+    }
+
+    #[test]
+    fn test_edge_type_from_str() {
+        assert_eq!("depends_on".parse::<EdgeType>().unwrap(), EdgeType::DependsOn);
+        assert_eq!("blocks".parse::<EdgeType>().unwrap(), EdgeType::Blocks);
+        assert_eq!("related_to".parse::<EdgeType>().unwrap(), EdgeType::RelatedTo);
+        assert_eq!("duplicates".parse::<EdgeType>().unwrap(), EdgeType::Duplicates);
+        assert_eq!("fixes".parse::<EdgeType>().unwrap(), EdgeType::Fixes);
+        assert_eq!("caused_by".parse::<EdgeType>().unwrap(), EdgeType::CausedBy);
+        assert_eq!("supersedes".parse::<EdgeType>().unwrap(), EdgeType::Supersedes);
+        assert_eq!("parent_of".parse::<EdgeType>().unwrap(), EdgeType::ParentOf);
+        assert_eq!("child_of".parse::<EdgeType>().unwrap(), EdgeType::ChildOf);
+        assert_eq!("tests".parse::<EdgeType>().unwrap(), EdgeType::Tests);
+        assert!("invalid".parse::<EdgeType>().is_err());
+    }
+
+    #[test]
+    fn test_edge_type_display() {
+        assert_eq!(EdgeType::DependsOn.to_string(), "depends_on");
+        assert_eq!(EdgeType::Blocks.to_string(), "blocks");
+        assert_eq!(EdgeType::RelatedTo.to_string(), "related_to");
+    }
+
+    #[test]
+    fn test_edge_type_is_bidirectional() {
+        assert!(EdgeType::RelatedTo.is_bidirectional());
+        assert!(!EdgeType::DependsOn.is_bidirectional());
+        assert!(!EdgeType::Blocks.is_bidirectional());
+        assert!(!EdgeType::Fixes.is_bidirectional());
+    }
+
+    #[test]
+    fn test_edge_type_is_blocking() {
+        assert!(EdgeType::DependsOn.is_blocking());
+        assert!(EdgeType::Blocks.is_blocking());
+        assert!(!EdgeType::RelatedTo.is_blocking());
+        assert!(!EdgeType::Fixes.is_blocking());
+    }
+
+    #[test]
+    fn test_edge_flip() {
+        let edge = Edge::new(
+            "bne-test".to_string(),
+            "bn-1234".to_string(),
+            "bn-5678".to_string(),
+            EdgeType::RelatedTo,
+        );
+        let flipped = edge.flip();
+        assert_eq!(flipped.source, "bn-5678");
+        assert_eq!(flipped.target, "bn-1234");
+        assert_eq!(flipped.edge_type, EdgeType::RelatedTo);
+    }
+
+    #[test]
+    fn test_edge_default_weight() {
+        let json = r#"{"id":"bne-test","type":"edge","source":"bn-1","target":"bn-2","edge_type":"depends_on","created_at":"2026-01-01T00:00:00Z"}"#;
+        let edge: Edge = serde_json::from_str(json).unwrap();
+        assert_eq!(edge.weight, 1.0);
+    }
+
+    #[test]
+    fn test_edge_type_all() {
+        let all = EdgeType::all();
+        assert_eq!(all.len(), 10);
+        assert!(all.contains(&EdgeType::DependsOn));
+        assert!(all.contains(&EdgeType::Tests));
     }
 }
