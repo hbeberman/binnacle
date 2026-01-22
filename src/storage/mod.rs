@@ -283,6 +283,9 @@ impl Storage {
 
     /// Rebuild the SQLite cache from JSONL files.
     pub fn rebuild_cache(&mut self) -> Result<()> {
+        // Disable foreign keys during rebuild to avoid constraint issues
+        self.conn.execute("PRAGMA foreign_keys = OFF", [])?;
+
         // Clear existing data
         self.conn.execute_batch(
             r#"
@@ -393,6 +396,9 @@ impl Storage {
                 }
             }
         }
+
+        // Re-enable foreign keys
+        self.conn.execute("PRAGMA foreign_keys = ON", [])?;
 
         Ok(())
     }
@@ -1597,88 +1603,144 @@ impl Storage {
     pub fn compact(&mut self) -> Result<crate::commands::CompactResult> {
         use std::collections::HashMap;
 
+        let mut total_original_size: usize = 0;
+        let mut total_new_size: usize = 0;
+        let mut total_original_entries: usize = 0;
+        let mut total_final_entries: usize = 0;
+        let mut tasks_compacted: usize = 0;
+
+        // Compact tasks.jsonl
         let tasks_path = self.root.join("tasks.jsonl");
-        let backup_path = self.root.join("tasks.jsonl.bak");
+        if tasks_path.exists() {
+            let backup_path = self.root.join("tasks.jsonl.bak");
 
-        // Read original file size
-        let original_size = fs::metadata(&tasks_path)
-            .map(|m| m.len() as usize)
-            .unwrap_or(0);
+            let original_size = fs::metadata(&tasks_path)
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
+            total_original_size += original_size;
 
-        // Read all entries and keep only the latest version of each entity
-        let file = File::open(&tasks_path)?;
-        let reader = BufReader::new(file);
+            let file = File::open(&tasks_path)?;
+            let reader = BufReader::new(file);
 
-        let mut latest_tasks: HashMap<String, Task> = HashMap::new();
-        let mut latest_tests: HashMap<String, TestNode> = HashMap::new();
-        let mut original_entries = 0;
+            let mut latest_tasks: HashMap<String, Task> = HashMap::new();
+            let mut latest_tests: HashMap<String, TestNode> = HashMap::new();
+            let mut original_entries = 0;
 
-        for line in reader.lines() {
-            let line = line?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            original_entries += 1;
-
-            // Try to parse as Task
-            if let Ok(task) = serde_json::from_str::<Task>(&line) {
-                if task.entity_type == "task" {
-                    latest_tasks.insert(task.id.clone(), task);
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
                     continue;
                 }
-            }
+                original_entries += 1;
 
-            // Try to parse as TestNode
-            if let Ok(test) = serde_json::from_str::<TestNode>(&line) {
-                if test.entity_type == "test" {
-                    latest_tests.insert(test.id.clone(), test);
+                if let Ok(task) = serde_json::from_str::<Task>(&line) {
+                    if task.entity_type == "task" {
+                        latest_tasks.insert(task.id.clone(), task);
+                        continue;
+                    }
+                }
+
+                if let Ok(test) = serde_json::from_str::<TestNode>(&line) {
+                    if test.entity_type == "test" {
+                        latest_tests.insert(test.id.clone(), test);
+                    }
                 }
             }
+
+            fs::copy(&tasks_path, &backup_path)?;
+
+            let mut file = File::create(&tasks_path)?;
+
+            let mut tasks: Vec<_> = latest_tasks.values().collect();
+            tasks.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+            for task in &tasks {
+                let json = serde_json::to_string(task)?;
+                writeln!(file, "{}", json)?;
+            }
+
+            let mut tests: Vec<_> = latest_tests.values().collect();
+            tests.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+            for test in &tests {
+                let json = serde_json::to_string(test)?;
+                writeln!(file, "{}", json)?;
+            }
+
+            let final_entries = tasks.len() + tests.len();
+            tasks_compacted = latest_tasks.len();
+            total_original_entries += original_entries;
+            total_final_entries += final_entries;
+
+            let new_size = fs::metadata(&tasks_path)
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
+            total_new_size += new_size;
+
+            let _ = fs::remove_file(&backup_path);
         }
 
-        // Create backup
-        fs::copy(&tasks_path, &backup_path)?;
+        // Compact bugs.jsonl
+        let bugs_path = self.root.join("bugs.jsonl");
+        if bugs_path.exists() {
+            let backup_path = self.root.join("bugs.jsonl.bak");
 
-        // Write compacted file
-        let mut file = File::create(&tasks_path)?;
+            let original_size = fs::metadata(&bugs_path)
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
+            total_original_size += original_size;
 
-        // Write tasks sorted by created_at
-        let mut tasks: Vec<_> = latest_tasks.values().collect();
-        tasks.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+            let file = File::open(&bugs_path)?;
+            let reader = BufReader::new(file);
 
-        for task in &tasks {
-            let json = serde_json::to_string(task)?;
-            writeln!(file, "{}", json)?;
+            let mut latest_bugs: HashMap<String, Bug> = HashMap::new();
+            let mut original_entries = 0;
+
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                original_entries += 1;
+
+                if let Ok(bug) = serde_json::from_str::<Bug>(&line) {
+                    if bug.entity_type == "bug" {
+                        latest_bugs.insert(bug.id.clone(), bug);
+                    }
+                }
+            }
+
+            fs::copy(&bugs_path, &backup_path)?;
+
+            let mut file = File::create(&bugs_path)?;
+
+            let mut bugs: Vec<_> = latest_bugs.values().collect();
+            bugs.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+            for bug in &bugs {
+                let json = serde_json::to_string(bug)?;
+                writeln!(file, "{}", json)?;
+            }
+
+            total_original_entries += original_entries;
+            total_final_entries += bugs.len();
+
+            let new_size = fs::metadata(&bugs_path)
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
+            total_new_size += new_size;
+
+            let _ = fs::remove_file(&backup_path);
         }
-
-        // Write tests sorted by created_at
-        let mut tests: Vec<_> = latest_tests.values().collect();
-        tests.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-
-        for test in &tests {
-            let json = serde_json::to_string(test)?;
-            writeln!(file, "{}", json)?;
-        }
-
-        let final_entries = tasks.len() + tests.len();
-
-        // Calculate space saved
-        let new_size = fs::metadata(&tasks_path)
-            .map(|m| m.len() as usize)
-            .unwrap_or(0);
-        let space_saved = original_size.saturating_sub(new_size);
 
         // Rebuild cache
         self.rebuild_cache()?;
 
-        // Remove backup on success
-        let _ = fs::remove_file(&backup_path);
-
         Ok(crate::commands::CompactResult {
-            tasks_compacted: latest_tasks.len(),
-            original_entries,
-            final_entries,
-            space_saved_bytes: space_saved,
+            tasks_compacted,
+            original_entries: total_original_entries,
+            final_entries: total_final_entries,
+            space_saved_bytes: total_original_size.saturating_sub(total_new_size),
         })
     }
 

@@ -4091,6 +4091,35 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
     // Get commit count
     let commit_count = storage.count_commit_links()?;
 
+    // Check JSONL files for blank lines (data integrity issue)
+    let jsonl_files = [
+        "tasks.jsonl",
+        "bugs.jsonl",
+        "commits.jsonl",
+        "test-results.jsonl",
+        "edges.jsonl",
+        "milestones.jsonl",
+    ];
+    for filename in jsonl_files {
+        let file_path = storage.root().join(filename);
+        if file_path.exists() {
+            if let Ok(content) = fs::read_to_string(&file_path) {
+                let blank_count = content.lines().filter(|l| l.trim().is_empty()).count();
+                if blank_count > 0 {
+                    issues.push(DoctorIssue {
+                        severity: "warning".to_string(),
+                        category: "data".to_string(),
+                        message: format!(
+                            "{} contains {} blank line(s) - run 'bn system compact' to fix",
+                            filename, blank_count
+                        ),
+                        entity_id: None,
+                    });
+                }
+            }
+        }
+    }
+
     let stats = DoctorStats {
         total_tasks: tasks.len(),
         total_tests: tests.len(),
