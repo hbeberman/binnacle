@@ -5962,10 +5962,27 @@ pub fn system_store_import(
     }
 
     // Pass 2: Add dependencies now that all tasks exist
+    // Filter out dependencies that don't exist (data integrity issue in source)
+    let imported_task_ids: std::collections::HashSet<String> = storage
+        .list_tasks(None, None, None)?
+        .iter()
+        .map(|t| t.id.clone())
+        .collect();
+
     for (task_id, depends_on) in task_dependencies {
+        // Filter to only include dependencies that exist
+        let valid_deps: Vec<String> = depends_on
+            .into_iter()
+            .filter(|dep| imported_task_ids.contains(dep))
+            .collect();
+
+        if valid_deps.is_empty() {
+            continue;
+        }
+
         // Get the task from storage
         if let Ok(mut task) = storage.get_task(&task_id) {
-            task.depends_on = depends_on;
+            task.depends_on = valid_deps;
             task.updated_at = Utc::now();
             storage.update_task(&task)?;
         }
@@ -6243,10 +6260,27 @@ fn system_store_import_from_folder(
     }
 
     // Pass 2: Add dependencies now that all tasks exist
+    // Filter out dependencies that don't exist (data integrity issue in source)
+    let imported_task_ids: std::collections::HashSet<String> = storage
+        .list_tasks(None, None, None)?
+        .iter()
+        .map(|t| t.id.clone())
+        .collect();
+
     for (task_id, depends_on) in task_dependencies {
+        // Filter to only include dependencies that exist
+        let valid_deps: Vec<String> = depends_on
+            .into_iter()
+            .filter(|dep| imported_task_ids.contains(dep))
+            .collect();
+
+        if valid_deps.is_empty() {
+            continue;
+        }
+
         // Get the task from storage
         if let Ok(mut task) = storage.get_task(&task_id) {
-            task.depends_on = depends_on;
+            task.depends_on = valid_deps;
             task.updated_at = Utc::now();
             storage.update_task(&task)?;
         }
