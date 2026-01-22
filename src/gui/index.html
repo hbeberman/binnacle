@@ -693,9 +693,138 @@
             border-left: 3px solid var(--success);
         }
 
+        /* Toast Notification System */
+        .toast-container {
+            position: fixed;
+            top: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            pointer-events: none;
+        }
+
+        .toast {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            padding-right: 2.5rem;
+            min-width: 280px;
+            max-width: 450px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            pointer-events: auto;
+            animation: toastSlideIn 0.3s ease;
+            position: relative;
+        }
+
+        .toast.toast-exit {
+            animation: toastSlideOut 0.3s ease forwards;
+        }
+
+        @keyframes toastSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes toastSlideOut {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+        }
+
+        .toast-icon {
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+
+        .toast-message {
+            flex: 1;
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            line-height: 1.4;
+        }
+
+        .toast-close {
+            position: absolute;
+            top: 50%;
+            right: 0.5rem;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 0.25rem;
+            font-size: 1rem;
+            line-height: 1;
+            opacity: 0.7;
+            transition: opacity 0.2s ease;
+        }
+
+        .toast-close:hover {
+            opacity: 1;
+        }
+
+        /* Toast type-specific styles with colored tints */
+        .toast-success {
+            border-left: 4px solid var(--success);
+            background: linear-gradient(90deg, rgba(92, 184, 92, 0.15), var(--bg-secondary) 30%);
+        }
+
+        .toast-success .toast-icon {
+            color: var(--success);
+        }
+
+        .toast-error {
+            border-left: 4px solid var(--danger);
+            background: linear-gradient(90deg, rgba(217, 83, 79, 0.15), var(--bg-secondary) 30%);
+        }
+
+        .toast-error .toast-icon {
+            color: var(--danger);
+        }
+
+        .toast-warning {
+            border-left: 4px solid var(--warning);
+            background: linear-gradient(90deg, rgba(240, 173, 78, 0.15), var(--bg-secondary) 30%);
+        }
+
+        .toast-warning .toast-icon {
+            color: var(--warning);
+        }
+
+        .toast-info {
+            border-left: 4px solid var(--info);
+            background: linear-gradient(90deg, rgba(91, 192, 222, 0.15), var(--bg-secondary) 30%);
+        }
+
+        .toast-info .toast-icon {
+            color: var(--info);
+        }
+
     </style>
 </head>
 <body>
+    <!-- Toast notification container -->
+    <div class="toast-container" id="toast-container"></div>
+
     <div class="container">
         <header>
             <h1>🧭 Binnacle</h1>
@@ -799,6 +928,78 @@
     </div>
 
     <script>
+        // Toast Notification System
+        const TOAST_ICONS = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'ℹ'
+        };
+
+        /**
+         * Show a toast notification
+         * @param {string} message - The message to display
+         * @param {string} type - Toast type: 'success', 'error', 'warning', 'info' (default: 'info')
+         * @param {number} duration - Auto-dismiss duration in ms (default: 5000, use 0 for no auto-dismiss)
+         * @returns {HTMLElement} The toast element (can be used to dismiss manually)
+         */
+        function showToast(message, type = 'info', duration = 5000) {
+            const container = document.getElementById('toast-container');
+            
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            
+            const icon = document.createElement('span');
+            icon.className = 'toast-icon';
+            icon.textContent = TOAST_ICONS[type] || TOAST_ICONS.info;
+            
+            const msg = document.createElement('span');
+            msg.className = 'toast-message';
+            msg.textContent = message;
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'toast-close';
+            closeBtn.innerHTML = '&times;';
+            closeBtn.title = 'Dismiss';
+            closeBtn.onclick = () => dismissToast(toast);
+            
+            toast.appendChild(icon);
+            toast.appendChild(msg);
+            toast.appendChild(closeBtn);
+            
+            container.appendChild(toast);
+            
+            // Auto-dismiss if duration > 0
+            if (duration > 0) {
+                toast._timeout = setTimeout(() => dismissToast(toast), duration);
+            }
+            
+            return toast;
+        }
+
+        /**
+         * Dismiss a toast notification
+         * @param {HTMLElement} toast - The toast element to dismiss
+         */
+        function dismissToast(toast) {
+            if (!toast || !toast.parentNode) return;
+            
+            // Clear any pending auto-dismiss
+            if (toast._timeout) {
+                clearTimeout(toast._timeout);
+            }
+            
+            // Add exit animation
+            toast.classList.add('toast-exit');
+            
+            // Remove after animation completes
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 300);
+        }
+
         // Edge type definitions with display names and default visibility
         const EDGE_TYPES = {
             depends_on: { name: 'Depends', category: 'blocking', defaultVisible: true },
