@@ -24,6 +24,12 @@
             --warning: #f0ad4e;
             --danger: #d9534f;
             --info: #5bc0de;
+            /* Edge type colors */
+            --edge-blocking: #e85d5d;
+            --edge-informational: #7a8fa3;
+            --edge-fixes: #5cb85c;
+            --edge-hierarchy: #9b6ed8;
+            --edge-default: #3a4d66;
         }
 
         body {
@@ -549,6 +555,7 @@
             ready: [],
             tests: [],
             log: [],
+            edges: [], // Raw edges from API
             ws: null,
             graph: {
                 nodes: [],
@@ -635,7 +642,8 @@
                 fetch('/api/tasks').then(r => r.json()).then(data => state.tasks = data.tasks),
                 fetch('/api/ready').then(r => r.json()).then(data => state.ready = data.tasks),
                 fetch('/api/tests').then(r => r.json()).then(data => state.tests = data.tests),
-                fetch('/api/log').then(r => r.json()).then(data => state.log = data.log)
+                fetch('/api/log').then(r => r.json()).then(data => state.log = data.log),
+                fetch('/api/edges').then(r => r.json()).then(data => state.edges = data.edges)
             ]);
             renderCurrentView();
         }
@@ -1170,18 +1178,14 @@
                 }
             });
 
-            // Build edges from dependencies
-            state.graph.edges = [];
-            state.tasks.forEach(task => {
-                if (task.depends_on && task.depends_on.length > 0) {
-                    task.depends_on.forEach(depId => {
-                        state.graph.edges.push({
-                            from: task.id,
-                            to: depId
-                        });
-                    });
-                }
-            });
+            // Build edges from API data with edge type metadata
+            state.graph.edges = (state.edges || []).map(edge => ({
+                from: edge.source,
+                to: edge.target,
+                edge_type: edge.edge_type,
+                bidirectional: edge.bidirectional,
+                reason: edge.reason
+            }));
         }
 
         function animateGraph() {
@@ -1200,13 +1204,12 @@
             updatePositions(nodes, physics, canvas);
 
             // Draw edges
-            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border-color');
-            ctx.lineWidth = 2 * state.graph.viewport.zoom;
             edges.forEach(edge => {
                 const fromNode = nodes.find(n => n.id === edge.from);
                 const toNode = nodes.find(n => n.id === edge.to);
                 if (fromNode && toNode) {
-                    drawArrow(ctx, fromNode.x, fromNode.y, toNode.x, toNode.y, canvas, fromNode.radius, toNode.radius);
+                    const style = getEdgeStyle(edge.edge_type);
+                    drawArrow(ctx, fromNode.x, fromNode.y, toNode.x, toNode.y, canvas, fromNode.radius, toNode.radius, style, edge.bidirectional);
                 }
             });
 
@@ -1480,7 +1483,50 @@
             }
         }
 
-        function drawArrow(ctx, x1, y1, x2, y2, canvas, fromRadius = 30, toRadius = 30) {
+        // Get edge style based on edge type
+        function getEdgeStyle(edgeType) {
+            const styles = getComputedStyle(document.documentElement);
+            switch (edgeType) {
+                case 'depends_on':
+                case 'blocks':
+                    return {
+                        color: styles.getPropertyValue('--edge-blocking').trim(),
+                        dashed: false,
+                        lineWidth: 2
+                    };
+                case 'related_to':
+                case 'caused_by':
+                case 'duplicates':
+                case 'supersedes':
+                    return {
+                        color: styles.getPropertyValue('--edge-informational').trim(),
+                        dashed: true,
+                        lineWidth: 1.5
+                    };
+                case 'fixes':
+                case 'tests':
+                    return {
+                        color: styles.getPropertyValue('--edge-fixes').trim(),
+                        dashed: false,
+                        lineWidth: 2
+                    };
+                case 'parent_of':
+                case 'child_of':
+                    return {
+                        color: styles.getPropertyValue('--edge-hierarchy').trim(),
+                        dashed: false,
+                        lineWidth: 2
+                    };
+                default:
+                    return {
+                        color: styles.getPropertyValue('--edge-default').trim(),
+                        dashed: false,
+                        lineWidth: 2
+                    };
+            }
+        }
+
+        function drawArrow(ctx, x1, y1, x2, y2, canvas, fromRadius = 30, toRadius = 30, style = null, bidirectional = false) {
             // Calculate the angle of the line
             const dx = x2 - x1;
             const dy = y2 - y1;
@@ -1502,6 +1548,20 @@
             const p1 = worldToScreen(startX, startY, canvas);
             const p2 = worldToScreen(endX, endY, canvas);
 
+            // Apply style
+            const defaultStyle = { color: getComputedStyle(document.documentElement).getPropertyValue('--edge-default').trim(), dashed: false, lineWidth: 2 };
+            const edgeStyle = style || defaultStyle;
+            ctx.strokeStyle = edgeStyle.color;
+            ctx.fillStyle = edgeStyle.color;
+            ctx.lineWidth = edgeStyle.lineWidth * state.graph.viewport.zoom;
+
+            // Set dash pattern for informational edges
+            if (edgeStyle.dashed) {
+                ctx.setLineDash([6, 4]);
+            } else {
+                ctx.setLineDash([]);
+            }
+
             // Calculate midpoint for arrow head
             const midX = (p1.x + p2.x) / 2;
             const midY = (p1.y + p2.y) / 2;
@@ -1515,7 +1575,10 @@
             ctx.lineTo(p2.x, p2.y);
             ctx.stroke();
 
-            // Arrow head at midpoint
+            // Reset dash pattern for arrow heads
+            ctx.setLineDash([]);
+
+            // Arrow head at midpoint (pointing from source to target)
             ctx.beginPath();
             ctx.moveTo(midX, midY);
             ctx.lineTo(
@@ -1527,8 +1590,24 @@
                 midY - headLength * Math.sin(screenAngle + Math.PI / 6)
             );
             ctx.closePath();
-            ctx.fillStyle = ctx.strokeStyle;
             ctx.fill();
+
+            // Draw second arrow head for bidirectional edges (pointing from target to source)
+            if (bidirectional) {
+                const reverseAngle = screenAngle + Math.PI;
+                ctx.beginPath();
+                ctx.moveTo(midX, midY);
+                ctx.lineTo(
+                    midX - headLength * Math.cos(reverseAngle - Math.PI / 6),
+                    midY - headLength * Math.sin(reverseAngle - Math.PI / 6)
+                );
+                ctx.lineTo(
+                    midX - headLength * Math.cos(reverseAngle + Math.PI / 6),
+                    midY - headLength * Math.sin(reverseAngle + Math.PI / 6)
+                );
+                ctx.closePath();
+                ctx.fill();
+            }
         }
 
         function renderReady() {
