@@ -666,7 +666,7 @@ impl Output for Task {
         let mut lines = Vec::new();
         lines.push(format!("{} {}", self.id, self.title));
         if let Some(ref sn) = self.short_name {
-            lines.push(format!("  Short name: {}", sn));
+            lines.push(format!("  Short Name: {}", sn));
         }
         lines.push(format!(
             "  Status: {:?}  Priority: {}",
