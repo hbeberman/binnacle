@@ -3,7 +3,7 @@
 use binnacle::action_log;
 use binnacle::cli::{
     BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands,
-    LinkCommands, McpCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
+    LinkCommands, McpCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -344,6 +344,21 @@ fn run_command(
         Some(Commands::Graph { command }) => match command {
             GraphCommands::Components => {
                 not_implemented("graph components", "", human);
+            }
+        },
+        Some(Commands::Search { command }) => match command {
+            SearchCommands::Link {
+                edge_type,
+                source,
+                target,
+            } => {
+                let result = commands::search_link(
+                    repo_path,
+                    edge_type.as_deref(),
+                    source.as_deref(),
+                    target.as_deref(),
+                )?;
+                output(&result, human);
             }
         },
         Some(Commands::System { command }) => match command {
@@ -768,6 +783,21 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
 
         Some(Commands::Graph { command }) => match command {
             GraphCommands::Components => ("graph components".to_string(), serde_json::json!({})),
+        },
+
+        Some(Commands::Search { command }) => match command {
+            SearchCommands::Link {
+                edge_type,
+                source,
+                target,
+            } => (
+                "search link".to_string(),
+                serde_json::json!({
+                    "edge_type": edge_type,
+                    "source": source,
+                    "target": target,
+                }),
+            ),
         },
 
         Some(Commands::System { command }) => match command {

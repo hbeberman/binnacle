@@ -92,6 +92,12 @@ pub enum Commands {
         command: GraphCommands,
     },
 
+    /// Search commands (query edges, tasks, etc.)
+    Search {
+        #[command(subcommand)]
+        command: SearchCommands,
+    },
+
     /// System administration commands (human-operated)
     ///
     /// Note: These commands are for human operators, not AI agents.
@@ -533,6 +539,25 @@ pub enum McpCommands {
 pub enum GraphCommands {
     /// Analyze task graph for disconnected components
     Components,
+}
+
+/// Search subcommands
+#[derive(Subcommand, Debug)]
+pub enum SearchCommands {
+    /// Search for links/edges by type, source, or target
+    Link {
+        /// Filter by edge type
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"])]
+        edge_type: Option<String>,
+
+        /// Filter by source entity ID
+        #[arg(long)]
+        source: Option<String>,
+
+        /// Filter by target entity ID
+        #[arg(long)]
+        target: Option<String>,
+    },
 }
 
 /// System administration subcommands (human-operated)

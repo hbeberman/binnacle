@@ -2835,6 +2835,129 @@ pub fn link_list(
     })
 }
 
+// === Search Commands ===
+
+/// Search result for link queries
+#[derive(Serialize)]
+pub struct SearchLinkResult {
+    pub edges: Vec<SearchLinkEdge>,
+    pub count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filters: Option<SearchLinkFilters>,
+}
+
+#[derive(Serialize)]
+pub struct SearchLinkEdge {
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    pub edge_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SearchLinkFilters {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edge_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+impl Output for SearchLinkResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.edges.is_empty() {
+            return "No edges found.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("{} edge(s) found:\n", self.count));
+
+        for edge in &self.edges {
+            let reason_str = edge
+                .reason
+                .as_ref()
+                .map(|r| format!("\n  Reason: \"{}\"", r))
+                .unwrap_or_default();
+            let created_by_str = edge
+                .created_by
+                .as_ref()
+                .map(|c| format!(" by {}", c))
+                .unwrap_or_default();
+            lines.push(format!(
+                "{} → {} ({}){}\n  Created: {}{}",
+                edge.source, edge.target, edge.edge_type, reason_str, edge.created_at, created_by_str
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Search for links/edges by type, source, or target.
+pub fn search_link(
+    repo_path: &Path,
+    edge_type_str: Option<&str>,
+    source: Option<&str>,
+    target: Option<&str>,
+) -> Result<SearchLinkResult> {
+    let storage = Storage::open(repo_path)?;
+
+    let edge_type: Option<EdgeType> = edge_type_str
+        .map(|s| s.parse())
+        .transpose()
+        .map_err(|e: String| Error::Other(e))?;
+
+    // Validate source and target exist if provided
+    if let Some(s) = source {
+        validate_entity_exists(&storage, s)?;
+    }
+    if let Some(t) = target {
+        validate_entity_exists(&storage, t)?;
+    }
+
+    let edges = storage.list_edges(edge_type, source, target)?;
+
+    let search_edges: Vec<SearchLinkEdge> = edges
+        .into_iter()
+        .map(|e| SearchLinkEdge {
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            edge_type: e.edge_type.to_string(),
+            reason: e.reason,
+            created_at: e.created_at.to_rfc3339(),
+            created_by: e.created_by,
+        })
+        .collect();
+
+    let count = search_edges.len();
+    let filters = if edge_type_str.is_some() || source.is_some() || target.is_some() {
+        Some(SearchLinkFilters {
+            edge_type: edge_type_str.map(|s| s.to_string()),
+            source: source.map(|s| s.to_string()),
+            target: target.map(|s| s.to_string()),
+        })
+    } else {
+        None
+    };
+
+    Ok(SearchLinkResult {
+        edges: search_edges,
+        count,
+        filters,
+    })
+}
+
 // === Query Commands ===
 
 #[derive(Serialize)]
@@ -6881,5 +7004,247 @@ mod tests {
         let list = bug_list(temp.path(), None, None, None, None).unwrap();
         let human = list.to_human();
         assert_eq!(human, "No bugs found.");
+    }
+
+    // === Search Link Tests ===
+
+    #[test]
+    fn test_search_link_empty() {
+        let temp = setup();
+        let result = search_link(temp.path(), None, None, None).unwrap();
+        assert_eq!(result.count, 0);
+        assert!(result.edges.is_empty());
+        assert!(result.filters.is_none());
+    }
+
+    #[test]
+    fn test_search_link_by_type() {
+        let temp = setup();
+
+        // Create two tasks to link (title, short_name, description, priority, tags, assignee)
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create a depends_on edge
+        link_add(
+            temp.path(),
+            &task1.id,
+            &task2.id,
+            "depends_on",
+            Some("Testing".to_string()),
+        )
+        .unwrap();
+
+        // Search by type
+        let result = search_link(temp.path(), Some("depends_on"), None, None).unwrap();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.edges[0].source, task1.id);
+        assert_eq!(result.edges[0].target, task2.id);
+        assert_eq!(result.edges[0].edge_type, "depends_on");
+        assert_eq!(result.edges[0].reason, Some("Testing".to_string()));
+        assert!(result.filters.as_ref().unwrap().edge_type.is_some());
+
+        // Search by different type - should be empty
+        let result = search_link(temp.path(), Some("fixes"), None, None).unwrap();
+        assert_eq!(result.count, 0);
+    }
+
+    #[test]
+    fn test_search_link_by_source() {
+        let temp = setup();
+
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task3 = task_create(
+            temp.path(),
+            "Task 3".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create edges: task1 -> task2, task3 -> task2
+        link_add(temp.path(), &task1.id, &task2.id, "depends_on", None).unwrap();
+        link_add(temp.path(), &task3.id, &task2.id, "depends_on", None).unwrap();
+
+        // Search by source=task1
+        let result = search_link(temp.path(), None, Some(&task1.id), None).unwrap();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.edges[0].source, task1.id);
+
+        // Search by source=task3
+        let result = search_link(temp.path(), None, Some(&task3.id), None).unwrap();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.edges[0].source, task3.id);
+    }
+
+    #[test]
+    fn test_search_link_by_target() {
+        let temp = setup();
+
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        link_add(temp.path(), &task1.id, &task2.id, "depends_on", None).unwrap();
+
+        // Search by target
+        let result = search_link(temp.path(), None, None, Some(&task2.id)).unwrap();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.edges[0].target, task2.id);
+        assert!(result.filters.as_ref().unwrap().target.is_some());
+    }
+
+    #[test]
+    fn test_search_link_combined_filters() {
+        let temp = setup();
+
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        link_add(temp.path(), &task1.id, &task2.id, "depends_on", None).unwrap();
+        link_add(temp.path(), &task1.id, &task2.id, "related_to", None).unwrap();
+
+        // Filter by type and source
+        let result = search_link(temp.path(), Some("depends_on"), Some(&task1.id), None).unwrap();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.edges[0].edge_type, "depends_on");
+
+        // Filter by type, source and target
+        let result = search_link(
+            temp.path(),
+            Some("related_to"),
+            Some(&task1.id),
+            Some(&task2.id),
+        )
+        .unwrap();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.edges[0].edge_type, "related_to");
+    }
+
+    #[test]
+    fn test_search_link_output_human_format() {
+        let temp = setup();
+
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        link_add(
+            temp.path(),
+            &task1.id,
+            &task2.id,
+            "depends_on",
+            Some("Important dependency".to_string()),
+        )
+        .unwrap();
+
+        let result = search_link(temp.path(), None, None, None).unwrap();
+        let human = result.to_human();
+
+        assert!(human.contains("1 edge(s) found"));
+        assert!(human.contains(&task1.id));
+        assert!(human.contains(&task2.id));
+        assert!(human.contains("depends_on"));
+        assert!(human.contains("Important dependency"));
+    }
+
+    #[test]
+    fn test_search_link_empty_output() {
+        let temp = setup();
+        let result = search_link(temp.path(), None, None, None).unwrap();
+        let human = result.to_human();
+        assert_eq!(human, "No edges found.");
     }
 }
