@@ -1452,7 +1452,7 @@ pub fn task_list(
     Ok(TaskList { tasks, count })
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct TaskUpdated {
     pub id: String,
     pub updated_fields: Vec<String>,
@@ -1485,6 +1485,7 @@ pub fn task_update(
     add_tags: Vec<String>,
     remove_tags: Vec<String>,
     assignee: Option<String>,
+    force: bool,
 ) -> Result<TaskUpdated> {
     let mut storage = Storage::open(repo_path)?;
     let mut task = storage.get_task(id)?;
@@ -1529,7 +1530,32 @@ pub fn task_update(
     }
 
     if let Some(s) = status {
-        task.status = parse_status(s)?;
+        let new_status = parse_status(s)?;
+        
+        // If setting status to done, check commit requirement
+        if new_status == TaskStatus::Done 
+            && config_get_bool(repo_path, "require_commit_for_close", false) 
+            && !force 
+        {
+            let commits = storage.get_commits_for_task(id)?;
+            if commits.is_empty() {
+                return Err(Error::Other(format!(
+                    "Cannot set status to done for task {} - no commits linked\n\n\
+                    This repository requires commits to be linked before marking tasks as done.\n\
+                    Link a commit with: bn commit link <sha> {}\n\
+                    Or bypass with: bn task update {} --status done --force\n\n\
+                    Hint: Run 'git log --oneline -5' to see recent commits.",
+                    id, id, id
+                )));
+            }
+        }
+        
+        // If setting status to done, also set closed_at
+        if new_status == TaskStatus::Done {
+            task.closed_at = Some(Utc::now());
+        }
+        
+        task.status = new_status;
         updated_fields.push("status".to_string());
     }
 
@@ -6170,6 +6196,7 @@ mod tests {
             vec![],
             vec![],
             None,
+            false,
         )
         .unwrap();
 
@@ -6454,6 +6481,152 @@ mod tests {
 
         // Should succeed without commit
         let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_task_update_status_done_requires_commit_when_enabled() {
+        let temp = setup();
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Enable require_commit_for_close
+        config_set(temp.path(), "require_commit_for_close", "true").unwrap();
+
+        // Should fail without linked commit
+        let result = task_update(
+            temp.path(),
+            &task.id,
+            None,
+            None,
+            None,
+            None,
+            Some("done"),
+            vec![],
+            vec![],
+            None,
+            false,
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("no commits linked"));
+    }
+
+    #[test]
+    fn test_task_update_status_done_force_bypasses_commit_requirement() {
+        let temp = setup();
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Enable require_commit_for_close
+        config_set(temp.path(), "require_commit_for_close", "true").unwrap();
+
+        // Should succeed with --force even without commit
+        let result = task_update(
+            temp.path(),
+            &task.id,
+            None,
+            None,
+            None,
+            None,
+            Some("done"),
+            vec![],
+            vec![],
+            None,
+            true,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_task_update_status_done_succeeds_with_linked_commit() {
+        let temp = setup();
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Enable require_commit_for_close
+        config_set(temp.path(), "require_commit_for_close", "true").unwrap();
+
+        // Link a commit
+        commit_link(
+            temp.path(),
+            "abc1234def5678abc1234def5678abc1234def56",
+            &task.id,
+        )
+        .unwrap();
+
+        // Should succeed with linked commit
+        let result = task_update(
+            temp.path(),
+            &task.id,
+            None,
+            None,
+            None,
+            None,
+            Some("done"),
+            vec![],
+            vec![],
+            None,
+            false,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_task_update_status_cancelled_ignores_commit_requirement() {
+        let temp = setup();
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Enable require_commit_for_close
+        config_set(temp.path(), "require_commit_for_close", "true").unwrap();
+
+        // Should succeed without commit for cancelled status
+        let result = task_update(
+            temp.path(),
+            &task.id,
+            None,
+            None,
+            None,
+            None,
+            Some("cancelled"),
+            vec![],
+            vec![],
+            None,
+            false,
+        );
         assert!(result.is_ok());
     }
 
@@ -7079,6 +7252,7 @@ mod tests {
             vec![],
             vec![],
             None,
+            false,
         )
         .unwrap();
 
@@ -7197,6 +7371,7 @@ mod tests {
             vec![],
             vec![],
             None,
+            false,
         )
         .unwrap();
         task_update(
@@ -7210,6 +7385,7 @@ mod tests {
             vec![],
             vec![],
             None,
+            false,
         )
         .unwrap();
 
@@ -7556,6 +7732,7 @@ mod tests {
             vec![],
             vec![],
             None,
+            false,
         )
         .unwrap();
 
@@ -7707,6 +7884,7 @@ mod tests {
             vec![],
             vec![],
             None,
+            false,
         )
         .unwrap();
 
@@ -7958,6 +8136,7 @@ mod tests {
             vec![],
             vec![],
             None,
+            false,
         )
         .unwrap();
 
@@ -8015,6 +8194,7 @@ mod tests {
             vec![],
             vec![],
             None,
+            false,
         )
         .unwrap();
 
@@ -8067,10 +8247,9 @@ mod tests {
             vec![],
             vec![],
             None,
+            false,
         )
         .unwrap();
-
-        // Task B depends on A (partial)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();

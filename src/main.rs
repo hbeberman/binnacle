@@ -117,6 +117,7 @@ fn run_command(
                 add_tag,
                 remove_tag,
                 assignee,
+                force,
             } => {
                 let result = commands::task_update(
                     repo_path,
@@ -129,6 +130,7 @@ fn run_command(
                     add_tag,
                     remove_tag,
                     assignee,
+                    force,
                 )?;
                 output(&result, human);
             }
@@ -625,6 +627,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 add_tag,
                 remove_tag,
                 assignee,
+                force,
             } => (
                 "task update".to_string(),
                 serde_json::json!({
@@ -637,6 +640,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "add_tag": add_tag,
                     "remove_tag": remove_tag,
                     "assignee": assignee,
+                    "force": force,
                 }),
             ),
             TaskCommands::Close { id, reason, force } => (

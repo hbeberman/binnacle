@@ -374,6 +374,7 @@ impl McpServer {
                 let add_tags = get_string_array(args, "add_tags");
                 let remove_tags = get_string_array(args, "remove_tags");
                 let assignee = get_optional_string(args, "assignee");
+                let force = get_optional_bool(args, "force").unwrap_or(false);
                 let result = commands::task_update(
                     repo,
                     &id,
@@ -385,6 +386,7 @@ impl McpServer {
                     add_tags,
                     remove_tags,
                     assignee,
+                    force,
                 )?;
                 Ok(result.to_json())
             }
@@ -945,7 +947,7 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     },
                     "status": {
                         "type": "string",
-                        "description": "New status"
+                        "description": "New status (pending, in_progress, partial, blocked, done)"
                     },
                     "add_tags": {
                         "type": "array",
@@ -960,6 +962,10 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "assignee": {
                         "type": "string",
                         "description": "New assignee"
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "When setting status to done, bypass commit requirement"
                     }
                 },
                 "required": ["id"]

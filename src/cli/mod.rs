@@ -190,7 +190,7 @@ pub enum TaskCommands {
         id: String,
     },
 
-    /// Update a task (status: pending, in_progress, partial, blocked)
+    /// Update a task (status: pending, in_progress, partial, blocked, done)
     Update {
         /// Task ID
         id: String,
@@ -211,7 +211,7 @@ pub enum TaskCommands {
         #[arg(long)]
         priority: Option<u8>,
 
-        /// New status (pending, in_progress, partial, blocked)
+        /// New status (pending, in_progress, partial, blocked, done)
         #[arg(long)]
         status: Option<String>,
 
@@ -226,6 +226,10 @@ pub enum TaskCommands {
         /// New assignee
         #[arg(long)]
         assignee: Option<String>,
+
+        /// When setting status to done, bypass commit requirement (use with caution)
+        #[arg(long)]
+        force: bool,
     },
 
     /// Close a task (marks as done)
