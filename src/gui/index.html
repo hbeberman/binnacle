@@ -1205,7 +1205,7 @@
                 // Selection state
                 selectedNode: null,
                 // Camera pan animation state
-                followAnimation: null,  // { startPanX, startPanY, targetPanX, targetPanY, startTime, duration }
+                followAnimation: null,  // { startPanX, startPanY, targetPanX, targetPanY, startZoom, targetZoom, startTime, duration }
                 // Auto-follow state
                 autoFollow: true,
                 followingNodeId: null,  // ID of node currently being followed (for continuous tracking)
@@ -1266,9 +1266,9 @@
                             for (const task of state.tasks) {
                                 const prevStatus = prevStatuses[task.id];
                                 if (task.status === 'in_progress' && prevStatus && prevStatus !== 'in_progress') {
-                                    // Task just transitioned to in_progress - start following it
+                                    // Task just transitioned to in_progress - start following it with zoom to 100%
                                     state.graph.followingNodeId = task.id;
-                                    panToNode(task.id);
+                                    panToNode(task.id, true);  // Zoom to 100%
                                     break; // Follow first transition found
                                 }
                             }
@@ -1870,13 +1870,13 @@
             }
         }
 
-        // Find and pan to the first in_progress task
+        // Find and pan to the first in_progress task, zooming to 100%
         function snapToActiveTask() {
             if (!state.tasks) return;
             const activeTask = state.tasks.find(t => t.status === 'in_progress');
             if (activeTask) {
                 state.graph.followingNodeId = activeTask.id;
-                panToNode(activeTask.id);
+                panToNode(activeTask.id, true);  // Zoom to 100%
             } else {
                 state.graph.followingNodeId = null;
             }
@@ -1926,13 +1926,14 @@
 
         // Calculate adaptive pan duration based on distance
         function getPanDuration(distance) {
-            if (distance < 300) return 300;
-            if (distance <= 800) return 500;
-            return 800;
+            // Doubled durations for smoother animation
+            if (distance < 300) return 600;
+            if (distance <= 800) return 1000;
+            return 1600;
         }
 
         // Pan camera smoothly to center on a world position
-        function panToWorldPosition(targetX, targetY) {
+        function panToWorldPosition(targetX, targetY, targetZoom = null) {
             const canvas = document.getElementById('graph-canvas');
             const { viewport } = state.graph;
 
@@ -1947,14 +1948,20 @@
             // Calculate distance in screen pixels for duration
             const startPanX = viewport.panX;
             const startPanY = viewport.panY;
+            const startZoom = viewport.zoom;
             const dx = (targetPanX - startPanX) * viewport.zoom;
             const dy = (targetPanY - startPanY) * viewport.zoom;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            // Skip animation if already centered (within 1 pixel)
-            if (distance < 1) return;
+            // Calculate zoom change for duration consideration
+            const zoomChange = targetZoom !== null ? Math.abs(targetZoom - startZoom) : 0;
 
-            const duration = getPanDuration(distance);
+            // Skip animation if already centered (within 1 pixel) and no zoom change
+            if (distance < 1 && zoomChange < 0.01) return;
+
+            // Use longer duration if there's significant zoom change
+            const baseDuration = getPanDuration(distance);
+            const duration = zoomChange > 0.1 ? Math.max(baseDuration, 800) : baseDuration;
 
             // Start the animation
             state.graph.followAnimation = {
@@ -1962,16 +1969,18 @@
                 startPanY,
                 targetPanX,
                 targetPanY,
+                startZoom,
+                targetZoom: targetZoom !== null ? targetZoom : startZoom,
                 startTime: performance.now(),
                 duration
             };
         }
 
-        // Pan camera smoothly to center on a node by ID
-        function panToNode(nodeId) {
+        // Pan camera smoothly to center on a node by ID, optionally zooming to 100%
+        function panToNode(nodeId, zoomTo100 = false) {
             const node = state.graph.nodes.find(n => n.id === nodeId);
             if (node) {
-                panToWorldPosition(node.x, node.y);
+                panToWorldPosition(node.x, node.y, zoomTo100 ? 1.0 : null);
             }
         }
 
@@ -1993,6 +2002,12 @@
             // Interpolate pan values
             state.graph.viewport.panX = anim.startPanX + (anim.targetPanX - anim.startPanX) * easedProgress;
             state.graph.viewport.panY = anim.startPanY + (anim.targetPanY - anim.startPanY) * easedProgress;
+
+            // Interpolate zoom if target differs from start
+            if (anim.targetZoom !== anim.startZoom) {
+                state.graph.viewport.zoom = anim.startZoom + (anim.targetZoom - anim.startZoom) * easedProgress;
+                updateZoomDisplay();
+            }
 
             // Animation complete
             if (progress >= 1) {
