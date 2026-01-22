@@ -1107,7 +1107,7 @@
                 // Camera pan animation state
                 followAnimation: null,  // { startPanX, startPanY, targetPanX, targetPanY, startTime, duration }
                 // Auto-follow state
-                autoFollow: false,
+                autoFollow: true,
                 // Stat highlight filter state (null = no filter active)
                 highlightFilter: null  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
             }
@@ -2716,6 +2716,7 @@
         // Initialize
         initializeEdgeFilters();
         initializeStatFilters();
+        updateAutoFollowDisplay();
         connectWebSocket();
     </script>
 </body>
