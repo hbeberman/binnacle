@@ -261,6 +261,90 @@
             z-index: 100;
         }
 
+        /* Edge filter controls */
+        .edge-filters {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            max-width: 200px;
+        }
+
+        .edge-filters-header {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            padding: 0.25rem 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 0.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .edge-filters-toggle {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.7rem;
+            padding: 0;
+        }
+
+        .edge-filters-toggle:hover {
+            color: var(--text-primary);
+        }
+
+        .edge-filter-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+
+        .edge-filter-btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .edge-filter-btn:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .edge-filter-btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-light);
+            color: white;
+        }
+
+        .edge-filter-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .edge-filters.collapsed .edge-filter-group {
+            display: none;
+        }
+
+        .edge-filters.collapsed {
+            max-width: none;
+        }
+
         .zoom-btn {
             width: 40px;
             height: 40px;
@@ -546,6 +630,15 @@
         <main>
             <div id="graph-view" class="view active">
                 <canvas id="graph-canvas"></canvas>
+                <div class="edge-filters" id="edge-filters">
+                    <div class="edge-filters-header">
+                        <span>Edge Types</span>
+                        <button class="edge-filters-toggle" id="edge-filters-toggle" title="Toggle filters">▼</button>
+                    </div>
+                    <div class="edge-filter-group" id="edge-filter-group">
+                        <!-- Filter buttons will be populated dynamically -->
+                    </div>
+                </div>
                 <div class="node-tooltip" id="node-tooltip">
                     <div class="tooltip-title" id="tooltip-title"></div>
                     <div class="tooltip-id" id="tooltip-id"></div>
@@ -610,6 +703,43 @@
     </div>
 
     <script>
+        // Edge type definitions with display names and default visibility
+        const EDGE_TYPES = {
+            depends_on: { name: 'Depends', category: 'blocking', defaultVisible: true },
+            blocks: { name: 'Blocks', category: 'blocking', defaultVisible: true },
+            related_to: { name: 'Related', category: 'informational', defaultVisible: false },
+            duplicates: { name: 'Duplicates', category: 'informational', defaultVisible: false },
+            fixes: { name: 'Fixes', category: 'fixes', defaultVisible: false },
+            caused_by: { name: 'Caused By', category: 'fixes', defaultVisible: false },
+            supersedes: { name: 'Supersedes', category: 'informational', defaultVisible: false },
+            parent_of: { name: 'Parent', category: 'hierarchy', defaultVisible: false },
+            child_of: { name: 'Child', category: 'hierarchy', defaultVisible: false },
+            tests: { name: 'Tests', category: 'fixes', defaultVisible: false }
+        };
+
+        // Load edge filter state from localStorage
+        function loadEdgeFilters() {
+            const saved = localStorage.getItem('binnacle_edge_filters');
+            if (saved) {
+                try {
+                    return JSON.parse(saved);
+                } catch (e) {
+                    // Fall back to defaults
+                }
+            }
+            // Default: only blocking edges visible
+            const defaults = {};
+            for (const [type, info] of Object.entries(EDGE_TYPES)) {
+                defaults[type] = info.defaultVisible;
+            }
+            return defaults;
+        }
+
+        // Save edge filter state to localStorage
+        function saveEdgeFilters(filters) {
+            localStorage.setItem('binnacle_edge_filters', JSON.stringify(filters));
+        }
+
         // State management
         const state = {
             currentView: 'graph',
@@ -618,6 +748,7 @@
             tests: [],
             log: [],
             edges: [], // Raw edges from API
+            edgeFilters: loadEdgeFilters(), // Which edge types are visible
             ws: null,
             graph: {
                 nodes: [],
@@ -1175,6 +1306,9 @@
             let closestDistance = adjustedThreshold;
 
             for (const edge of state.graph.edges) {
+                // Skip edges that are filtered out
+                if (!state.edgeFilters[edge.edge_type]) continue;
+                
                 const distance = distanceToEdge(worldX, worldY, edge);
                 if (distance < closestDistance) {
                     closestDistance = distance;
@@ -1416,8 +1550,11 @@
             applyEdgeAttraction(nodes, edges, physics);
             updatePositions(nodes, physics, canvas);
 
-            // Draw edges
+            // Draw edges (filtered by edge type visibility)
             edges.forEach(edge => {
+                // Skip edges that are filtered out
+                if (!state.edgeFilters[edge.edge_type]) return;
+                
                 const fromNode = nodes.find(n => n.id === edge.from);
                 const toNode = nodes.find(n => n.id === edge.to);
                 if (fromNode && toNode) {
@@ -1888,7 +2025,56 @@
             return div.innerHTML;
         }
 
+        // Edge filter UI functions
+        function getEdgeCategoryColor(category) {
+            const styles = getComputedStyle(document.documentElement);
+            switch (category) {
+                case 'blocking': return styles.getPropertyValue('--edge-blocking').trim();
+                case 'informational': return styles.getPropertyValue('--edge-informational').trim();
+                case 'fixes': return styles.getPropertyValue('--edge-fixes').trim();
+                case 'hierarchy': return styles.getPropertyValue('--edge-hierarchy').trim();
+                default: return styles.getPropertyValue('--edge-default').trim();
+            }
+        }
+
+        function initializeEdgeFilters() {
+            const container = document.getElementById('edge-filter-group');
+            const toggleBtn = document.getElementById('edge-filters-toggle');
+            const filtersPanel = document.getElementById('edge-filters');
+            
+            // Create filter buttons for each edge type
+            container.innerHTML = '';
+            for (const [type, info] of Object.entries(EDGE_TYPES)) {
+                const btn = document.createElement('button');
+                btn.className = 'edge-filter-btn' + (state.edgeFilters[type] ? ' active' : '');
+                btn.dataset.edgeType = type;
+                btn.title = `Toggle ${info.name} edges`;
+                
+                const dot = document.createElement('span');
+                dot.className = 'edge-filter-dot';
+                dot.style.backgroundColor = getEdgeCategoryColor(info.category);
+                
+                btn.appendChild(dot);
+                btn.appendChild(document.createTextNode(info.name));
+                
+                btn.addEventListener('click', () => {
+                    state.edgeFilters[type] = !state.edgeFilters[type];
+                    btn.classList.toggle('active', state.edgeFilters[type]);
+                    saveEdgeFilters(state.edgeFilters);
+                });
+                
+                container.appendChild(btn);
+            }
+            
+            // Toggle collapse/expand
+            toggleBtn.addEventListener('click', () => {
+                filtersPanel.classList.toggle('collapsed');
+                toggleBtn.textContent = filtersPanel.classList.contains('collapsed') ? '▶' : '▼';
+            });
+        }
+
         // Initialize
+        initializeEdgeFilters();
         connectWebSocket();
     </script>
 </body>
