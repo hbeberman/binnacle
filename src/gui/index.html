@@ -414,6 +414,20 @@
             display: flex;
             align-items: center;
             gap: 0.35rem;
+            cursor: pointer;
+            padding: 0.25rem 0.5rem;
+            margin: -0.25rem -0.5rem;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+        }
+
+        .stats-overlay .stat-group:hover {
+            background-color: var(--bg-tertiary);
+        }
+
+        .stats-overlay .stat-group.active {
+            background-color: var(--accent-blue);
+            color: var(--text-primary);
         }
 
         .stats-overlay .stat-separator {
@@ -1093,7 +1107,9 @@
                 // Camera pan animation state
                 followAnimation: null,  // { startPanX, startPanY, targetPanX, targetPanY, startTime, duration }
                 // Auto-follow state
-                autoFollow: false
+                autoFollow: false,
+                // Stat highlight filter state (null = no filter active)
+                highlightFilter: null  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
             }
         };
 
@@ -1213,6 +1229,83 @@
             document.getElementById('stat-ready').textContent = `✅ ${readyCount} ready`;
             document.getElementById('stat-ideas').textContent = `💭 ${ideaCount} idea${ideaCount !== 1 ? 's' : ''}`;
             document.getElementById('stat-milestones').textContent = `🏁 ${milestoneCount} milestone${milestoneCount !== 1 ? 's' : ''}`;
+            
+            // Update active state for stat filters
+            updateStatFilterHighlights();
+        }
+        
+        // Initialize clickable stat filters
+        function initializeStatFilters() {
+            const filterMap = {
+                'stat-bugs': 'bugs',
+                'stat-blocked': 'blocked',
+                'stat-ready': 'ready',
+                'stat-ideas': 'ideas',
+                'stat-milestones': 'milestones'
+            };
+            
+            for (const [elementId, filterName] of Object.entries(filterMap)) {
+                const element = document.getElementById(elementId);
+                if (element) {
+                    element.addEventListener('click', () => {
+                        toggleStatFilter(filterName);
+                    });
+                }
+            }
+        }
+        
+        // Toggle stat filter on/off
+        function toggleStatFilter(filterName) {
+            if (state.graph.highlightFilter === filterName) {
+                // Clear filter if clicking same one
+                state.graph.highlightFilter = null;
+            } else {
+                // Set new filter
+                state.graph.highlightFilter = filterName;
+            }
+            updateStatFilterHighlights();
+        }
+        
+        // Update visual state of stat filter buttons
+        function updateStatFilterHighlights() {
+            const filterMap = {
+                'bugs': 'stat-bugs',
+                'blocked': 'stat-blocked',
+                'ready': 'stat-ready',
+                'ideas': 'stat-ideas',
+                'milestones': 'stat-milestones'
+            };
+            
+            for (const [filter, elementId] of Object.entries(filterMap)) {
+                const element = document.getElementById(elementId);
+                if (element) {
+                    element.classList.toggle('active', state.graph.highlightFilter === filter);
+                }
+            }
+        }
+        
+        // Check if a node matches the current highlight filter
+        function nodeMatchesFilter(node) {
+            const filter = state.graph.highlightFilter;
+            if (!filter) return true; // No filter = all match
+            
+            const openStatuses = ['pending', 'in_progress', 'blocked'];
+            const readyIds = state.ready ? new Set(state.ready.map(t => t.id)) : new Set();
+            
+            switch (filter) {
+                case 'bugs':
+                    return node.type === 'bug' && openStatuses.includes(node.status);
+                case 'blocked':
+                    return node.status === 'blocked';
+                case 'ready':
+                    return readyIds.has(node.id);
+                case 'ideas':
+                    return node.type === 'idea' && openStatuses.includes(node.status);
+                case 'milestones':
+                    return node.type === 'milestone' && openStatuses.includes(node.status);
+                default:
+                    return true;
+            }
         }
 
         // View switching
@@ -2236,6 +2329,10 @@
             const isHovered = node === state.graph.hoveredNode;
             const isDragging = node === state.graph.draggedNode;
             const isSelected = node === state.graph.selectedNode;
+            
+            // Check if node matches current highlight filter
+            const matchesFilter = nodeMatchesFilter(node);
+            const isDimmed = state.graph.highlightFilter && !matchesFilter;
 
             // Transform world coordinates to screen coordinates
             const screenPos = worldToScreen(node.x, node.y, canvas);
@@ -2250,6 +2347,9 @@
                 'done': '#5cb85c'
             };
             const color = colors[node.status] || '#4a90e2';
+            
+            // Apply dimming for filtered-out nodes
+            ctx.globalAlpha = isDimmed ? 0.3 : 1.0;
 
             // Draw selection highlight (persistent)
             if (isSelected) {
@@ -2325,6 +2425,9 @@
                 ctx.textBaseline = 'middle';
                 ctx.fillText(node.id, screenPos.x, screenPos.y);
             }
+            
+            // Reset globalAlpha after drawing
+            ctx.globalAlpha = 1.0;
         }
 
         // Get edge style based on edge type
@@ -2569,6 +2672,7 @@
 
         // Initialize
         initializeEdgeFilters();
+        initializeStatFilters();
         connectWebSocket();
     </script>
 </body>
