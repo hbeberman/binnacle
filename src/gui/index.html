@@ -1147,8 +1147,12 @@
                         pendingReload = null;
                         // Save previous statuses for auto-follow detection
                         const prevStatuses = {};
+                        const prevTitles = {};
                         if (state.tasks) {
-                            state.tasks.forEach(t => prevStatuses[t.id] = t.status);
+                            state.tasks.forEach(t => {
+                                prevStatuses[t.id] = t.status;
+                                prevTitles[t.id] = t.title;
+                            });
                         }
                         // Track previous ready count for completion detection
                         const prevReadyCount = state.ready ? state.ready.length : 0;
@@ -1163,6 +1167,17 @@
                                     // Task just transitioned to in_progress
                                     panToNode(task.id);
                                     break; // Follow first transition found
+                                }
+                            }
+                        }
+                        
+                        // Task completion detection: show persistent toast when task is closed
+                        if (state.tasks) {
+                            for (const task of state.tasks) {
+                                const prevStatus = prevStatuses[task.id];
+                                if (task.status === 'done' && prevStatus && prevStatus !== 'done') {
+                                    // Task just transitioned to done - show persistent toast
+                                    showToast(`✅ Task closed: ${task.id} - ${task.title}`, 'success', 0);
                                 }
                             }
                         }
