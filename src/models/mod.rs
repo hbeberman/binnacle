@@ -51,6 +51,10 @@ pub struct Task {
     /// Task title
     pub title: String,
 
+    /// Optional short display name (shown in GUI instead of ID)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_name: Option<String>,
+
     /// Detailed description
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -107,6 +111,7 @@ impl Task {
             id,
             entity_type: "task".to_string(),
             title,
+            short_name: None,
             description: None,
             priority: 2, // Default middle priority
             status: TaskStatus::default(),

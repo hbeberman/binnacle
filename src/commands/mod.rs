@@ -591,6 +591,8 @@ pub fn orient(repo_path: &Path) -> Result<OrientResult> {
 pub struct TaskCreated {
     pub id: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_name: Option<String>,
 }
 
 impl Output for TaskCreated {
@@ -599,7 +601,10 @@ impl Output for TaskCreated {
     }
 
     fn to_human(&self) -> String {
-        format!("Created task {} \"{}\"", self.id, self.title)
+        match &self.short_name {
+            Some(sn) => format!("Created task {} [{}] \"{}\"", self.id, sn, self.title),
+            None => format!("Created task {} \"{}\"", self.id, self.title),
+        }
     }
 }
 
@@ -607,6 +612,7 @@ impl Output for TaskCreated {
 pub fn task_create(
     repo_path: &Path,
     title: String,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     tags: Vec<String>,
@@ -621,8 +627,22 @@ pub fn task_create(
         }
     }
 
+    // Auto-truncate very long short_name (2x display limit = 30 chars)
+    let short_name = short_name.map(|sn| {
+        if sn.chars().count() > 30 {
+            eprintln!(
+                "Note: short_name truncated from {} to 30 chars for GUI display.",
+                sn.chars().count()
+            );
+            sn.chars().take(30).collect::<String>()
+        } else {
+            sn
+        }
+    });
+
     let id = generate_id("bn", &title);
     let mut task = Task::new(id.clone(), title.clone());
+    task.short_name = short_name.clone();
     task.description = description;
     task.priority = priority.unwrap_or(2);
     task.tags = tags;
@@ -630,7 +650,11 @@ pub fn task_create(
 
     storage.create_task(&task)?;
 
-    Ok(TaskCreated { id, title })
+    Ok(TaskCreated {
+        id,
+        title,
+        short_name,
+    })
 }
 
 impl Output for Task {
@@ -641,6 +665,9 @@ impl Output for Task {
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
         lines.push(format!("{} {}", self.id, self.title));
+        if let Some(ref sn) = self.short_name {
+            lines.push(format!("  Short Name: {}", sn));
+        }
         lines.push(format!(
             "  Status: {:?}  Priority: {}",
             self.status, self.priority
@@ -715,9 +742,14 @@ impl Output for TaskShowResult {
         let mut lines = vec![
             format!("Task: {}", self.task.id),
             format!("Title: {}", self.task.title),
-            format!("Status: {:?}", self.task.status),
-            format!("Priority: P{}", self.task.priority),
         ];
+
+        if let Some(ref sn) = self.task.short_name {
+            lines.push(format!("Short Name: {}", sn));
+        }
+
+        lines.push(format!("Status: {:?}", self.task.status));
+        lines.push(format!("Priority: P{}", self.task.priority));
 
         if !self.task.tags.is_empty() {
             lines.push(format!("Tags: {}", self.task.tags.join(", ")));
@@ -949,6 +981,7 @@ pub fn task_update(
     repo_path: &Path,
     id: &str,
     title: Option<String>,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     status: Option<&str>,
@@ -963,6 +996,26 @@ pub fn task_update(
     if let Some(t) = title {
         task.title = t;
         updated_fields.push("title".to_string());
+    }
+
+    if let Some(s) = short_name {
+        // Empty or whitespace-only clears the short_name
+        if s.trim().is_empty() {
+            task.short_name = None;
+        } else {
+            // Auto-truncate very long short_name (2x display limit = 30 chars)
+            let truncated = if s.chars().count() > 30 {
+                eprintln!(
+                    "Note: short_name truncated from {} to 30 chars for GUI display.",
+                    s.chars().count()
+                );
+                s.chars().take(30).collect::<String>()
+            } else {
+                s
+            };
+            task.short_name = Some(truncated);
+        }
+        updated_fields.push("short_name".to_string());
     }
 
     if let Some(d) = description {
@@ -3802,6 +3855,7 @@ mod tests {
         let result = task_create(
             temp.path(),
             "Test task".to_string(),
+            None, // short_name
             None,
             Some(1),
             vec!["test".to_string()],
@@ -3816,7 +3870,7 @@ mod tests {
     fn test_task_show() {
         let temp = setup();
         let created =
-            task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Test".to_string(), None, None, None, vec![], None).unwrap();
         let result = task_show(temp.path(), &created.id).unwrap();
         assert_eq!(result.task.id, created.id);
         assert!(result.blocking_info.is_none()); // No dependencies
@@ -3828,6 +3882,7 @@ mod tests {
         task_create(
             temp.path(),
             "Task 1".to_string(),
+            None, // short_name
             None,
             Some(1),
             vec![],
@@ -3837,6 +3892,7 @@ mod tests {
         task_create(
             temp.path(),
             "Task 2".to_string(),
+            None, // short_name
             None,
             Some(2),
             vec![],
@@ -3854,6 +3910,7 @@ mod tests {
         let created = task_create(
             temp.path(),
             "Original".to_string(),
+            None, // short_name
             None,
             None,
             vec![],
@@ -3865,6 +3922,7 @@ mod tests {
             temp.path(),
             &created.id,
             Some("Updated".to_string()),
+            None, // short_name
             None,
             Some(1),
             None,
@@ -3886,7 +3944,7 @@ mod tests {
     fn test_task_close_reopen() {
         let temp = setup();
         let created =
-            task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Test".to_string(), None, None, None, vec![], None).unwrap();
 
         task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
         let result = task_show(temp.path(), &created.id).unwrap();
@@ -3903,9 +3961,9 @@ mod tests {
     fn test_task_close_with_incomplete_deps_fails() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -3922,9 +3980,9 @@ mod tests {
     fn test_task_close_with_incomplete_deps_force() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -3944,9 +4002,9 @@ mod tests {
     fn test_task_close_with_complete_deps_success() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -3968,9 +4026,9 @@ mod tests {
     fn test_task_close_promotes_partial_dependents() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -3991,7 +4049,7 @@ mod tests {
     fn test_task_delete() {
         let temp = setup();
         let created =
-            task_create(temp.path(), "Test".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Test".to_string(), None, None, None, vec![], None).unwrap();
 
         task_delete(temp.path(), &created.id).unwrap();
         let list = task_list(temp.path(), None, None, None).unwrap();
@@ -4004,9 +4062,9 @@ mod tests {
     fn test_dep_add() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         let result = dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
         assert_eq!(result.child, task_b.id);
@@ -4021,9 +4079,9 @@ mod tests {
     fn test_dep_add_transitions_done_to_partial() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
         let result = task_show(temp.path(), &task_b.id).unwrap();
@@ -4042,9 +4100,9 @@ mod tests {
     fn test_dep_add_cycle_rejected() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // A depends on B
         dep_add(temp.path(), &task_a.id, &task_b.id).unwrap();
@@ -4058,9 +4116,9 @@ mod tests {
     fn test_dep_rm() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
         dep_rm(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -4074,11 +4132,11 @@ mod tests {
     fn test_dep_show() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
         let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
 
         // B depends on A, C depends on B
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -4096,9 +4154,9 @@ mod tests {
     fn test_ready_command() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // B depends on A (which is pending, so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -4112,9 +4170,9 @@ mod tests {
     fn test_blocked_command() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // B depends on A (which is pending, so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -4129,9 +4187,9 @@ mod tests {
     fn test_ready_after_dependency_done() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
@@ -4158,7 +4216,7 @@ mod tests {
     fn test_commit_link() {
         let temp = setup();
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         let result = commit_link(temp.path(), "a1b2c3d", &task.id).unwrap();
         assert_eq!(result.sha, "a1b2c3d");
@@ -4169,7 +4227,7 @@ mod tests {
     fn test_commit_link_invalid_sha() {
         let temp = setup();
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         // SHA too short
         let result = commit_link(temp.path(), "abc", &task.id);
@@ -4188,7 +4246,7 @@ mod tests {
     fn test_commit_unlink() {
         let temp = setup();
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         commit_link(temp.path(), "a1b2c3d", &task.id).unwrap();
         let result = commit_unlink(temp.path(), "a1b2c3d", &task.id).unwrap();
@@ -4205,7 +4263,7 @@ mod tests {
     fn test_commit_unlink_nonexistent() {
         let temp = setup();
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         let result = commit_unlink(temp.path(), "a1b2c3d", &task.id);
         assert!(result.is_err());
@@ -4215,7 +4273,7 @@ mod tests {
     fn test_commit_list() {
         let temp = setup();
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         commit_link(temp.path(), "a1b2c3d", &task.id).unwrap();
         commit_link(temp.path(), "e5f6789", &task.id).unwrap();
@@ -4229,7 +4287,7 @@ mod tests {
     fn test_commit_list_empty() {
         let temp = setup();
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         let list = commit_list(temp.path(), &task.id).unwrap();
         assert_eq!(list.count, 0);
@@ -4248,7 +4306,7 @@ mod tests {
     #[test]
     fn test_doctor_healthy() {
         let temp = setup();
-        task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         let result = doctor(temp.path()).unwrap();
         assert!(result.healthy);
@@ -4262,9 +4320,9 @@ mod tests {
 
         // Create two tasks: A depends on B
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -4282,8 +4340,8 @@ mod tests {
     #[test]
     fn test_doctor_stats() {
         let temp = setup();
-        task_create(temp.path(), "Task 1".to_string(), None, None, vec![], None).unwrap();
-        task_create(temp.path(), "Task 2".to_string(), None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
         test_create(
             temp.path(),
             "Test 1".to_string(),
@@ -4304,7 +4362,7 @@ mod tests {
     fn test_log_basic() {
         let temp = setup();
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         let result = log(temp.path(), None).unwrap();
         assert!(result.count >= 1);
@@ -4315,9 +4373,9 @@ mod tests {
     fn test_log_filter_by_task() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let _task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         let result = log(temp.path(), Some(&task_a.id)).unwrap();
         assert!(result.entries.iter().all(|e| e.entity_id == task_a.id));
@@ -4328,13 +4386,14 @@ mod tests {
     fn test_log_includes_updates() {
         let temp = setup();
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         // Update the task
         task_update(
             temp.path(),
             &task.id,
             Some("Updated Title".to_string()),
+            None, // short_name
             None,
             None,
             None,
@@ -4355,7 +4414,7 @@ mod tests {
     fn test_log_includes_close() {
         let temp = setup();
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         task_close(temp.path(), &task.id, Some("Complete".to_string()), false).unwrap();
 
@@ -4431,11 +4490,12 @@ mod tests {
 
         // Create a task and update it multiple times
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         task_update(
             temp.path(),
             &task.id,
             Some("Updated 1".to_string()),
+            None, // short_name
             None,
             None,
             None,
@@ -4448,6 +4508,7 @@ mod tests {
             temp.path(),
             &task.id,
             Some("Updated 2".to_string()),
+            None, // short_name
             None,
             None,
             None,
@@ -4473,9 +4534,9 @@ mod tests {
     fn test_compact_preserves_all_tasks() {
         let temp = setup();
 
-        task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
-        task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
-        task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
 
         let result = compact(temp.path()).unwrap();
         assert_eq!(result.tasks_compacted, 3);
@@ -4491,7 +4552,7 @@ mod tests {
         let temp = setup();
 
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         test_create(
             temp.path(),
             "Test 1".to_string(),
@@ -4676,8 +4737,8 @@ mod tests {
         let temp = setup();
 
         // Create some tasks
-        task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
-        task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         let result = orient(temp.path()).unwrap();
         assert!(!result.initialized); // Already initialized in setup()
@@ -4690,9 +4751,9 @@ mod tests {
         let temp = setup();
 
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // B depends on A (so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -4709,13 +4770,14 @@ mod tests {
         let temp = setup();
 
         let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         // Update to in_progress
         task_update(
             temp.path(),
             &task.id,
             None,
+            None, // short_name
             None,
             None,
             Some("in_progress"),
@@ -4732,7 +4794,7 @@ mod tests {
     #[test]
     fn test_orient_human_output() {
         let temp = setup();
-        task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
 
         let result = orient(temp.path()).unwrap();
         let human = result.to_human();
@@ -4751,6 +4813,7 @@ mod tests {
         let task = task_create(
             temp.path(),
             "Solo Task".to_string(),
+            None, // short_name
             None,
             None,
             vec![],
@@ -4768,9 +4831,9 @@ mod tests {
     fn test_task_show_all_dependencies_complete() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // Close both dependencies
         task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
@@ -4778,7 +4841,7 @@ mod tests {
 
         // Create task C that depends on A and B
         let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
 
@@ -4797,10 +4860,11 @@ mod tests {
     fn test_task_show_direct_blockers() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b = task_create(
             temp.path(),
             "Task B".to_string(),
+            None, // short_name
             None,
             None,
             vec![],
@@ -4808,13 +4872,14 @@ mod tests {
         )
         .unwrap();
         let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
 
         // Set task A to in_progress
         task_update(
             temp.path(),
             &task_a.id,
             None,
+            None, // short_name
             None,
             None,
             Some("in_progress"),
@@ -4863,11 +4928,11 @@ mod tests {
     fn test_task_show_transitive_blockers() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
         let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
 
         // Create chain: C depends on B, B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -4902,11 +4967,11 @@ mod tests {
     fn test_task_show_mixed_complete_incomplete_deps() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
         let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
 
         // Close task A
         task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
@@ -4931,10 +4996,11 @@ mod tests {
     fn test_task_show_blocker_summary_format() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b = task_create(
             temp.path(),
             "Task B".to_string(),
+            None, // short_name
             None,
             None,
             vec![],
@@ -4942,7 +5008,7 @@ mod tests {
         )
         .unwrap();
         let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
 
         // Task C depends on A and B
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
@@ -4965,17 +5031,18 @@ mod tests {
     fn test_task_show_cancelled_dependencies_dont_block() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
         let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
 
         // Cancel task A
         task_update(
             temp.path(),
             &task_a.id,
             None,
+            None, // short_name
             None,
             None,
             Some("cancelled"),
@@ -5007,15 +5074,16 @@ mod tests {
     fn test_task_show_blocked_status_is_blocker() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // Set task A to blocked status
         task_update(
             temp.path(),
             &task_a.id,
             None,
+            None, // short_name
             None,
             None,
             Some("blocked"),
@@ -5042,15 +5110,16 @@ mod tests {
     fn test_task_show_partial_status_is_blocker() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // Set task A to partial status
         task_update(
             temp.path(),
             &task_a.id,
             None,
+            None, // short_name
             None,
             None,
             Some("partial"),
@@ -5077,9 +5146,9 @@ mod tests {
     fn test_task_show_reopened_status_is_blocker() {
         let temp = setup();
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
 
         // Close then reopen task A
         task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
@@ -5103,13 +5172,13 @@ mod tests {
         let temp = setup();
         // Create chain: D -> C -> B -> A
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
         let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
         let task_d =
-            task_create(temp.path(), "Task D".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task D".to_string(), None, None, None, vec![], None).unwrap();
 
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
@@ -5142,13 +5211,13 @@ mod tests {
         let temp = setup();
         // Create diamond: D depends on B and C, both B and C depend on A
         let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
         let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
         let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
         let task_d =
-            task_create(temp.path(), "Task D".to_string(), None, None, vec![], None).unwrap();
+            task_create(temp.path(), "Task D".to_string(), None, None, None, vec![], None).unwrap();
 
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();

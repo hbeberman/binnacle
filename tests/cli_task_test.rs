@@ -1242,3 +1242,256 @@ fn test_task_show_mixed_status_blockers() {
     assert!(stdout.contains("pending"));
     assert!(stdout.contains("inprogress"));
 }
+
+// === Short Name Tests ===
+
+#[test]
+fn test_task_create_with_short_name() {
+    let temp = init_binnacle();
+
+    bn_in(&temp)
+        .args(["task", "create", "My task with short name", "-s", "MyTask"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\":\"MyTask\""));
+}
+
+#[test]
+fn test_task_create_with_short_name_human() {
+    let temp = init_binnacle();
+
+    bn_in(&temp)
+        .args([
+            "-H",
+            "task",
+            "create",
+            "My task with short name",
+            "-s",
+            "MyTask",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[MyTask]"));
+}
+
+#[test]
+fn test_task_update_short_name() {
+    let temp = init_binnacle();
+
+    // Create task without short_name
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task without short name"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Update to add short_name
+    bn_in(&temp)
+        .args(["task", "update", &id, "-s", "Added"])
+        .assert()
+        .success();
+
+    // Verify short_name was added
+    bn_in(&temp)
+        .args(["task", "show", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\":\"Added\""));
+}
+
+#[test]
+fn test_task_update_short_name_human() {
+    let temp = init_binnacle();
+
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task without short name"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    bn_in(&temp)
+        .args(["-H", "task", "update", &id, "-s", "NewName"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Updated task"));
+}
+
+#[test]
+fn test_task_short_name_empty_string() {
+    let temp = init_binnacle();
+
+    // Empty short_name should be treated as None (not included in output)
+    bn_in(&temp)
+        .args(["task", "create", "Task with empty short name", "-s", ""])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\"").not());
+}
+
+#[test]
+fn test_task_short_name_long_truncation() {
+    let temp = init_binnacle();
+
+    // A very long short_name (>30 chars) should be auto-truncated with a note
+    bn_in(&temp)
+        .args([
+            "task",
+            "create",
+            "Task with long short name",
+            "-s",
+            "VeryLongShortNameThatExceedsThirtyChars",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("truncated"));
+
+    // Verify it was actually truncated to 30 chars
+    bn_in(&temp)
+        .args(["task", "list"])
+        .assert()
+        .success()
+        // The truncated name should be exactly 30 chars
+        .stdout(predicate::str::contains("\"short_name\":\"VeryLongShortNameThatExceeds"));
+}
+
+#[test]
+fn test_task_short_name_special_characters() {
+    let temp = init_binnacle();
+
+    // Short names with special characters should work
+    bn_in(&temp)
+        .args(["task", "create", "Task with special chars", "-s", "My-Task_1"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\":\"My-Task_1\""));
+}
+
+#[test]
+fn test_task_short_name_persists() {
+    let temp = init_binnacle();
+
+    // Create task with short_name
+    let output = bn_in(&temp)
+        .args(["task", "create", "Persistent task", "-s", "Persist"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Verify it persists through list
+    bn_in(&temp)
+        .args(["task", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\":\"Persist\""));
+
+    // Verify it persists through show
+    bn_in(&temp)
+        .args(["task", "show", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\":\"Persist\""));
+}
+
+#[test]
+fn test_task_show_short_name_human() {
+    let temp = init_binnacle();
+
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task with short name", "-s", "ShortNm"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    bn_in(&temp)
+        .args(["-H", "task", "show", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Short Name: ShortNm"));
+}
+
+// === Short Name Edge Case Tests ===
+
+#[test]
+fn test_task_short_name_unicode() {
+    let temp = init_binnacle();
+
+    // Unicode characters in short_name should work
+    bn_in(&temp)
+        .args(["task", "create", "Task with unicode", "-s", "任务α"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\":\"任务α\""));
+}
+
+#[test]
+fn test_task_short_name_emoji() {
+    let temp = init_binnacle();
+
+    // Emoji in short_name should work
+    bn_in(&temp)
+        .args(["task", "create", "Task with emoji", "-s", "🚀Ship"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\":\"🚀Ship\""));
+}
+
+#[test]
+fn test_task_short_name_single_char() {
+    let temp = init_binnacle();
+
+    // Single character short_name should work
+    bn_in(&temp)
+        .args(["task", "create", "Task with single char", "-s", "X"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\":\"X\""));
+}
+
+#[test]
+fn test_task_short_name_whitespace_only() {
+    let temp = init_binnacle();
+
+    // Whitespace-only short_name should be treated as None (like empty string)
+    bn_in(&temp)
+        .args(["task", "create", "Task with whitespace", "-s", "   "])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\"").not());
+}
+
+#[test]
+fn test_task_short_name_with_spaces() {
+    let temp = init_binnacle();
+
+    // Short name with internal spaces should work
+    bn_in(&temp)
+        .args(["task", "create", "Task with spaces", "-s", "My Task"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\":\"My Task\""));
+}
+
+#[test]
+fn test_task_update_clear_short_name() {
+    let temp = init_binnacle();
+
+    // Create task with short_name
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task to clear", "-s", "HasName"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Update with empty string to clear short_name
+    bn_in(&temp)
+        .args(["task", "update", &id, "-s", ""])
+        .assert()
+        .success();
+
+    // Verify short_name was cleared
+    bn_in(&temp)
+        .args(["task", "show", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"short_name\"").not());
+}
