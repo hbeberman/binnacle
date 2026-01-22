@@ -1565,3 +1565,75 @@ fn test_blocked_human_shows_edge_blocker_id() {
         .stdout(predicate::str::contains("blocked by"))
         .stdout(predicate::str::contains(&id_a));
 }
+
+// === Generic Show Command Tests ===
+
+#[test]
+fn test_show_task_json() {
+    let temp = init_binnacle();
+
+    let output = bn_in(&temp)
+        .args(["task", "create", "Test task"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Generic show should auto-detect task type
+    bn_in(&temp)
+        .args(["show", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"type\":\"task\""))
+        .stdout(predicate::str::contains("\"task\":"))
+        .stdout(predicate::str::contains(&id));
+}
+
+#[test]
+fn test_show_task_human() {
+    let temp = init_binnacle();
+
+    let output = bn_in(&temp)
+        .args(["task", "create", "Test task"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    bn_in(&temp)
+        .args(["-H", "show", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Task:"))
+        .stdout(predicate::str::contains(&id));
+}
+
+#[test]
+fn test_show_not_found() {
+    let temp = init_binnacle();
+
+    bn_in(&temp)
+        .args(["show", "bn-nonexistent"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Entity not found"));
+}
+
+#[test]
+fn test_show_milestone() {
+    let temp = init_binnacle();
+
+    let output = bn_in(&temp)
+        .args(["milestone", "create", "Test milestone"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let id = json["id"].as_str().unwrap();
+
+    // Generic show should auto-detect milestone type
+    bn_in(&temp)
+        .args(["show", id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"type\":\"milestone\""))
+        .stdout(predicate::str::contains("\"milestone\":"));
+}

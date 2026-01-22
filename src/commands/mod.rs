@@ -8,8 +8,8 @@
 //! - `test` - Test node operations
 //! - `commit` - Commit tracking
 
-use crate::models::{Bug, BugSeverity, Edge, EdgeType, EdgeDirection, Task, TaskStatus, TestNode, TestResult};
-use crate::storage::{generate_id, parse_status, Storage};
+use crate::models::{Bug, BugSeverity, Edge, EdgeType, EdgeDirection, Milestone, Task, TaskStatus, TestNode, TestResult};
+use crate::storage::{generate_id, parse_status, EntityType, Storage};
 use crate::{Error, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -593,6 +593,109 @@ pub fn orient(repo_path: &Path) -> Result<OrientResult> {
         blocked_count,
         in_progress_count,
     })
+}
+
+// === Generic Show Command ===
+
+/// Result for generic show command - contains entity type and data.
+#[derive(Serialize)]
+pub struct GenericShowResult {
+    #[serde(rename = "type")]
+    pub entity_type: EntityType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<TaskShowResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bug: Option<BugShowResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test: Option<TestNode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub milestone: Option<MilestoneShowResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edge: Option<Edge>,
+}
+
+impl Output for GenericShowResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        match self.entity_type {
+            EntityType::Task => {
+                if let Some(ref task) = self.task {
+                    task.to_human()
+                } else {
+                    "Task data not available".to_string()
+                }
+            }
+            EntityType::Bug => {
+                if let Some(ref bug) = self.bug {
+                    bug.to_human()
+                } else {
+                    "Bug data not available".to_string()
+                }
+            }
+            EntityType::Test => {
+                if let Some(ref test) = self.test {
+                    test.to_human()
+                } else {
+                    "Test data not available".to_string()
+                }
+            }
+            EntityType::Milestone => {
+                if let Some(ref milestone) = self.milestone {
+                    milestone.to_human()
+                } else {
+                    "Milestone data not available".to_string()
+                }
+            }
+            EntityType::Edge => {
+                if let Some(ref edge) = self.edge {
+                    format!(
+                        "Edge: {}\n  {} --[{}]--> {}\n  Created: {}",
+                        edge.id, edge.source, edge.edge_type, edge.target, edge.created_at
+                    )
+                } else {
+                    "Edge data not available".to_string()
+                }
+            }
+        }
+    }
+}
+
+/// Generic show command - auto-detects entity type and returns formatted data.
+pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
+    let storage = Storage::open(repo_path)?;
+    let entity_type = storage.get_entity_type(id)?;
+
+    let mut result = GenericShowResult {
+        entity_type,
+        task: None,
+        bug: None,
+        test: None,
+        milestone: None,
+        edge: None,
+    };
+
+    match entity_type {
+        EntityType::Task => {
+            result.task = Some(task_show(repo_path, id)?);
+        }
+        EntityType::Bug => {
+            result.bug = Some(bug_show(repo_path, id)?);
+        }
+        EntityType::Test => {
+            result.test = Some(test_show(repo_path, id)?);
+        }
+        EntityType::Milestone => {
+            result.milestone = Some(milestone_show(repo_path, id)?);
+        }
+        EntityType::Edge => {
+            result.edge = Some(storage.get_edge(id)?);
+        }
+    }
+
+    Ok(result)
 }
 
 // === Task Commands ===
@@ -2159,7 +2262,7 @@ pub fn bug_delete(repo_path: &Path, id: &str) -> Result<BugDeleted> {
 
 // === Milestone Commands ===
 
-use crate::models::{Milestone, MilestoneProgress};
+use crate::models::MilestoneProgress;
 
 #[derive(Serialize)]
 pub struct MilestoneCreated {

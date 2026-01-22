@@ -63,6 +63,11 @@ fn run_command(
             output(&result, human);
         }
 
+        Some(Commands::Show { id }) => {
+            let result = commands::generic_show(repo_path, &id)?;
+            output(&result, human);
+        }
+
         Some(Commands::Task { command }) => match command {
             TaskCommands::Create {
                 title,
@@ -558,6 +563,11 @@ fn not_implemented(command: &str, subcommand: &str, human: bool) {
 fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) {
     match command {
         Some(Commands::Orient) => ("orient".to_string(), serde_json::json!({})),
+
+        Some(Commands::Show { id }) => (
+            "show".to_string(),
+            serde_json::json!({ "id": id }),
+        ),
 
         Some(Commands::Task { command }) => match command {
             TaskCommands::Create {

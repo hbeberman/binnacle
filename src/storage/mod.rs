@@ -26,10 +26,34 @@ use crate::models::{Bug, CommitLink, Edge, EdgeType, HydratedEdge, EdgeDirection
 use crate::{Error, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+
+/// Entity type enum for generic entity lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EntityType {
+    Task,
+    Bug,
+    Test,
+    Milestone,
+    Edge,
+}
+
+impl std::fmt::Display for EntityType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EntityType::Task => write!(f, "task"),
+            EntityType::Bug => write!(f, "bug"),
+            EntityType::Test => write!(f, "test"),
+            EntityType::Milestone => write!(f, "milestone"),
+            EntityType::Edge => write!(f, "edge"),
+        }
+    }
+}
 
 /// Storage manager for a single repository.
 pub struct Storage {
@@ -1428,6 +1452,39 @@ impl Storage {
     pub fn get_edge_dependents(&self, entity_id: &str) -> Result<Vec<String>> {
         let edges = self.list_edges(Some(EdgeType::DependsOn), None, Some(entity_id))?;
         Ok(edges.into_iter().map(|e| e.source).collect())
+    }
+
+    // === Entity Type Detection ===
+
+    /// Detect the type of an entity by its ID.
+    /// Tries each entity type (task, bug, test, milestone, edge) and returns the first match.
+    pub fn get_entity_type(&self, id: &str) -> Result<EntityType> {
+        // Try task
+        if self.get_task(id).is_ok() {
+            return Ok(EntityType::Task);
+        }
+
+        // Try bug
+        if self.get_bug(id).is_ok() {
+            return Ok(EntityType::Bug);
+        }
+
+        // Try test
+        if self.get_test(id).is_ok() {
+            return Ok(EntityType::Test);
+        }
+
+        // Try milestone
+        if self.get_milestone(id).is_ok() {
+            return Ok(EntityType::Milestone);
+        }
+
+        // Try edge
+        if self.get_edge(id).is_ok() {
+            return Ok(EntityType::Edge);
+        }
+
+        Err(Error::NotFound(id.to_string()))
     }
 
     // === Config Operations ===

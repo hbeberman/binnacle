@@ -23,6 +23,12 @@ pub enum Commands {
     /// Get project overview and current state (start here!)
     Orient,
 
+    /// Show any entity by ID (auto-detects type)
+    Show {
+        /// Entity ID (e.g., bn-a1b2, bnt-0001)
+        id: String,
+    },
+
     /// Task management commands
     Task {
         #[command(subcommand)]
