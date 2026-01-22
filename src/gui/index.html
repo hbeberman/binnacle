@@ -871,9 +871,25 @@
                 if (msg.type === 'reload') {
                     // Debounce rapid reload messages
                     if (pendingReload) clearTimeout(pendingReload);
-                    pendingReload = setTimeout(() => {
+                    pendingReload = setTimeout(async () => {
                         pendingReload = null;
-                        loadData();
+                        // Save previous statuses for auto-follow detection
+                        const prevStatuses = {};
+                        if (state.tasks) {
+                            state.tasks.forEach(t => prevStatuses[t.id] = t.status);
+                        }
+                        await loadData();
+                        // Check for in_progress transitions when auto-follow is enabled
+                        if (state.graph.autoFollow && state.tasks) {
+                            for (const task of state.tasks) {
+                                const prevStatus = prevStatuses[task.id];
+                                if (task.status === 'in_progress' && prevStatus && prevStatus !== 'in_progress') {
+                                    // Task just transitioned to in_progress
+                                    panToNode(task.id);
+                                    break; // Follow first transition found
+                                }
+                            }
+                        }
                     }, RELOAD_DEBOUNCE_MS);
                 }
             };
@@ -1080,7 +1096,11 @@
                 const mouseY = e.clientY - rect.top;
 
                 // Middle mouse or Shift+Left mouse = always canvas pan
+                // But not while auto-follow animation is active
                 if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+                    if (state.graph.followAnimation && state.graph.autoFollow) {
+                        return; // Block panning during auto-follow
+                    }
                     cancelPanAnimation();  // Cancel any ongoing camera animation
                     state.graph.isPanning = true;
                     state.graph.panStartX = mouseX;
@@ -1118,7 +1138,10 @@
                         finalCanvas.classList.add('dragging');
                         e.preventDefault();
                     } else {
-                        // No node found - pan the canvas
+                        // No node found - pan the canvas (but not during auto-follow)
+                        if (state.graph.followAnimation && state.graph.autoFollow) {
+                            return; // Block panning during auto-follow
+                        }
                         cancelPanAnimation();  // Cancel any ongoing camera animation
                         state.graph.isPanning = true;
                         state.graph.panStartX = mouseX;
