@@ -1384,10 +1384,12 @@
         function updateStatsOverlay() {
             // Count entities by type and status (open items only for bugs/milestones)
             const openStatuses = ['pending', 'in_progress', 'blocked'];
+            // Ideas have a different status lifecycle: seed/germinating are open, promoted/discarded are closed
+            const openIdeaStatuses = ['seed', 'germinating'];
             const bugCount = state.tasks.filter(t => t.type === 'bug' && openStatuses.includes(t.status)).length;
             const blockedCount = state.tasks.filter(t => t.status === 'blocked').length;
             const readyCount = state.ready ? state.ready.length : 0;
-            const ideaCount = state.tasks.filter(t => t.type === 'idea' && openStatuses.includes(t.status)).length;
+            const ideaCount = state.tasks.filter(t => t.type === 'idea' && openIdeaStatuses.includes(t.status)).length;
             const milestoneCount = state.tasks.filter(t => t.type === 'milestone' && openStatuses.includes(t.status)).length;
 
             // Update DOM elements
@@ -1502,7 +1504,8 @@
                 case 'ready':
                     return readyIds.has(node.id);
                 case 'ideas':
-                    return node.type === 'idea' && openStatuses.includes(node.status);
+                    // Ideas have different status lifecycle: seed/germinating are open
+                    return node.type === 'idea' && ['seed', 'germinating'].includes(node.status);
                 case 'milestones':
                     return node.type === 'milestone' && openStatuses.includes(node.status);
                 default:
