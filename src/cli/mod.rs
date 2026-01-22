@@ -41,6 +41,12 @@ pub enum Commands {
         command: BugCommands,
     },
 
+    /// Idea management commands (low-stakes seeds that can be promoted to tasks)
+    Idea {
+        #[command(subcommand)]
+        command: IdeaCommands,
+    },
+
     /// Milestone management commands
     Milestone {
         #[command(subcommand)]
@@ -390,6 +396,83 @@ pub enum BugCommands {
     /// Delete a bug
     Delete {
         /// Bug ID
+        id: String,
+    },
+}
+
+/// Idea subcommands
+#[derive(Subcommand, Debug)]
+pub enum IdeaCommands {
+    /// Create a new idea (quick capture of rough thoughts)
+    Create {
+        /// Idea title
+        title: String,
+
+        /// Tags for the idea
+        #[arg(short, long)]
+        tag: Vec<String>,
+
+        /// Idea description
+        #[arg(short, long)]
+        description: Option<String>,
+    },
+
+    /// List ideas
+    List {
+        /// Filter by status (seed, germinating, promoted, discarded)
+        #[arg(long, value_parser = ["seed", "germinating", "promoted", "discarded"])]
+        status: Option<String>,
+
+        /// Filter by tag
+        #[arg(long)]
+        tag: Option<String>,
+    },
+
+    /// Show idea details
+    Show {
+        /// Idea ID (e.g., bni-a1b2)
+        id: String,
+    },
+
+    /// Update an idea
+    Update {
+        /// Idea ID
+        id: String,
+
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// New status (seed, germinating, promoted, discarded)
+        #[arg(long, value_parser = ["seed", "germinating", "promoted", "discarded"])]
+        status: Option<String>,
+
+        /// Add a tag
+        #[arg(long)]
+        add_tag: Vec<String>,
+
+        /// Remove a tag
+        #[arg(long)]
+        remove_tag: Vec<String>,
+    },
+
+    /// Close an idea (marks as discarded)
+    Close {
+        /// Idea ID
+        id: String,
+
+        /// Reason for discarding
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Delete an idea permanently
+    Delete {
+        /// Idea ID
         id: String,
     },
 }

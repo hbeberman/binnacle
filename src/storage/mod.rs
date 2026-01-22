@@ -23,8 +23,8 @@ pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
 use crate::models::{
-    Bug, CommitLink, Edge, EdgeDirection, EdgeType, HydratedEdge, Milestone, MilestoneProgress,
-    Task, TaskStatus, TestNode, TestResult,
+    Bug, CommitLink, Edge, EdgeDirection, EdgeType, HydratedEdge, Idea, IdeaStatus, Milestone,
+    MilestoneProgress, Task, TaskStatus, TestNode, TestResult,
 };
 use crate::{Error, Result};
 use chrono::Utc;
@@ -41,6 +41,7 @@ use std::path::{Path, PathBuf};
 pub enum EntityType {
     Task,
     Bug,
+    Idea,
     Test,
     Milestone,
     Edge,
@@ -51,6 +52,7 @@ impl std::fmt::Display for EntityType {
         match self {
             EntityType::Task => write!(f, "task"),
             EntityType::Bug => write!(f, "bug"),
+            EntityType::Idea => write!(f, "idea"),
             EntityType::Test => write!(f, "test"),
             EntityType::Milestone => write!(f, "milestone"),
             EntityType::Edge => write!(f, "edge"),
@@ -93,6 +95,7 @@ impl Storage {
         let files = [
             "tasks.jsonl",
             "bugs.jsonl",
+            "ideas.jsonl",
             "milestones.jsonl",
             "edges.jsonl",
             "commits.jsonl",
@@ -218,6 +221,27 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_milestones_status ON milestones(status);
             CREATE INDEX IF NOT EXISTS idx_milestones_priority ON milestones(priority);
             CREATE INDEX IF NOT EXISTS idx_milestone_tags_tag ON milestone_tags(tag);
+
+            -- Idea tables
+            CREATE TABLE IF NOT EXISTS ideas (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                status TEXT NOT NULL DEFAULT 'seed',
+                promoted_to TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS idea_tags (
+                idea_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (idea_id, tag),
+                FOREIGN KEY (idea_id) REFERENCES ideas(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status);
+            CREATE INDEX IF NOT EXISTS idx_idea_tags_tag ON idea_tags(tag);
 
             -- Test node tables
             CREATE TABLE IF NOT EXISTS tests (
@@ -811,6 +835,165 @@ impl Storage {
             "DELETE FROM bug_dependencies WHERE child_id = ? OR parent_id = ?",
             [id, id],
         )?;
+
+        Ok(())
+    }
+
+    // === Idea Operations ===
+
+    /// Add a new idea.
+    pub fn add_idea(&mut self, idea: &Idea) -> Result<()> {
+        let ideas_path = self.root.join("ideas.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&ideas_path)?;
+
+        let json = serde_json::to_string(idea)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_idea(idea)?;
+
+        Ok(())
+    }
+
+    /// Get an idea by ID.
+    pub fn get_idea(&self, id: &str) -> Result<Idea> {
+        // First check if the idea exists in the cache (handles deletions)
+        let exists: bool = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM ideas WHERE id = ?)",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !exists {
+            return Err(Error::NotFound(format!("Idea not found: {}", id)));
+        }
+
+        let ideas_path = self.root.join("ideas.jsonl");
+        if !ideas_path.exists() {
+            return Err(Error::NotFound(format!("Idea not found: {}", id)));
+        }
+
+        let file = File::open(&ideas_path)?;
+        let reader = BufReader::new(file);
+
+        let mut latest: Option<Idea> = None;
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(idea) = serde_json::from_str::<Idea>(&line) {
+                if idea.id == id {
+                    latest = Some(idea);
+                }
+            }
+        }
+
+        latest.ok_or_else(|| Error::NotFound(format!("Idea not found: {}", id)))
+    }
+
+    /// List all ideas, optionally filtered.
+    pub fn list_ideas(&self, status: Option<&str>, tag: Option<&str>) -> Result<Vec<Idea>> {
+        let mut sql = String::from(
+            "SELECT DISTINCT i.id FROM ideas i
+             LEFT JOIN idea_tags it ON i.id = it.idea_id
+             WHERE 1=1",
+        );
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(s) = status {
+            sql.push_str(" AND i.status = ?");
+            params_vec.push(Box::new(s.to_string()));
+        }
+        if let Some(t) = tag {
+            sql.push_str(" AND it.tag = ?");
+            params_vec.push(Box::new(t.to_string()));
+        }
+
+        sql.push_str(" ORDER BY i.created_at DESC");
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids: Vec<String> = stmt
+            .query_map(params_refs.as_slice(), |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut ideas = Vec::new();
+        for id in ids {
+            if let Ok(idea) = self.get_idea(&id) {
+                ideas.push(idea);
+            }
+        }
+
+        Ok(ideas)
+    }
+
+    /// Update an idea.
+    pub fn update_idea(&mut self, idea: &Idea) -> Result<()> {
+        self.get_idea(&idea.id)?;
+
+        let ideas_path = self.root.join("ideas.jsonl");
+        let mut file = OpenOptions::new().append(true).open(&ideas_path)?;
+
+        let json = serde_json::to_string(idea)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_idea(idea)?;
+
+        Ok(())
+    }
+
+    /// Delete an idea by ID.
+    pub fn delete_idea(&mut self, id: &str) -> Result<()> {
+        self.get_idea(id)?;
+
+        self.conn.execute("DELETE FROM ideas WHERE id = ?", [id])?;
+        self.conn
+            .execute("DELETE FROM idea_tags WHERE idea_id = ?", [id])?;
+
+        Ok(())
+    }
+
+    /// Cache an idea in the SQLite database.
+    fn cache_idea(&self, idea: &Idea) -> Result<()> {
+        let status = match idea.status {
+            IdeaStatus::Seed => "seed",
+            IdeaStatus::Germinating => "germinating",
+            IdeaStatus::Promoted => "promoted",
+            IdeaStatus::Discarded => "discarded",
+        };
+
+        self.conn.execute(
+            "INSERT OR REPLACE INTO ideas (id, title, description, status, promoted_to, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![
+                &idea.id,
+                &idea.title,
+                &idea.description,
+                status,
+                &idea.promoted_to,
+                idea.created_at.to_rfc3339(),
+                idea.updated_at.to_rfc3339(),
+            ],
+        )?;
+
+        // Update tags
+        self.conn
+            .execute("DELETE FROM idea_tags WHERE idea_id = ?", [&idea.id])?;
+        for tag in &idea.tags {
+            self.conn.execute(
+                "INSERT INTO idea_tags (idea_id, tag) VALUES (?, ?)",
+                [&idea.id, tag],
+            )?;
+        }
 
         Ok(())
     }
@@ -1490,6 +1673,11 @@ impl Storage {
         // Try bug
         if self.get_bug(id).is_ok() {
             return Ok(EntityType::Bug);
+        }
+
+        // Try idea
+        if self.get_idea(id).is_ok() {
+            return Ok(EntityType::Idea);
         }
 
         // Try test

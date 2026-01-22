@@ -2,9 +2,9 @@
 
 use binnacle::action_log;
 use binnacle::cli::{
-    BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands, LinkCommands,
-    McpCommands, MilestoneCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands,
-    TestCommands,
+    BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands, IdeaCommands,
+    LinkCommands, McpCommands, MilestoneCommands, SearchCommands, StoreCommands, SystemCommands,
+    TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -233,6 +233,52 @@ fn run_command(
             }
             BugCommands::Delete { id } => {
                 let result = commands::bug_delete(repo_path, &id)?;
+                output(&result, human);
+            }
+        },
+
+        Some(Commands::Idea { command }) => match command {
+            IdeaCommands::Create {
+                title,
+                tag,
+                description,
+            } => {
+                let result = commands::idea_create(repo_path, title, description, tag)?;
+                output(&result, human);
+            }
+            IdeaCommands::List { status, tag } => {
+                let result = commands::idea_list(repo_path, status.as_deref(), tag.as_deref())?;
+                output(&result, human);
+            }
+            IdeaCommands::Show { id } => {
+                let result = commands::idea_show(repo_path, &id)?;
+                output(&result, human);
+            }
+            IdeaCommands::Update {
+                id,
+                title,
+                description,
+                status,
+                add_tag,
+                remove_tag,
+            } => {
+                let result = commands::idea_update(
+                    repo_path,
+                    &id,
+                    title,
+                    description,
+                    status.as_deref(),
+                    add_tag,
+                    remove_tag,
+                )?;
+                output(&result, human);
+            }
+            IdeaCommands::Close { id, reason } => {
+                let result = commands::idea_close(repo_path, &id, reason)?;
+                output(&result, human);
+            }
+            IdeaCommands::Delete { id } => {
+                let result = commands::idea_delete(repo_path, &id)?;
                 output(&result, human);
             }
         },
@@ -738,6 +784,59 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             }
             BugCommands::Delete { id } => {
                 ("bug delete".to_string(), serde_json::json!({ "id": id }))
+            }
+        },
+
+        Some(Commands::Idea { command }) => match command {
+            IdeaCommands::Create {
+                title,
+                tag,
+                description,
+            } => (
+                "idea create".to_string(),
+                serde_json::json!({
+                    "title": title,
+                    "tag": tag,
+                    "description": description,
+                }),
+            ),
+            IdeaCommands::List { status, tag } => (
+                "idea list".to_string(),
+                serde_json::json!({
+                    "status": status,
+                    "tag": tag,
+                }),
+            ),
+            IdeaCommands::Show { id } => {
+                ("idea show".to_string(), serde_json::json!({ "id": id }))
+            }
+            IdeaCommands::Update {
+                id,
+                title,
+                description,
+                status,
+                add_tag,
+                remove_tag,
+            } => (
+                "idea update".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "title": title,
+                    "description": description,
+                    "status": status,
+                    "add_tag": add_tag,
+                    "remove_tag": remove_tag,
+                }),
+            ),
+            IdeaCommands::Close { id, reason } => (
+                "idea close".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "reason": reason,
+                }),
+            ),
+            IdeaCommands::Delete { id } => {
+                ("idea delete".to_string(), serde_json::json!({ "id": id }))
             }
         },
 

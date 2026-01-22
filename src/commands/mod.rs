@@ -9,8 +9,8 @@
 //! - `commit` - Commit tracking
 
 use crate::models::{
-    Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Milestone, Task, TaskStatus, TestNode,
-    TestResult,
+    Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone, Task,
+    TaskStatus, TestNode, TestResult,
 };
 use crate::storage::{generate_id, parse_status, EntityType, Storage};
 use crate::{Error, Result};
@@ -625,6 +625,8 @@ pub struct GenericShowResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bug: Option<BugShowResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub idea: Option<Idea>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub test: Option<TestNode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub milestone: Option<MilestoneShowResult>,
@@ -651,6 +653,13 @@ impl Output for GenericShowResult {
                     bug.to_human()
                 } else {
                     "Bug data not available".to_string()
+                }
+            }
+            EntityType::Idea => {
+                if let Some(ref idea) = self.idea {
+                    idea.to_human()
+                } else {
+                    "Idea data not available".to_string()
                 }
             }
             EntityType::Test => {
@@ -690,6 +699,7 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
         entity_type,
         task: None,
         bug: None,
+        idea: None,
         test: None,
         milestone: None,
         edge: None,
@@ -707,6 +717,9 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
             if let BugShowResponse::Found(bug_result) = response {
                 result.bug = Some(bug_result);
             }
+        }
+        EntityType::Idea => {
+            result.idea = Some(idea_show(repo_path, id)?);
         }
         EntityType::Test => {
             result.test = Some(test_show(repo_path, id)?);
@@ -2611,6 +2624,286 @@ pub fn bug_delete(repo_path: &Path, id: &str) -> Result<BugDeleted> {
     storage.delete_bug(id)?;
 
     Ok(BugDeleted { id: id.to_string() })
+}
+
+// === Idea Commands ===
+
+#[derive(Serialize)]
+pub struct IdeaCreated {
+    pub id: String,
+    pub title: String,
+}
+
+impl Output for IdeaCreated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Created idea {} \"{}\"", self.id, self.title)
+    }
+}
+
+/// Create a new idea.
+pub fn idea_create(
+    repo_path: &Path,
+    title: String,
+    description: Option<String>,
+    tags: Vec<String>,
+) -> Result<IdeaCreated> {
+    let mut storage = Storage::open(repo_path)?;
+
+    let id = generate_id("bni", &title);
+    let mut idea = Idea::new(id.clone(), title.clone());
+    idea.description = description;
+    idea.tags = tags;
+
+    storage.add_idea(&idea)?;
+
+    Ok(IdeaCreated { id, title })
+}
+
+impl Output for Idea {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        let status_str = match self.status {
+            IdeaStatus::Seed => "seed",
+            IdeaStatus::Germinating => "germinating",
+            IdeaStatus::Promoted => "promoted",
+            IdeaStatus::Discarded => "discarded",
+        };
+        lines.push(format!("{} [{}] {}", self.id, status_str, self.title));
+        if let Some(ref desc) = self.description {
+            lines.push(format!("  Description: {}", desc));
+        }
+        if !self.tags.is_empty() {
+            lines.push(format!("  Tags: {}", self.tags.join(", ")));
+        }
+        if let Some(ref promoted_to) = self.promoted_to {
+            lines.push(format!("  Promoted to: {}", promoted_to));
+        }
+        lines.push(format!(
+            "  Created: {}",
+            self.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.push(format!(
+            "  Updated: {}",
+            self.updated_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct IdeaList {
+    pub ideas: Vec<Idea>,
+    pub count: usize,
+}
+
+impl Output for IdeaList {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.ideas.is_empty() {
+            return "No ideas found.".to_string();
+        }
+
+        let mut lines = vec![format!("{} idea(s):\n", self.count)];
+        for idea in &self.ideas {
+            let status_str = match idea.status {
+                IdeaStatus::Seed => "seed",
+                IdeaStatus::Germinating => "germinating",
+                IdeaStatus::Promoted => "promoted",
+                IdeaStatus::Discarded => "discarded",
+            };
+            let status_marker = match idea.status {
+                IdeaStatus::Seed => "💡",
+                IdeaStatus::Germinating => "🌱",
+                IdeaStatus::Promoted => "✅",
+                IdeaStatus::Discarded => "❌",
+            };
+            let tags_str = if idea.tags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", idea.tags.join(", "))
+            };
+            lines.push(format!(
+                "{} {} [{}] {}{}",
+                status_marker, idea.id, status_str, idea.title, tags_str
+            ));
+        }
+        lines.join("\n")
+    }
+}
+
+/// List ideas with optional filters.
+pub fn idea_list(
+    repo_path: &Path,
+    status: Option<&str>,
+    tag: Option<&str>,
+) -> Result<IdeaList> {
+    let storage = Storage::open(repo_path)?;
+    let ideas = storage.list_ideas(status, tag)?;
+    let count = ideas.len();
+
+    Ok(IdeaList { ideas, count })
+}
+
+/// Show a single idea.
+pub fn idea_show(repo_path: &Path, id: &str) -> Result<Idea> {
+    let storage = Storage::open(repo_path)?;
+    storage.get_idea(id)
+}
+
+#[derive(Serialize)]
+pub struct IdeaUpdated {
+    pub id: String,
+    pub updated_fields: Vec<String>,
+}
+
+impl Output for IdeaUpdated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Updated idea {}: {}",
+            self.id,
+            self.updated_fields.join(", ")
+        )
+    }
+}
+
+/// Update an idea.
+pub fn idea_update(
+    repo_path: &Path,
+    id: &str,
+    title: Option<String>,
+    description: Option<String>,
+    status: Option<&str>,
+    add_tags: Vec<String>,
+    remove_tags: Vec<String>,
+) -> Result<IdeaUpdated> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut idea = storage.get_idea(id)?;
+    let mut updated_fields = Vec::new();
+
+    if let Some(t) = title {
+        idea.title = t;
+        updated_fields.push("title".to_string());
+    }
+
+    if let Some(d) = description {
+        idea.description = Some(d);
+        updated_fields.push("description".to_string());
+    }
+
+    if let Some(s) = status {
+        idea.status = parse_idea_status(s)?;
+        updated_fields.push("status".to_string());
+    }
+
+    if !add_tags.is_empty() {
+        for tag in add_tags {
+            if !idea.tags.contains(&tag) {
+                idea.tags.push(tag);
+            }
+        }
+        updated_fields.push("tags".to_string());
+    }
+
+    if !remove_tags.is_empty() {
+        idea.tags.retain(|t| !remove_tags.contains(t));
+        if !updated_fields.contains(&"tags".to_string()) {
+            updated_fields.push("tags".to_string());
+        }
+    }
+
+    idea.updated_at = Utc::now();
+    storage.update_idea(&idea)?;
+
+    Ok(IdeaUpdated {
+        id: id.to_string(),
+        updated_fields,
+    })
+}
+
+/// Parse idea status string to IdeaStatus enum.
+fn parse_idea_status(s: &str) -> Result<IdeaStatus> {
+    match s {
+        "seed" => Ok(IdeaStatus::Seed),
+        "germinating" => Ok(IdeaStatus::Germinating),
+        "promoted" => Ok(IdeaStatus::Promoted),
+        "discarded" => Ok(IdeaStatus::Discarded),
+        _ => Err(Error::Other(format!(
+            "Invalid idea status: {}. Valid values: seed, germinating, promoted, discarded",
+            s
+        ))),
+    }
+}
+
+#[derive(Serialize)]
+pub struct IdeaClosed {
+    pub id: String,
+    pub reason: Option<String>,
+}
+
+impl Output for IdeaClosed {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        match &self.reason {
+            Some(r) => format!("Discarded idea {}: {}", self.id, r),
+            None => format!("Discarded idea {}", self.id),
+        }
+    }
+}
+
+/// Close (discard) an idea.
+pub fn idea_close(repo_path: &Path, id: &str, reason: Option<String>) -> Result<IdeaClosed> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut idea = storage.get_idea(id)?;
+
+    idea.status = IdeaStatus::Discarded;
+    idea.updated_at = Utc::now();
+    storage.update_idea(&idea)?;
+
+    Ok(IdeaClosed {
+        id: id.to_string(),
+        reason,
+    })
+}
+
+#[derive(Serialize)]
+pub struct IdeaDeleted {
+    pub id: String,
+}
+
+impl Output for IdeaDeleted {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Deleted idea {}", self.id)
+    }
+}
+
+/// Delete an idea.
+pub fn idea_delete(repo_path: &Path, id: &str) -> Result<IdeaDeleted> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.delete_idea(id)?;
+
+    Ok(IdeaDeleted { id: id.to_string() })
 }
 
 // === Milestone Commands ===
