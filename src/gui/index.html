@@ -1210,7 +1210,9 @@
                 autoFollow: true,
                 followingNodeId: null,  // ID of node currently being followed (for continuous tracking)
                 // Stat highlight filter state (null = no filter active)
-                highlightFilter: null  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
+                highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
+                // Hide completed nodes filter
+                hideCompleted: false  // When true, hide completed nodes except those in active chains
             }
         };
 
@@ -2402,6 +2404,38 @@
             return false;
         }
 
+        /**
+         * Filter nodes based on hideCompleted setting.
+         * Returns array of nodes that should be visible.
+         *
+         * When hideCompleted is true:
+         * - Hide nodes with status 'done' or 'cancelled'
+         * - EXCEPT those in active dependency chains
+         */
+        function getVisibleNodes(nodes) {
+            // If hideCompleted is not enabled, show all nodes
+            if (!state.graph.hideCompleted) {
+                return nodes;
+            }
+
+            // Build active node set and prepare edges for chain detection
+            const activeNodes = buildActiveNodeSet();
+            const edges = state.graph.edges;
+
+            // Filter nodes: keep if not completed, or if in active chain
+            return nodes.filter(node => {
+                const isCompleted = node.status === 'done' || node.status === 'cancelled';
+
+                // If not completed, always show it
+                if (!isCompleted) {
+                    return true;
+                }
+
+                // If completed, only show if it's in an active chain
+                return isInActiveChain(node.id, activeNodes, edges);
+            });
+        }
+
         function buildGraphData() {
             // Build a map of existing node positions to preserve them on reload
             const existingNodes = new Map();
@@ -2480,30 +2514,38 @@
             ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary');
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Apply forces (circular gravity system)
-            applyCircularGravity(nodes, physics);
-            applyRepulsionForces(nodes, physics);
-            applyEdgeAttraction(nodes, edges, physics);
-            updatePositions(nodes, physics, canvas);
+            // Filter nodes based on hideCompleted setting
+            const visibleNodes = getVisibleNodes(nodes);
+            const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+
+            // Apply forces (circular gravity system) - only to visible nodes
+            applyCircularGravity(visibleNodes, physics);
+            applyRepulsionForces(visibleNodes, physics);
+            applyEdgeAttraction(visibleNodes, edges, physics);
+            updatePositions(visibleNodes, physics, canvas);
 
             // Continuous follow: track the followed node as it moves
             updateContinuousFollow(canvas);
 
-            // Draw edges (filtered by edge type visibility)
+            // Draw edges (filtered by edge type visibility and node visibility)
             edges.forEach(edge => {
-                // Skip edges that are filtered out
+                // Skip edges that are filtered out by type
                 if (!state.edgeFilters[edge.edge_type]) return;
-                
+
                 const fromNode = nodes.find(n => n.id === edge.from);
                 const toNode = nodes.find(n => n.id === edge.to);
-                if (fromNode && toNode) {
-                    const style = getEdgeStyle(edge.edge_type);
-                    drawArrow(ctx, fromNode.x, fromNode.y, toNode.x, toNode.y, canvas, fromNode.radius, toNode.radius, style, edge.bidirectional);
+
+                // Skip edges where either endpoint is hidden
+                if (!fromNode || !toNode || !visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) {
+                    return;
                 }
+
+                const style = getEdgeStyle(edge.edge_type);
+                drawArrow(ctx, fromNode.x, fromNode.y, toNode.x, toNode.y, canvas, fromNode.radius, toNode.radius, style, edge.bidirectional);
             });
 
-            // Draw nodes
-            nodes.forEach(node => {
+            // Draw visible nodes only
+            visibleNodes.forEach(node => {
                 drawNode(ctx, node, canvas);
             });
 
