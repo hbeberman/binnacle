@@ -1199,12 +1199,13 @@
         }
 
         function updateStatsOverlay() {
-            // Count entities by type and status
-            const bugCount = state.tasks.filter(t => t.type === 'bug').length;
+            // Count entities by type and status (open items only for bugs/milestones)
+            const openStatuses = ['pending', 'in_progress', 'blocked'];
+            const bugCount = state.tasks.filter(t => t.type === 'bug' && openStatuses.includes(t.status)).length;
             const blockedCount = state.tasks.filter(t => t.status === 'blocked').length;
             const readyCount = state.ready ? state.ready.length : 0;
-            const ideaCount = state.tasks.filter(t => t.type === 'idea').length;
-            const milestoneCount = state.tasks.filter(t => t.type === 'milestone').length;
+            const ideaCount = state.tasks.filter(t => t.type === 'idea' && openStatuses.includes(t.status)).length;
+            const milestoneCount = state.tasks.filter(t => t.type === 'milestone' && openStatuses.includes(t.status)).length;
 
             // Update DOM elements
             document.getElementById('stat-bugs').textContent = `🐛 ${bugCount} bug${bugCount !== 1 ? 's' : ''}`;
