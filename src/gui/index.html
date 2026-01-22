@@ -61,6 +61,85 @@
             padding: 1rem 2rem;
             border-bottom: 2px solid var(--border-color);
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .header-left {
+            flex: 1;
+        }
+
+        .active-task-pane {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            min-width: 280px;
+            max-width: 400px;
+            margin-left: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .active-task-pane.empty {
+            opacity: 0.5;
+        }
+
+        .active-task-pane-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .active-task-pane-header .indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--warning);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .active-task-pane.empty .indicator {
+            background: var(--text-secondary);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .active-task-id {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--accent-light);
+            margin-bottom: 0.25rem;
+        }
+
+        .active-task-title {
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .active-task-meta {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .active-task-meta .badge {
+            font-size: 0.75rem;
+            padding: 0.15rem 0.5rem;
         }
 
         h1 {
@@ -851,14 +930,25 @@
 
     <div class="container">
         <header>
-            <h1>🧭 Binnacle</h1>
-            <p class="subtitle">Project State Tracker</p>
-            <nav>
-                <button class="nav-btn active" data-view="graph">Graph</button>
-                <button class="nav-btn" data-view="ready">Ready Tasks</button>
-                <button class="nav-btn" data-view="tests">Tests</button>
-                <button class="nav-btn" data-view="log">Activity Log</button>
-            </nav>
+            <div class="header-left">
+                <h1>🧭 Binnacle</h1>
+                <p class="subtitle">Project State Tracker</p>
+                <nav>
+                    <button class="nav-btn active" data-view="graph">Graph</button>
+                    <button class="nav-btn" data-view="ready">Ready Tasks</button>
+                    <button class="nav-btn" data-view="tests">Tests</button>
+                    <button class="nav-btn" data-view="log">Activity Log</button>
+                </nav>
+            </div>
+            <div class="active-task-pane empty" id="active-task-pane">
+                <div class="active-task-pane-header">
+                    <span class="indicator"></span>
+                    <span>Active Task</span>
+                </div>
+                <div class="active-task-id" id="active-task-id">No active task</div>
+                <div class="active-task-title" id="active-task-title">Start work with bn task update &lt;id&gt; --status in_progress</div>
+                <div class="active-task-meta" id="active-task-meta"></div>
+            </div>
         </header>
 
         <main>
@@ -1287,6 +1377,7 @@
             state.edges = edgesData.edges || [];
             
             updateStatsOverlay();
+            updateActiveTaskPane();
             renderCurrentView();
         }
 
@@ -1308,6 +1399,41 @@
             
             // Update active state for stat filters
             updateStatFilterHighlights();
+        }
+        
+        function updateActiveTaskPane() {
+            const pane = document.getElementById('active-task-pane');
+            const idEl = document.getElementById('active-task-id');
+            const titleEl = document.getElementById('active-task-title');
+            const metaEl = document.getElementById('active-task-meta');
+            
+            // Find first in_progress task
+            const activeTask = state.tasks.find(t => t.status === 'in_progress');
+            
+            if (activeTask) {
+                pane.classList.remove('empty');
+                idEl.textContent = activeTask.id;
+                titleEl.textContent = activeTask.title || 'Untitled task';
+                titleEl.title = activeTask.title || '';  // Full title on hover
+                
+                // Build meta badges
+                let metaHtml = '';
+                if (activeTask.priority !== undefined) {
+                    metaHtml += `<span class="badge badge-priority-${activeTask.priority}">P${activeTask.priority}</span>`;
+                }
+                if (activeTask.tags && activeTask.tags.length > 0) {
+                    activeTask.tags.slice(0, 2).forEach(tag => {
+                        metaHtml += `<span class="badge badge-tag">${tag}</span>`;
+                    });
+                }
+                metaEl.innerHTML = metaHtml;
+            } else {
+                pane.classList.add('empty');
+                idEl.textContent = 'No active task';
+                titleEl.textContent = 'Start work with bn task update <id> --status in_progress';
+                titleEl.title = '';
+                metaEl.innerHTML = '';
+            }
         }
         
         // Initialize clickable stat filters
