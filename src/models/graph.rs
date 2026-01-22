@@ -49,11 +49,11 @@ impl UnionFind {
 
         // Path compression: make all nodes point directly to root
         let parent = self.parent.get(x).unwrap().clone();
-        if parent != x {
-            if let Some(root) = self.find(&parent) {
-                self.parent.insert(x.to_string(), root.clone());
-                return Some(root);
-            }
+        if parent != x
+            && let Some(root) = self.find(&parent)
+        {
+            self.parent.insert(x.to_string(), root.clone());
+            return Some(root);
         }
         Some(parent)
     }

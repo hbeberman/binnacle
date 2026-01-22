@@ -124,10 +124,10 @@ fn get_log_path(repo_path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>>
 
 /// Expand ~ in path to home directory.
 fn expand_home(path: &Path) -> PathBuf {
-    if let Ok(stripped) = path.strip_prefix("~") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(stripped);
-        }
+    if let Ok(stripped) = path.strip_prefix("~")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(stripped);
     }
     path.to_path_buf()
 }

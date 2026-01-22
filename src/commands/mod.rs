@@ -771,10 +771,10 @@ pub fn task_create(
     let mut storage = Storage::open(repo_path)?;
 
     // Validate priority if provided
-    if let Some(p) = priority {
-        if p > 4 {
-            return Err(Error::Other("Priority must be 0-4".to_string()));
-        }
+    if let Some(p) = priority
+        && p > 4
+    {
+        return Err(Error::Other("Priority must be 0-4".to_string()));
     }
 
     // Auto-truncate very long short_name (2x display limit = 30 chars)
@@ -1848,10 +1848,10 @@ pub fn bug_create(
 ) -> Result<BugCreated> {
     let mut storage = Storage::open(repo_path)?;
 
-    if let Some(p) = priority {
-        if p > 4 {
-            return Err(Error::Other("Priority must be 0-4".to_string()));
-        }
+    if let Some(p) = priority
+        && p > 4
+    {
+        return Err(Error::Other("Priority must be 0-4".to_string()));
     }
 
     let id = generate_id("bn", &title);
@@ -2934,10 +2934,10 @@ pub fn milestone_create(
 ) -> Result<MilestoneCreated> {
     let mut storage = Storage::open(repo_path)?;
 
-    if let Some(p) = priority {
-        if p > 4 {
-            return Err(Error::Other("Priority must be 0-4".to_string()));
-        }
+    if let Some(p) = priority
+        && p > 4
+    {
+        return Err(Error::Other("Priority must be 0-4".to_string()));
     }
 
     let id = generate_id("bn", &title);
@@ -4507,19 +4507,18 @@ impl Output for TestRunResult {
             status, self.test_name, self.test_id, self.duration_ms
         ));
 
-        if !self.passed {
-            if let Some(ref stderr) = self.stderr {
-                if !stderr.is_empty() {
-                    lines.push(format!(
-                        "  stderr: {}",
-                        stderr
-                            .lines()
-                            .take(5)
-                            .collect::<Vec<_>>()
-                            .join("\n         ")
-                    ));
-                }
-            }
+        if !self.passed
+            && let Some(ref stderr) = self.stderr
+            && !stderr.is_empty()
+        {
+            lines.push(format!(
+                "  stderr: {}",
+                stderr
+                    .lines()
+                    .take(5)
+                    .collect::<Vec<_>>()
+                    .join("\n         ")
+            ));
         }
 
         if !self.reopened_tasks.is_empty() {
@@ -4822,20 +4821,16 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
         // Check for done tasks with pending dependencies
         if task.status == TaskStatus::Done {
             for dep_id in &task.depends_on {
-                if let Ok(dep_task) = storage.get_task(dep_id) {
-                    if dep_task.status != TaskStatus::Done
-                        && dep_task.status != TaskStatus::Cancelled
-                    {
-                        issues.push(DoctorIssue {
-                            severity: "warning".to_string(),
-                            category: "consistency".to_string(),
-                            message: format!(
-                                "Task is done but depends on incomplete task {}",
-                                dep_id
-                            ),
-                            entity_id: Some(task.id.clone()),
-                        });
-                    }
+                if let Ok(dep_task) = storage.get_task(dep_id)
+                    && dep_task.status != TaskStatus::Done
+                    && dep_task.status != TaskStatus::Cancelled
+                {
+                    issues.push(DoctorIssue {
+                        severity: "warning".to_string(),
+                        category: "consistency".to_string(),
+                        message: format!("Task is done but depends on incomplete task {}", dep_id),
+                        entity_id: Some(task.id.clone()),
+                    });
                 }
             }
         }
@@ -4865,20 +4860,20 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
     ];
     for filename in jsonl_files {
         let file_path = storage.root().join(filename);
-        if file_path.exists() {
-            if let Ok(content) = fs::read_to_string(&file_path) {
-                let blank_count = content.lines().filter(|l| l.trim().is_empty()).count();
-                if blank_count > 0 {
-                    issues.push(DoctorIssue {
-                        severity: "warning".to_string(),
-                        category: "data".to_string(),
-                        message: format!(
-                            "{} contains {} blank line(s) - run 'bn system compact' to fix",
-                            filename, blank_count
-                        ),
-                        entity_id: None,
-                    });
-                }
+        if file_path.exists()
+            && let Ok(content) = fs::read_to_string(&file_path)
+        {
+            let blank_count = content.lines().filter(|l| l.trim().is_empty()).count();
+            if blank_count > 0 {
+                issues.push(DoctorIssue {
+                    severity: "warning".to_string(),
+                    category: "data".to_string(),
+                    message: format!(
+                        "{} contains {} blank line(s) - run 'bn system compact' to fix",
+                        filename, blank_count
+                    ),
+                    entity_id: None,
+                });
             }
         }
     }

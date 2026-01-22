@@ -6,10 +6,10 @@
 //!
 //! All CLI operations are exposed as MCP tools for AI agent integration.
 
-use crate::commands::{self, Output};
 use crate::Error;
+use crate::commands::{self, Output};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
@@ -189,7 +189,7 @@ impl McpServer {
                     request.id.clone(),
                     -32602,
                     "Missing params".to_string(),
-                )
+                );
             }
         };
 
@@ -200,7 +200,7 @@ impl McpServer {
                     request.id.clone(),
                     -32602,
                     "Missing tool name".to_string(),
-                )
+                );
             }
         };
 
@@ -245,7 +245,7 @@ impl McpServer {
                     request.id.clone(),
                     -32602,
                     "Missing params".to_string(),
-                )
+                );
             }
         };
 
@@ -256,7 +256,7 @@ impl McpServer {
                     request.id.clone(),
                     -32602,
                     "Missing uri".to_string(),
-                )
+                );
             }
         };
 
@@ -288,7 +288,7 @@ impl McpServer {
                     request.id.clone(),
                     -32602,
                     "Missing params".to_string(),
-                )
+                );
             }
         };
 
@@ -299,7 +299,7 @@ impl McpServer {
                     request.id.clone(),
                     -32602,
                     "Missing prompt name".to_string(),
-                )
+                );
             }
         };
 

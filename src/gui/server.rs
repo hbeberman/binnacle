@@ -1,16 +1,16 @@
 //! Web server for serving the GUI and API endpoints
 
 use axum::{
+    Json, Router,
     extract::State,
     http::StatusCode,
     response::{Html, IntoResponse},
     routing::get,
-    Json, Router,
 };
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 
 use crate::storage::Storage;
 

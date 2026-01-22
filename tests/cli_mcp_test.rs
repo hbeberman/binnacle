@@ -235,10 +235,10 @@ fn test_mcp_manifest_prompt_has_arguments() {
         assert!(prompt["name"].is_string());
         assert!(prompt["description"].is_string());
         // arguments is optional but if present should be an array
-        if let Some(args) = prompt.get("arguments") {
-            if !args.is_null() {
-                assert!(args.is_array());
-            }
+        if let Some(args) = prompt.get("arguments")
+            && !args.is_null()
+        {
+            assert!(args.is_array());
         }
     }
 }

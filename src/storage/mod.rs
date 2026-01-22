@@ -28,7 +28,7 @@ use crate::models::{
 };
 use crate::{Error, Result};
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
@@ -390,10 +390,10 @@ impl Storage {
                 if line.trim().is_empty() {
                     continue;
                 }
-                if let Ok(test) = serde_json::from_str::<TestNode>(&line) {
-                    if test.entity_type == "test" {
-                        self.cache_test(&test)?;
-                    }
+                if let Ok(test) = serde_json::from_str::<TestNode>(&line)
+                    && test.entity_type == "test"
+                {
+                    self.cache_test(&test)?;
                 }
             }
         }
@@ -409,10 +409,10 @@ impl Storage {
                 if line.trim().is_empty() {
                     continue;
                 }
-                if let Ok(bug) = serde_json::from_str::<Bug>(&line) {
-                    if bug.entity_type == "bug" {
-                        self.cache_bug(&bug)?;
-                    }
+                if let Ok(bug) = serde_json::from_str::<Bug>(&line)
+                    && bug.entity_type == "bug"
+                {
+                    self.cache_bug(&bug)?;
                 }
             }
         }
@@ -428,10 +428,10 @@ impl Storage {
                 if line.trim().is_empty() {
                     continue;
                 }
-                if let Ok(milestone) = serde_json::from_str::<Milestone>(&line) {
-                    if milestone.entity_type == "milestone" {
-                        self.cache_milestone(&milestone)?;
-                    }
+                if let Ok(milestone) = serde_json::from_str::<Milestone>(&line)
+                    && milestone.entity_type == "milestone"
+                {
+                    self.cache_milestone(&milestone)?;
                 }
             }
         }
@@ -447,10 +447,10 @@ impl Storage {
                 if line.trim().is_empty() {
                     continue;
                 }
-                if let Ok(edge) = serde_json::from_str::<Edge>(&line) {
-                    if edge.entity_type == "edge" {
-                        self.cache_edge(&edge)?;
-                    }
+                if let Ok(edge) = serde_json::from_str::<Edge>(&line)
+                    && edge.entity_type == "edge"
+                {
+                    self.cache_edge(&edge)?;
                 }
             }
         }
@@ -616,10 +616,10 @@ impl Storage {
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(task) = serde_json::from_str::<Task>(&line) {
-                if task.id == id {
-                    latest = Some(task);
-                }
+            if let Ok(task) = serde_json::from_str::<Task>(&line)
+                && task.id == id
+            {
+                latest = Some(task);
             }
         }
 
@@ -746,10 +746,10 @@ impl Storage {
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(bug) = serde_json::from_str::<Bug>(&line) {
-                if bug.id == id {
-                    latest = Some(bug);
-                }
+            if let Ok(bug) = serde_json::from_str::<Bug>(&line)
+                && bug.id == id
+            {
+                latest = Some(bug);
             }
         }
 
@@ -887,10 +887,10 @@ impl Storage {
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(idea) = serde_json::from_str::<Idea>(&line) {
-                if idea.id == id {
-                    latest = Some(idea);
-                }
+            if let Ok(idea) = serde_json::from_str::<Idea>(&line)
+                && idea.id == id
+            {
+                latest = Some(idea);
             }
         }
 
@@ -1032,10 +1032,10 @@ impl Storage {
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(milestone) = serde_json::from_str::<Milestone>(&line) {
-                if milestone.id == id {
-                    latest = Some(milestone);
-                }
+            if let Ok(milestone) = serde_json::from_str::<Milestone>(&line)
+                && milestone.id == id
+            {
+                latest = Some(milestone);
             }
         }
 
@@ -1472,10 +1472,10 @@ impl Storage {
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(edge) = serde_json::from_str::<Edge>(&line) {
-                if edge.id == id {
-                    latest = Some(edge);
-                }
+            if let Ok(edge) = serde_json::from_str::<Edge>(&line)
+                && edge.id == id
+            {
+                latest = Some(edge);
             }
         }
 
@@ -1756,72 +1756,72 @@ impl Storage {
             }
 
             // Try to parse as Task
-            if let Ok(task) = serde_json::from_str::<Task>(&line) {
-                if task.entity_type == "task" {
-                    // Filter by task_id if provided
-                    if let Some(filter_id) = task_id {
-                        if task.id != filter_id {
-                            continue;
-                        }
-                    }
+            if let Ok(task) = serde_json::from_str::<Task>(&line)
+                && task.entity_type == "task"
+            {
+                // Filter by task_id if provided
+                if let Some(filter_id) = task_id
+                    && task.id != filter_id
+                {
+                    continue;
+                }
 
-                    let action = if seen_tasks.contains_key(&task.id) {
-                        // Determine what kind of update
-                        if task.status == TaskStatus::Done && task.closed_at.is_some() {
-                            "closed"
-                        } else if task.status == TaskStatus::Reopened {
-                            "reopened"
-                        } else {
-                            "updated"
-                        }
+                let action = if seen_tasks.contains_key(&task.id) {
+                    // Determine what kind of update
+                    if task.status == TaskStatus::Done && task.closed_at.is_some() {
+                        "closed"
+                    } else if task.status == TaskStatus::Reopened {
+                        "reopened"
+                    } else {
+                        "updated"
+                    }
+                } else {
+                    "created"
+                };
+
+                let details = match action {
+                    "closed" => task.closed_reason.clone(),
+                    "updated" => Some(format!("status: {:?}", task.status)),
+                    _ => None,
+                };
+
+                entries.push(crate::commands::LogEntry {
+                    timestamp: task.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    entity_type: "task".to_string(),
+                    entity_id: task.id.clone(),
+                    action: action.to_string(),
+                    details,
+                });
+
+                seen_tasks.insert(task.id.clone(), task.updated_at);
+            }
+
+            // Try to parse as TestNode
+            if let Ok(test) = serde_json::from_str::<TestNode>(&line)
+                && test.entity_type == "test"
+            {
+                // Only include if not filtered or if it's linked to the task
+                let include = match task_id {
+                    Some(filter_id) => test.linked_tasks.contains(&filter_id.to_string()),
+                    None => true,
+                };
+
+                if include {
+                    let action = if seen_tests.contains_key(&test.id) {
+                        "updated"
                     } else {
                         "created"
                     };
 
-                    let details = match action {
-                        "closed" => task.closed_reason.clone(),
-                        "updated" => Some(format!("status: {:?}", task.status)),
-                        _ => None,
-                    };
-
                     entries.push(crate::commands::LogEntry {
-                        timestamp: task.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-                        entity_type: "task".to_string(),
-                        entity_id: task.id.clone(),
+                        timestamp: test.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        entity_type: "test".to_string(),
+                        entity_id: test.id.clone(),
                         action: action.to_string(),
-                        details,
+                        details: None,
                     });
 
-                    seen_tasks.insert(task.id.clone(), task.updated_at);
-                }
-            }
-
-            // Try to parse as TestNode
-            if let Ok(test) = serde_json::from_str::<TestNode>(&line) {
-                if test.entity_type == "test" {
-                    // Only include if not filtered or if it's linked to the task
-                    let include = match task_id {
-                        Some(filter_id) => test.linked_tasks.contains(&filter_id.to_string()),
-                        None => true,
-                    };
-
-                    if include {
-                        let action = if seen_tests.contains_key(&test.id) {
-                            "updated"
-                        } else {
-                            "created"
-                        };
-
-                        entries.push(crate::commands::LogEntry {
-                            timestamp: test.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-                            entity_type: "test".to_string(),
-                            entity_id: test.id.clone(),
-                            action: action.to_string(),
-                            details: None,
-                        });
-
-                        seen_tests.insert(test.id.clone(), test.created_at);
-                    }
+                    seen_tests.insert(test.id.clone(), test.created_at);
                 }
             }
         }
@@ -1901,17 +1901,17 @@ impl Storage {
                 }
                 original_entries += 1;
 
-                if let Ok(task) = serde_json::from_str::<Task>(&line) {
-                    if task.entity_type == "task" {
-                        latest_tasks.insert(task.id.clone(), task);
-                        continue;
-                    }
+                if let Ok(task) = serde_json::from_str::<Task>(&line)
+                    && task.entity_type == "task"
+                {
+                    latest_tasks.insert(task.id.clone(), task);
+                    continue;
                 }
 
-                if let Ok(test) = serde_json::from_str::<TestNode>(&line) {
-                    if test.entity_type == "test" {
-                        latest_tests.insert(test.id.clone(), test);
-                    }
+                if let Ok(test) = serde_json::from_str::<TestNode>(&line)
+                    && test.entity_type == "test"
+                {
+                    latest_tests.insert(test.id.clone(), test);
                 }
             }
 
@@ -1971,10 +1971,10 @@ impl Storage {
                 }
                 original_entries += 1;
 
-                if let Ok(bug) = serde_json::from_str::<Bug>(&line) {
-                    if bug.entity_type == "bug" {
-                        latest_bugs.insert(bug.id.clone(), bug);
-                    }
+                if let Ok(bug) = serde_json::from_str::<Bug>(&line)
+                    && bug.entity_type == "bug"
+                {
+                    latest_bugs.insert(bug.id.clone(), bug);
                 }
             }
 
@@ -2083,10 +2083,11 @@ impl Storage {
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(test) = serde_json::from_str::<TestNode>(&line) {
-                if test.entity_type == "test" && test.id == id {
-                    latest = Some(test);
-                }
+            if let Ok(test) = serde_json::from_str::<TestNode>(&line)
+                && test.entity_type == "test"
+                && test.id == id
+            {
+                latest = Some(test);
             }
         }
 
@@ -2281,10 +2282,10 @@ impl Storage {
         let mut failed = Vec::new();
 
         for test in tests {
-            if let Ok(Some(result)) = self.get_last_test_result(&test.id) {
-                if !result.passed {
-                    failed.push(test);
-                }
+            if let Ok(Some(result)) = self.get_last_test_result(&test.id)
+                && !result.passed
+            {
+                failed.push(test);
             }
         }
 
@@ -2815,10 +2816,12 @@ mod tests {
         // A cannot depend on itself
         let result = storage.add_dependency("bn-aaaa", "bn-aaaa");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("cannot depend on itself"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("cannot depend on itself")
+        );
     }
 
     #[test]

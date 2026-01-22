@@ -240,10 +240,12 @@ fn test_store_export_to_file() {
 
     let json = parse_json(&output);
     assert_eq!(json["exported"], true);
-    assert!(json["output_path"]
-        .as_str()
-        .unwrap()
-        .ends_with("backup.tar.gz"));
+    assert!(
+        json["output_path"]
+            .as_str()
+            .unwrap()
+            .ends_with("backup.tar.gz")
+    );
     assert!(json["size_bytes"].as_u64().unwrap() > 0);
     assert_eq!(json["task_count"], 1);
 

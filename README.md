@@ -2,6 +2,9 @@
 
 A CLI tool for AI agents and humans to track project state. Think of it as a lightweight, JSON-first task tracker that lives outside your repo.
 
+> [!WARNING]
+> Binnacle is very early in development, proceed with caution!
+
 ## Quick Start
 
 ```bash
