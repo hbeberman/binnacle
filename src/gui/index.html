@@ -317,6 +317,62 @@
             margin-top: 0.5rem;
         }
 
+        /* Edge tooltip styles */
+        .edge-tooltip {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.9);
+            color: var(--text-primary);
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 280px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            display: none;
+            font-size: 0.9rem;
+        }
+
+        .edge-tooltip.visible {
+            display: block;
+        }
+
+        .edge-tooltip-type {
+            font-weight: 600;
+            margin-bottom: 0.4rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .edge-tooltip-type .edge-color-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .edge-tooltip-ids {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.4rem;
+        }
+
+        .edge-tooltip-reason {
+            font-style: italic;
+            color: var(--text-secondary);
+            margin-top: 0.4rem;
+            padding-top: 0.4rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .edge-tooltip-date {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.3rem;
+        }
+
         #graph-canvas {
             cursor: default;
         }
@@ -495,6 +551,12 @@
                     <div class="tooltip-id" id="tooltip-id"></div>
                     <div class="tooltip-meta" id="tooltip-meta"></div>
                 </div>
+                <div class="edge-tooltip" id="edge-tooltip">
+                    <div class="edge-tooltip-type" id="edge-tooltip-type"></div>
+                    <div class="edge-tooltip-ids" id="edge-tooltip-ids"></div>
+                    <div class="edge-tooltip-reason" id="edge-tooltip-reason"></div>
+                    <div class="edge-tooltip-date" id="edge-tooltip-date"></div>
+                </div>
                 <div class="zoom-controls">
                     <button class="zoom-btn" id="zoom-in" title="Zoom In">+</button>
                     <div class="zoom-level" id="zoom-level">100%</div>
@@ -561,6 +623,7 @@
                 nodes: [],
                 edges: [],
                 hoveredNode: null,
+                hoveredEdge: null,
                 mouseX: 0,
                 mouseY: 0,
                 physics: {
@@ -771,6 +834,23 @@
                         state.graph.hoveredNode = hoveredNode;
                         updateTooltip(hoveredNode, e.clientX, e.clientY);
                         finalCanvas.classList.toggle('hovering', !!hoveredNode);
+                        // Hide edge tooltip when showing node tooltip
+                        if (hoveredNode) {
+                            state.graph.hoveredEdge = null;
+                            updateEdgeTooltip(null);
+                        }
+                    }
+
+                    // Check for edge hover only if not hovering over a node
+                    if (!hoveredNode) {
+                        const hoveredEdge = findHoveredEdge(worldPos.x, worldPos.y);
+                        if (hoveredEdge !== state.graph.hoveredEdge) {
+                            state.graph.hoveredEdge = hoveredEdge;
+                            updateEdgeTooltip(hoveredEdge, e.clientX, e.clientY);
+                        } else if (hoveredEdge) {
+                            // Update position while still hovering same edge
+                            updateEdgeTooltip(hoveredEdge, e.clientX, e.clientY);
+                        }
                     }
                 }
             });
@@ -792,7 +872,9 @@
                 }
 
                 state.graph.hoveredNode = null;
+                state.graph.hoveredEdge = null;
                 updateTooltip(null);
+                updateEdgeTooltip(null);
                 finalCanvas.classList.remove('hovering', 'dragging');
             });
 
@@ -1015,6 +1097,137 @@
                 <span class="badge badge-status-${task.status}">${task.status}</span>
                 ${task.tags.map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
             `;
+
+            // Position tooltip
+            const offset = 15;
+            tooltip.style.left = `${mouseX + offset}px`;
+            tooltip.style.top = `${mouseY + offset}px`;
+
+            // Adjust if tooltip goes off screen
+            const tooltipRect = tooltip.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            if (tooltipRect.right > viewportWidth) {
+                tooltip.style.left = `${mouseX - tooltipRect.width - offset}px`;
+            }
+            if (tooltipRect.bottom > viewportHeight) {
+                tooltip.style.top = `${mouseY - tooltipRect.height - offset}px`;
+            }
+
+            tooltip.classList.add('visible');
+        }
+
+        // Edge tooltip functions
+        function getEdgeTypeName(edgeType) {
+            const names = {
+                'depends_on': 'Depends On',
+                'blocks': 'Blocks',
+                'related_to': 'Related To',
+                'caused_by': 'Caused By',
+                'duplicates': 'Duplicates',
+                'supersedes': 'Supersedes',
+                'fixes': 'Fixes',
+                'tests': 'Tests',
+                'parent_of': 'Parent Of',
+                'child_of': 'Child Of'
+            };
+            return names[edgeType] || edgeType;
+        }
+
+        function distanceToEdge(px, py, edge) {
+            // Get node positions
+            const fromNode = state.graph.nodes.find(n => n.id === edge.from);
+            const toNode = state.graph.nodes.find(n => n.id === edge.to);
+            if (!fromNode || !toNode) return Infinity;
+
+            // Calculate edge endpoints (at node boundaries, not centers)
+            const dx = toNode.x - fromNode.x;
+            const dy = toNode.y - fromNode.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < fromNode.radius + toNode.radius) return Infinity;
+
+            const angle = Math.atan2(dy, dx);
+            const x1 = fromNode.x + Math.cos(angle) * fromNode.radius;
+            const y1 = fromNode.y + Math.sin(angle) * fromNode.radius;
+            const x2 = toNode.x - Math.cos(angle) * toNode.radius;
+            const y2 = toNode.y - Math.sin(angle) * toNode.radius;
+
+            // Calculate distance from point to line segment
+            const lineDx = x2 - x1;
+            const lineDy = y2 - y1;
+            const lineLen = Math.sqrt(lineDx * lineDx + lineDy * lineDy);
+            if (lineLen === 0) return Infinity;
+
+            // Project point onto line, clamped to segment
+            const t = Math.max(0, Math.min(1, ((px - x1) * lineDx + (py - y1) * lineDy) / (lineLen * lineLen)));
+            const projX = x1 + t * lineDx;
+            const projY = y1 + t * lineDy;
+
+            return Math.sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY));
+        }
+
+        function findHoveredEdge(worldX, worldY, threshold = 8) {
+            // Adjust threshold for zoom level
+            const adjustedThreshold = threshold / state.graph.viewport.zoom;
+            
+            let closestEdge = null;
+            let closestDistance = adjustedThreshold;
+
+            for (const edge of state.graph.edges) {
+                const distance = distanceToEdge(worldX, worldY, edge);
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closestEdge = edge;
+                }
+            }
+
+            return closestEdge;
+        }
+
+        function updateEdgeTooltip(edge, mouseX, mouseY) {
+            const tooltip = document.getElementById('edge-tooltip');
+            const typeEl = document.getElementById('edge-tooltip-type');
+            const idsEl = document.getElementById('edge-tooltip-ids');
+            const reasonEl = document.getElementById('edge-tooltip-reason');
+            const dateEl = document.getElementById('edge-tooltip-date');
+
+            if (!edge) {
+                tooltip.classList.remove('visible');
+                return;
+            }
+
+            // Get the full edge data from state.edges (API data with created_at)
+            const fullEdge = state.edges.find(e => 
+                e.source === edge.from && e.target === edge.to && e.edge_type === edge.edge_type
+            );
+
+            // Get edge style for color
+            const style = getEdgeStyle(edge.edge_type);
+            
+            // Update tooltip content
+            typeEl.innerHTML = `
+                <span class="edge-color-dot" style="background-color: ${style.color}"></span>
+                ${getEdgeTypeName(edge.edge_type)}${edge.bidirectional ? ' (bidirectional)' : ''}
+            `;
+            idsEl.textContent = `${edge.from} → ${edge.to}`;
+
+            // Show/hide reason
+            if (edge.reason) {
+                reasonEl.textContent = `"${edge.reason}"`;
+                reasonEl.style.display = 'block';
+            } else {
+                reasonEl.style.display = 'none';
+            }
+
+            // Show created date if available
+            if (fullEdge && fullEdge.created_at) {
+                const date = new Date(fullEdge.created_at);
+                dateEl.textContent = `Created: ${date.toLocaleDateString()}`;
+                dateEl.style.display = 'block';
+            } else {
+                dateEl.style.display = 'none';
+            }
 
             // Position tooltip
             const offset = 15;
