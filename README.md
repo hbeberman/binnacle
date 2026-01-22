@@ -153,6 +153,10 @@ cargo build --release
 
 The binary is `bn` (short for binnacle). The `just install` command builds with the GUI feature enabled and installs to `~/.local/bin`.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style guidelines, and how to submit pull requests.
+
 ## License
 
 MIT

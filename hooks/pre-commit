@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Binnacle pre-commit hook
+# Validates code formatting and linting before allowing commit
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Run format check
+echo "  → Checking code formatting..."
+if ! cargo fmt --check --quiet 2>&1; then
+    echo ""
+    echo "❌ Code formatting check failed!"
+    echo "   Run 'cargo fmt' to fix formatting issues."
+    exit 1
+fi
+
+# Run clippy
+echo "  → Running clippy..."
+if ! cargo clippy --all-targets --all-features --quiet -- -D warnings 2>&1; then
+    echo ""
+    echo "❌ Clippy check failed!"
+    echo "   Fix the issues reported above before committing."
+    exit 1
+fi
+
+echo "✅ All pre-commit checks passed!"
+exit 0

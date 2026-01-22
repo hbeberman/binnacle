@@ -12,6 +12,19 @@ This project uses **bn** (binnacle) for long-horizon task/test status tracking. 
 
 The task graph drives development priorities. Always update task status to keep it accurate.
 
+## CI Validation Requirements (CRITICAL)
+
+Before committing ANY code changes:
+
+1. **Format check**: Run `cargo fmt --check` - code MUST be properly formatted
+2. **Lint check**: Run `cargo clippy --all-targets --all-features -- -D warnings` - NO warnings allowed
+3. **Quick validation**: Run `just check` to run both format and clippy checks
+4. **Tests**: Run `cargo test --all-features` if you modified code
+
+**Pre-commit hook**: Run `git config core.hooksPath hooks` to enable the pre-commit hook that automatically validates formatting and linting before allowing commits.
+
+**NEVER commit code that fails these checks.** CI will reject it and waste time.
+
 ## Before you mark task done (IMPORTANT)
 
 1. Run `bn ready` to check if any related tasks should also be closed
