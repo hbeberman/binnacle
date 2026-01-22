@@ -4835,6 +4835,24 @@ pub fn config_get(repo_path: &Path, key: &str) -> Result<ConfigValue> {
     })
 }
 
+/// Get a boolean configuration value with default.
+///
+/// Returns the default value if the config is not set or cannot be parsed.
+pub fn config_get_bool(repo_path: &Path, key: &str, default: bool) -> bool {
+    let storage = match Storage::open(repo_path) {
+        Ok(s) => s,
+        Err(_) => return default,
+    };
+
+    match storage.get_config(key) {
+        Ok(Some(value_str)) => {
+            let parsed = value_str.to_lowercase();
+            parsed == "true" || parsed == "1" || parsed == "yes"
+        }
+        _ => default,
+    }
+}
+
 /// Result of config set command.
 #[derive(Serialize)]
 pub struct ConfigSet {
@@ -4856,7 +4874,7 @@ impl Output for ConfigSet {
 pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet> {
     // Validate configuration values
     match key {
-        "action_log_enabled" | "action_log_sanitize" => {
+        "action_log_enabled" | "action_log_sanitize" | "require_commit_for_close" => {
             // Validate boolean values
             let value_lower = value.to_lowercase();
             if value_lower != "true"
@@ -9421,5 +9439,63 @@ mod tests {
         assert!(json.contains("is a bug, not a task"));
         assert!(json.contains("\"actual_type\":\"bug\""));
         assert!(json.contains("\"id\":"));
+    }
+
+    #[test]
+    fn test_config_get_bool_default() {
+        let temp = setup();
+
+        // Non-existent key should return default
+        assert!(!config_get_bool(temp.path(), "require_commit_for_close", false));
+        assert!(config_get_bool(temp.path(), "require_commit_for_close", true));
+    }
+
+    #[test]
+    fn test_config_get_bool_true_values() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Test various "true" values
+        for val in &["true", "True", "TRUE", "1", "yes", "YES"] {
+            storage.set_config("test_bool", val).unwrap();
+            assert!(
+                config_get_bool(temp.path(), "test_bool", false),
+                "Expected true for value: {}",
+                val
+            );
+        }
+    }
+
+    #[test]
+    fn test_config_get_bool_false_values() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Test various "false" values
+        for val in &["false", "False", "FALSE", "0", "no", "NO"] {
+            storage.set_config("test_bool", val).unwrap();
+            assert!(
+                !config_get_bool(temp.path(), "test_bool", true),
+                "Expected false for value: {}",
+                val
+            );
+        }
+    }
+
+    #[test]
+    fn test_require_commit_for_close_config_validation() {
+        let temp = setup();
+
+        // Valid boolean values should work
+        assert!(config_set(temp.path(), "require_commit_for_close", "true").is_ok());
+        assert!(config_set(temp.path(), "require_commit_for_close", "false").is_ok());
+        assert!(config_set(temp.path(), "require_commit_for_close", "1").is_ok());
+        assert!(config_set(temp.path(), "require_commit_for_close", "0").is_ok());
+        assert!(config_set(temp.path(), "require_commit_for_close", "yes").is_ok());
+        assert!(config_set(temp.path(), "require_commit_for_close", "no").is_ok());
+
+        // Invalid values should fail
+        assert!(config_set(temp.path(), "require_commit_for_close", "invalid").is_err());
+        assert!(config_set(temp.path(), "require_commit_for_close", "maybe").is_err());
     }
 }
