@@ -519,6 +519,124 @@ impl McpServer {
                 let result = commands::config_list(repo)?;
                 Ok(result.to_json())
             }
+            // Milestone tools
+            "bn_milestone_create" => {
+                let title = get_string_arg(args, "title")?;
+                let description = get_optional_string(args, "description");
+                let priority = args.get("priority").and_then(|v| v.as_u64()).map(|v| v as u8);
+                let tags = args
+                    .get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let assignee = get_optional_string(args, "assignee");
+                let due_date = get_optional_string(args, "due_date");
+                let result = commands::milestone_create(
+                    repo,
+                    title,
+                    description,
+                    priority,
+                    tags,
+                    assignee,
+                    due_date,
+                )?;
+                Ok(result.to_json())
+            }
+            "bn_milestone_list" => {
+                let status = get_optional_string(args, "status");
+                let priority = args.get("priority").and_then(|v| v.as_u64()).map(|v| v as u8);
+                let tag = get_optional_string(args, "tag");
+                let result =
+                    commands::milestone_list(repo, status.as_deref(), priority, tag.as_deref())?;
+                Ok(result.to_json())
+            }
+            "bn_milestone_show" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::milestone_show(repo, &id)?;
+                Ok(result.to_json())
+            }
+            "bn_milestone_update" => {
+                let id = get_string_arg(args, "id")?;
+                let title = get_optional_string(args, "title");
+                let description = get_optional_string(args, "description");
+                let priority = args.get("priority").and_then(|v| v.as_u64()).map(|v| v as u8);
+                let status = get_optional_string(args, "status");
+                let add_tags = args
+                    .get("add_tags")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let remove_tags = args
+                    .get("remove_tags")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let assignee = get_optional_string(args, "assignee");
+                let due_date = get_optional_string(args, "due_date");
+                let result = commands::milestone_update(
+                    repo,
+                    &id,
+                    title,
+                    description,
+                    priority,
+                    status.as_deref(),
+                    add_tags,
+                    remove_tags,
+                    assignee,
+                    due_date,
+                )?;
+                Ok(result.to_json())
+            }
+            "bn_milestone_close" => {
+                let id = get_string_arg(args, "id")?;
+                let reason = get_optional_string(args, "reason");
+                let force = args
+                    .get("force")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let result = commands::milestone_close(repo, &id, reason, force)?;
+                Ok(result.to_json())
+            }
+            "bn_milestone_reopen" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::milestone_reopen(repo, &id)?;
+                Ok(result.to_json())
+            }
+            "bn_milestone_delete" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::milestone_delete(repo, &id)?;
+                Ok(result.to_json())
+            }
+            "bn_milestone_progress" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::milestone_progress(repo, &id)?;
+                Ok(result.to_json())
+            }
+            // Search tools
+            "bn_search_link" => {
+                let edge_type = get_optional_string(args, "edge_type");
+                let source = get_optional_string(args, "source");
+                let target = get_optional_string(args, "target");
+                let result = commands::search_link(
+                    repo,
+                    edge_type.as_deref(),
+                    source.as_deref(),
+                    target.as_deref(),
+                )?;
+                Ok(result.to_json())
+            }
             _ => Err(Error::Other(format!("Unknown tool: {}", name))),
         }
     }
@@ -1209,6 +1327,222 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {},
+                "required": []
+            }),
+        },
+        // Milestone tools
+        ToolDef {
+            name: "bn_milestone_create".to_string(),
+            description: "Create a new milestone to group related tasks".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Milestone title"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Detailed description"
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "description": "Priority level (0=critical, 1=high, 2=medium, 3=low, 4=nice-to-have)",
+                        "minimum": 0,
+                        "maximum": 4
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Tags to categorize the milestone"
+                    },
+                    "assignee": {
+                        "type": "string",
+                        "description": "User or agent assigned to this milestone"
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "description": "Due date in ISO 8601 format (e.g., 2026-01-31T00:00:00Z)"
+                    }
+                },
+                "required": ["title"]
+            }),
+        },
+        ToolDef {
+            name: "bn_milestone_list".to_string(),
+            description: "List milestones with optional filtering".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "enum": ["pending", "in_progress", "done", "blocked", "cancelled", "reopened", "partial"]
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "description": "Filter by priority (0-4)",
+                        "minimum": 0,
+                        "maximum": 4
+                    },
+                    "tag": {
+                        "type": "string",
+                        "description": "Filter by tag"
+                    }
+                },
+                "required": []
+            }),
+        },
+        ToolDef {
+            name: "bn_milestone_show".to_string(),
+            description: "Show milestone details including progress and linked tasks".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Milestone ID (e.g., bn-1234)"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_milestone_update".to_string(),
+            description: "Update milestone properties".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Milestone ID"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New title"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "New description"
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "description": "New priority (0-4)",
+                        "minimum": 0,
+                        "maximum": 4
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "New status",
+                        "enum": ["pending", "in_progress", "blocked", "partial"]
+                    },
+                    "add_tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Tags to add"
+                    },
+                    "remove_tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Tags to remove"
+                    },
+                    "assignee": {
+                        "type": "string",
+                        "description": "New assignee"
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "description": "New due date in ISO 8601 format"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_milestone_close".to_string(),
+            description: "Close a milestone (marks as done)".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Milestone ID"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Reason for closing"
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "Force close even if tasks are incomplete"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_milestone_reopen".to_string(),
+            description: "Reopen a closed milestone".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Milestone ID"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_milestone_delete".to_string(),
+            description: "Delete a milestone".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Milestone ID"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_milestone_progress".to_string(),
+            description: "Get progress for a milestone (completed/total tasks)".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Milestone ID"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        // Search tools
+        ToolDef {
+            name: "bn_search_link".to_string(),
+            description: "Search for links/edges by type, source, or target".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "edge_type": {
+                        "type": "string",
+                        "description": "Filter by edge type",
+                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"]
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Filter by source entity ID"
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Filter by target entity ID"
+                    }
+                },
                 "required": []
             }),
         },

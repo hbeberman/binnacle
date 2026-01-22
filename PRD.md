@@ -160,7 +160,7 @@ done → reopened → in_progress → done
 ## MCP Integration
 
 ### Tools
-All CLI operations exposed as MCP tools: `bn_task_create`, `bn_task_list`, `bn_ready`, `bn_test_run`, etc.
+All CLI operations exposed as MCP tools: `bn_task_create`, `bn_task_list`, `bn_ready`, `bn_test_run`, `bn_milestone_*`, `bn_link_*`, `bn_search_link`, etc.
 
 ### Resources
 - `binnacle://tasks` - All tasks (subscribable)
@@ -376,9 +376,11 @@ tests/
 
 ### Deliverables
 - [x] MCP server (`bn mcp serve`)
-- [x] All operations as MCP tools (30 tools with proper JSON schemas)
+- [x] All operations as MCP tools (38 tools with proper JSON schemas)
 - [x] Resources (`binnacle://tasks`, `binnacle://ready`, `binnacle://blocked`, `binnacle://status`)
 - [x] Prompts (`start_work`, `finish_work`, `triage_regression`, `plan_feature`, `status_report`)
+- [x] Milestone tools (`bn_milestone_*`)
+- [x] Search tools (`bn_search_link`)
 
 ### Unit Tests
 - [x] Tool handlers return correct schema

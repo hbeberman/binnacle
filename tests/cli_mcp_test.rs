@@ -93,6 +93,35 @@ fn test_mcp_manifest_contains_query_tools() {
 }
 
 #[test]
+fn test_mcp_manifest_contains_milestone_tools() {
+    let temp = setup();
+
+    bn().args(["mcp", "manifest"])
+        .current_dir(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bn_milestone_create"))
+        .stdout(predicate::str::contains("bn_milestone_list"))
+        .stdout(predicate::str::contains("bn_milestone_show"))
+        .stdout(predicate::str::contains("bn_milestone_update"))
+        .stdout(predicate::str::contains("bn_milestone_close"))
+        .stdout(predicate::str::contains("bn_milestone_reopen"))
+        .stdout(predicate::str::contains("bn_milestone_delete"))
+        .stdout(predicate::str::contains("bn_milestone_progress"));
+}
+
+#[test]
+fn test_mcp_manifest_contains_search_tools() {
+    let temp = setup();
+
+    bn().args(["mcp", "manifest"])
+        .current_dir(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bn_search_link"));
+}
+
+#[test]
 fn test_mcp_manifest_contains_maintenance_tools() {
     let temp = setup();
 
