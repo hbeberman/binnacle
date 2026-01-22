@@ -14,6 +14,8 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    # Skip for PRs from forks (security: defense in depth)
+    if: github.event_name == 'push' || (github.event.pull_request.head.repo != null && github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +39,8 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    # Skip for PRs from forks (security: defense in depth)
+    if: github.event_name == 'push' || (github.event.pull_request.head.repo != null && github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +66,8 @@ jobs:
   fmt:
     name: Format
     runs-on: ubuntu-latest
+    # Skip for PRs from forks (security: defense in depth)
+    if: github.event_name == 'push' || (github.event.pull_request.head.repo != null && github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - uses: actions/checkout@v4
 
