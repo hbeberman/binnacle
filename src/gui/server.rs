@@ -48,6 +48,7 @@ pub async fn start_server(repo_path: &Path, port: u16) -> Result<(), Box<dyn std
         .route("/api/tasks", get(get_tasks))
         .route("/api/ready", get(get_ready))
         .route("/api/tests", get(get_tests))
+        .route("/api/edges", get(get_edges))
         .route("/api/log", get(get_log))
         .route("/ws", get(crate::gui::websocket::ws_handler))
         .with_state(state);
@@ -97,6 +98,29 @@ async fn get_tests(State(state): State<AppState>) -> Result<Json<serde_json::Val
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "tests": tests })))
+}
+
+/// Get all edges
+async fn get_edges(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+    let edges = storage.list_edges(None, None, None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Transform edges to include bidirectional flag for GUI rendering
+    let edges_with_meta: Vec<serde_json::Value> = edges.iter().map(|e| {
+        serde_json::json!({
+            "id": e.id,
+            "source": e.source,
+            "target": e.target,
+            "edge_type": e.edge_type,
+            "weight": e.weight,
+            "reason": e.reason,
+            "bidirectional": e.is_bidirectional(),
+            "created_at": e.created_at
+        })
+    }).collect();
+
+    Ok(Json(serde_json::json!({ "edges": edges_with_meta })))
 }
 
 /// Get activity log
