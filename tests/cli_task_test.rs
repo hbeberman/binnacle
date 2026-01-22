@@ -1644,3 +1644,189 @@ fn test_show_milestone() {
         .stdout(predicate::str::contains("\"type\":\"milestone\""))
         .stdout(predicate::str::contains("\"milestone\":"));
 }
+
+// === Commit Required Closure Tests ===
+
+#[test]
+fn test_task_close_fails_without_commit_when_required() {
+    let temp = init_binnacle();
+
+    // Enable require_commit_for_close
+    bn_in(&temp)
+        .args(["config", "set", "require_commit_for_close", "true"])
+        .assert()
+        .success();
+
+    // Create a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task needing commit"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Closing should fail without linked commit
+    bn_in(&temp)
+        .args(["task", "close", &id])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no commits linked"))
+        .stderr(predicate::str::contains("bn commit link"));
+}
+
+#[test]
+fn test_task_close_force_bypasses_commit_requirement() {
+    let temp = init_binnacle();
+
+    // Enable require_commit_for_close
+    bn_in(&temp)
+        .args(["config", "set", "require_commit_for_close", "true"])
+        .assert()
+        .success();
+
+    // Create a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task using force"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Closing with --force should succeed
+    bn_in(&temp)
+        .args(["task", "close", &id, "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"done\""));
+}
+
+#[test]
+fn test_task_close_succeeds_with_linked_commit() {
+    let temp = init_binnacle();
+
+    // Enable require_commit_for_close
+    bn_in(&temp)
+        .args(["config", "set", "require_commit_for_close", "true"])
+        .assert()
+        .success();
+
+    // Create a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task with commit"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Link a commit
+    bn_in(&temp)
+        .args(["commit", "link", "abc1234def5678abc1234def5678abc1234def56", &id])
+        .assert()
+        .success();
+
+    // Closing should succeed with linked commit
+    bn_in(&temp)
+        .args(["task", "close", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"done\""));
+}
+
+#[test]
+fn test_task_close_works_without_commit_when_disabled() {
+    let temp = init_binnacle();
+
+    // Explicitly disable require_commit_for_close (default)
+    bn_in(&temp)
+        .args(["config", "set", "require_commit_for_close", "false"])
+        .assert()
+        .success();
+
+    // Create a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task without requirement"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Closing should succeed without linked commit
+    bn_in(&temp)
+        .args(["task", "close", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"done\""));
+}
+
+#[test]
+fn test_task_update_status_done_fails_without_commit_when_required() {
+    let temp = init_binnacle();
+
+    // Enable require_commit_for_close
+    bn_in(&temp)
+        .args(["config", "set", "require_commit_for_close", "true"])
+        .assert()
+        .success();
+
+    // Create a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task for update"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Updating to done should fail without linked commit
+    bn_in(&temp)
+        .args(["task", "update", &id, "--status", "done"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no commits linked"))
+        .stderr(predicate::str::contains("bn task update"))
+        .stderr(predicate::str::contains("--force"));
+}
+
+#[test]
+fn test_task_update_status_done_force_bypasses_requirement() {
+    let temp = init_binnacle();
+
+    // Enable require_commit_for_close
+    bn_in(&temp)
+        .args(["config", "set", "require_commit_for_close", "true"])
+        .assert()
+        .success();
+
+    // Create a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task for update force"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Updating to done with --force should succeed
+    bn_in(&temp)
+        .args(["task", "update", &id, "--status", "done", "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"updated_fields\""));
+}
+
+#[test]
+fn test_task_update_status_cancelled_ignores_commit_requirement() {
+    let temp = init_binnacle();
+
+    // Enable require_commit_for_close
+    bn_in(&temp)
+        .args(["config", "set", "require_commit_for_close", "true"])
+        .assert()
+        .success();
+
+    // Create a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task to cancel"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Updating to cancelled should succeed without linked commit
+    bn_in(&temp)
+        .args(["task", "update", &id, "--status", "cancelled"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"updated_fields\""));
+}
