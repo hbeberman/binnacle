@@ -351,6 +351,27 @@
             align-items: center;
         }
 
+        .graph-search {
+            height: 32px;
+            width: 220px;
+            padding: 0 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 0.85rem;
+        }
+
+        .graph-search::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .graph-search:focus {
+            outline: none;
+            border-color: var(--accent-light);
+            box-shadow: 0 0 0 2px rgba(106, 168, 240, 0.2);
+        }
+
         /* Auto-follow toggle */
         .auto-follow-toggle {
             display: flex;
@@ -1034,6 +1055,7 @@
                     <div class="edge-tooltip-date" id="edge-tooltip-date"></div>
                 </div>
                 <div class="zoom-controls">
+                    <input class="graph-search" id="graph-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" />
                     <div class="hide-completed-toggle">
                         <span class="hide-completed-label">Hide completed</span>
                         <button class="hide-completed-switch" id="hide-completed-switch" title="Hide completed nodes (except in active chains)"></button>
@@ -1264,7 +1286,12 @@
                 // Stat highlight filter state (null = no filter active)
                 highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
                 // Hide completed nodes filter
-                hideCompleted: false  // When true, hide completed nodes except those in active chains
+                hideCompleted: false,  // When true, hide completed nodes except those in active chains
+                // Search filter
+                searchQuery: '',
+                // Cached visibility for hit-testing (null until first frame)
+                visibleNodes: null,
+                visibleNodeIds: null
             }
         };
 
@@ -1760,8 +1787,9 @@
                 if (e.button === 0) {
                     const worldPos = screenToWorld(mouseX, mouseY, finalCanvas);
 
-                    // Find node under mouse using world coordinates
-                    const node = state.graph.nodes.find(n => {
+                    // Find node under mouse using world coordinates (visible nodes only)
+                    const nodesForHitTest = state.graph.visibleNodes ?? state.graph.nodes;
+                    const node = nodesForHitTest.find(n => {
                         const dx = worldPos.x - n.x;
                         const dy = worldPos.y - n.y;
                         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -1829,7 +1857,8 @@
 
                     // Update hover state (mouse may still be over a node)
                     const worldPos = screenToWorld(mouseX, mouseY, finalCanvas);
-                    const hoveredNode = state.graph.nodes.find(n => {
+                    const nodesForHitTest = state.graph.visibleNodes ?? state.graph.nodes;
+                    const hoveredNode = nodesForHitTest.find(n => {
                         const dx = worldPos.x - n.x;
                         const dy = worldPos.y - n.y;
                         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -1847,8 +1876,9 @@
                 const mouseY = e.clientY - rect.top;
                 const worldPos = screenToWorld(mouseX, mouseY, finalCanvas);
 
-                // Find node under mouse using world coordinates
-                const node = state.graph.nodes.find(n => {
+                // Find node under mouse using world coordinates (visible nodes only)
+                const nodesForHitTest = state.graph.visibleNodes ?? state.graph.nodes;
+                const node = nodesForHitTest.find(n => {
                     const dx = worldPos.x - n.x;
                     const dy = worldPos.y - n.y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -1937,6 +1967,59 @@
             } else {
                 switchEl.classList.remove('active');
             }
+        }
+
+        function normalizeSearchQuery(query) {
+            return (query || '').trim().toLowerCase();
+        }
+
+        function nodeMatchesSearch(node, normalizedQuery) {
+            if (!normalizedQuery) return true;
+            const haystack = `${node.id} ${(node.title || '')} ${(node.short_name || '')}`.toLowerCase();
+            return haystack.includes(normalizedQuery);
+        }
+
+        function setGraphSearchQuery(query) {
+            state.graph.searchQuery = query;
+
+            const visibleIds = state.graph.visibleNodeIds ?? new Set(getVisibleNodes(state.graph.nodes).map(n => n.id));
+
+            if (state.graph.hoveredNode && !visibleIds.has(state.graph.hoveredNode.id)) {
+                state.graph.hoveredNode = null;
+                updateTooltip(null);
+            }
+
+            if (state.graph.hoveredEdge) {
+                // Clear edge tooltip; edge hover recalculates based on visibility
+                state.graph.hoveredEdge = null;
+                updateEdgeTooltip(null);
+            }
+
+            if (state.graph.selectedNode && !visibleIds.has(state.graph.selectedNode.id)) {
+                state.graph.selectedNode = null;
+                updateInfoPanel(null);
+            }
+
+            if (state.graph.followingNodeId && !visibleIds.has(state.graph.followingNodeId)) {
+                state.graph.followingNodeId = null;
+            }
+        }
+
+        function initializeGraphSearch() {
+            const input = document.getElementById('graph-search');
+            if (!input) return;
+
+            input.addEventListener('input', () => {
+                setGraphSearchQuery(input.value);
+            });
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    input.value = '';
+                    setGraphSearchQuery('');
+                    e.preventDefault();
+                }
+            });
         }
 
         // Find and pan to the first in_progress task, zooming to 100%
@@ -2218,6 +2301,13 @@
             for (const edge of state.graph.edges) {
                 // Skip edges that are filtered out
                 if (!state.edgeFilters[edge.edge_type]) continue;
+
+                // Skip edges where either endpoint is hidden
+                if (state.graph.visibleNodeIds) {
+                    if (!state.graph.visibleNodeIds.has(edge.from) || !state.graph.visibleNodeIds.has(edge.to)) {
+                        continue;
+                    }
+                }
                 
                 const distance = distanceToEdge(worldX, worldY, edge);
                 if (distance < closestDistance) {
@@ -2480,27 +2570,36 @@
          * - EXCEPT those in active dependency chains
          */
         function getVisibleNodes(nodes) {
-            // If hideCompleted is not enabled, show all nodes
-            if (!state.graph.hideCompleted) {
-                return nodes;
+            const normalizedQuery = normalizeSearchQuery(state.graph.searchQuery);
+
+            // If hideCompleted is not enabled, start with all nodes
+            let visible = nodes;
+
+            if (state.graph.hideCompleted) {
+                // Build active node set and prepare edges for chain detection
+                const activeNodes = buildActiveNodeSet();
+                const edges = state.graph.edges;
+
+                // Filter nodes: keep if not completed, or if in active chain
+                visible = nodes.filter(node => {
+                    const isCompleted = node.status === 'done' || node.status === 'cancelled';
+
+                    // If not completed, always show it
+                    if (!isCompleted) {
+                        return true;
+                    }
+
+                    // If completed, only show if it's in an active chain
+                    return isInActiveChain(node.id, activeNodes, edges);
+                });
             }
 
-            // Build active node set and prepare edges for chain detection
-            const activeNodes = buildActiveNodeSet();
-            const edges = state.graph.edges;
+            // Apply search filter (render-only; hides non-matching nodes)
+            if (normalizedQuery) {
+                visible = visible.filter(node => nodeMatchesSearch(node, normalizedQuery));
+            }
 
-            // Filter nodes: keep if not completed, or if in active chain
-            return nodes.filter(node => {
-                const isCompleted = node.status === 'done' || node.status === 'cancelled';
-
-                // If not completed, always show it
-                if (!isCompleted) {
-                    return true;
-                }
-
-                // If completed, only show if it's in an active chain
-                return isInActiveChain(node.id, activeNodes, edges);
-            });
+            return visible;
         }
 
         function buildGraphData() {
@@ -2581,9 +2680,19 @@
             ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary');
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Filter nodes based on hideCompleted setting
+            // Filter nodes based on hideCompleted + search setting
             const visibleNodes = getVisibleNodes(nodes);
             const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+            state.graph.visibleNodes = visibleNodes;
+            state.graph.visibleNodeIds = visibleNodeIds;
+
+            if (visibleNodes.length === 0) {
+                renderEmptyState(ctx, 'No matching nodes');
+                if (state.currentView === 'graph') {
+                    requestAnimationFrame(animateGraph);
+                }
+                return;
+            }
 
             // Apply forces (circular gravity system) - only to visible nodes
             applyCircularGravity(visibleNodes, physics);
@@ -3160,6 +3269,7 @@
         initializeStatFilters();
         updateAutoFollowDisplay();
         updateHideCompletedDisplay();
+        initializeGraphSearch();
         connectWebSocket();
     </script>
 </body>
