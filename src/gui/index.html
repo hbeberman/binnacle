@@ -394,6 +394,38 @@
             max-width: none;
         }
 
+        .stats-overlay {
+            position: absolute;
+            top: 1rem;
+            left: 220px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .stats-overlay .stat-group {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .stats-overlay .stat-separator {
+            color: var(--border-color);
+            font-weight: 300;
+        }
+
+        .stats-overlay .stat-detail {
+            font-size: 0.75rem;
+            opacity: 0.8;
+        }
+
         .zoom-btn {
             width: 40px;
             height: 40px;
@@ -688,6 +720,17 @@
                         <!-- Filter buttons will be populated dynamically -->
                     </div>
                 </div>
+                <div class="stats-overlay" id="stats-overlay">
+                    <span class="stat-group" id="stat-bugs">🐛 0 bugs</span>
+                    <span class="stat-separator">|</span>
+                    <span class="stat-group" id="stat-blocked">❌ 0 blocked</span>
+                    <span class="stat-separator">|</span>
+                    <span class="stat-group" id="stat-ready">✅ 0 ready</span>
+                    <span class="stat-separator">|</span>
+                    <span class="stat-group" id="stat-ideas">💭 0 ideas</span>
+                    <span class="stat-separator">|</span>
+                    <span class="stat-group" id="stat-milestones">🏁 0 milestones</span>
+                </div>
                 <div class="node-tooltip" id="node-tooltip">
                     <div class="tooltip-title" id="tooltip-title"></div>
                     <div class="tooltip-id" id="tooltip-id"></div>
@@ -920,7 +963,24 @@
                 fetch('/api/log').then(r => r.json()).then(data => state.log = data.log),
                 fetch('/api/edges').then(r => r.json()).then(data => state.edges = data.edges)
             ]);
+            updateStatsOverlay();
             renderCurrentView();
+        }
+
+        function updateStatsOverlay() {
+            // Count entities by type and status
+            const bugCount = state.tasks.filter(t => t.type === 'bug').length;
+            const blockedCount = state.tasks.filter(t => t.status === 'blocked').length;
+            const readyCount = state.ready ? state.ready.length : 0;
+            const ideaCount = state.tasks.filter(t => t.type === 'idea').length;
+            const milestoneCount = state.tasks.filter(t => t.type === 'milestone').length;
+
+            // Update DOM elements
+            document.getElementById('stat-bugs').textContent = `🐛 ${bugCount} bug${bugCount !== 1 ? 's' : ''}`;
+            document.getElementById('stat-blocked').textContent = `❌ ${blockedCount} blocked`;
+            document.getElementById('stat-ready').textContent = `✅ ${readyCount} ready`;
+            document.getElementById('stat-ideas').textContent = `💭 ${ideaCount} idea${ideaCount !== 1 ? 's' : ''}`;
+            document.getElementById('stat-milestones').textContent = `🏁 ${milestoneCount} milestone${milestoneCount !== 1 ? 's' : ''}`;
         }
 
         // View switching
