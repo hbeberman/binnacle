@@ -114,10 +114,7 @@ impl UnionFind {
         let elements: Vec<String> = self.parent.keys().cloned().collect();
         for elem in elements {
             if let Some(root) = self.find(&elem) {
-                component_map
-                    .entry(root)
-                    .or_insert_with(Vec::new)
-                    .push(elem);
+                component_map.entry(root).or_default().push(elem);
             }
         }
 

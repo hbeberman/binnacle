@@ -2,8 +2,9 @@
 
 use binnacle::action_log;
 use binnacle::cli::{
-    BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands,
-    LinkCommands, McpCommands, MilestoneCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
+    BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands, LinkCommands,
+    McpCommands, MilestoneCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands,
+    TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -79,8 +80,15 @@ fn run_command(
             } => {
                 // Convert empty or whitespace-only string to None
                 let short_name = short_name.filter(|s| !s.trim().is_empty());
-                let result =
-                    commands::task_create(repo_path, title, short_name, description, priority, tag, assignee)?;
+                let result = commands::task_create(
+                    repo_path,
+                    title,
+                    short_name,
+                    description,
+                    priority,
+                    tag,
+                    assignee,
+                )?;
                 output(&result, human);
             }
 
@@ -326,7 +334,8 @@ fn run_command(
                 output(&result, human);
             }
             LinkCommands::List { id, all, edge_type } => {
-                let result = commands::link_list(repo_path, id.as_deref(), all, edge_type.as_deref())?;
+                let result =
+                    commands::link_list(repo_path, id.as_deref(), all, edge_type.as_deref())?;
                 output(&result, human);
             }
         },
@@ -389,7 +398,11 @@ fn run_command(
             let result = commands::blocked(repo_path)?;
             output(&result, human);
         }
-        Some(Commands::Doctor { migrate_edges, clean_unused, dry_run }) => {
+        Some(Commands::Doctor {
+            migrate_edges,
+            clean_unused,
+            dry_run,
+        }) => {
             if migrate_edges {
                 let result = commands::doctor_migrate_edges(repo_path, clean_unused, dry_run)?;
                 output(&result, human);
@@ -461,7 +474,10 @@ fn run_command(
                     let result = commands::system_store_show(repo_path)?;
                     output(&result, human);
                 }
-                StoreCommands::Export { output: out_path, format } => {
+                StoreCommands::Export {
+                    output: out_path,
+                    format,
+                } => {
                     let result = commands::system_store_export(repo_path, &out_path, &format)?;
                     // Don't output anything when writing to stdout (would corrupt the binary data)
                     if out_path != "-" {
@@ -473,7 +489,8 @@ fn run_command(
                     r#type,
                     dry_run,
                 } => {
-                    let result = commands::system_store_import(&repo_path, &input, &r#type, dry_run)?;
+                    let result =
+                        commands::system_store_import(repo_path, &input, &r#type, dry_run)?;
                     output(&result, human);
                 }
             },
@@ -564,10 +581,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
     match command {
         Some(Commands::Orient) => ("orient".to_string(), serde_json::json!({})),
 
-        Some(Commands::Show { id }) => (
-            "show".to_string(),
-            serde_json::json!({ "id": id }),
-        ),
+        Some(Commands::Show { id }) => ("show".to_string(), serde_json::json!({ "id": id })),
 
         Some(Commands::Task { command }) => match command {
             TaskCommands::Create {
@@ -600,10 +614,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "tag": tag,
                 }),
             ),
-            TaskCommands::Show { id } => (
-                "task show".to_string(),
-                serde_json::json!({ "id": id }),
-            ),
+            TaskCommands::Show { id } => ("task show".to_string(), serde_json::json!({ "id": id })),
             TaskCommands::Update {
                 id,
                 title,
@@ -636,14 +647,12 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "force": force,
                 }),
             ),
-            TaskCommands::Reopen { id } => (
-                "task reopen".to_string(),
-                serde_json::json!({ "id": id }),
-            ),
-            TaskCommands::Delete { id } => (
-                "task delete".to_string(),
-                serde_json::json!({ "id": id }),
-            ),
+            TaskCommands::Reopen { id } => {
+                ("task reopen".to_string(), serde_json::json!({ "id": id }))
+            }
+            TaskCommands::Delete { id } => {
+                ("task delete".to_string(), serde_json::json!({ "id": id }))
+            }
         },
 
         Some(Commands::Bug { command }) => match command {
@@ -720,14 +729,12 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "force": force,
                 }),
             ),
-            BugCommands::Reopen { id } => (
-                "bug reopen".to_string(),
-                serde_json::json!({ "id": id }),
-            ),
-            BugCommands::Delete { id } => (
-                "bug delete".to_string(),
-                serde_json::json!({ "id": id }),
-            ),
+            BugCommands::Reopen { id } => {
+                ("bug reopen".to_string(), serde_json::json!({ "id": id }))
+            }
+            BugCommands::Delete { id } => {
+                ("bug delete".to_string(), serde_json::json!({ "id": id }))
+            }
         },
 
         Some(Commands::Milestone { command }) => match command {
@@ -863,14 +870,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "task": task,
                 }),
             ),
-            TestCommands::List { task } => (
-                "test list".to_string(),
-                serde_json::json!({ "task": task }),
-            ),
-            TestCommands::Show { id } => (
-                "test show".to_string(),
-                serde_json::json!({ "id": id }),
-            ),
+            TestCommands::List { task } => {
+                ("test list".to_string(), serde_json::json!({ "task": task }))
+            }
+            TestCommands::Show { id } => ("test show".to_string(), serde_json::json!({ "id": id })),
             TestCommands::Link { test_id, task_id } => (
                 "test link".to_string(),
                 serde_json::json!({
@@ -926,29 +929,31 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
 
         Some(Commands::Blocked) => ("blocked".to_string(), serde_json::json!({})),
 
-        Some(Commands::Doctor { migrate_edges, clean_unused, dry_run }) => (
+        Some(Commands::Doctor {
+            migrate_edges,
+            clean_unused,
+            dry_run,
+        }) => (
             "doctor".to_string(),
-            serde_json::json!({ 
+            serde_json::json!({
                 "migrate_edges": migrate_edges,
                 "clean_unused": clean_unused,
                 "dry_run": dry_run
             }),
         ),
 
-        Some(Commands::Log { task_id }) => (
-            "log".to_string(),
-            serde_json::json!({ "task_id": task_id }),
-        ),
+        Some(Commands::Log { task_id }) => {
+            ("log".to_string(), serde_json::json!({ "task_id": task_id }))
+        }
 
         Some(Commands::Compact) => ("compact".to_string(), serde_json::json!({})),
 
         Some(Commands::Sync) => ("sync".to_string(), serde_json::json!({})),
 
         Some(Commands::Config { command }) => match command {
-            ConfigCommands::Get { key } => (
-                "config get".to_string(),
-                serde_json::json!({ "key": key }),
-            ),
+            ConfigCommands::Get { key } => {
+                ("config get".to_string(), serde_json::json!({ "key": key }))
+            }
             ConfigCommands::Set { key, value } => (
                 "config set".to_string(),
                 serde_json::json!({
@@ -1010,10 +1015,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         },
 
         #[cfg(feature = "gui")]
-        Some(Commands::Gui { port }) => (
-            "gui".to_string(),
-            serde_json::json!({ "port": port }),
-        ),
+        Some(Commands::Gui { port }) => ("gui".to_string(), serde_json::json!({ "port": port })),
 
         None => ("status".to_string(), serde_json::json!({})),
     }

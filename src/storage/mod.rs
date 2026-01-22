@@ -22,7 +22,10 @@ pub use backend::{BackendType, StorageBackend};
 pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
-use crate::models::{Bug, CommitLink, Edge, EdgeType, HydratedEdge, EdgeDirection, Milestone, MilestoneProgress, Task, TaskStatus, TestNode, TestResult};
+use crate::models::{
+    Bug, CommitLink, Edge, EdgeDirection, EdgeType, HydratedEdge, Milestone, MilestoneProgress,
+    Task, TaskStatus, TestNode, TestResult,
+};
 use crate::{Error, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection};
@@ -87,7 +90,14 @@ impl Storage {
         fs::create_dir_all(&root)?;
 
         // Create empty JSONL files
-        let files = ["tasks.jsonl", "bugs.jsonl", "milestones.jsonl", "edges.jsonl", "commits.jsonl", "test-results.jsonl"];
+        let files = [
+            "tasks.jsonl",
+            "bugs.jsonl",
+            "milestones.jsonl",
+            "edges.jsonl",
+            "commits.jsonl",
+            "test-results.jsonl",
+        ];
         for file in files {
             let path = root.join(file);
             if !path.exists() {
@@ -916,7 +926,8 @@ impl Storage {
     pub fn delete_milestone(&mut self, id: &str) -> Result<()> {
         self.get_milestone(id)?;
 
-        self.conn.execute("DELETE FROM milestones WHERE id = ?", [id])?;
+        self.conn
+            .execute("DELETE FROM milestones WHERE id = ?", [id])?;
         self.conn
             .execute("DELETE FROM milestone_tags WHERE milestone_id = ?", [id])?;
 
@@ -928,10 +939,7 @@ impl Storage {
     pub fn get_milestone_progress(&self, milestone_id: &str) -> Result<MilestoneProgress> {
         // Get all children via parent_of edges from this milestone
         let edges = self.list_edges(Some(EdgeType::ParentOf), Some(milestone_id), None)?;
-        let child_ids: Vec<&str> = edges
-            .iter()
-            .map(|e| e.target.as_str())
-            .collect();
+        let child_ids: Vec<&str> = edges.iter().map(|e| e.target.as_str()).collect();
 
         let mut total = 0;
         let mut completed = 0;
@@ -978,8 +986,10 @@ impl Storage {
             ],
         )?;
 
-        self.conn
-            .execute("DELETE FROM milestone_tags WHERE milestone_id = ?1", [&milestone.id])?;
+        self.conn.execute(
+            "DELETE FROM milestone_tags WHERE milestone_id = ?1",
+            [&milestone.id],
+        )?;
         for tag in &milestone.tags {
             self.conn.execute(
                 "INSERT INTO milestone_tags (milestone_id, tag) VALUES (?1, ?2)",
@@ -1149,15 +1159,16 @@ impl Storage {
             match task.status {
                 TaskStatus::Pending | TaskStatus::Reopened => {
                     // Check legacy depends_on field
-                    let legacy_deps_done = task.depends_on.is_empty() || task.depends_on.iter().all(|dep_id| {
-                        self.is_entity_done(dep_id)
-                    });
+                    let legacy_deps_done = task.depends_on.is_empty()
+                        || task
+                            .depends_on
+                            .iter()
+                            .all(|dep_id| self.is_entity_done(dep_id));
 
                     // Check edge-based dependencies
                     let edge_deps = self.get_edge_dependencies(&task.id).unwrap_or_default();
-                    let edge_deps_done = edge_deps.is_empty() || edge_deps.iter().all(|dep_id| {
-                        self.is_entity_done(dep_id)
-                    });
+                    let edge_deps_done = edge_deps.is_empty()
+                        || edge_deps.iter().all(|dep_id| self.is_entity_done(dep_id));
 
                     if legacy_deps_done && edge_deps_done {
                         ready.push(task);
@@ -1191,15 +1202,16 @@ impl Storage {
             match task.status {
                 TaskStatus::Pending | TaskStatus::Reopened => {
                     // Check legacy depends_on field
-                    let has_open_legacy_deps = !task.depends_on.is_empty() && task.depends_on.iter().any(|dep_id| {
-                        !self.is_entity_done(dep_id)
-                    });
+                    let has_open_legacy_deps = !task.depends_on.is_empty()
+                        && task
+                            .depends_on
+                            .iter()
+                            .any(|dep_id| !self.is_entity_done(dep_id));
 
                     // Check edge-based dependencies
                     let edge_deps = self.get_edge_dependencies(&task.id).unwrap_or_default();
-                    let has_open_edge_deps = !edge_deps.is_empty() && edge_deps.iter().any(|dep_id| {
-                        !self.is_entity_done(dep_id)
-                    });
+                    let has_open_edge_deps = !edge_deps.is_empty()
+                        && edge_deps.iter().any(|dep_id| !self.is_entity_done(dep_id));
 
                     if has_open_legacy_deps || has_open_edge_deps {
                         blocked.push(task);
@@ -1334,19 +1346,25 @@ impl Storage {
     /// Remove an edge by source, target, and type.
     pub fn remove_edge(&mut self, source: &str, target: &str, edge_type: EdgeType) -> Result<()> {
         // Find the edge
-        let edge_id: Option<String> = self.conn.query_row(
-            "SELECT id FROM edges WHERE source = ?1 AND target = ?2 AND edge_type = ?3",
-            params![source, target, edge_type.to_string()],
-            |row| row.get(0),
-        ).ok();
+        let edge_id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT id FROM edges WHERE source = ?1 AND target = ?2 AND edge_type = ?3",
+                params![source, target, edge_type.to_string()],
+                |row| row.get(0),
+            )
+            .ok();
 
-        let edge_id = edge_id.ok_or_else(|| Error::NotFound(format!(
-            "Edge not found: {} --[{}]--> {}",
-            source, edge_type, target
-        )))?;
+        let edge_id = edge_id.ok_or_else(|| {
+            Error::NotFound(format!(
+                "Edge not found: {} --[{}]--> {}",
+                source, edge_type, target
+            ))
+        })?;
 
         // Remove from cache
-        self.conn.execute("DELETE FROM edges WHERE id = ?", [&edge_id])?;
+        self.conn
+            .execute("DELETE FROM edges WHERE id = ?", [&edge_id])?;
 
         Ok(())
     }
@@ -1385,7 +1403,7 @@ impl Storage {
     /// Get edges between two entities.
     pub fn get_edges_between(&self, source: &str, target: &str) -> Result<Vec<Edge>> {
         let mut edges = self.list_edges(None, Some(source), Some(target))?;
-        
+
         // Also include bidirectional edges from the other direction
         let reverse = self.list_edges(None, Some(target), Some(source))?;
         for edge in reverse {
@@ -1399,7 +1417,12 @@ impl Storage {
 
     /// Check if adding an edge would create a cycle (for blocking edge types).
     /// Checks both edge-based dependencies AND legacy depends_on fields.
-    pub fn would_edge_create_cycle(&self, source: &str, target: &str, edge_type: EdgeType) -> Result<bool> {
+    pub fn would_edge_create_cycle(
+        &self,
+        source: &str,
+        target: &str,
+        edge_type: EdgeType,
+    ) -> Result<bool> {
         // Only check for cycles on blocking edge types
         if !edge_type.is_blocking() {
             return Ok(false);

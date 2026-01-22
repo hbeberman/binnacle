@@ -32,10 +32,13 @@ pub async fn watch_storage(
             | notify::EventKind::Modify(_)
             | notify::EventKind::Remove(_) => {
                 // Send update notification to WebSocket clients
-                let _ = update_tx.send(serde_json::json!({
-                    "type": "reload",
-                    "timestamp": chrono::Utc::now().to_rfc3339()
-                }).to_string());
+                let _ = update_tx.send(
+                    serde_json::json!({
+                        "type": "reload",
+                        "timestamp": chrono::Utc::now().to_rfc3339()
+                    })
+                    .to_string(),
+                );
             }
             _ => {}
         }

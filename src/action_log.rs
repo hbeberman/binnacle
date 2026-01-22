@@ -78,11 +78,7 @@ pub fn log_action(
         Err(_) => true,   // On error, assume enabled
     };
 
-    let sanitized_args = if sanitize {
-        sanitize_args(&args)
-    } else {
-        args
-    };
+    let sanitized_args = if sanitize { sanitize_args(&args) } else { args };
 
     // Get current user
     let user = get_current_user();
@@ -147,10 +143,7 @@ fn write_log_entry(path: &Path, entry: &ActionLog) -> Result<(), Box<dyn std::er
     let json = serde_json::to_string(entry)?;
 
     // Append to log file
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
 
     writeln!(file, "{}", json)?;
 
@@ -170,7 +163,10 @@ fn sanitize_args(args: &serde_json::Value) -> serde_json::Value {
                     || key_lower.contains("key")
                     || key_lower.contains("secret")
                 {
-                    sanitized.insert(key.clone(), serde_json::Value::String("[REDACTED]".to_string()));
+                    sanitized.insert(
+                        key.clone(),
+                        serde_json::Value::String("[REDACTED]".to_string()),
+                    );
                 } else {
                     sanitized.insert(key.clone(), sanitize_args(value));
                 }
@@ -189,17 +185,18 @@ fn sanitize_args(args: &serde_json::Value) -> serde_json::Value {
             // Sanitize file paths (convert to basename)
             let sanitized = if s.contains('/') || s.contains('\\') {
                 // Extract basename by splitting on both / and \
-                s.rsplit(|c| c == '/' || c == '\\')
-                    .next()
-                    .unwrap_or(s)
-                    .to_string()
+                s.rsplit(['/', '\\']).next().unwrap_or(s).to_string()
             } else {
                 s.clone()
             };
 
             // Truncate long strings
             if sanitized.len() > 100 {
-                serde_json::Value::String(format!("{}... ({} chars)", &sanitized[..97], sanitized.len()))
+                serde_json::Value::String(format!(
+                    "{}... ({} chars)",
+                    &sanitized[..97],
+                    sanitized.len()
+                ))
             } else {
                 serde_json::Value::String(sanitized)
             }
@@ -209,7 +206,10 @@ fn sanitize_args(args: &serde_json::Value) -> serde_json::Value {
 }
 
 /// Get a boolean configuration value.
-fn get_config_bool(repo_path: &Path, key: &str) -> Result<Option<bool>, Box<dyn std::error::Error>> {
+fn get_config_bool(
+    repo_path: &Path,
+    key: &str,
+) -> Result<Option<bool>, Box<dyn std::error::Error>> {
     let storage = Storage::open(repo_path)?;
     if let Some(value_str) = storage.get_config(key)? {
         let parsed = value_str.to_lowercase();

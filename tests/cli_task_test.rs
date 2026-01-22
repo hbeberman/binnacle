@@ -1142,7 +1142,9 @@ fn test_task_show_multiple_blockers() {
         .args(["task", "show", &id_c, "-H"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Blocked by 2 incomplete dependencies"))
+        .stdout(predicate::str::contains(
+            "Blocked by 2 incomplete dependencies",
+        ))
         .stdout(predicate::str::contains(&id_a))
         .stdout(predicate::str::contains(&id_b))
         .stdout(predicate::str::contains("alice"));
@@ -1238,10 +1240,7 @@ fn test_task_show_mixed_status_blockers() {
         .success();
 
     // Show D, should show only A and B as blockers (not C which is done)
-    let output = bn_in(&temp)
-        .args(["task", "show", &id_d])
-        .output()
-        .unwrap();
+    let output = bn_in(&temp).args(["task", "show", &id_d]).output().unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
 
     assert!(stdout.contains("\"blocker_count\":2"));
@@ -1359,7 +1358,9 @@ fn test_task_short_name_long_truncation() {
         .assert()
         .success()
         // The truncated name should be exactly 30 chars
-        .stdout(predicate::str::contains("\"short_name\":\"VeryLongShortNameThatExceeds"));
+        .stdout(predicate::str::contains(
+            "\"short_name\":\"VeryLongShortNameThatExceeds",
+        ));
 }
 
 #[test]
@@ -1368,7 +1369,13 @@ fn test_task_short_name_special_characters() {
 
     // Short names with special characters should work
     bn_in(&temp)
-        .args(["task", "create", "Task with special chars", "-s", "My-Task_1"])
+        .args([
+            "task",
+            "create",
+            "Task with special chars",
+            "-s",
+            "My-Task_1",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"short_name\":\"My-Task_1\""));

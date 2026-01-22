@@ -8,7 +8,10 @@
 //! - `test` - Test node operations
 //! - `commit` - Commit tracking
 
-use crate::models::{Bug, BugSeverity, Edge, EdgeType, EdgeDirection, Milestone, Task, TaskStatus, TestNode, TestResult};
+use crate::models::{
+    Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Milestone, Task, TaskStatus, TestNode,
+    TestResult,
+};
 use crate::storage::{generate_id, parse_status, EntityType, Storage};
 use crate::{Error, Result};
 use chrono::Utc;
@@ -409,6 +412,7 @@ fn replace_binnacle_section(content: &str) -> Result<String> {
 /// - If file doesn't exist: create with binnacle section
 /// - If file exists with markers: replace section between markers (only if different)
 /// - If file exists without markers: append binnacle section
+///
 /// Returns true if the file was actually modified.
 fn update_agents_md(repo_path: &Path) -> Result<bool> {
     use std::fs;
@@ -428,8 +432,16 @@ fn update_agents_md(repo_path: &Path) -> Result<bool> {
         if has_start != has_end {
             eprintln!(
                 "Warning: AGENTS.md has {} but not {}. Appending fresh section.",
-                if has_start { "BEGIN marker" } else { "END marker" },
-                if has_start { "END marker" } else { "BEGIN marker" }
+                if has_start {
+                    "BEGIN marker"
+                } else {
+                    "END marker"
+                },
+                if has_start {
+                    "END marker"
+                } else {
+                    "BEGIN marker"
+                }
             );
         }
 
@@ -452,7 +464,11 @@ fn update_agents_md(repo_path: &Path) -> Result<bool> {
                 .map_err(|e| Error::Other(format!("Failed to open AGENTS.md: {}", e)))?;
 
             // Add a newline before the blurb if file doesn't end with one
-            let prefix = if contents.ends_with('\n') { "\n" } else { "\n\n" };
+            let prefix = if contents.ends_with('\n') {
+                "\n"
+            } else {
+                "\n\n"
+            };
             file.write_all(prefix.as_bytes())
                 .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
             file.write_all(AGENTS_MD_BLURB.trim_end().as_bytes())
@@ -553,25 +569,27 @@ pub fn orient(repo_path: &Path) -> Result<OrientResult> {
             TaskStatus::Blocked => blocked_count += 1,
             TaskStatus::Pending | TaskStatus::Reopened => {
                 // Check legacy dependencies
-                let legacy_deps_done = task.depends_on.is_empty() || task.depends_on.iter().all(|dep_id| {
-                    storage
-                        .get_task(dep_id)
-                        .map(|t| t.status == TaskStatus::Done)
-                        .unwrap_or(false)
-                });
+                let legacy_deps_done = task.depends_on.is_empty()
+                    || task.depends_on.iter().all(|dep_id| {
+                        storage
+                            .get_task(dep_id)
+                            .map(|t| t.status == TaskStatus::Done)
+                            .unwrap_or(false)
+                    });
 
                 // Check edge-based dependencies
                 let edge_deps = storage.get_edge_dependencies(&task.id).unwrap_or_default();
-                let edge_deps_done = edge_deps.is_empty() || edge_deps.iter().all(|dep_id| {
-                    // Check if it's a task or bug
-                    if let Ok(t) = storage.get_task(dep_id) {
-                        t.status == TaskStatus::Done
-                    } else if let Ok(b) = storage.get_bug(dep_id) {
-                        b.status == TaskStatus::Done
-                    } else {
-                        false
-                    }
-                });
+                let edge_deps_done = edge_deps.is_empty()
+                    || edge_deps.iter().all(|dep_id| {
+                        // Check if it's a task or bug
+                        if let Ok(t) = storage.get_task(dep_id) {
+                            t.status == TaskStatus::Done
+                        } else if let Ok(b) = storage.get_bug(dep_id) {
+                            b.status == TaskStatus::Done
+                        } else {
+                            false
+                        }
+                    });
 
                 if legacy_deps_done && edge_deps_done {
                     ready_ids.push(task.id.clone());
@@ -902,7 +920,7 @@ impl Output for TaskShowResult {
         // Show edge-based relationships grouped by type
         if !self.edges.is_empty() {
             lines.push(String::new());
-            
+
             // Group edges by type and direction
             let mut depends_on: Vec<&TaskEdgeInfo> = Vec::new();
             let mut blocks: Vec<&TaskEdgeInfo> = Vec::new();
@@ -956,7 +974,10 @@ impl Output for TaskShowResult {
                     };
                     let status = e.related_status.as_deref().unwrap_or("unknown");
                     let title = e.related_title.as_deref().unwrap_or("");
-                    lines.push(format!("  {} {} \"{}\" ({}) [{}]", arrow, e.related_id, title, e.edge_type, status));
+                    lines.push(format!(
+                        "  {} {} \"{}\" ({}) [{}]",
+                        arrow, e.related_id, title, e.edge_type, status
+                    ));
                 }
             }
         }
@@ -992,27 +1013,38 @@ fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
 
     for dep_id in &all_deps {
         // Try to get as task first, then as bug
-        let (dep_status, dep_title, dep_assignee, dep_deps) = if let Ok(dep) = storage.get_task(dep_id) {
-            let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
-            let mut combined_deps = dep.depends_on.clone();
-            for d in dep_edge_deps {
-                if !combined_deps.contains(&d) {
-                    combined_deps.push(d);
+        let (dep_status, dep_title, dep_assignee, dep_deps) =
+            if let Ok(dep) = storage.get_task(dep_id) {
+                let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
+                let mut combined_deps = dep.depends_on.clone();
+                for d in dep_edge_deps {
+                    if !combined_deps.contains(&d) {
+                        combined_deps.push(d);
+                    }
                 }
-            }
-            (dep.status.clone(), dep.title.clone(), dep.assignee.clone(), combined_deps)
-        } else if let Ok(bug) = storage.get_bug(dep_id) {
-            let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
-            let mut combined_deps = bug.depends_on.clone();
-            for d in dep_edge_deps {
-                if !combined_deps.contains(&d) {
-                    combined_deps.push(d);
+                (
+                    dep.status.clone(),
+                    dep.title.clone(),
+                    dep.assignee.clone(),
+                    combined_deps,
+                )
+            } else if let Ok(bug) = storage.get_bug(dep_id) {
+                let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
+                let mut combined_deps = bug.depends_on.clone();
+                for d in dep_edge_deps {
+                    if !combined_deps.contains(&d) {
+                        combined_deps.push(d);
+                    }
                 }
-            }
-            (bug.status.clone(), bug.title.clone(), bug.assignee.clone(), combined_deps)
-        } else {
-            continue; // Skip if entity not found
-        };
+                (
+                    bug.status.clone(),
+                    bug.title.clone(),
+                    bug.assignee.clone(),
+                    combined_deps,
+                )
+            } else {
+                continue; // Skip if entity not found
+            };
 
         // Only consider incomplete dependencies as blockers
         if dep_status != TaskStatus::Done && dep_status != TaskStatus::Cancelled {
@@ -1058,10 +1090,7 @@ fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
                     };
                     blocker_chain.push(format!(
                         "{} <- {} <- {} ({})",
-                        task.id,
-                        dep_id,
-                        blocker,
-                        blocker_status
+                        task.id, dep_id, blocker, blocker_status
                     ));
                 }
             }
@@ -1128,12 +1157,18 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResult> {
             } else {
                 he.edge.target.clone()
             };
-            
+
             // Try to get title and status of related entity
             let (related_title, related_status) = if let Ok(t) = storage.get_task(&related_id) {
-                (Some(t.title), Some(format!("{:?}", t.status).to_lowercase()))
+                (
+                    Some(t.title),
+                    Some(format!("{:?}", t.status).to_lowercase()),
+                )
             } else if let Ok(b) = storage.get_bug(&related_id) {
-                (Some(b.title), Some(format!("{:?}", b.status).to_lowercase()))
+                (
+                    Some(b.title),
+                    Some(format!("{:?}", b.status).to_lowercase()),
+                )
             } else if let Ok(test) = storage.get_test(&related_id) {
                 (Some(test.name), None)
             } else {
@@ -1754,7 +1789,7 @@ impl Output for BugShowResult {
         // Show edge-based relationships grouped by type
         if !self.edges.is_empty() {
             lines.push(String::new());
-            
+
             // Group edges by type and direction
             let mut depends_on: Vec<&TaskEdgeInfo> = Vec::new();
             let mut blocks: Vec<&TaskEdgeInfo> = Vec::new();
@@ -1819,7 +1854,10 @@ impl Output for BugShowResult {
                     };
                     let status = e.related_status.as_deref().unwrap_or("unknown");
                     let title = e.related_title.as_deref().unwrap_or("");
-                    lines.push(format!("  {} {} \"{}\" ({}) [{}]", arrow, e.related_id, title, e.edge_type, status));
+                    lines.push(format!(
+                        "  {} {} \"{}\" ({}) [{}]",
+                        arrow, e.related_id, title, e.edge_type, status
+                    ));
                 }
             }
         }
@@ -1862,12 +1900,18 @@ pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResult> {
             } else {
                 he.edge.target.clone()
             };
-            
+
             // Try to get title and status of related entity
             let (related_title, related_status) = if let Ok(t) = storage.get_task(&related_id) {
-                (Some(t.title), Some(format!("{:?}", t.status).to_lowercase()))
+                (
+                    Some(t.title),
+                    Some(format!("{:?}", t.status).to_lowercase()),
+                )
             } else if let Ok(b) = storage.get_bug(&related_id) {
-                (Some(b.title), Some(format!("{:?}", b.status).to_lowercase()))
+                (
+                    Some(b.title),
+                    Some(format!("{:?}", b.status).to_lowercase()),
+                )
             } else if let Ok(test) = storage.get_test(&related_id) {
                 (Some(test.name), None)
             } else {
@@ -1913,27 +1957,38 @@ fn analyze_bug_blockers(storage: &Storage, bug: &Bug) -> Result<BlockingInfo> {
 
     for dep_id in &all_deps {
         // Try to get as task first, then as bug
-        let (dep_status, dep_title, dep_assignee, dep_deps) = if let Ok(dep) = storage.get_task(dep_id) {
-            let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
-            let mut combined_deps = dep.depends_on.clone();
-            for d in dep_edge_deps {
-                if !combined_deps.contains(&d) {
-                    combined_deps.push(d);
+        let (dep_status, dep_title, dep_assignee, dep_deps) =
+            if let Ok(dep) = storage.get_task(dep_id) {
+                let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
+                let mut combined_deps = dep.depends_on.clone();
+                for d in dep_edge_deps {
+                    if !combined_deps.contains(&d) {
+                        combined_deps.push(d);
+                    }
                 }
-            }
-            (dep.status.clone(), dep.title.clone(), dep.assignee.clone(), combined_deps)
-        } else if let Ok(b) = storage.get_bug(dep_id) {
-            let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
-            let mut combined_deps = b.depends_on.clone();
-            for d in dep_edge_deps {
-                if !combined_deps.contains(&d) {
-                    combined_deps.push(d);
+                (
+                    dep.status.clone(),
+                    dep.title.clone(),
+                    dep.assignee.clone(),
+                    combined_deps,
+                )
+            } else if let Ok(b) = storage.get_bug(dep_id) {
+                let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
+                let mut combined_deps = b.depends_on.clone();
+                for d in dep_edge_deps {
+                    if !combined_deps.contains(&d) {
+                        combined_deps.push(d);
+                    }
                 }
-            }
-            (b.status.clone(), b.title.clone(), b.assignee.clone(), combined_deps)
-        } else {
-            continue; // Skip if entity not found
-        };
+                (
+                    b.status.clone(),
+                    b.title.clone(),
+                    b.assignee.clone(),
+                    combined_deps,
+                )
+            } else {
+                continue; // Skip if entity not found
+            };
 
         // Only consider incomplete dependencies as blockers
         if dep_status != TaskStatus::Done && dep_status != TaskStatus::Cancelled {
@@ -1979,10 +2034,7 @@ fn analyze_bug_blockers(storage: &Storage, bug: &Bug) -> Result<BlockingInfo> {
                     };
                     blocker_chain.push(format!(
                         "{} <- {} <- {} ({})",
-                        bug.id,
-                        dep_id,
-                        blocker,
-                        blocker_status
+                        bug.id, dep_id, blocker, blocker_status
                     ));
                 }
             }
@@ -2307,7 +2359,12 @@ pub fn milestone_create(
     milestone.due_date = due_date
         .map(|d| chrono::DateTime::parse_from_rfc3339(&d))
         .transpose()
-        .map_err(|e| Error::Other(format!("Invalid due_date format: {}. Use ISO 8601 format.", e)))?
+        .map_err(|e| {
+            Error::Other(format!(
+                "Invalid due_date format: {}. Use ISO 8601 format.",
+                e
+            ))
+        })?
         .map(|d| d.with_timezone(&chrono::Utc));
 
     storage.add_milestone(&milestone)?;
@@ -2433,7 +2490,7 @@ impl Output for MilestoneShowResult {
 
     fn to_human(&self) -> String {
         let mut lines = vec![self.milestone.to_human()];
-        
+
         // Add progress info
         lines.push(format!(
             "  Progress: {}/{} ({:.1}%)",
@@ -2462,7 +2519,7 @@ pub fn milestone_show(repo_path: &Path, id: &str) -> Result<MilestoneShowResult>
     let storage = Storage::open(repo_path)?;
     let milestone = storage.get_milestone(id)?;
     let progress = storage.get_milestone_progress(id)?;
-    
+
     // Get edges for this milestone - use get_edges_for_entity which returns both in/outbound
     let hydrated_edges = storage.get_edges_for_entity(id)?;
     let edges: Vec<Edge> = hydrated_edges.into_iter().map(|he| he.edge).collect();
@@ -2557,7 +2614,12 @@ pub fn milestone_update(
     if let Some(d) = due_date {
         milestone.due_date = Some(
             chrono::DateTime::parse_from_rfc3339(&d)
-                .map_err(|e| Error::Other(format!("Invalid due_date format: {}. Use ISO 8601 format.", e)))?
+                .map_err(|e| {
+                    Error::Other(format!(
+                        "Invalid due_date format: {}. Use ISO 8601 format.",
+                        e
+                    ))
+                })?
                 .with_timezone(&chrono::Utc),
         );
         updated_fields.push("due_date".to_string());
@@ -2978,9 +3040,7 @@ pub fn link_add(
     let mut storage = Storage::open(repo_path)?;
 
     // Parse edge type
-    let edge_type: EdgeType = edge_type_str
-        .parse()
-        .map_err(|e: String| Error::Other(e))?;
+    let edge_type: EdgeType = edge_type_str.parse().map_err(|e: String| Error::Other(e))?;
 
     // Validate entities exist
     validate_entity_exists(&storage, source)?;
@@ -2988,7 +3048,9 @@ pub fn link_add(
 
     // Check for self-link
     if source == target {
-        return Err(Error::Other("Cannot create a link from an entity to itself".to_string()));
+        return Err(Error::Other(
+            "Cannot create a link from an entity to itself".to_string(),
+        ));
     }
 
     // Check for cycles on blocking edge types
@@ -3001,7 +3063,12 @@ pub fn link_add(
 
     // Generate edge ID and create edge
     let id = storage.generate_edge_id(source, target, edge_type);
-    let mut edge = Edge::new(id.clone(), source.to_string(), target.to_string(), edge_type);
+    let mut edge = Edge::new(
+        id.clone(),
+        source.to_string(),
+        target.to_string(),
+        edge_type,
+    );
     edge.reason = reason.clone();
 
     storage.add_edge(&edge)?;
@@ -3104,7 +3171,7 @@ fn validate_edge_type_constraints(
             }
             if target_type == "test" {
                 return Err(Error::Other(
-                    "tests edge requires target to be a task or bug, not a test".to_string()
+                    "tests edge requires target to be a task or bug, not a test".to_string(),
                 ));
             }
         }
@@ -3112,7 +3179,7 @@ fn validate_edge_type_constraints(
             // Task/Milestone → Task/Bug (no milestones yet, so just task → task/bug)
             if source_type == "test" {
                 return Err(Error::Other(
-                    "parent_of edge source cannot be a test".to_string()
+                    "parent_of edge source cannot be a test".to_string(),
                 ));
             }
         }
@@ -3120,7 +3187,7 @@ fn validate_edge_type_constraints(
             // Task/Bug → Task/Milestone
             if source_type == "test" {
                 return Err(Error::Other(
-                    "child_of edge source cannot be a test".to_string()
+                    "child_of edge source cannot be a test".to_string(),
                 ));
             }
         }
@@ -3459,7 +3526,12 @@ impl Output for SearchLinkResult {
                 .unwrap_or_default();
             lines.push(format!(
                 "{} → {} ({}){}\n  Created: {}{}",
-                edge.source, edge.target, edge.edge_type, reason_str, edge.created_at, created_by_str
+                edge.source,
+                edge.target,
+                edge.edge_type,
+                reason_str,
+                edge.created_at,
+                created_by_str
             ));
         }
 
@@ -3621,9 +3693,7 @@ pub fn blocked(repo_path: &Path) -> Result<BlockedTasks> {
         let mut blocking: Vec<String> = task
             .depends_on
             .iter()
-            .filter(|dep_id| {
-                !storage.is_entity_done(dep_id)
-            })
+            .filter(|dep_id| !storage.is_entity_done(dep_id))
             .cloned()
             .collect();
 
@@ -4259,22 +4329,28 @@ impl Output for EdgeMigrationResult {
 
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
-        
+
         if self.dry_run {
             lines.push("Edge Migration (DRY RUN - no changes made)".to_string());
         } else {
             lines.push("Edge Migration Complete".to_string());
         }
-        
+
         lines.push(format!("  Tasks scanned: {}", self.tasks_scanned));
         lines.push(format!("  Bugs scanned: {}", self.bugs_scanned));
         lines.push(format!("  Edges created: {}", self.edges_created));
-        lines.push(format!("  Edges skipped (already exist): {}", self.edges_skipped));
-        
+        lines.push(format!(
+            "  Edges skipped (already exist): {}",
+            self.edges_skipped
+        ));
+
         if self.depends_on_cleared > 0 {
-            lines.push(format!("  depends_on fields cleared: {}", self.depends_on_cleared));
+            lines.push(format!(
+                "  depends_on fields cleared: {}",
+                self.depends_on_cleared
+            ));
         }
-        
+
         if !self.details.is_empty() {
             lines.push(String::new());
             lines.push("Details:".to_string());
@@ -4282,7 +4358,7 @@ impl Output for EdgeMigrationResult {
                 lines.push(format!("  {}", detail));
             }
         }
-        
+
         lines.join("\n")
     }
 }
@@ -4293,103 +4369,91 @@ impl Output for EdgeMigrationResult {
 /// 1. Scans all tasks and bugs for non-empty depends_on fields
 /// 2. Creates DependsOn edges for each dependency
 /// 3. Optionally clears the depends_on fields after migration
-pub fn doctor_migrate_edges(repo_path: &Path, clean_unused: bool, dry_run: bool) -> Result<EdgeMigrationResult> {
+pub fn doctor_migrate_edges(
+    repo_path: &Path,
+    clean_unused: bool,
+    dry_run: bool,
+) -> Result<EdgeMigrationResult> {
     let mut storage = Storage::open(repo_path)?;
-    
+
     let tasks = storage.list_tasks(None, None, None)?;
     let bugs = storage.list_bugs(None, None, None, None)?;
-    
+
     let mut edges_created = 0;
     let mut edges_skipped = 0;
     let mut depends_on_cleared = 0;
     let mut details = Vec::new();
-    
+
     // Collect entities that need depends_on cleared
     let mut tasks_to_clear: Vec<String> = Vec::new();
     let mut bugs_to_clear: Vec<String> = Vec::new();
-    
+
     // Process tasks
     for task in &tasks {
         if task.depends_on.is_empty() {
             continue;
         }
-        
+
         for dep_id in &task.depends_on {
             // Check if edge already exists
-            let existing = storage.list_edges(
-                Some(EdgeType::DependsOn),
-                Some(&task.id),
-                Some(dep_id),
-            )?;
-            
+            let existing =
+                storage.list_edges(Some(EdgeType::DependsOn), Some(&task.id), Some(dep_id))?;
+
             if !existing.is_empty() {
                 edges_skipped += 1;
                 details.push(format!("Skipped: {} -> {} (edge exists)", task.id, dep_id));
                 continue;
             }
-            
+
             // Create new edge
             if !dry_run {
                 let id = storage.generate_edge_id(&task.id, dep_id, EdgeType::DependsOn);
-                let mut edge = Edge::new(
-                    id,
-                    task.id.clone(),
-                    dep_id.clone(),
-                    EdgeType::DependsOn,
-                );
+                let mut edge = Edge::new(id, task.id.clone(), dep_id.clone(), EdgeType::DependsOn);
                 edge.reason = Some("Migrated from task.depends_on".to_string());
                 storage.add_edge(&edge)?;
             }
             edges_created += 1;
             details.push(format!("Created: {} -> {} (depends_on)", task.id, dep_id));
         }
-        
+
         if clean_unused && !task.depends_on.is_empty() {
             tasks_to_clear.push(task.id.clone());
         }
     }
-    
+
     // Process bugs
     for bug in &bugs {
         if bug.depends_on.is_empty() {
             continue;
         }
-        
+
         for dep_id in &bug.depends_on {
             // Check if edge already exists
-            let existing = storage.list_edges(
-                Some(EdgeType::DependsOn),
-                Some(&bug.id),
-                Some(dep_id),
-            )?;
-            
+            let existing =
+                storage.list_edges(Some(EdgeType::DependsOn), Some(&bug.id), Some(dep_id))?;
+
             if !existing.is_empty() {
                 edges_skipped += 1;
                 details.push(format!("Skipped: {} -> {} (edge exists)", bug.id, dep_id));
                 continue;
             }
-            
+
             // Create new edge
             if !dry_run {
                 let id = storage.generate_edge_id(&bug.id, dep_id, EdgeType::DependsOn);
-                let mut edge = Edge::new(
-                    id,
-                    bug.id.clone(),
-                    dep_id.clone(),
-                    EdgeType::DependsOn,
-                );
+                let mut edge = Edge::new(id, bug.id.clone(), dep_id.clone(), EdgeType::DependsOn);
                 edge.reason = Some("Migrated from bug.depends_on".to_string());
                 storage.add_edge(&edge)?;
             }
             edges_created += 1;
             details.push(format!("Created: {} -> {} (depends_on)", bug.id, dep_id));
         }
-        
+
         if clean_unused && !bug.depends_on.is_empty() {
             bugs_to_clear.push(bug.id.clone());
         }
     }
-    
+
     // Clear depends_on fields if requested
     if clean_unused && !dry_run {
         for task_id in &tasks_to_clear {
@@ -4400,7 +4464,7 @@ pub fn doctor_migrate_edges(repo_path: &Path, clean_unused: bool, dry_run: bool)
                 depends_on_cleared += 1;
             }
         }
-        
+
         for bug_id in &bugs_to_clear {
             if let Ok(mut bug) = storage.get_bug(bug_id) {
                 bug.depends_on.clear();
@@ -4412,7 +4476,7 @@ pub fn doctor_migrate_edges(repo_path: &Path, clean_unused: bool, dry_run: bool)
     } else if clean_unused && dry_run {
         depends_on_cleared = tasks_to_clear.len() + bugs_to_clear.len();
     }
-    
+
     Ok(EdgeMigrationResult {
         tasks_scanned: tasks.len(),
         bugs_scanned: bugs.len(),
@@ -4685,7 +4749,10 @@ impl Output for StoreShowResult {
 
         lines.push(format!("Tasks: {} total", self.tasks.total));
         lines.push(format!("  - pending:     {}", self.tasks.by_status.pending));
-        lines.push(format!("  - in_progress: {}", self.tasks.by_status.in_progress));
+        lines.push(format!(
+            "  - in_progress: {}",
+            self.tasks.by_status.in_progress
+        ));
         lines.push(format!("  - blocked:     {}", self.tasks.by_status.blocked));
         lines.push(format!("  - done:        {}", self.tasks.by_status.done));
         lines.push(String::new());
@@ -4755,7 +4822,13 @@ pub fn system_store_show(repo_path: &Path) -> Result<StoreShowResult> {
     use std::collections::HashMap;
     let mut files = HashMap::new();
 
-    let file_names = ["tasks.jsonl", "bugs.jsonl", "commits.jsonl", "test-results.jsonl", "cache.db"];
+    let file_names = [
+        "tasks.jsonl",
+        "bugs.jsonl",
+        "commits.jsonl",
+        "test-results.jsonl",
+        "cache.db",
+    ];
     for file_name in &file_names {
         let file_path = storage.root().join(file_name);
         if let Ok(metadata) = std::fs::metadata(&file_path) {
@@ -4764,7 +4837,12 @@ pub fn system_store_show(repo_path: &Path) -> Result<StoreShowResult> {
             // Count entries for JSONL files
             let entries = if file_name.ends_with(".jsonl") {
                 std::fs::read_to_string(&file_path)
-                    .map(|content| content.lines().filter(|line| !line.trim().is_empty()).count())
+                    .map(|content| {
+                        content
+                            .lines()
+                            .filter(|line| !line.trim().is_empty())
+                            .count()
+                    })
                     .unwrap_or(0)
             } else {
                 0 // cache.db doesn't have "entries" in the same sense
@@ -4785,12 +4863,11 @@ pub fn system_store_show(repo_path: &Path) -> Result<StoreShowResult> {
     let (created_at, last_modified) = if let Ok(metadata) = std::fs::metadata(&tasks_file) {
         use std::time::SystemTime;
 
-        let created = metadata.created()
+        let created = metadata
+            .created()
             .or_else(|_| metadata.modified())
             .ok()
-            .and_then(|time| {
-                time.duration_since(SystemTime::UNIX_EPOCH).ok()
-            })
+            .and_then(|time| time.duration_since(SystemTime::UNIX_EPOCH).ok())
             .map(|duration| {
                 chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
                     .unwrap_or_default()
@@ -4798,11 +4875,10 @@ pub fn system_store_show(repo_path: &Path) -> Result<StoreShowResult> {
                     .to_string()
             });
 
-        let modified = metadata.modified()
+        let modified = metadata
+            .modified()
             .ok()
-            .and_then(|time| {
-                time.duration_since(SystemTime::UNIX_EPOCH).ok()
-            })
+            .and_then(|time| time.duration_since(SystemTime::UNIX_EPOCH).ok())
             .map(|duration| {
                 chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
                     .unwrap_or_default()
@@ -4908,7 +4984,11 @@ fn calculate_checksum(data: &[u8]) -> String {
 }
 
 /// Export store to gzip tar archive.
-pub fn system_store_export(repo_path: &Path, output: &str, format: &str) -> Result<StoreExportResult> {
+pub fn system_store_export(
+    repo_path: &Path,
+    output: &str,
+    format: &str,
+) -> Result<StoreExportResult> {
     use flate2::write::GzEncoder;
     use flate2::Compression;
 
@@ -4923,7 +5003,13 @@ pub fn system_store_export(repo_path: &Path, output: &str, format: &str) -> Resu
     let storage_root = storage.root();
 
     // Read all JSONL files (skip missing files for backwards compatibility)
-    let files_to_export = ["tasks.jsonl", "bugs.jsonl", "edges.jsonl", "commits.jsonl", "test-results.jsonl"];
+    let files_to_export = [
+        "tasks.jsonl",
+        "bugs.jsonl",
+        "edges.jsonl",
+        "commits.jsonl",
+        "test-results.jsonl",
+    ];
     let mut file_contents = std::collections::HashMap::new();
     let mut checksums = std::collections::HashMap::new();
 
@@ -5055,13 +5141,19 @@ impl Output for StoreImportResult {
                 lines.push(format!("Imported from {}", self.input_path));
             }
             lines.push(format!("  Type: {}", self.import_type));
-            lines.push(format!("  Tasks: {} imported, {} skipped", self.tasks_imported, self.tasks_skipped));
+            lines.push(format!(
+                "  Tasks: {} imported, {} skipped",
+                self.tasks_imported, self.tasks_skipped
+            ));
             lines.push(format!("  Tests: {}", self.tests_imported));
             lines.push(format!("  Commits: {}", self.commits_imported));
 
             if self.collisions > 0 {
                 lines.push(String::new());
-                lines.push(format!("⚠️  WARNING: {} ID COLLISIONS DETECTED", self.collisions));
+                lines.push(format!(
+                    "⚠️  WARNING: {} ID COLLISIONS DETECTED",
+                    self.collisions
+                ));
                 for (old_id, new_id) in &self.id_remappings {
                     lines.push(format!("   {} → {}", old_id, new_id));
                 }
@@ -5131,9 +5223,8 @@ pub fn system_store_import(
         }
     }
 
-    let manifest = manifest.ok_or_else(|| {
-        Error::InvalidInput("Archive does not contain manifest.json".to_string())
-    })?;
+    let manifest = manifest
+        .ok_or_else(|| Error::InvalidInput("Archive does not contain manifest.json".to_string()))?;
 
     // Validate version
     if manifest.version != 1 {
@@ -5156,7 +5247,8 @@ pub fn system_store_import(
 
     if import_type == "replace" && is_initialized {
         return Err(Error::InvalidInput(
-            "Store already initialized. Use --type merge to append data, or reinitialize the repo.".to_string()
+            "Store already initialized. Use --type merge to append data, or reinitialize the repo."
+                .to_string(),
         ));
     }
 
@@ -5182,7 +5274,8 @@ pub fn system_store_import(
     }
 
     // Detect ID collisions and create remapping
-    let mut id_remappings: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut id_remappings: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     let existing_tasks = storage.list_tasks(None, None, None)?;
     let existing_ids: std::collections::HashSet<String> =
         existing_tasks.iter().map(|t| t.id.clone()).collect();
@@ -5716,8 +5809,16 @@ mod tests {
     #[test]
     fn test_task_show() {
         let temp = setup();
-        let created =
-            task_create(temp.path(), "Test".to_string(), None, None, None, vec![], None).unwrap();
+        let created = task_create(
+            temp.path(),
+            "Test".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
         let result = task_show(temp.path(), &created.id).unwrap();
         assert_eq!(result.task.id, created.id);
         assert!(result.blocking_info.is_none()); // No dependencies
@@ -5790,8 +5891,16 @@ mod tests {
     #[test]
     fn test_task_close_reopen() {
         let temp = setup();
-        let created =
-            task_create(temp.path(), "Test".to_string(), None, None, None, vec![], None).unwrap();
+        let created = task_create(
+            temp.path(),
+            "Test".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
         let result = task_show(temp.path(), &created.id).unwrap();
@@ -5807,10 +5916,26 @@ mod tests {
     #[test]
     fn test_task_close_with_incomplete_deps_fails() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -5826,10 +5951,26 @@ mod tests {
     #[test]
     fn test_task_close_with_incomplete_deps_force() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -5848,10 +5989,26 @@ mod tests {
     #[test]
     fn test_task_close_with_complete_deps_success() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -5872,10 +6029,26 @@ mod tests {
     #[test]
     fn test_task_close_promotes_partial_dependents() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -5895,8 +6068,16 @@ mod tests {
     #[test]
     fn test_task_delete() {
         let temp = setup();
-        let created =
-            task_create(temp.path(), "Test".to_string(), None, None, None, vec![], None).unwrap();
+        let created = task_create(
+            temp.path(),
+            "Test".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         task_delete(temp.path(), &created.id).unwrap();
         let list = task_list(temp.path(), None, None, None).unwrap();
@@ -5908,10 +6089,26 @@ mod tests {
     #[test]
     fn test_dep_add() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let result = dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
         assert_eq!(result.child, task_b.id);
@@ -5925,10 +6122,26 @@ mod tests {
     #[test]
     fn test_dep_add_transitions_done_to_partial() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
         let result = task_show(temp.path(), &task_b.id).unwrap();
@@ -5946,10 +6159,26 @@ mod tests {
     #[test]
     fn test_dep_add_cycle_rejected() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // A depends on B
         dep_add(temp.path(), &task_a.id, &task_b.id).unwrap();
@@ -5962,10 +6191,26 @@ mod tests {
     #[test]
     fn test_dep_rm() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
         dep_rm(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -5978,12 +6223,36 @@ mod tests {
     #[test]
     fn test_dep_show() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
-        let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // B depends on A, C depends on B
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -6000,10 +6269,26 @@ mod tests {
     #[test]
     fn test_ready_command() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // B depends on A (which is pending, so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -6016,10 +6301,26 @@ mod tests {
     #[test]
     fn test_blocked_command() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // B depends on A (which is pending, so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -6033,10 +6334,26 @@ mod tests {
     #[test]
     fn test_ready_after_dependency_done() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
@@ -6062,8 +6379,16 @@ mod tests {
     #[test]
     fn test_commit_link() {
         let temp = setup();
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let result = commit_link(temp.path(), "a1b2c3d", &task.id).unwrap();
         assert_eq!(result.sha, "a1b2c3d");
@@ -6073,8 +6398,16 @@ mod tests {
     #[test]
     fn test_commit_link_invalid_sha() {
         let temp = setup();
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // SHA too short
         let result = commit_link(temp.path(), "abc", &task.id);
@@ -6092,8 +6425,16 @@ mod tests {
     #[test]
     fn test_commit_unlink() {
         let temp = setup();
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         commit_link(temp.path(), "a1b2c3d", &task.id).unwrap();
         let result = commit_unlink(temp.path(), "a1b2c3d", &task.id).unwrap();
@@ -6109,8 +6450,16 @@ mod tests {
     #[test]
     fn test_commit_unlink_nonexistent() {
         let temp = setup();
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let result = commit_unlink(temp.path(), "a1b2c3d", &task.id);
         assert!(result.is_err());
@@ -6119,8 +6468,16 @@ mod tests {
     #[test]
     fn test_commit_list() {
         let temp = setup();
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         commit_link(temp.path(), "a1b2c3d", &task.id).unwrap();
         commit_link(temp.path(), "e5f6789", &task.id).unwrap();
@@ -6133,8 +6490,16 @@ mod tests {
     #[test]
     fn test_commit_list_empty() {
         let temp = setup();
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let list = commit_list(temp.path(), &task.id).unwrap();
         assert_eq!(list.count, 0);
@@ -6153,7 +6518,16 @@ mod tests {
     #[test]
     fn test_doctor_healthy() {
         let temp = setup();
-        task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let result = doctor(temp.path()).unwrap();
         assert!(result.healthy);
@@ -6166,10 +6540,26 @@ mod tests {
         let temp = setup();
 
         // Create two tasks: A depends on B
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -6187,8 +6577,26 @@ mod tests {
     #[test]
     fn test_doctor_stats() {
         let temp = setup();
-        task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
-        task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
+        task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
         test_create(
             temp.path(),
             "Test 1".to_string(),
@@ -6208,8 +6616,16 @@ mod tests {
     #[test]
     fn test_log_basic() {
         let temp = setup();
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let result = log(temp.path(), None).unwrap();
         assert!(result.count >= 1);
@@ -6219,10 +6635,26 @@ mod tests {
     #[test]
     fn test_log_filter_by_task() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let _task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let _task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let result = log(temp.path(), Some(&task_a.id)).unwrap();
         assert!(result.entries.iter().all(|e| e.entity_id == task_a.id));
@@ -6232,8 +6664,16 @@ mod tests {
     #[test]
     fn test_log_includes_updates() {
         let temp = setup();
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Update the task
         task_update(
@@ -6260,8 +6700,16 @@ mod tests {
     #[test]
     fn test_log_includes_close() {
         let temp = setup();
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         task_close(temp.path(), &task.id, Some("Complete".to_string()), false).unwrap();
 
@@ -6336,8 +6784,16 @@ mod tests {
         let temp = setup();
 
         // Create a task and update it multiple times
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
         task_update(
             temp.path(),
             &task.id,
@@ -6381,9 +6837,36 @@ mod tests {
     fn test_compact_preserves_all_tasks() {
         let temp = setup();
 
-        task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
-        task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
+        task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let result = compact(temp.path()).unwrap();
         assert_eq!(result.tasks_compacted, 3);
@@ -6398,8 +6881,16 @@ mod tests {
     fn test_compact_with_tests() {
         let temp = setup();
 
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
         test_create(
             temp.path(),
             "Test 1".to_string(),
@@ -6584,8 +7075,26 @@ mod tests {
         let temp = setup();
 
         // Create some tasks
-        task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let result = orient(temp.path()).unwrap();
         assert!(!result.initialized); // Already initialized in setup()
@@ -6597,10 +7106,26 @@ mod tests {
     fn test_orient_shows_blocked_tasks() {
         let temp = setup();
 
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // B depends on A (so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -6616,8 +7141,16 @@ mod tests {
     fn test_orient_shows_in_progress_tasks() {
         let temp = setup();
 
-        let task =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Update to in_progress
         task_update(
@@ -6641,7 +7174,16 @@ mod tests {
     #[test]
     fn test_orient_human_output() {
         let temp = setup();
-        task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         let result = orient(temp.path()).unwrap();
         let human = result.to_human();
@@ -6677,18 +7219,42 @@ mod tests {
     #[test]
     fn test_task_show_all_dependencies_complete() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Close both dependencies
         task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
         task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
 
         // Create task C that depends on A and B
-        let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
 
@@ -6706,8 +7272,16 @@ mod tests {
     #[test]
     fn test_task_show_direct_blockers() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
         let task_b = task_create(
             temp.path(),
             "Task B".to_string(),
@@ -6718,8 +7292,16 @@ mod tests {
             Some("agent-1".to_string()),
         )
         .unwrap();
-        let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Set task A to in_progress
         task_update(
@@ -6774,12 +7356,36 @@ mod tests {
     #[test]
     fn test_task_show_transitive_blockers() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
-        let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Create chain: C depends on B, B depends on A
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -6813,12 +7419,36 @@ mod tests {
     #[test]
     fn test_task_show_mixed_complete_incomplete_deps() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
-        let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Close task A
         task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
@@ -6842,8 +7472,16 @@ mod tests {
     #[test]
     fn test_task_show_blocker_summary_format() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
         let task_b = task_create(
             temp.path(),
             "Task B".to_string(),
@@ -6854,8 +7492,16 @@ mod tests {
             Some("alice".to_string()),
         )
         .unwrap();
-        let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Task C depends on A and B
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
@@ -6877,12 +7523,36 @@ mod tests {
     #[test]
     fn test_task_show_cancelled_dependencies_dont_block() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
-        let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Cancel task A
         task_update(
@@ -6920,10 +7590,26 @@ mod tests {
     #[test]
     fn test_task_show_blocked_status_is_blocker() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Set task A to blocked status
         task_update(
@@ -6956,10 +7642,26 @@ mod tests {
     #[test]
     fn test_task_show_partial_status_is_blocker() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Set task A to partial status
         task_update(
@@ -6992,10 +7694,26 @@ mod tests {
     #[test]
     fn test_task_show_reopened_status_is_blocker() {
         let temp = setup();
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         // Close then reopen task A
         task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
@@ -7018,14 +7736,46 @@ mod tests {
     fn test_task_show_deep_transitive_blocker_chain() {
         let temp = setup();
         // Create chain: D -> C -> B -> A
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
-        let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
-        let task_d =
-            task_create(temp.path(), "Task D".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_d = task_create(
+            temp.path(),
+            "Task D".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
@@ -7057,14 +7807,46 @@ mod tests {
     fn test_task_show_multiple_transitive_blockers() {
         let temp = setup();
         // Create diamond: D depends on B and C, both B and C depend on A
-        let task_a =
-            task_create(temp.path(), "Task A".to_string(), None, None, None, vec![], None).unwrap();
-        let task_b =
-            task_create(temp.path(), "Task B".to_string(), None, None, None, vec![], None).unwrap();
-        let task_c =
-            task_create(temp.path(), "Task C".to_string(), None, None, None, vec![], None).unwrap();
-        let task_d =
-            task_create(temp.path(), "Task D".to_string(), None, None, None, vec![], None).unwrap();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_d = task_create(
+            temp.path(),
+            "Task D".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
 
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
@@ -7227,7 +8009,10 @@ mod tests {
             None,
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Priority must be 0-4"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Priority must be 0-4"));
     }
 
     #[test]
@@ -7469,8 +8254,12 @@ mod tests {
         assert!(updated.updated_fields.contains(&"severity".to_string()));
         assert!(updated.updated_fields.contains(&"tags".to_string()));
         assert!(updated.updated_fields.contains(&"assignee".to_string()));
-        assert!(updated.updated_fields.contains(&"reproduction_steps".to_string()));
-        assert!(updated.updated_fields.contains(&"affected_component".to_string()));
+        assert!(updated
+            .updated_fields
+            .contains(&"reproduction_steps".to_string()));
+        assert!(updated
+            .updated_fields
+            .contains(&"affected_component".to_string()));
 
         let result = bug_show(temp.path(), &created.id).unwrap();
         assert_eq!(result.bug.title, "Updated bug");
@@ -7585,7 +8374,10 @@ mod tests {
             None,
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No fields to update"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No fields to update"));
     }
 
     #[test]
@@ -7619,7 +8411,10 @@ mod tests {
             None,
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Priority must be 0-4"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Priority must be 0-4"));
     }
 
     #[test]
@@ -8039,13 +8834,31 @@ mod tests {
     #[test]
     fn test_doctor_migrate_edges_no_legacy_deps() {
         let temp = setup();
-        
+
         // Create tasks without depends_on
-        task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
-        task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
-        
+        task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
         let result = doctor_migrate_edges(temp.path(), false, false).unwrap();
-        
+
         assert_eq!(result.tasks_scanned, 2);
         assert_eq!(result.edges_created, 0);
         assert_eq!(result.edges_skipped, 0);
@@ -8057,28 +8870,48 @@ mod tests {
     fn test_doctor_migrate_edges_with_legacy_deps() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
-        
+
         // Create tasks
-        let task1 = task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
-        let task2 = task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
-        
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
         // Manually add legacy depends_on to task1
         let mut task = storage.get_task(&task1.id).unwrap();
         task.depends_on.push(task2.id.clone());
         task.updated_at = chrono::Utc::now();
         storage.update_task(&task).unwrap();
-        
+
         // Run migration
         let result = doctor_migrate_edges(temp.path(), false, false).unwrap();
-        
+
         assert_eq!(result.tasks_scanned, 2);
         assert_eq!(result.edges_created, 1);
         assert_eq!(result.edges_skipped, 0);
         assert_eq!(result.depends_on_cleared, 0); // clean_unused was false
-        
+
         // Verify edge was created
         let storage2 = Storage::open(temp.path()).unwrap();
-        let edges = storage2.list_edges(Some(EdgeType::DependsOn), Some(&task1.id), Some(&task2.id)).unwrap();
+        let edges = storage2
+            .list_edges(Some(EdgeType::DependsOn), Some(&task1.id), Some(&task2.id))
+            .unwrap();
         assert_eq!(edges.len(), 1);
     }
 
@@ -8086,26 +8919,46 @@ mod tests {
     fn test_doctor_migrate_edges_dry_run() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
-        
+
         // Create tasks
-        let task1 = task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
-        let task2 = task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
-        
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
         // Manually add legacy depends_on
         let mut task = storage.get_task(&task1.id).unwrap();
         task.depends_on.push(task2.id.clone());
         task.updated_at = chrono::Utc::now();
         storage.update_task(&task).unwrap();
-        
+
         // Run dry run
         let result = doctor_migrate_edges(temp.path(), false, true).unwrap();
-        
+
         assert!(result.dry_run);
         assert_eq!(result.edges_created, 1); // Would have created
-        
+
         // Verify no edge was actually created
         let storage2 = Storage::open(temp.path()).unwrap();
-        let edges = storage2.list_edges(Some(EdgeType::DependsOn), Some(&task1.id), Some(&task2.id)).unwrap();
+        let edges = storage2
+            .list_edges(Some(EdgeType::DependsOn), Some(&task1.id), Some(&task2.id))
+            .unwrap();
         assert_eq!(edges.len(), 0);
     }
 
@@ -8113,23 +8966,41 @@ mod tests {
     fn test_doctor_migrate_edges_clean_unused() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
-        
+
         // Create tasks
-        let task1 = task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
-        let task2 = task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
-        
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
         // Manually add legacy depends_on
         let mut task = storage.get_task(&task1.id).unwrap();
         task.depends_on.push(task2.id.clone());
         task.updated_at = chrono::Utc::now();
         storage.update_task(&task).unwrap();
-        
+
         // Run migration with clean_unused
         let result = doctor_migrate_edges(temp.path(), true, false).unwrap();
-        
+
         assert_eq!(result.edges_created, 1);
         assert_eq!(result.depends_on_cleared, 1);
-        
+
         // Verify depends_on was cleared
         let storage2 = Storage::open(temp.path()).unwrap();
         let task_after = storage2.get_task(&task1.id).unwrap();
@@ -8140,23 +9011,41 @@ mod tests {
     fn test_doctor_migrate_edges_skips_existing() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
-        
+
         // Create tasks
-        let task1 = task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
-        let task2 = task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
-        
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
         // Create edge first using the proper method
         link_add(temp.path(), &task1.id, &task2.id, "depends_on", None).unwrap();
-        
+
         // Also add legacy depends_on for the same relationship
         let mut task = storage.get_task(&task1.id).unwrap();
         task.depends_on.push(task2.id.clone());
         task.updated_at = chrono::Utc::now();
         storage.update_task(&task).unwrap();
-        
+
         // Run migration
         let result = doctor_migrate_edges(temp.path(), false, false).unwrap();
-        
+
         assert_eq!(result.edges_created, 0);
         assert_eq!(result.edges_skipped, 1);
     }
@@ -8164,17 +9053,26 @@ mod tests {
     #[test]
     fn test_doctor_migrate_edges_output_format() {
         let temp = setup();
-        
+
         // Create task without deps
-        task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
-        
+        task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
         let result = doctor_migrate_edges(temp.path(), false, true).unwrap();
-        
+
         // Test JSON output
         let json = result.to_json();
         assert!(json.contains("\"tasks_scanned\":1"));
         assert!(json.contains("\"dry_run\":true"));
-        
+
         // Test human output
         let human = result.to_human();
         assert!(human.contains("DRY RUN"));

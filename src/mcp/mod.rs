@@ -340,8 +340,15 @@ impl McpServer {
                 let priority = get_optional_u8(args, "priority");
                 let tags = get_string_array(args, "tags");
                 let assignee = get_optional_string(args, "assignee");
-                let result =
-                    commands::task_create(repo, title, short_name, description, priority, tags, assignee)?;
+                let result = commands::task_create(
+                    repo,
+                    title,
+                    short_name,
+                    description,
+                    priority,
+                    tags,
+                    assignee,
+                )?;
                 Ok(result.to_json())
             }
             "bn_task_list" => {
@@ -415,12 +422,10 @@ impl McpServer {
             }
             "bn_link_list" => {
                 let entity_id = get_optional_string(args, "entity_id");
-                let all = args
-                    .get("all")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+                let all = args.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
                 let edge_type = get_optional_string(args, "edge_type");
-                let result = commands::link_list(repo, entity_id.as_deref(), all, edge_type.as_deref())?;
+                let result =
+                    commands::link_list(repo, entity_id.as_deref(), all, edge_type.as_deref())?;
                 Ok(result.to_json())
             }
             "bn_ready" => {
@@ -523,7 +528,10 @@ impl McpServer {
             "bn_milestone_create" => {
                 let title = get_string_arg(args, "title")?;
                 let description = get_optional_string(args, "description");
-                let priority = args.get("priority").and_then(|v| v.as_u64()).map(|v| v as u8);
+                let priority = args
+                    .get("priority")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u8);
                 let tags = args
                     .get("tags")
                     .and_then(|v| v.as_array())
@@ -548,7 +556,10 @@ impl McpServer {
             }
             "bn_milestone_list" => {
                 let status = get_optional_string(args, "status");
-                let priority = args.get("priority").and_then(|v| v.as_u64()).map(|v| v as u8);
+                let priority = args
+                    .get("priority")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u8);
                 let tag = get_optional_string(args, "tag");
                 let result =
                     commands::milestone_list(repo, status.as_deref(), priority, tag.as_deref())?;
@@ -563,7 +574,10 @@ impl McpServer {
                 let id = get_string_arg(args, "id")?;
                 let title = get_optional_string(args, "title");
                 let description = get_optional_string(args, "description");
-                let priority = args.get("priority").and_then(|v| v.as_u64()).map(|v| v as u8);
+                let priority = args
+                    .get("priority")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u8);
                 let status = get_optional_string(args, "status");
                 let add_tags = args
                     .get("add_tags")
@@ -602,10 +616,7 @@ impl McpServer {
             "bn_milestone_close" => {
                 let id = get_string_arg(args, "id")?;
                 let reason = get_optional_string(args, "reason");
-                let force = args
-                    .get("force")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+                let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
                 let result = commands::milestone_close(repo, &id, reason, force)?;
                 Ok(result.to_json())
             }

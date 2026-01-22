@@ -47,22 +47,25 @@ pub enum BackendType {
 }
 
 impl BackendType {
-    /// Parse a backend type from a string.
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "file" | "external" | "default" => Some(Self::File),
-            "orphan" | "orphan-branch" | "branch" => Some(Self::OrphanBranch),
-            "notes" | "git-notes" => Some(Self::GitNotes),
-            _ => None,
-        }
-    }
-
     /// Get the string representation.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::File => "file",
             Self::OrphanBranch => "orphan-branch",
             Self::GitNotes => "git-notes",
+        }
+    }
+}
+
+impl std::str::FromStr for BackendType {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "file" | "external" | "default" => Ok(Self::File),
+            "orphan" | "orphan-branch" | "branch" => Ok(Self::OrphanBranch),
+            "notes" | "git-notes" => Ok(Self::GitNotes),
+            _ => Err(format!("unknown backend type: {}", s)),
         }
     }
 }

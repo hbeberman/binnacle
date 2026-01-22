@@ -20,7 +20,10 @@ fn bn() -> Command {
 /// Setup a temp directory and initialize binnacle.
 fn setup() -> TempDir {
     let temp = TempDir::new().unwrap();
-    bn().args(["system", "init"]).current_dir(temp.path()).assert().success();
+    bn().args(["system", "init"])
+        .current_dir(temp.path())
+        .assert()
+        .success();
     temp
 }
 

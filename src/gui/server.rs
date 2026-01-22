@@ -71,7 +71,8 @@ async fn serve_index() -> impl IntoResponse {
 /// Get all tasks
 async fn get_tasks(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
     let storage = state.storage.lock().await;
-    let tasks = storage.list_tasks(None, None, None)
+    let tasks = storage
+        .list_tasks(None, None, None)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "tasks": tasks })))
@@ -80,11 +81,13 @@ async fn get_tasks(State(state): State<AppState>) -> Result<Json<serde_json::Val
 /// Get ready tasks (no blockers)
 async fn get_ready(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
     let storage = state.storage.lock().await;
-    let tasks = storage.list_tasks(Some("pending"), None, None)
+    let tasks = storage
+        .list_tasks(Some("pending"), None, None)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Filter for tasks with no dependencies
-    let ready: Vec<_> = tasks.into_iter()
+    let ready: Vec<_> = tasks
+        .into_iter()
         .filter(|t| t.depends_on.is_empty())
         .collect();
 
@@ -94,7 +97,8 @@ async fn get_ready(State(state): State<AppState>) -> Result<Json<serde_json::Val
 /// Get all tests
 async fn get_tests(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
     let storage = state.storage.lock().await;
-    let tests = storage.list_tests(None)
+    let tests = storage
+        .list_tests(None)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "tests": tests })))
@@ -103,22 +107,26 @@ async fn get_tests(State(state): State<AppState>) -> Result<Json<serde_json::Val
 /// Get all edges
 async fn get_edges(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
     let storage = state.storage.lock().await;
-    let edges = storage.list_edges(None, None, None)
+    let edges = storage
+        .list_edges(None, None, None)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Transform edges to include bidirectional flag for GUI rendering
-    let edges_with_meta: Vec<serde_json::Value> = edges.iter().map(|e| {
-        serde_json::json!({
-            "id": e.id,
-            "source": e.source,
-            "target": e.target,
-            "edge_type": e.edge_type,
-            "weight": e.weight,
-            "reason": e.reason,
-            "bidirectional": e.is_bidirectional(),
-            "created_at": e.created_at
+    let edges_with_meta: Vec<serde_json::Value> = edges
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "id": e.id,
+                "source": e.source,
+                "target": e.target,
+                "edge_type": e.edge_type,
+                "weight": e.weight,
+                "reason": e.reason,
+                "bidirectional": e.is_bidirectional(),
+                "created_at": e.created_at
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({ "edges": edges_with_meta })))
 }
@@ -132,7 +140,8 @@ async fn get_log(State(state): State<AppState>) -> Result<Json<serde_json::Value
     let log_entries = if log_path.exists() {
         std::fs::read_to_string(&log_path)
             .map(|content| {
-                content.lines()
+                content
+                    .lines()
                     .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
                     .collect::<Vec<_>>()
             })

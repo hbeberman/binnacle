@@ -240,7 +240,10 @@ fn test_store_export_to_file() {
 
     let json = parse_json(&output);
     assert_eq!(json["exported"], true);
-    assert!(json["output_path"].as_str().unwrap().ends_with("backup.tar.gz"));
+    assert!(json["output_path"]
+        .as_str()
+        .unwrap()
+        .ends_with("backup.tar.gz"));
     assert!(json["size_bytes"].as_u64().unwrap() > 0);
     assert_eq!(json["task_count"], 1);
 
@@ -275,7 +278,13 @@ fn test_store_export_human_format() {
     let export_path = temp.path().join("backup.tar.gz");
 
     bn_in(&temp)
-        .args(["-H", "system", "store", "export", export_path.to_str().unwrap()])
+        .args([
+            "-H",
+            "system",
+            "store",
+            "export",
+            export_path.to_str().unwrap(),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Exported"))
@@ -623,7 +632,13 @@ fn test_store_import_human_format() {
 
     let temp2 = TempDir::new().unwrap();
     bn_in(&temp2)
-        .args(["-H", "system", "store", "import", export_path.to_str().unwrap()])
+        .args([
+            "-H",
+            "system",
+            "store",
+            "import",
+            export_path.to_str().unwrap(),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Imported"))
@@ -906,7 +921,10 @@ fn test_folder_import_merge_with_id_collision() {
     // Create source folder with specific task ID
     let source_temp = TempDir::new().unwrap();
     let import_folder = create_import_folder(&source_temp);
-    write_tasks_jsonl(&import_folder, &[("bn-collision", "Imported Collision Task")]);
+    write_tasks_jsonl(
+        &import_folder,
+        &[("bn-collision", "Imported Collision Task")],
+    );
 
     // Create dest repo and manually create a task (we'll force collision)
     let dest_temp = init_binnacle();
@@ -947,7 +965,7 @@ fn test_folder_import_merge_with_id_collision() {
     assert_eq!(json["imported"], true);
     assert_eq!(json["import_type"], "merge");
     assert_eq!(json["collisions"], 1);
-    assert!(json["id_remappings"].as_object().unwrap().len() > 0);
+    assert!(!json["id_remappings"].as_object().unwrap().is_empty());
 
     // Both tasks should exist (with remapped ID for second one)
     let list_output = bn_in(&dest_temp)
@@ -1015,12 +1033,7 @@ fn test_folder_import_missing_tasks_jsonl() {
     // Import should fail
     let dest_temp = TempDir::new().unwrap();
     bn_in(&dest_temp)
-        .args([
-            "system",
-            "store",
-            "import",
-            import_folder.to_str().unwrap(),
-        ])
+        .args(["system", "store", "import", import_folder.to_str().unwrap()])
         .assert()
         .failure()
         .stderr(predicate::str::contains("missing required tasks.jsonl"));

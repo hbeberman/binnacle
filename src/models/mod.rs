@@ -739,13 +739,25 @@ mod tests {
 
     #[test]
     fn test_edge_type_from_str() {
-        assert_eq!("depends_on".parse::<EdgeType>().unwrap(), EdgeType::DependsOn);
+        assert_eq!(
+            "depends_on".parse::<EdgeType>().unwrap(),
+            EdgeType::DependsOn
+        );
         assert_eq!("blocks".parse::<EdgeType>().unwrap(), EdgeType::Blocks);
-        assert_eq!("related_to".parse::<EdgeType>().unwrap(), EdgeType::RelatedTo);
-        assert_eq!("duplicates".parse::<EdgeType>().unwrap(), EdgeType::Duplicates);
+        assert_eq!(
+            "related_to".parse::<EdgeType>().unwrap(),
+            EdgeType::RelatedTo
+        );
+        assert_eq!(
+            "duplicates".parse::<EdgeType>().unwrap(),
+            EdgeType::Duplicates
+        );
         assert_eq!("fixes".parse::<EdgeType>().unwrap(), EdgeType::Fixes);
         assert_eq!("caused_by".parse::<EdgeType>().unwrap(), EdgeType::CausedBy);
-        assert_eq!("supersedes".parse::<EdgeType>().unwrap(), EdgeType::Supersedes);
+        assert_eq!(
+            "supersedes".parse::<EdgeType>().unwrap(),
+            EdgeType::Supersedes
+        );
         assert_eq!("parent_of".parse::<EdgeType>().unwrap(), EdgeType::ParentOf);
         assert_eq!("child_of".parse::<EdgeType>().unwrap(), EdgeType::ChildOf);
         assert_eq!("tests".parse::<EdgeType>().unwrap(), EdgeType::Tests);
