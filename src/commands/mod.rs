@@ -12,7 +12,7 @@ use crate::models::{
     Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone, Task, TaskStatus,
     TestNode, TestResult,
 };
-use crate::storage::{generate_id, parse_status, EntityType, Storage};
+use crate::storage::{EntityType, Storage, generate_id, parse_status};
 use crate::{Error, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -5597,8 +5597,8 @@ pub fn system_store_export(
     output: &str,
     format: &str,
 ) -> Result<StoreExportResult> {
-    use flate2::write::GzEncoder;
     use flate2::Compression;
+    use flate2::write::GzEncoder;
 
     if format != "archive" {
         return Err(Error::InvalidInput(format!(
@@ -5871,7 +5871,7 @@ pub fn system_store_import(
         Storage::init(repo_path)?
     };
 
-    // Parse imported tasks
+    // Parse imported tasks (handles multiple JSON objects per line if corrupted)
     let mut imported_tasks: Vec<Task> = Vec::new();
     if let Some(tasks_data) = tasks_jsonl {
         let tasks_str = String::from_utf8_lossy(&tasks_data);
@@ -5879,8 +5879,12 @@ pub fn system_store_import(
             if line.trim().is_empty() {
                 continue;
             }
-            let task: Task = serde_json::from_str(line)?;
-            imported_tasks.push(task);
+            // Use StreamDeserializer to handle multiple JSON objects on same line
+            let stream = serde_json::Deserializer::from_str(line).into_iter::<Task>();
+            for result in stream {
+                let task = result?;
+                imported_tasks.push(task);
+            }
         }
     }
 
@@ -5917,9 +5921,11 @@ pub fn system_store_import(
         });
     }
 
-    // Import tasks with remapping
+    // Import tasks with remapping - two-pass approach to handle dependencies
+    // Pass 1: Create all tasks without dependencies (avoids FK constraint issues)
     let mut tasks_imported = 0;
     let import_timestamp = Utc::now();
+    let mut task_dependencies: Vec<(String, Vec<String>)> = Vec::new();
 
     for mut task in imported_tasks {
         // Remap task ID if needed
@@ -5927,7 +5933,7 @@ pub fn system_store_import(
             task.id = new_id.clone();
         }
 
-        // Remap dependencies
+        // Remap dependencies and save for later
         let mut new_depends_on = Vec::new();
         for dep in &task.depends_on {
             if let Some(new_dep_id) = id_remappings.get(dep) {
@@ -5936,16 +5942,33 @@ pub fn system_store_import(
                 new_depends_on.push(dep.clone());
             }
         }
-        task.depends_on = new_depends_on;
+
+        // Store dependencies for pass 2
+        if !new_depends_on.is_empty() {
+            task_dependencies.push((task.id.clone(), new_depends_on));
+        }
+
+        // Clear dependencies for initial insert to avoid FK errors
+        task.depends_on = Vec::new();
 
         // Set imported_on timestamp if merging
         if import_type == "merge" {
             task.imported_on = Some(import_timestamp);
         }
 
-        // Create task
+        // Create task without dependencies
         storage.create_task(&task)?;
         tasks_imported += 1;
+    }
+
+    // Pass 2: Add dependencies now that all tasks exist
+    for (task_id, depends_on) in task_dependencies {
+        // Get the task from storage
+        if let Ok(mut task) = storage.get_task(&task_id) {
+            task.depends_on = depends_on;
+            task.updated_at = Utc::now();
+            storage.update_task(&task)?;
+        }
     }
 
     // Import commits (simple append, no ID remapping needed for now)
@@ -6107,7 +6130,7 @@ fn system_store_import_from_folder(
         Storage::init(repo_path)?
     };
 
-    // Parse imported tasks
+    // Parse imported tasks (handles multiple JSON objects per line if corrupted)
     let mut imported_tasks: Vec<Task> = Vec::new();
     if let Some(tasks_data) = tasks_jsonl {
         let tasks_str = String::from_utf8_lossy(&tasks_data);
@@ -6115,8 +6138,12 @@ fn system_store_import_from_folder(
             if line.trim().is_empty() {
                 continue;
             }
-            let task: Task = serde_json::from_str(line)?;
-            imported_tasks.push(task);
+            // Use StreamDeserializer to handle multiple JSON objects on same line
+            let stream = serde_json::Deserializer::from_str(line).into_iter::<Task>();
+            for result in stream {
+                let task = result?;
+                imported_tasks.push(task);
+            }
         }
     }
 
@@ -6175,9 +6202,11 @@ fn system_store_import_from_folder(
         });
     }
 
-    // Import tasks with remapping
+    // Import tasks with remapping - two-pass approach to handle dependencies
+    // Pass 1: Create all tasks without dependencies (avoids FK constraint issues)
     let mut tasks_imported = 0;
     let import_timestamp = Utc::now();
+    let mut task_dependencies: Vec<(String, Vec<String>)> = Vec::new();
 
     for mut task in imported_tasks {
         // Remap task ID if needed
@@ -6185,7 +6214,7 @@ fn system_store_import_from_folder(
             task.id = new_id.clone();
         }
 
-        // Remap dependencies
+        // Remap dependencies and save for later
         let mut new_depends_on = Vec::new();
         for dep in &task.depends_on {
             if let Some(new_dep_id) = id_remappings.get(dep) {
@@ -6194,16 +6223,33 @@ fn system_store_import_from_folder(
                 new_depends_on.push(dep.clone());
             }
         }
-        task.depends_on = new_depends_on;
+
+        // Store dependencies for pass 2
+        if !new_depends_on.is_empty() {
+            task_dependencies.push((task.id.clone(), new_depends_on));
+        }
+
+        // Clear dependencies for initial insert to avoid FK errors
+        task.depends_on = Vec::new();
 
         // Set imported_on timestamp if merging
         if import_type == "merge" {
             task.imported_on = Some(import_timestamp);
         }
 
-        // Create task
+        // Create task without dependencies
         storage.create_task(&task)?;
         tasks_imported += 1;
+    }
+
+    // Pass 2: Add dependencies now that all tasks exist
+    for (task_id, depends_on) in task_dependencies {
+        // Get the task from storage
+        if let Ok(mut task) = storage.get_task(&task_id) {
+            task.depends_on = depends_on;
+            task.updated_at = Utc::now();
+            storage.update_task(&task)?;
+        }
     }
 
     // Import commits (simple append, no ID remapping needed for now)
@@ -7664,14 +7710,18 @@ mod tests {
 
         let result = config_list(temp.path()).unwrap();
         assert_eq!(result.count, 2);
-        assert!(result
-            .configs
-            .iter()
-            .any(|(k, v)| k == "key1" && v == "value1"));
-        assert!(result
-            .configs
-            .iter()
-            .any(|(k, v)| k == "key2" && v == "value2"));
+        assert!(
+            result
+                .configs
+                .iter()
+                .any(|(k, v)| k == "key1" && v == "value1")
+        );
+        assert!(
+            result
+                .configs
+                .iter()
+                .any(|(k, v)| k == "key2" && v == "value2")
+        );
     }
 
     #[test]
@@ -8431,9 +8481,11 @@ mod tests {
         let blocking = result.blocking_info.unwrap();
 
         // Check summary format
-        assert!(blocking
-            .summary
-            .contains("Blocked by 2 incomplete dependencies"));
+        assert!(
+            blocking
+                .summary
+                .contains("Blocked by 2 incomplete dependencies")
+        );
         assert!(blocking.summary.contains(&task_a.id));
         assert!(blocking.summary.contains("pending"));
         assert!(blocking.summary.contains(&task_b.id));
@@ -8930,10 +8982,12 @@ mod tests {
             None,
         );
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Priority must be 0-4"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Priority must be 0-4")
+        );
     }
 
     #[test]
@@ -9175,12 +9229,16 @@ mod tests {
         assert!(updated.updated_fields.contains(&"severity".to_string()));
         assert!(updated.updated_fields.contains(&"tags".to_string()));
         assert!(updated.updated_fields.contains(&"assignee".to_string()));
-        assert!(updated
-            .updated_fields
-            .contains(&"reproduction_steps".to_string()));
-        assert!(updated
-            .updated_fields
-            .contains(&"affected_component".to_string()));
+        assert!(
+            updated
+                .updated_fields
+                .contains(&"reproduction_steps".to_string())
+        );
+        assert!(
+            updated
+                .updated_fields
+                .contains(&"affected_component".to_string())
+        );
 
         let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.bug.title, "Updated bug");
@@ -9295,10 +9353,12 @@ mod tests {
             None,
         );
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("No fields to update"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No fields to update")
+        );
     }
 
     #[test]
@@ -9332,10 +9392,12 @@ mod tests {
             None,
         );
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Priority must be 0-4"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Priority must be 0-4")
+        );
     }
 
     #[test]
