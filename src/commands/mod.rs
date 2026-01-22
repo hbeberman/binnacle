@@ -5806,6 +5806,7 @@ pub fn system_store_import(
     // Extract files to memory
     let mut manifest: Option<ExportManifest> = None;
     let mut tasks_jsonl: Option<Vec<u8>> = None;
+    let mut bugs_jsonl: Option<Vec<u8>> = None;
     let mut edges_jsonl: Option<Vec<u8>> = None;
     let mut commits_jsonl: Option<Vec<u8>> = None;
     let mut test_results_jsonl: Option<Vec<u8>> = None;
@@ -5822,6 +5823,8 @@ pub fn system_store_import(
             manifest = Some(serde_json::from_slice(&data)?);
         } else if path_str.ends_with("tasks.jsonl") {
             tasks_jsonl = Some(data);
+        } else if path_str.ends_with("bugs.jsonl") {
+            bugs_jsonl = Some(data);
         } else if path_str.ends_with("edges.jsonl") {
             edges_jsonl = Some(data);
         } else if path_str.ends_with("commits.jsonl") {
@@ -5979,6 +5982,20 @@ pub fn system_store_import(
         file.write_all(&edges_data)?;
     }
 
+    // Import bugs
+    if let Some(bugs_data) = bugs_jsonl {
+        let storage_root = storage.root();
+        let bugs_file = storage_root.join("bugs.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&bugs_file)?;
+
+        file.write_all(&bugs_data)?;
+    }
+
     // Import test results
     let mut tests_imported = 0;
     if let Some(test_data) = test_results_jsonl {
@@ -6020,6 +6037,8 @@ pub fn system_store_import(
 ///
 /// Expected folder structure:
 /// - tasks.jsonl (required)
+/// - bugs.jsonl (optional)
+/// - edges.jsonl (optional)
 /// - commits.jsonl (optional)
 /// - test-results.jsonl (optional)
 /// - cache.db (ignored - rebuilt after import)
@@ -6040,6 +6059,20 @@ fn system_store_import_from_folder(
 
     // Read JSONL files from folder
     let tasks_jsonl = Some(fs::read(&tasks_file)?);
+
+    let bugs_file = folder_path.join("bugs.jsonl");
+    let bugs_jsonl = if bugs_file.exists() {
+        Some(fs::read(&bugs_file)?)
+    } else {
+        None
+    };
+
+    let edges_file = folder_path.join("edges.jsonl");
+    let edges_jsonl = if edges_file.exists() {
+        Some(fs::read(&edges_file)?)
+    } else {
+        None
+    };
 
     let commits_file = folder_path.join("commits.jsonl");
     let commits_jsonl = if commits_file.exists() {
@@ -6191,6 +6224,34 @@ fn system_store_import_from_folder(
         // Count commits
         let commits_str = String::from_utf8_lossy(&commits_data);
         commits_imported = commits_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Import edges
+    if let Some(edges_data) = edges_jsonl {
+        let storage_root = storage.root();
+        let edges_file = storage_root.join("edges.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&edges_file)?;
+
+        file.write_all(&edges_data)?;
+    }
+
+    // Import bugs
+    if let Some(bugs_data) = bugs_jsonl {
+        let storage_root = storage.root();
+        let bugs_file = storage_root.join("bugs.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&bugs_file)?;
+
+        file.write_all(&bugs_data)?;
     }
 
     // Import test results
