@@ -1218,13 +1218,39 @@
 
         // Data loading
         async function loadData() {
-            await Promise.all([
-                fetch('/api/tasks').then(r => r.json()).then(data => state.tasks = data.tasks),
-                fetch('/api/ready').then(r => r.json()).then(data => state.ready = data.tasks),
-                fetch('/api/tests').then(r => r.json()).then(data => state.tests = data.tests),
-                fetch('/api/log').then(r => r.json()).then(data => state.log = data.log),
-                fetch('/api/edges').then(r => r.json()).then(data => state.edges = data.edges)
+            // Load all data in parallel
+            const [tasksData, bugsData, ideasData, readyData, testsData, logData, edgesData] = await Promise.all([
+                fetch('/api/tasks').then(r => r.json()),
+                fetch('/api/bugs').then(r => r.json()),
+                fetch('/api/ideas').then(r => r.json()),
+                fetch('/api/ready').then(r => r.json()),
+                fetch('/api/tests').then(r => r.json()),
+                fetch('/api/log').then(r => r.json()),
+                fetch('/api/edges').then(r => r.json())
             ]);
+            
+            // Merge tasks, bugs, and ideas into unified tasks array for graph
+            // Normalize bugs and ideas to have task-like fields for consistent rendering
+            const normalizedBugs = (bugsData.bugs || []).map(bug => ({
+                ...bug,
+                type: 'bug',
+                priority: bug.priority ?? 2,  // Default P2 if not set
+                short_name: bug.short_name || null
+            }));
+            const normalizedIdeas = (ideasData.ideas || []).map(idea => ({
+                ...idea,
+                type: 'idea',
+                priority: 4,  // Ideas are low priority by default
+                short_name: idea.short_name || null,
+                depends_on: idea.depends_on || []
+            }));
+            
+            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas];
+            state.ready = readyData.tasks || [];
+            state.tests = testsData.tests || [];
+            state.log = logData.log || [];
+            state.edges = edgesData.edges || [];
+            
             updateStatsOverlay();
             renderCurrentView();
         }

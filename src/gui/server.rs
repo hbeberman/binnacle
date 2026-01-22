@@ -46,6 +46,8 @@ pub async fn start_server(repo_path: &Path, port: u16) -> Result<(), Box<dyn std
     let app = Router::new()
         .route("/", get(serve_index))
         .route("/api/tasks", get(get_tasks))
+        .route("/api/bugs", get(get_bugs))
+        .route("/api/ideas", get(get_ideas))
         .route("/api/ready", get(get_ready))
         .route("/api/tests", get(get_tests))
         .route("/api/edges", get(get_edges))
@@ -76,6 +78,26 @@ async fn get_tasks(State(state): State<AppState>) -> Result<Json<serde_json::Val
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "tasks": tasks })))
+}
+
+/// Get all bugs
+async fn get_bugs(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+    let bugs = storage
+        .list_bugs(None, None, None, None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({ "bugs": bugs })))
+}
+
+/// Get all ideas
+async fn get_ideas(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+    let ideas = storage
+        .list_ideas(None, None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({ "ideas": ideas })))
 }
 
 /// Get ready tasks (no blockers)
