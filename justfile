@@ -30,8 +30,10 @@ gui:
     CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/binnacle"
     mkdir -p "$CACHE_DIR"
     cp ~/.local/bin/bn "$CACHE_DIR/bn-gui"
+    # Use fixed port (3030) for predictable testing - can be overridden with BN_GUI_PORT env var
+    export BN_GUI_PORT="${BN_GUI_PORT:-3030}"
     "$CACHE_DIR/bn-gui" gui&
-    echo "Launched binnacle GUI as PID $! (from $CACHE_DIR/bn-gui)"
+    echo "Launched binnacle GUI at http://127.0.0.1:$BN_GUI_PORT (PID $!)"
 
 # Run clippy with strict warnings
 clippy:
