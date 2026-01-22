@@ -2365,6 +2365,14 @@
             const ctx = canvas.getContext('2d');
             const { nodes, edges, physics } = state.graph;
 
+            // Update canvas size if window was resized
+            const displayWidth = canvas.clientWidth;
+            const displayHeight = canvas.clientHeight;
+            if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+                canvas.width = displayWidth;
+                canvas.height = displayHeight;
+            }
+
             // Update camera pan animation if active
             updatePanAnimation();
 
