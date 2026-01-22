@@ -30,6 +30,16 @@
             --edge-fixes: #5cb85c;
             --edge-hierarchy: #9b6ed8;
             --edge-default: #3a4d66;
+            /* Node type colors - bugs (reddish) */
+            --bug-pending: #e07878;
+            --bug-in-progress: #d95050;
+            --bug-blocked: #b33a3a;
+            --bug-done: #8fbc8f;
+            /* Node type colors - ideas (atomic purple) */
+            --idea-pending: #b088e0;
+            --idea-in-progress: #9b6ed8;
+            --idea-blocked: #7a4db3;
+            --idea-done: #8fbc8f;
         }
 
         body {
@@ -2454,7 +2464,31 @@
                 'blocked': '#d9534f',
                 'done': '#5cb85c'
             };
-            const color = colors[node.status] || '#4a90e2';
+            
+            // Bug colors (reddish tones) - use CSS variables
+            const bugColors = {
+                'pending': '#e07878',      // --bug-pending
+                'in_progress': '#d95050',  // --bug-in-progress
+                'blocked': '#b33a3a',      // --bug-blocked
+                'done': '#8fbc8f'          // --bug-done
+            };
+            
+            // Idea colors (atomic purple) - use CSS variables
+            const ideaColors = {
+                'pending': '#b088e0',      // --idea-pending
+                'in_progress': '#9b6ed8',  // --idea-in-progress
+                'blocked': '#7a4db3',      // --idea-blocked
+                'done': '#8fbc8f'          // --idea-done
+            };
+            
+            // Select color palette based on node type
+            let colorPalette = colors;
+            if (node.type === 'bug') {
+                colorPalette = bugColors;
+            } else if (node.type === 'idea') {
+                colorPalette = ideaColors;
+            }
+            const color = colorPalette[node.status] || '#4a90e2';
             
             // Apply dimming for filtered-out nodes
             ctx.globalAlpha = isDimmed ? 0.3 : 1.0;
