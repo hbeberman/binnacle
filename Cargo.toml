@@ -5,6 +5,7 @@ edition = "2024"
 description = "A CLI tool for AI agents and humans to track project graphs"
 license = "MIT"
 repository = "https://github.com/hbeberman/binnacle"
+readme = "README.md"
 keywords = ["agent", "ai", "graph"]
 categories = ["development-tools", "command-line-utilities"]
 
