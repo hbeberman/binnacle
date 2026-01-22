@@ -1300,40 +1300,46 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResponse> {
                     let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
                     let edges = build_edges_info(&storage, hydrated_edges);
 
-                    Ok(TaskShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
-                        note: format!("{} is a bug, not a task", id),
-                        actual_type: "bug".to_string(),
-                        task: None,
-                        bug: Some(BugShowResult {
-                            bug,
-                            blocking_info,
-                            edges,
-                        }),
-                        test: None,
-                        milestone: None,
-                    })))
+                    Ok(TaskShowResponse::TypeMismatch(Box::new(
+                        EntityMismatchResult {
+                            note: format!("{} is a bug, not a task", id),
+                            actual_type: "bug".to_string(),
+                            task: None,
+                            bug: Some(BugShowResult {
+                                bug,
+                                blocking_info,
+                                edges,
+                            }),
+                            test: None,
+                            milestone: None,
+                        },
+                    )))
                 }
                 Ok(EntityType::Test) => {
                     let test = storage.get_test(id)?;
-                    Ok(TaskShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
-                        note: format!("{} is a test, not a task", id),
-                        actual_type: "test".to_string(),
-                        task: None,
-                        bug: None,
-                        test: Some(test),
-                        milestone: None,
-                    })))
+                    Ok(TaskShowResponse::TypeMismatch(Box::new(
+                        EntityMismatchResult {
+                            note: format!("{} is a test, not a task", id),
+                            actual_type: "test".to_string(),
+                            task: None,
+                            bug: None,
+                            test: Some(test),
+                            milestone: None,
+                        },
+                    )))
                 }
                 Ok(EntityType::Milestone) => {
                     let milestone = storage.get_milestone(id)?;
-                    Ok(TaskShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
-                        note: format!("{} is a milestone, not a task", id),
-                        actual_type: "milestone".to_string(),
-                        task: None,
-                        bug: None,
-                        test: None,
-                        milestone: Some(milestone),
-                    })))
+                    Ok(TaskShowResponse::TypeMismatch(Box::new(
+                        EntityMismatchResult {
+                            note: format!("{} is a milestone, not a task", id),
+                            actual_type: "milestone".to_string(),
+                            task: None,
+                            bug: None,
+                            test: None,
+                            milestone: Some(milestone),
+                        },
+                    )))
                 }
                 _ => Err(Error::NotFound(format!("Task not found: {}", id))),
             }
@@ -1343,7 +1349,10 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResponse> {
 }
 
 /// Helper to build edge info from hydrated edges.
-fn build_edges_info(storage: &Storage, hydrated_edges: Vec<crate::models::HydratedEdge>) -> Vec<TaskEdgeInfo> {
+fn build_edges_info(
+    storage: &Storage,
+    hydrated_edges: Vec<crate::models::HydratedEdge>,
+) -> Vec<TaskEdgeInfo> {
     hydrated_edges
         .into_iter()
         .map(|he| {
@@ -1655,6 +1664,21 @@ pub fn task_close(
             incomplete_deps.len(),
             dep_list.join("\n  - ")
         )));
+    }
+
+    // Check for linked commits if require_commit_for_close is enabled
+    if config_get_bool(repo_path, "require_commit_for_close", false) && !force {
+        let commits = storage.get_commits_for_task(id)?;
+        if commits.is_empty() {
+            return Err(Error::Other(format!(
+                "Cannot close task {} - no commits linked\n\n\
+                This repository requires commits to be linked before closing tasks.\n\
+                Link a commit with: bn commit link <sha> {}\n\
+                Or bypass with: bn task close {} --force\n\n\
+                Hint: Run 'git log --oneline -5' to see recent commits.",
+                id, id, id
+            )));
+        }
     }
 
     // Proceed with close
@@ -2144,40 +2168,46 @@ pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResponse> {
                     let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
                     let edges = build_edges_info(&storage, hydrated_edges);
 
-                    Ok(BugShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
-                        note: format!("{} is a task, not a bug", id),
-                        actual_type: "task".to_string(),
-                        task: Some(TaskShowResult {
-                            task,
-                            blocking_info,
-                            edges,
-                        }),
-                        bug: None,
-                        test: None,
-                        milestone: None,
-                    })))
+                    Ok(BugShowResponse::TypeMismatch(Box::new(
+                        EntityMismatchResult {
+                            note: format!("{} is a task, not a bug", id),
+                            actual_type: "task".to_string(),
+                            task: Some(TaskShowResult {
+                                task,
+                                blocking_info,
+                                edges,
+                            }),
+                            bug: None,
+                            test: None,
+                            milestone: None,
+                        },
+                    )))
                 }
                 Ok(EntityType::Test) => {
                     let test = storage.get_test(id)?;
-                    Ok(BugShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
-                        note: format!("{} is a test, not a bug", id),
-                        actual_type: "test".to_string(),
-                        task: None,
-                        bug: None,
-                        test: Some(test),
-                        milestone: None,
-                    })))
+                    Ok(BugShowResponse::TypeMismatch(Box::new(
+                        EntityMismatchResult {
+                            note: format!("{} is a test, not a bug", id),
+                            actual_type: "test".to_string(),
+                            task: None,
+                            bug: None,
+                            test: Some(test),
+                            milestone: None,
+                        },
+                    )))
                 }
                 Ok(EntityType::Milestone) => {
                     let milestone = storage.get_milestone(id)?;
-                    Ok(BugShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
-                        note: format!("{} is a milestone, not a bug", id),
-                        actual_type: "milestone".to_string(),
-                        task: None,
-                        bug: None,
-                        test: None,
-                        milestone: Some(milestone),
-                    })))
+                    Ok(BugShowResponse::TypeMismatch(Box::new(
+                        EntityMismatchResult {
+                            note: format!("{} is a milestone, not a bug", id),
+                            actual_type: "milestone".to_string(),
+                            task: None,
+                            bug: None,
+                            test: None,
+                            milestone: Some(milestone),
+                        },
+                    )))
                 }
                 _ => Err(Error::NotFound(format!("Bug not found: {}", id))),
             }
@@ -6329,6 +6359,105 @@ mod tests {
     }
 
     #[test]
+    fn test_task_close_requires_commit_when_config_enabled() {
+        let temp = setup();
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Enable require_commit_for_close
+        config_set(temp.path(), "require_commit_for_close", "true").unwrap();
+
+        // Should fail without linked commit
+        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("no commits linked"));
+        assert!(err_msg.contains("bn commit link"));
+    }
+
+    #[test]
+    fn test_task_close_succeeds_with_linked_commit_when_config_enabled() {
+        let temp = setup();
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Enable require_commit_for_close
+        config_set(temp.path(), "require_commit_for_close", "true").unwrap();
+
+        // Link a commit
+        commit_link(
+            temp.path(),
+            "abc1234def5678abc1234def5678abc1234def56",
+            &task.id,
+        )
+        .unwrap();
+
+        // Should succeed with linked commit
+        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_task_close_force_bypasses_commit_requirement() {
+        let temp = setup();
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Enable require_commit_for_close
+        config_set(temp.path(), "require_commit_for_close", "true").unwrap();
+
+        // Should succeed with --force even without commit
+        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_task_close_works_without_commit_when_config_disabled() {
+        let temp = setup();
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Explicitly disable require_commit_for_close (default)
+        config_set(temp.path(), "require_commit_for_close", "false").unwrap();
+
+        // Should succeed without commit
+        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn test_task_delete() {
         let temp = setup();
         let created = task_create(
@@ -9446,8 +9575,16 @@ mod tests {
         let temp = setup();
 
         // Non-existent key should return default
-        assert!(!config_get_bool(temp.path(), "require_commit_for_close", false));
-        assert!(config_get_bool(temp.path(), "require_commit_for_close", true));
+        assert!(!config_get_bool(
+            temp.path(),
+            "require_commit_for_close",
+            false
+        ));
+        assert!(config_get_bool(
+            temp.path(),
+            "require_commit_for_close",
+            true
+        ));
     }
 
     #[test]
