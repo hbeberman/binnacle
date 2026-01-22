@@ -1238,7 +1238,8 @@
         // Data loading
         async function loadData() {
             // Load all data in parallel
-            const [tasksData, bugsData, ideasData, readyData, testsData, logData, edgesData] = await Promise.all([
+            const [configData, tasksData, bugsData, ideasData, readyData, testsData, logData, edgesData] = await Promise.all([
+                fetch('/api/config').then(r => r.json()),
                 fetch('/api/tasks').then(r => r.json()),
                 fetch('/api/bugs').then(r => r.json()),
                 fetch('/api/ideas').then(r => r.json()),
@@ -1247,6 +1248,11 @@
                 fetch('/api/log').then(r => r.json()),
                 fetch('/api/edges').then(r => r.json())
             ]);
+            
+            // Update the document title with project name
+            if (configData.project_name) {
+                document.title = `🧭 ${configData.project_name} - Binnacle`;
+            }
             
             // Merge tasks, bugs, and ideas into unified tasks array for graph
             // Normalize bugs and ideas to have task-like fields for consistent rendering

@@ -21,6 +21,8 @@ pub struct AppState {
     pub storage: Arc<Mutex<Storage>>,
     /// Broadcast channel for sending updates to WebSocket clients
     pub update_tx: broadcast::Sender<String>,
+    /// Name of the project folder (for display in GUI title)
+    pub project_name: String,
 }
 
 /// Start the GUI web server
@@ -29,9 +31,17 @@ pub async fn start_server(repo_path: &Path, port: u16) -> Result<(), Box<dyn std
     let storage_dir = crate::storage::get_storage_dir(repo_path)?;
     let (update_tx, _) = broadcast::channel(100);
 
+    // Extract project name from repo path
+    let project_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Unknown")
+        .to_string();
+
     let state = AppState {
         storage: Arc::new(Mutex::new(storage)),
         update_tx,
+        project_name,
     };
 
     // Start file watcher in background
@@ -45,6 +55,7 @@ pub async fn start_server(repo_path: &Path, port: u16) -> Result<(), Box<dyn std
 
     let app = Router::new()
         .route("/", get(serve_index))
+        .route("/api/config", get(get_config))
         .route("/api/tasks", get(get_tasks))
         .route("/api/bugs", get(get_bugs))
         .route("/api/ideas", get(get_ideas))
@@ -68,6 +79,13 @@ pub async fn start_server(repo_path: &Path, port: u16) -> Result<(), Box<dyn std
 /// Serve the main HTML page
 async fn serve_index() -> impl IntoResponse {
     Html(include_str!("index.html"))
+}
+
+/// Get configuration info (project name, etc.)
+async fn get_config(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "project_name": state.project_name
+    }))
 }
 
 /// Get all tasks
