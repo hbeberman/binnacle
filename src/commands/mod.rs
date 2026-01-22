@@ -1595,10 +1595,313 @@ pub fn bug_list(
     Ok(BugList { bugs, count })
 }
 
-/// Show a bug by ID.
-pub fn bug_show(repo_path: &Path, id: &str) -> Result<Bug> {
+/// Result of bug_show with edge information.
+#[derive(Serialize)]
+pub struct BugShowResult {
+    #[serde(flatten)]
+    pub bug: Bug,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocking_info: Option<BlockingInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub edges: Vec<TaskEdgeInfo>,
+}
+
+impl Output for BugShowResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("Bug: {}", self.bug.id));
+        lines.push(format!("Title: {}", self.bug.title));
+        lines.push(format!("Status: {:?}", self.bug.status));
+        lines.push(format!("Priority: P{}", self.bug.priority));
+        lines.push(format!("Severity: {:?}", self.bug.severity));
+
+        if !self.bug.tags.is_empty() {
+            lines.push(format!("Tags: {}", self.bug.tags.join(", ")));
+        }
+
+        if let Some(ref desc) = self.bug.description {
+            lines.push(format!("Description: {}", desc));
+        }
+
+        if let Some(ref steps) = self.bug.reproduction_steps {
+            lines.push(format!("Reproduction steps: {}", steps));
+        }
+
+        if let Some(ref component) = self.bug.affected_component {
+            lines.push(format!("Affected component: {}", component));
+        }
+
+        if let Some(ref assignee) = self.bug.assignee {
+            lines.push(format!("Assignee: {}", assignee));
+        }
+
+        // Show legacy dependencies (if any)
+        if !self.bug.depends_on.is_empty() {
+            lines.push(format!(
+                "\nDependencies ({}): {}",
+                self.bug.depends_on.len(),
+                self.bug.depends_on.join(", ")
+            ));
+        }
+
+        // Show edge-based relationships grouped by type
+        if !self.edges.is_empty() {
+            lines.push(String::new());
+            
+            // Group edges by type and direction
+            let mut depends_on: Vec<&TaskEdgeInfo> = Vec::new();
+            let mut blocks: Vec<&TaskEdgeInfo> = Vec::new();
+            let mut related: Vec<&TaskEdgeInfo> = Vec::new();
+            let mut fixed_by: Vec<&TaskEdgeInfo> = Vec::new();
+            let mut other: Vec<&TaskEdgeInfo> = Vec::new();
+
+            for edge in &self.edges {
+                match edge.edge_type.as_str() {
+                    "depends_on" if edge.direction == "outbound" => depends_on.push(edge),
+                    "depends_on" if edge.direction == "inbound" => blocks.push(edge),
+                    "blocks" if edge.direction == "outbound" => blocks.push(edge),
+                    "related_to" => related.push(edge),
+                    "fixes" if edge.direction == "inbound" => fixed_by.push(edge),
+                    _ => other.push(edge),
+                }
+            }
+
+            if !depends_on.is_empty() {
+                lines.push("Dependencies (edges):".to_string());
+                for e in depends_on {
+                    let status = e.related_status.as_deref().unwrap_or("unknown");
+                    let title = e.related_title.as_deref().unwrap_or("");
+                    lines.push(format!("  → {} \"{}\" [{}]", e.related_id, title, status));
+                }
+            }
+
+            if !blocks.is_empty() {
+                lines.push("Blocks:".to_string());
+                for e in blocks {
+                    let status = e.related_status.as_deref().unwrap_or("unknown");
+                    let title = e.related_title.as_deref().unwrap_or("");
+                    lines.push(format!("  ← {} \"{}\" [{}]", e.related_id, title, status));
+                }
+            }
+
+            if !fixed_by.is_empty() {
+                lines.push("Fixed by:".to_string());
+                for e in fixed_by {
+                    let status = e.related_status.as_deref().unwrap_or("unknown");
+                    let title = e.related_title.as_deref().unwrap_or("");
+                    lines.push(format!("  ← {} \"{}\" [{}]", e.related_id, title, status));
+                }
+            }
+
+            if !related.is_empty() {
+                lines.push("Related:".to_string());
+                for e in related {
+                    let status = e.related_status.as_deref().unwrap_or("unknown");
+                    let title = e.related_title.as_deref().unwrap_or("");
+                    lines.push(format!("  ↔ {} \"{}\" [{}]", e.related_id, title, status));
+                }
+            }
+
+            if !other.is_empty() {
+                lines.push("Other links:".to_string());
+                for e in other {
+                    let arrow = match e.direction.as_str() {
+                        "outbound" => "→",
+                        "inbound" => "←",
+                        _ => "↔",
+                    };
+                    let status = e.related_status.as_deref().unwrap_or("unknown");
+                    let title = e.related_title.as_deref().unwrap_or("");
+                    lines.push(format!("  {} {} \"{}\" ({}) [{}]", arrow, e.related_id, title, e.edge_type, status));
+                }
+            }
+        }
+
+        if let Some(ref blocking) = self.blocking_info {
+            lines.push(format!("\n{}", blocking.summary));
+        }
+
+        if let Some(ref closed_at) = self.bug.closed_at {
+            lines.push(format!("\nClosed at: {}", closed_at));
+            if let Some(ref reason) = self.bug.closed_reason {
+                lines.push(format!("Reason: {}", reason));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Show a bug by ID with edge information.
+pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResult> {
     let storage = Storage::open(repo_path)?;
-    storage.get_bug(id)
+    let bug = storage.get_bug(id)?;
+
+    // Analyze blocking status if bug has dependencies (legacy or edge-based)
+    let edge_deps = storage.get_edge_dependencies(id).unwrap_or_default();
+    let blocking_info = if !bug.depends_on.is_empty() || !edge_deps.is_empty() {
+        Some(analyze_bug_blockers(&storage, &bug)?)
+    } else {
+        None
+    };
+
+    // Fetch edges for this bug
+    let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
+    let edges: Vec<TaskEdgeInfo> = hydrated_edges
+        .into_iter()
+        .map(|he| {
+            let related_id = if he.direction == EdgeDirection::Inbound {
+                he.edge.source.clone()
+            } else {
+                he.edge.target.clone()
+            };
+            
+            // Try to get title and status of related entity
+            let (related_title, related_status) = if let Ok(t) = storage.get_task(&related_id) {
+                (Some(t.title), Some(format!("{:?}", t.status).to_lowercase()))
+            } else if let Ok(b) = storage.get_bug(&related_id) {
+                (Some(b.title), Some(format!("{:?}", b.status).to_lowercase()))
+            } else if let Ok(test) = storage.get_test(&related_id) {
+                (Some(test.name), None)
+            } else {
+                (None, None)
+            };
+
+            let direction = match he.direction {
+                EdgeDirection::Outbound => "outbound",
+                EdgeDirection::Inbound => "inbound",
+                EdgeDirection::Both => "both",
+            };
+
+            TaskEdgeInfo {
+                edge_type: he.edge.edge_type.to_string(),
+                direction: direction.to_string(),
+                related_id,
+                related_title,
+                related_status,
+            }
+        })
+        .collect();
+
+    Ok(BugShowResult {
+        bug,
+        blocking_info,
+        edges,
+    })
+}
+
+/// Analyze what is blocking a bug from completion.
+fn analyze_bug_blockers(storage: &Storage, bug: &Bug) -> Result<BlockingInfo> {
+    let mut direct_blockers = Vec::new();
+    let mut blocker_chain = Vec::new();
+
+    // Combine legacy depends_on and edge-based dependencies
+    let mut all_deps: Vec<String> = bug.depends_on.clone();
+    let edge_deps = storage.get_edge_dependencies(&bug.id).unwrap_or_default();
+    for dep in edge_deps {
+        if !all_deps.contains(&dep) {
+            all_deps.push(dep);
+        }
+    }
+
+    for dep_id in &all_deps {
+        // Try to get as task first, then as bug
+        let (dep_status, dep_title, dep_assignee, dep_deps) = if let Ok(dep) = storage.get_task(dep_id) {
+            let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
+            let mut combined_deps = dep.depends_on.clone();
+            for d in dep_edge_deps {
+                if !combined_deps.contains(&d) {
+                    combined_deps.push(d);
+                }
+            }
+            (dep.status.clone(), dep.title.clone(), dep.assignee.clone(), combined_deps)
+        } else if let Ok(b) = storage.get_bug(dep_id) {
+            let dep_edge_deps = storage.get_edge_dependencies(dep_id).unwrap_or_default();
+            let mut combined_deps = b.depends_on.clone();
+            for d in dep_edge_deps {
+                if !combined_deps.contains(&d) {
+                    combined_deps.push(d);
+                }
+            }
+            (b.status.clone(), b.title.clone(), b.assignee.clone(), combined_deps)
+        } else {
+            continue; // Skip if entity not found
+        };
+
+        // Only consider incomplete dependencies as blockers
+        if dep_status != TaskStatus::Done && dep_status != TaskStatus::Cancelled {
+            // Find what's blocking this dependency (transitive blockers)
+            let dep_blockers: Vec<String> = dep_deps
+                .iter()
+                .filter(|d| {
+                    if let Ok(t) = storage.get_task(d) {
+                        t.status != TaskStatus::Done && t.status != TaskStatus::Cancelled
+                    } else if let Ok(b) = storage.get_bug(d) {
+                        b.status != TaskStatus::Done && b.status != TaskStatus::Cancelled
+                    } else {
+                        false
+                    }
+                })
+                .cloned()
+                .collect();
+
+            direct_blockers.push(DirectBlocker {
+                id: dep_id.clone(),
+                title: dep_title,
+                status: format!("{:?}", dep_status).to_lowercase(),
+                assignee: dep_assignee,
+                blocked_by: dep_blockers.clone(),
+            });
+
+            // Build chain representation
+            if dep_blockers.is_empty() {
+                blocker_chain.push(format!(
+                    "{} <- {} ({})",
+                    bug.id,
+                    dep_id,
+                    format!("{:?}", dep_status).to_lowercase()
+                ));
+            } else {
+                for blocker in &dep_blockers {
+                    let blocker_status = if let Ok(b) = storage.get_task(blocker) {
+                        format!("{:?}", b.status).to_lowercase()
+                    } else if let Ok(b) = storage.get_bug(blocker) {
+                        format!("{:?}", b.status).to_lowercase()
+                    } else {
+                        "unknown".to_string()
+                    };
+                    blocker_chain.push(format!(
+                        "{} <- {} <- {} ({})",
+                        bug.id,
+                        dep_id,
+                        blocker,
+                        blocker_status
+                    ));
+                }
+            }
+        }
+    }
+
+    let is_blocked = !direct_blockers.is_empty();
+    let blocker_count = direct_blockers.len();
+
+    let summary = if is_blocked {
+        build_blocker_summary(&direct_blockers, blocker_count)
+    } else {
+        "All dependencies complete.".to_string()
+    };
+
+    Ok(BlockingInfo {
+        is_blocked,
+        blocker_count,
+        direct_blockers,
+        blocker_chain,
+        summary,
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -5993,11 +6296,11 @@ mod tests {
         )
         .unwrap();
 
-        let bug = bug_show(temp.path(), &result.id).unwrap();
-        assert_eq!(bug.priority, 2); // default priority
-        assert_eq!(bug.severity, BugSeverity::Triage); // default severity
-        assert!(bug.description.is_none());
-        assert!(bug.tags.is_empty());
+        let result = bug_show(temp.path(), &result.id).unwrap();
+        assert_eq!(result.bug.priority, 2); // default priority
+        assert_eq!(result.bug.severity, BugSeverity::Triage); // default severity
+        assert!(result.bug.description.is_none());
+        assert!(result.bug.tags.is_empty());
     }
 
     #[test]
@@ -6034,13 +6337,13 @@ mod tests {
         )
         .unwrap();
 
-        let bug = bug_show(temp.path(), &created.id).unwrap();
-        assert_eq!(bug.id, created.id);
-        assert_eq!(bug.title, "Test bug");
-        assert_eq!(bug.description, Some("Bug description".to_string()));
-        assert_eq!(bug.priority, 1);
-        assert_eq!(bug.severity, BugSeverity::Critical);
-        assert!(bug.tags.contains(&"security".to_string()));
+        let result = bug_show(temp.path(), &created.id).unwrap();
+        assert_eq!(result.bug.id, created.id);
+        assert_eq!(result.bug.title, "Test bug");
+        assert_eq!(result.bug.description, Some("Bug description".to_string()));
+        assert_eq!(result.bug.priority, 1);
+        assert_eq!(result.bug.severity, BugSeverity::Critical);
+        assert!(result.bug.tags.contains(&"security".to_string()));
     }
 
     #[test]
@@ -6260,13 +6563,13 @@ mod tests {
         assert!(updated.updated_fields.contains(&"reproduction_steps".to_string()));
         assert!(updated.updated_fields.contains(&"affected_component".to_string()));
 
-        let bug = bug_show(temp.path(), &created.id).unwrap();
-        assert_eq!(bug.title, "Updated bug");
-        assert_eq!(bug.description, Some("New description".to_string()));
-        assert_eq!(bug.priority, 1);
-        assert_eq!(bug.severity, BugSeverity::High);
-        assert!(bug.tags.contains(&"new-tag".to_string()));
-        assert_eq!(bug.assignee, Some("bob".to_string()));
+        let result = bug_show(temp.path(), &created.id).unwrap();
+        assert_eq!(result.bug.title, "Updated bug");
+        assert_eq!(result.bug.description, Some("New description".to_string()));
+        assert_eq!(result.bug.priority, 1);
+        assert_eq!(result.bug.severity, BugSeverity::High);
+        assert!(result.bug.tags.contains(&"new-tag".to_string()));
+        assert_eq!(result.bug.assignee, Some("bob".to_string()));
     }
 
     #[test]
@@ -6301,8 +6604,8 @@ mod tests {
         )
         .unwrap();
 
-        let bug = bug_show(temp.path(), &created.id).unwrap();
-        assert_eq!(bug.status, TaskStatus::InProgress);
+        let result = bug_show(temp.path(), &created.id).unwrap();
+        assert_eq!(result.bug.status, TaskStatus::InProgress);
     }
 
     #[test]
@@ -6337,9 +6640,9 @@ mod tests {
         )
         .unwrap();
 
-        let bug = bug_show(temp.path(), &created.id).unwrap();
-        assert!(bug.tags.contains(&"new-tag".to_string()));
-        assert!(!bug.tags.contains(&"old-tag".to_string()));
+        let result = bug_show(temp.path(), &created.id).unwrap();
+        assert!(result.bug.tags.contains(&"new-tag".to_string()));
+        assert!(!result.bug.tags.contains(&"old-tag".to_string()));
     }
 
     #[test]
@@ -6431,10 +6734,10 @@ mod tests {
         assert_eq!(result.status, "done");
         assert!(result.warning.is_none());
 
-        let bug = bug_show(temp.path(), &created.id).unwrap();
-        assert_eq!(bug.status, TaskStatus::Done);
-        assert!(bug.closed_at.is_some());
-        assert_eq!(bug.closed_reason, Some("Fixed".to_string()));
+        let result = bug_show(temp.path(), &created.id).unwrap();
+        assert_eq!(result.bug.status, TaskStatus::Done);
+        assert!(result.bug.closed_at.is_some());
+        assert_eq!(result.bug.closed_reason, Some("Fixed".to_string()));
     }
 
     #[test]
@@ -6458,10 +6761,10 @@ mod tests {
         assert_eq!(result.id, created.id);
         assert_eq!(result.status, "reopened");
 
-        let bug = bug_show(temp.path(), &created.id).unwrap();
-        assert_eq!(bug.status, TaskStatus::Reopened);
-        assert!(bug.closed_at.is_none());
-        assert!(bug.closed_reason.is_none());
+        let result = bug_show(temp.path(), &created.id).unwrap();
+        assert_eq!(result.bug.status, TaskStatus::Reopened);
+        assert!(result.bug.closed_at.is_none());
+        assert!(result.bug.closed_reason.is_none());
     }
 
     #[test]
@@ -6511,8 +6814,8 @@ mod tests {
             )
             .unwrap();
 
-            let bug = bug_show(temp.path(), &result.id).unwrap();
-            assert_eq!(bug.severity, expected);
+            let result = bug_show(temp.path(), &result.id).unwrap();
+            assert_eq!(result.bug.severity, expected);
         }
     }
 
@@ -6532,12 +6835,12 @@ mod tests {
         )
         .unwrap();
 
-        let bug = bug_show(temp.path(), &created.id).unwrap();
-        let human = bug.to_human();
+        let result = bug_show(temp.path(), &created.id).unwrap();
+        let human = result.to_human();
 
         assert!(human.contains("Test bug"));
         assert!(human.contains("Status: Pending"));
-        assert!(human.contains("Priority: 1"));
+        assert!(human.contains("Priority: P1"));
         assert!(human.contains("Severity: High"));
         assert!(human.contains("Description: Description"));
         assert!(human.contains("Reproduction steps: 1. Click"));
