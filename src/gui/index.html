@@ -2434,15 +2434,15 @@
             // Build adjacency list for traversal (both directions)
             const adjacency = new Map();
             edges.forEach(edge => {
-                if (!adjacency.has(edge.source)) {
-                    adjacency.set(edge.source, []);
+                if (!adjacency.has(edge.from)) {
+                    adjacency.set(edge.from, []);
                 }
-                if (!adjacency.has(edge.target)) {
-                    adjacency.set(edge.target, []);
+                if (!adjacency.has(edge.to)) {
+                    adjacency.set(edge.to, []);
                 }
                 // Add bidirectional edges for traversal
-                adjacency.get(edge.source).push(edge.target);
-                adjacency.get(edge.target).push(edge.source);
+                adjacency.get(edge.from).push(edge.to);
+                adjacency.get(edge.to).push(edge.from);
             });
 
             // BFS to check if we can reach any active node from this node
