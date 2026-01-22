@@ -697,10 +697,16 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
 
     match entity_type {
         EntityType::Task => {
-            result.task = Some(task_show(repo_path, id)?);
+            let response = task_show(repo_path, id)?;
+            if let TaskShowResponse::Found(task_result) = response {
+                result.task = Some(task_result);
+            }
         }
         EntityType::Bug => {
-            result.bug = Some(bug_show(repo_path, id)?);
+            let response = bug_show(repo_path, id)?;
+            if let BugShowResponse::Found(bug_result) = response {
+                result.bug = Some(bug_result);
+            }
         }
         EntityType::Test => {
             result.test = Some(test_show(repo_path, id)?);
@@ -997,6 +1003,86 @@ impl Output for TaskShowResult {
     }
 }
 
+/// Wrapper for task show that can contain either a task or a type mismatch.
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum TaskShowResponse {
+    Found(TaskShowResult),
+    TypeMismatch(Box<EntityMismatchResult>),
+}
+
+impl TaskShowResponse {
+    /// Get the task if this is a Found response.
+    pub fn task(&self) -> Option<&Task> {
+        match self {
+            TaskShowResponse::Found(result) => Some(&result.task),
+            TaskShowResponse::TypeMismatch(_) => None,
+        }
+    }
+
+    /// Unwrap the Found result, panicking if it's a TypeMismatch.
+    #[cfg(test)]
+    pub fn unwrap(self) -> TaskShowResult {
+        match self {
+            TaskShowResponse::Found(result) => result,
+            TaskShowResponse::TypeMismatch(_) => panic!("Expected Found, got TypeMismatch"),
+        }
+    }
+}
+
+impl Output for TaskShowResponse {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        match self {
+            TaskShowResponse::Found(result) => result.to_human(),
+            TaskShowResponse::TypeMismatch(mismatch) => mismatch.to_human(),
+        }
+    }
+}
+
+/// Result when an entity was found but is a different type than requested.
+#[derive(Serialize)]
+pub struct EntityMismatchResult {
+    pub note: String,
+    pub actual_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<TaskShowResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bug: Option<BugShowResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test: Option<TestNode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub milestone: Option<Milestone>,
+}
+
+impl Output for EntityMismatchResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = vec![format!("Note: {}", self.note), String::new()];
+
+        if let Some(ref task) = self.task {
+            lines.push(task.to_human());
+        } else if let Some(ref bug) = self.bug {
+            lines.push(bug.to_human());
+        } else if let Some(ref test) = self.test {
+            lines.push(format!("Test: {}", test.id));
+            lines.push(format!("Name: {}", test.name));
+            lines.push(format!("Command: {}", test.command));
+        } else if let Some(ref milestone) = self.milestone {
+            lines.push(format!("Milestone: {}", milestone.id));
+            lines.push(format!("Title: {}", milestone.title));
+        }
+
+        lines.join("\n")
+    }
+}
+
 /// Analyze what is blocking a task from completion.
 fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
     let mut direct_blockers = Vec::new();
@@ -1135,21 +1221,130 @@ fn build_blocker_summary(blockers: &[DirectBlocker], count: usize) -> String {
 }
 
 /// Show a task by ID with optional blocking analysis.
-pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResult> {
+pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResponse> {
     let storage = Storage::open(repo_path)?;
-    let task = storage.get_task(id)?;
 
-    // Analyze blocking status if task has dependencies (legacy or edge-based)
-    let edge_deps = storage.get_edge_dependencies(id).unwrap_or_default();
-    let blocking_info = if !task.depends_on.is_empty() || !edge_deps.is_empty() {
-        Some(analyze_blockers(&storage, &task)?)
-    } else {
-        None
-    };
+    // Try to get the task
+    match storage.get_task(id) {
+        Ok(task) => {
+            // Analyze blocking status if task has dependencies (legacy or edge-based)
+            let edge_deps = storage.get_edge_dependencies(id).unwrap_or_default();
+            let blocking_info = if !task.depends_on.is_empty() || !edge_deps.is_empty() {
+                Some(analyze_blockers(&storage, &task)?)
+            } else {
+                None
+            };
 
-    // Fetch edges for this task
-    let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
-    let edges: Vec<TaskEdgeInfo> = hydrated_edges
+            // Fetch edges for this task
+            let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
+            let edges: Vec<TaskEdgeInfo> = hydrated_edges
+                .into_iter()
+                .map(|he| {
+                    let related_id = if he.direction == EdgeDirection::Inbound {
+                        he.edge.source.clone()
+                    } else {
+                        he.edge.target.clone()
+                    };
+
+                    // Try to get title and status of related entity
+                    let (related_title, related_status) =
+                        if let Ok(t) = storage.get_task(&related_id) {
+                            (
+                                Some(t.title),
+                                Some(format!("{:?}", t.status).to_lowercase()),
+                            )
+                        } else if let Ok(b) = storage.get_bug(&related_id) {
+                            (
+                                Some(b.title),
+                                Some(format!("{:?}", b.status).to_lowercase()),
+                            )
+                        } else if let Ok(test) = storage.get_test(&related_id) {
+                            (Some(test.name), None)
+                        } else {
+                            (None, None)
+                        };
+
+                    let direction = match he.direction {
+                        EdgeDirection::Outbound => "outbound",
+                        EdgeDirection::Inbound => "inbound",
+                        EdgeDirection::Both => "both",
+                    };
+
+                    TaskEdgeInfo {
+                        edge_type: he.edge.edge_type.to_string(),
+                        direction: direction.to_string(),
+                        related_id,
+                        related_title,
+                        related_status,
+                    }
+                })
+                .collect();
+
+            Ok(TaskShowResponse::Found(TaskShowResult {
+                task,
+                blocking_info,
+                edges,
+            }))
+        }
+        Err(Error::NotFound(_)) => {
+            // Task not found - check if it exists as another entity type
+            match storage.get_entity_type(id) {
+                Ok(EntityType::Bug) => {
+                    let bug = storage.get_bug(id)?;
+                    let edge_deps = storage.get_edge_dependencies(id).unwrap_or_default();
+                    let blocking_info = if !bug.depends_on.is_empty() || !edge_deps.is_empty() {
+                        Some(analyze_bug_blockers(&storage, &bug)?)
+                    } else {
+                        None
+                    };
+                    let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
+                    let edges = build_edges_info(&storage, hydrated_edges);
+
+                    Ok(TaskShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
+                        note: format!("{} is a bug, not a task", id),
+                        actual_type: "bug".to_string(),
+                        task: None,
+                        bug: Some(BugShowResult {
+                            bug,
+                            blocking_info,
+                            edges,
+                        }),
+                        test: None,
+                        milestone: None,
+                    })))
+                }
+                Ok(EntityType::Test) => {
+                    let test = storage.get_test(id)?;
+                    Ok(TaskShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
+                        note: format!("{} is a test, not a task", id),
+                        actual_type: "test".to_string(),
+                        task: None,
+                        bug: None,
+                        test: Some(test),
+                        milestone: None,
+                    })))
+                }
+                Ok(EntityType::Milestone) => {
+                    let milestone = storage.get_milestone(id)?;
+                    Ok(TaskShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
+                        note: format!("{} is a milestone, not a task", id),
+                        actual_type: "milestone".to_string(),
+                        task: None,
+                        bug: None,
+                        test: None,
+                        milestone: Some(milestone),
+                    })))
+                }
+                _ => Err(Error::NotFound(format!("Task not found: {}", id))),
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Helper to build edge info from hydrated edges.
+fn build_edges_info(storage: &Storage, hydrated_edges: Vec<crate::models::HydratedEdge>) -> Vec<TaskEdgeInfo> {
+    hydrated_edges
         .into_iter()
         .map(|he| {
             let related_id = if he.direction == EdgeDirection::Inbound {
@@ -1158,7 +1353,6 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResult> {
                 he.edge.target.clone()
             };
 
-            // Try to get title and status of related entity
             let (related_title, related_status) = if let Ok(t) = storage.get_task(&related_id) {
                 (
                     Some(t.title),
@@ -1189,13 +1383,7 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResult> {
                 related_status,
             }
         })
-        .collect();
-
-    Ok(TaskShowResult {
-        task,
-        blocking_info,
-        edges,
-    })
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -1877,68 +2065,125 @@ impl Output for BugShowResult {
     }
 }
 
+/// Wrapper for bug show that can contain either a bug or a type mismatch.
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum BugShowResponse {
+    Found(BugShowResult),
+    TypeMismatch(Box<EntityMismatchResult>),
+}
+
+impl BugShowResponse {
+    /// Get the bug if this is a Found response.
+    pub fn bug(&self) -> Option<&Bug> {
+        match self {
+            BugShowResponse::Found(result) => Some(&result.bug),
+            BugShowResponse::TypeMismatch(_) => None,
+        }
+    }
+
+    /// Unwrap the Found result, panicking if it's a TypeMismatch.
+    #[cfg(test)]
+    pub fn unwrap(self) -> BugShowResult {
+        match self {
+            BugShowResponse::Found(result) => result,
+            BugShowResponse::TypeMismatch(_) => panic!("Expected Found, got TypeMismatch"),
+        }
+    }
+}
+
+impl Output for BugShowResponse {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        match self {
+            BugShowResponse::Found(result) => result.to_human(),
+            BugShowResponse::TypeMismatch(mismatch) => mismatch.to_human(),
+        }
+    }
+}
+
 /// Show a bug by ID with edge information.
-pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResult> {
+pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResponse> {
     let storage = Storage::open(repo_path)?;
-    let bug = storage.get_bug(id)?;
 
-    // Analyze blocking status if bug has dependencies (legacy or edge-based)
-    let edge_deps = storage.get_edge_dependencies(id).unwrap_or_default();
-    let blocking_info = if !bug.depends_on.is_empty() || !edge_deps.is_empty() {
-        Some(analyze_bug_blockers(&storage, &bug)?)
-    } else {
-        None
-    };
-
-    // Fetch edges for this bug
-    let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
-    let edges: Vec<TaskEdgeInfo> = hydrated_edges
-        .into_iter()
-        .map(|he| {
-            let related_id = if he.direction == EdgeDirection::Inbound {
-                he.edge.source.clone()
+    // Try to get the bug
+    match storage.get_bug(id) {
+        Ok(bug) => {
+            // Analyze blocking status if bug has dependencies (legacy or edge-based)
+            let edge_deps = storage.get_edge_dependencies(id).unwrap_or_default();
+            let blocking_info = if !bug.depends_on.is_empty() || !edge_deps.is_empty() {
+                Some(analyze_bug_blockers(&storage, &bug)?)
             } else {
-                he.edge.target.clone()
+                None
             };
 
-            // Try to get title and status of related entity
-            let (related_title, related_status) = if let Ok(t) = storage.get_task(&related_id) {
-                (
-                    Some(t.title),
-                    Some(format!("{:?}", t.status).to_lowercase()),
-                )
-            } else if let Ok(b) = storage.get_bug(&related_id) {
-                (
-                    Some(b.title),
-                    Some(format!("{:?}", b.status).to_lowercase()),
-                )
-            } else if let Ok(test) = storage.get_test(&related_id) {
-                (Some(test.name), None)
-            } else {
-                (None, None)
-            };
+            // Fetch edges for this bug
+            let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
+            let edges = build_edges_info(&storage, hydrated_edges);
 
-            let direction = match he.direction {
-                EdgeDirection::Outbound => "outbound",
-                EdgeDirection::Inbound => "inbound",
-                EdgeDirection::Both => "both",
-            };
+            Ok(BugShowResponse::Found(BugShowResult {
+                bug,
+                blocking_info,
+                edges,
+            }))
+        }
+        Err(Error::NotFound(_)) => {
+            // Bug not found - check if it exists as another entity type
+            match storage.get_entity_type(id) {
+                Ok(EntityType::Task) => {
+                    let task = storage.get_task(id)?;
+                    let edge_deps = storage.get_edge_dependencies(id).unwrap_or_default();
+                    let blocking_info = if !task.depends_on.is_empty() || !edge_deps.is_empty() {
+                        Some(analyze_blockers(&storage, &task)?)
+                    } else {
+                        None
+                    };
+                    let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
+                    let edges = build_edges_info(&storage, hydrated_edges);
 
-            TaskEdgeInfo {
-                edge_type: he.edge.edge_type.to_string(),
-                direction: direction.to_string(),
-                related_id,
-                related_title,
-                related_status,
+                    Ok(BugShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
+                        note: format!("{} is a task, not a bug", id),
+                        actual_type: "task".to_string(),
+                        task: Some(TaskShowResult {
+                            task,
+                            blocking_info,
+                            edges,
+                        }),
+                        bug: None,
+                        test: None,
+                        milestone: None,
+                    })))
+                }
+                Ok(EntityType::Test) => {
+                    let test = storage.get_test(id)?;
+                    Ok(BugShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
+                        note: format!("{} is a test, not a bug", id),
+                        actual_type: "test".to_string(),
+                        task: None,
+                        bug: None,
+                        test: Some(test),
+                        milestone: None,
+                    })))
+                }
+                Ok(EntityType::Milestone) => {
+                    let milestone = storage.get_milestone(id)?;
+                    Ok(BugShowResponse::TypeMismatch(Box::new(EntityMismatchResult {
+                        note: format!("{} is a milestone, not a bug", id),
+                        actual_type: "milestone".to_string(),
+                        task: None,
+                        bug: None,
+                        test: None,
+                        milestone: Some(milestone),
+                    })))
+                }
+                _ => Err(Error::NotFound(format!("Bug not found: {}", id))),
             }
-        })
-        .collect();
-
-    Ok(BugShowResult {
-        bug,
-        blocking_info,
-        edges,
-    })
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Analyze what is blocking a bug from completion.
@@ -5819,7 +6064,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let result = task_show(temp.path(), &created.id).unwrap();
+        let result = task_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.task.id, created.id);
         assert!(result.blocking_info.is_none()); // No dependencies
     }
@@ -5883,7 +6128,7 @@ mod tests {
         assert!(updated.updated_fields.contains(&"title".to_string()));
         assert!(updated.updated_fields.contains(&"priority".to_string()));
 
-        let result = task_show(temp.path(), &created.id).unwrap();
+        let result = task_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.task.title, "Updated");
         assert_eq!(result.task.priority, 1);
     }
@@ -5903,12 +6148,12 @@ mod tests {
         .unwrap();
 
         task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
-        let result = task_show(temp.path(), &created.id).unwrap();
+        let result = task_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Done);
         assert!(result.task.closed_at.is_some());
 
         task_reopen(temp.path(), &created.id).unwrap();
-        let result = task_show(temp.path(), &created.id).unwrap();
+        let result = task_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Reopened);
         assert!(result.task.closed_at.is_none());
     }
@@ -5982,7 +6227,7 @@ mod tests {
         assert!(result.warning.unwrap().contains("incomplete dependencies"));
 
         // Verify task is actually closed
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Done);
     }
 
@@ -6022,7 +6267,7 @@ mod tests {
         assert!(result.warning.is_none());
 
         // Verify task is closed
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Done);
     }
 
@@ -6053,14 +6298,14 @@ mod tests {
         task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Partial);
         assert!(result.task.closed_at.is_none());
         assert!(result.task.closed_reason.is_none());
 
         task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
 
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Done);
         assert!(result.task.closed_at.is_some());
     }
@@ -6115,7 +6360,7 @@ mod tests {
         assert_eq!(result.parent, task_a.id);
 
         // Verify task B now depends on A
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
         assert!(result.task.depends_on.contains(&task_a.id));
     }
 
@@ -6144,13 +6389,13 @@ mod tests {
         .unwrap();
 
         task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Done);
         assert!(result.task.closed_at.is_some());
 
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Partial);
         assert!(result.task.closed_at.is_none());
         assert!(result.task.closed_reason.is_none());
@@ -6216,7 +6461,7 @@ mod tests {
         dep_rm(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         // Verify task B no longer depends on A
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
         assert!(!result.task.depends_on.contains(&task_a.id));
     }
 
@@ -6829,7 +7074,7 @@ mod tests {
         assert_eq!(result.tasks_compacted, 1);
 
         // Verify the task still exists with the final title
-        let result = task_show(temp.path(), &task.id).unwrap();
+        let result = task_show(temp.path(), &task.id).unwrap().unwrap();
         assert_eq!(result.task.title, "Updated 2");
     }
 
@@ -7210,7 +7455,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = task_show(temp.path(), &task.id).unwrap();
+        let result = task_show(temp.path(), &task.id).unwrap().unwrap();
 
         // No dependencies means no blocking info
         assert!(result.blocking_info.is_none());
@@ -7258,7 +7503,7 @@ mod tests {
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
 
-        let result = task_show(temp.path(), &task_c.id).unwrap();
+        let result = task_show(temp.path(), &task_c.id).unwrap().unwrap();
 
         // Has dependencies but all are complete
         assert!(result.blocking_info.is_some());
@@ -7323,7 +7568,7 @@ mod tests {
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
 
-        let result = task_show(temp.path(), &task_c.id).unwrap();
+        let result = task_show(temp.path(), &task_c.id).unwrap().unwrap();
 
         assert!(result.blocking_info.is_some());
         let blocking = result.blocking_info.unwrap();
@@ -7391,7 +7636,7 @@ mod tests {
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
 
-        let result = task_show(temp.path(), &task_c.id).unwrap();
+        let result = task_show(temp.path(), &task_c.id).unwrap().unwrap();
 
         assert!(result.blocking_info.is_some());
         let blocking = result.blocking_info.unwrap();
@@ -7457,7 +7702,7 @@ mod tests {
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
 
-        let result = task_show(temp.path(), &task_c.id).unwrap();
+        let result = task_show(temp.path(), &task_c.id).unwrap().unwrap();
 
         assert!(result.blocking_info.is_some());
         let blocking = result.blocking_info.unwrap();
@@ -7507,7 +7752,7 @@ mod tests {
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
 
-        let result = task_show(temp.path(), &task_c.id).unwrap();
+        let result = task_show(temp.path(), &task_c.id).unwrap().unwrap();
         let blocking = result.blocking_info.unwrap();
 
         // Check summary format
@@ -7576,7 +7821,7 @@ mod tests {
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
 
-        let result = task_show(temp.path(), &task_c.id).unwrap();
+        let result = task_show(temp.path(), &task_c.id).unwrap().unwrap();
 
         assert!(result.blocking_info.is_some());
         let blocking = result.blocking_info.unwrap();
@@ -7629,7 +7874,7 @@ mod tests {
         // Task B depends on A (blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
 
         assert!(result.blocking_info.is_some());
         let blocking = result.blocking_info.unwrap();
@@ -7681,7 +7926,7 @@ mod tests {
         // Task B depends on A (partial)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
 
         assert!(result.blocking_info.is_some());
         let blocking = result.blocking_info.unwrap();
@@ -7722,7 +7967,7 @@ mod tests {
         // Task B depends on A (reopened)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = task_show(temp.path(), &task_b.id).unwrap();
+        let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
 
         assert!(result.blocking_info.is_some());
         let blocking = result.blocking_info.unwrap();
@@ -7781,7 +8026,7 @@ mod tests {
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
         dep_add(temp.path(), &task_d.id, &task_c.id).unwrap();
 
-        let result = task_show(temp.path(), &task_d.id).unwrap();
+        let result = task_show(temp.path(), &task_d.id).unwrap().unwrap();
 
         assert!(result.blocking_info.is_some());
         let blocking = result.blocking_info.unwrap();
@@ -7853,7 +8098,7 @@ mod tests {
         dep_add(temp.path(), &task_d.id, &task_b.id).unwrap();
         dep_add(temp.path(), &task_d.id, &task_c.id).unwrap();
 
-        let result = task_show(temp.path(), &task_d.id).unwrap();
+        let result = task_show(temp.path(), &task_d.id).unwrap().unwrap();
 
         assert!(result.blocking_info.is_some());
         let blocking = result.blocking_info.unwrap();
@@ -7987,7 +8232,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = bug_show(temp.path(), &result.id).unwrap();
+        let result = bug_show(temp.path(), &result.id).unwrap().unwrap();
         assert_eq!(result.bug.priority, 2); // default priority
         assert_eq!(result.bug.severity, BugSeverity::Triage); // default severity
         assert!(result.bug.description.is_none());
@@ -8031,7 +8276,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = bug_show(temp.path(), &created.id).unwrap();
+        let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.bug.id, created.id);
         assert_eq!(result.bug.title, "Test bug");
         assert_eq!(result.bug.description, Some("Bug description".to_string()));
@@ -8261,7 +8506,7 @@ mod tests {
             .updated_fields
             .contains(&"affected_component".to_string()));
 
-        let result = bug_show(temp.path(), &created.id).unwrap();
+        let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.bug.title, "Updated bug");
         assert_eq!(result.bug.description, Some("New description".to_string()));
         assert_eq!(result.bug.priority, 1);
@@ -8302,7 +8547,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = bug_show(temp.path(), &created.id).unwrap();
+        let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.bug.status, TaskStatus::InProgress);
     }
 
@@ -8338,7 +8583,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = bug_show(temp.path(), &created.id).unwrap();
+        let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
         assert!(result.bug.tags.contains(&"new-tag".to_string()));
         assert!(!result.bug.tags.contains(&"old-tag".to_string()));
     }
@@ -8438,7 +8683,7 @@ mod tests {
         assert_eq!(result.status, "done");
         assert!(result.warning.is_none());
 
-        let result = bug_show(temp.path(), &created.id).unwrap();
+        let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.bug.status, TaskStatus::Done);
         assert!(result.bug.closed_at.is_some());
         assert_eq!(result.bug.closed_reason, Some("Fixed".to_string()));
@@ -8465,7 +8710,7 @@ mod tests {
         assert_eq!(result.id, created.id);
         assert_eq!(result.status, "reopened");
 
-        let result = bug_show(temp.path(), &created.id).unwrap();
+        let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.bug.status, TaskStatus::Reopened);
         assert!(result.bug.closed_at.is_none());
         assert!(result.bug.closed_reason.is_none());
@@ -8518,7 +8763,7 @@ mod tests {
             )
             .unwrap();
 
-            let result = bug_show(temp.path(), &result.id).unwrap();
+            let result = bug_show(temp.path(), &result.id).unwrap().unwrap();
             assert_eq!(result.bug.severity, expected);
         }
     }
@@ -8539,7 +8784,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = bug_show(temp.path(), &created.id).unwrap();
+        let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
         let human = result.to_human();
 
         assert!(human.contains("Test bug"));
@@ -9077,5 +9322,104 @@ mod tests {
         let human = result.to_human();
         assert!(human.contains("DRY RUN"));
         assert!(human.contains("Tasks scanned: 1"));
+    }
+
+    // === Entity Type Mismatch Tests ===
+
+    #[test]
+    fn test_task_show_returns_bug_when_id_is_bug() {
+        let temp = setup();
+
+        // Create a bug
+        let bug = bug_create(
+            temp.path(),
+            "Test Bug".to_string(),
+            None,
+            None,
+            None,
+            vec!["test".to_string()],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Try to show it as a task
+        let result = task_show(temp.path(), &bug.id).unwrap();
+
+        // Should return TypeMismatch with the bug data
+        match result {
+            TaskShowResponse::TypeMismatch(ref mismatch) => {
+                assert!(mismatch.note.contains("is a bug, not a task"));
+                assert_eq!(mismatch.actual_type, "bug");
+                assert!(mismatch.bug.is_some());
+                assert!(mismatch.task.is_none());
+            }
+            TaskShowResponse::Found(_) => {
+                panic!("Expected TypeMismatch, got Found");
+            }
+        }
+    }
+
+    #[test]
+    fn test_bug_show_returns_task_when_id_is_task() {
+        let temp = setup();
+
+        // Create a task
+        let task = task_create(
+            temp.path(),
+            "Test Task".to_string(),
+            None,
+            None,
+            None,
+            vec!["test".to_string()],
+            None,
+        )
+        .unwrap();
+
+        // Try to show it as a bug
+        let result = bug_show(temp.path(), &task.id).unwrap();
+
+        // Should return TypeMismatch with the task data
+        match result {
+            BugShowResponse::TypeMismatch(ref mismatch) => {
+                assert!(mismatch.note.contains("is a task, not a bug"));
+                assert_eq!(mismatch.actual_type, "task");
+                assert!(mismatch.task.is_some());
+                assert!(mismatch.bug.is_none());
+            }
+            BugShowResponse::Found(_) => {
+                panic!("Expected TypeMismatch, got Found");
+            }
+        }
+    }
+
+    #[test]
+    fn test_entity_mismatch_json_output() {
+        let temp = setup();
+
+        // Create a bug
+        let bug = bug_create(
+            temp.path(),
+            "Test Bug".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Try to show it as a task
+        let result = task_show(temp.path(), &bug.id).unwrap();
+        let json = result.to_json();
+
+        // JSON should contain the note and bug data
+        assert!(json.contains("\"note\":"));
+        assert!(json.contains("is a bug, not a task"));
+        assert!(json.contains("\"actual_type\":\"bug\""));
+        assert!(json.contains("\"id\":"));
     }
 }
