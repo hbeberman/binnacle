@@ -34,7 +34,9 @@ fn test_idea_create_json() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"id\":\"bni-"))
-        .stdout(predicate::str::contains("\"title\":\"Use SQLite FTS for search\""));
+        .stdout(predicate::str::contains(
+            "\"title\":\"Use SQLite FTS for search\"",
+        ));
 }
 
 #[test]
@@ -54,7 +56,15 @@ fn test_idea_create_with_tags() {
     let temp = init_binnacle();
 
     bn_in(&temp)
-        .args(["idea", "create", "Tagged idea", "--tag", "search", "--tag", "perf"])
+        .args([
+            "idea",
+            "create",
+            "Tagged idea",
+            "--tag",
+            "search",
+            "--tag",
+            "perf",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"id\":\"bni-"));
@@ -216,7 +226,13 @@ fn test_idea_show_human() {
 
     // Create an idea
     let output = bn_in(&temp)
-        .args(["idea", "create", "Human show", "--description", "Detailed desc"])
+        .args([
+            "idea",
+            "create",
+            "Human show",
+            "--description",
+            "Detailed desc",
+        ])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -380,7 +396,7 @@ fn test_idea_close() {
         .args(["idea", "close", id, "--reason", "Not useful"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(&format!("\"id\":\"{}\"", id)));
+        .stdout(predicate::str::contains(format!("\"id\":\"{}\"", id)));
 
     // Verify it's discarded
     bn_in(&temp)
@@ -441,13 +457,10 @@ fn test_idea_delete() {
         .args(["idea", "delete", id])
         .assert()
         .success()
-        .stdout(predicate::str::contains(&format!("\"id\":\"{}\"", id)));
+        .stdout(predicate::str::contains(format!("\"id\":\"{}\"", id)));
 
     // Verify it's gone
-    bn_in(&temp)
-        .args(["idea", "show", id])
-        .assert()
-        .failure();
+    bn_in(&temp).args(["idea", "show", id]).assert().failure();
 }
 
 #[test]

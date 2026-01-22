@@ -807,9 +807,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "tag": tag,
                 }),
             ),
-            IdeaCommands::Show { id } => {
-                ("idea show".to_string(), serde_json::json!({ "id": id }))
-            }
+            IdeaCommands::Show { id } => ("idea show".to_string(), serde_json::json!({ "id": id })),
             IdeaCommands::Update {
                 id,
                 title,

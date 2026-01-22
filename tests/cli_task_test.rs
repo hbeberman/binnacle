@@ -1717,7 +1717,12 @@ fn test_task_close_succeeds_with_linked_commit() {
 
     // Link a commit
     bn_in(&temp)
-        .args(["commit", "link", "abc1234def5678abc1234def5678abc1234def56", &id])
+        .args([
+            "commit",
+            "link",
+            "abc1234def5678abc1234def5678abc1234def56",
+            &id,
+        ])
         .assert()
         .success();
 

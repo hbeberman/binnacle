@@ -9,8 +9,8 @@
 //! - `commit` - Commit tracking
 
 use crate::models::{
-    Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone, Task,
-    TaskStatus, TestNode, TestResult,
+    Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone, Task, TaskStatus,
+    TestNode, TestResult,
 };
 use crate::storage::{generate_id, parse_status, EntityType, Storage};
 use crate::{Error, Result};
@@ -1544,11 +1544,11 @@ pub fn task_update(
 
     if let Some(s) = status {
         let new_status = parse_status(s)?;
-        
+
         // If setting status to done, check commit requirement
-        if new_status == TaskStatus::Done 
-            && config_get_bool(repo_path, "require_commit_for_close", false) 
-            && !force 
+        if new_status == TaskStatus::Done
+            && config_get_bool(repo_path, "require_commit_for_close", false)
+            && !force
         {
             let commits = storage.get_commits_for_task(id)?;
             if commits.is_empty() {
@@ -1562,12 +1562,12 @@ pub fn task_update(
                 )));
             }
         }
-        
+
         // If setting status to done, also set closed_at
         if new_status == TaskStatus::Done {
             task.closed_at = Some(Utc::now());
         }
-        
+
         task.status = new_status;
         updated_fields.push("status".to_string());
     }
@@ -2743,11 +2743,7 @@ impl Output for IdeaList {
 }
 
 /// List ideas with optional filters.
-pub fn idea_list(
-    repo_path: &Path,
-    status: Option<&str>,
-    tag: Option<&str>,
-) -> Result<IdeaList> {
+pub fn idea_list(repo_path: &Path, status: Option<&str>, tag: Option<&str>) -> Result<IdeaList> {
     let storage = Storage::open(repo_path)?;
     let ideas = storage.list_ideas(status, tag)?;
     let count = ideas.len();

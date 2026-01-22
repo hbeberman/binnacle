@@ -48,6 +48,11 @@ gui:
 clippy:
     cargo clippy --all-targets --all-features -- -D warnings
 
+# Quick validation: format check and clippy
+check:
+    cargo fmt --check
+    cargo clippy --all-targets --all-features -- -D warnings
+
 # Run all tests
 test:
     cargo test --all-features
