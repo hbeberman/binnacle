@@ -709,13 +709,13 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
         EntityType::Task => {
             let response = task_show(repo_path, id)?;
             if let TaskShowResponse::Found(task_result) = response {
-                result.task = Some(task_result);
+                result.task = Some(*task_result);
             }
         }
         EntityType::Bug => {
             let response = bug_show(repo_path, id)?;
             if let BugShowResponse::Found(bug_result) = response {
-                result.bug = Some(bug_result);
+                result.bug = Some(*bug_result);
             }
         }
         EntityType::Idea => {
@@ -1020,7 +1020,7 @@ impl Output for TaskShowResult {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum TaskShowResponse {
-    Found(TaskShowResult),
+    Found(Box<TaskShowResult>),
     TypeMismatch(Box<EntityMismatchResult>),
 }
 
@@ -1037,7 +1037,7 @@ impl TaskShowResponse {
     #[cfg(test)]
     pub fn unwrap(self) -> TaskShowResult {
         match self {
-            TaskShowResponse::Found(result) => result,
+            TaskShowResponse::Found(result) => *result,
             TaskShowResponse::TypeMismatch(_) => panic!("Expected Found, got TypeMismatch"),
         }
     }
@@ -1293,11 +1293,11 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResponse> {
                 })
                 .collect();
 
-            Ok(TaskShowResponse::Found(TaskShowResult {
+            Ok(TaskShowResponse::Found(Box::new(TaskShowResult {
                 task,
                 blocking_info,
                 edges,
-            }))
+            })))
         }
         Err(Error::NotFound(_)) => {
             // Task not found - check if it exists as another entity type
@@ -2132,7 +2132,7 @@ impl Output for BugShowResult {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum BugShowResponse {
-    Found(BugShowResult),
+    Found(Box<BugShowResult>),
     TypeMismatch(Box<EntityMismatchResult>),
 }
 
@@ -2149,7 +2149,7 @@ impl BugShowResponse {
     #[cfg(test)]
     pub fn unwrap(self) -> BugShowResult {
         match self {
-            BugShowResponse::Found(result) => result,
+            BugShowResponse::Found(result) => *result,
             BugShowResponse::TypeMismatch(_) => panic!("Expected Found, got TypeMismatch"),
         }
     }
@@ -2187,11 +2187,11 @@ pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResponse> {
             let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
             let edges = build_edges_info(&storage, hydrated_edges);
 
-            Ok(BugShowResponse::Found(BugShowResult {
+            Ok(BugShowResponse::Found(Box::new(BugShowResult {
                 bug,
                 blocking_info,
                 edges,
-            }))
+            })))
         }
         Err(Error::NotFound(_)) => {
             // Bug not found - check if it exists as another entity type
