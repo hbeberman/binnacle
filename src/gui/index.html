@@ -2320,6 +2320,88 @@
             };
         }
 
+        /**
+         * Build a set of "active" node IDs - nodes that are not in a completed state.
+         * Active nodes include: pending, in_progress, blocked, reopened statuses.
+         * For ideas: seed, germinating are active; promoted, discarded are not.
+         */
+        function buildActiveNodeSet() {
+            const activeStatuses = ['pending', 'in_progress', 'blocked', 'reopened'];
+            const activeIdeaStatuses = ['seed', 'germinating'];
+
+            const activeNodes = new Set();
+
+            state.tasks.forEach(task => {
+                let isActive = false;
+
+                if (task.type === 'idea') {
+                    isActive = activeIdeaStatuses.includes(task.status);
+                } else {
+                    isActive = activeStatuses.includes(task.status);
+                }
+
+                if (isActive) {
+                    activeNodes.add(task.id);
+                }
+            });
+
+            return activeNodes;
+        }
+
+        /**
+         * Check if a node is in an "active chain" - meaning it's either:
+         * 1. An active node itself, OR
+         * 2. Connected (transitively through edges) to an active node
+         *
+         * This allows completed nodes to remain visible if they're part of
+         * a dependency chain with work that's still in progress.
+         */
+        function isInActiveChain(nodeId, activeNodes, edges) {
+            // If the node itself is active, it's in an active chain
+            if (activeNodes.has(nodeId)) {
+                return true;
+            }
+
+            // Build adjacency list for traversal (both directions)
+            const adjacency = new Map();
+            edges.forEach(edge => {
+                if (!adjacency.has(edge.source)) {
+                    adjacency.set(edge.source, []);
+                }
+                if (!adjacency.has(edge.target)) {
+                    adjacency.set(edge.target, []);
+                }
+                // Add bidirectional edges for traversal
+                adjacency.get(edge.source).push(edge.target);
+                adjacency.get(edge.target).push(edge.source);
+            });
+
+            // BFS to check if we can reach any active node from this node
+            const visited = new Set();
+            const queue = [nodeId];
+            visited.add(nodeId);
+
+            while (queue.length > 0) {
+                const current = queue.shift();
+
+                // If we reached an active node, this node is in an active chain
+                if (activeNodes.has(current)) {
+                    return true;
+                }
+
+                // Explore neighbors
+                const neighbors = adjacency.get(current) || [];
+                for (const neighbor of neighbors) {
+                    if (!visited.has(neighbor)) {
+                        visited.add(neighbor);
+                        queue.push(neighbor);
+                    }
+                }
+            }
+
+            return false;
+        }
+
         function buildGraphData() {
             // Build a map of existing node positions to preserve them on reload
             const existingNodes = new Map();
