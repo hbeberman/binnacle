@@ -241,7 +241,7 @@ pub enum TaskCommands {
         #[arg(long)]
         reason: Option<String>,
 
-        /// Force close even with incomplete dependencies (use with caution)
+        /// Force close even with incomplete dependencies or missing commits (use with caution)
         #[arg(long)]
         force: bool,
     },

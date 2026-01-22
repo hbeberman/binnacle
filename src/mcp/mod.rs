@@ -984,6 +984,10 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "reason": {
                         "type": "string",
                         "description": "Reason for closing"
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "Force close even with incomplete dependencies or missing commits"
                     }
                 },
                 "required": ["id"]
