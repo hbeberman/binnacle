@@ -105,6 +105,60 @@ fn test_doctor_human_stats() {
         .stdout(predicate::str::contains("Storage:"));
 }
 
+// === Doctor Edge Migration Tests ===
+
+#[test]
+fn test_doctor_migrate_edges_dry_run() {
+    let temp = init_binnacle();
+
+    // Create two tasks
+    let task1 = create_task(&temp, "Task 1");
+    let task2 = create_task(&temp, "Task 2");
+
+    // Add a link the proper way (to create baseline)
+    bn_in(&temp)
+        .args(["link", "add", &task1, &task2, "--type", "depends_on"])
+        .assert()
+        .success();
+
+    // Run migration in dry-run mode
+    bn_in(&temp)
+        .args(["doctor", "--migrate-edges", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"dry_run\":true"))
+        .stdout(predicate::str::contains("\"tasks_scanned\":2"));
+}
+
+#[test]
+fn test_doctor_migrate_edges_human_output() {
+    let temp = init_binnacle();
+
+    create_task(&temp, "Task 1");
+
+    bn_in(&temp)
+        .args(["-H", "doctor", "--migrate-edges", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Edge Migration (DRY RUN"))
+        .stdout(predicate::str::contains("Tasks scanned:"));
+}
+
+#[test]
+fn test_doctor_migrate_edges_json_output() {
+    let temp = init_binnacle();
+
+    create_task(&temp, "Task 1");
+
+    bn_in(&temp)
+        .args(["doctor", "--migrate-edges"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"tasks_scanned\":1"))
+        .stdout(predicate::str::contains("\"edges_created\":0"))
+        .stdout(predicate::str::contains("\"dry_run\":false"));
+}
+
 // === Log Tests ===
 
 #[test]

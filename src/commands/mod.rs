@@ -3638,6 +3638,193 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
     })
 }
 
+// === Doctor Migration Commands ===
+
+/// Result of edge migration.
+#[derive(Serialize)]
+pub struct EdgeMigrationResult {
+    pub tasks_scanned: usize,
+    pub bugs_scanned: usize,
+    pub edges_created: usize,
+    pub edges_skipped: usize, // Already existed
+    pub depends_on_cleared: usize,
+    pub dry_run: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<String>,
+}
+
+impl Output for EdgeMigrationResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        
+        if self.dry_run {
+            lines.push("Edge Migration (DRY RUN - no changes made)".to_string());
+        } else {
+            lines.push("Edge Migration Complete".to_string());
+        }
+        
+        lines.push(format!("  Tasks scanned: {}", self.tasks_scanned));
+        lines.push(format!("  Bugs scanned: {}", self.bugs_scanned));
+        lines.push(format!("  Edges created: {}", self.edges_created));
+        lines.push(format!("  Edges skipped (already exist): {}", self.edges_skipped));
+        
+        if self.depends_on_cleared > 0 {
+            lines.push(format!("  depends_on fields cleared: {}", self.depends_on_cleared));
+        }
+        
+        if !self.details.is_empty() {
+            lines.push(String::new());
+            lines.push("Details:".to_string());
+            for detail in &self.details {
+                lines.push(format!("  {}", detail));
+            }
+        }
+        
+        lines.join("\n")
+    }
+}
+
+/// Migrate legacy depends_on fields to edge relationships.
+///
+/// This function:
+/// 1. Scans all tasks and bugs for non-empty depends_on fields
+/// 2. Creates DependsOn edges for each dependency
+/// 3. Optionally clears the depends_on fields after migration
+pub fn doctor_migrate_edges(repo_path: &Path, clean_unused: bool, dry_run: bool) -> Result<EdgeMigrationResult> {
+    let mut storage = Storage::open(repo_path)?;
+    
+    let tasks = storage.list_tasks(None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None)?;
+    
+    let mut edges_created = 0;
+    let mut edges_skipped = 0;
+    let mut depends_on_cleared = 0;
+    let mut details = Vec::new();
+    
+    // Collect entities that need depends_on cleared
+    let mut tasks_to_clear: Vec<String> = Vec::new();
+    let mut bugs_to_clear: Vec<String> = Vec::new();
+    
+    // Process tasks
+    for task in &tasks {
+        if task.depends_on.is_empty() {
+            continue;
+        }
+        
+        for dep_id in &task.depends_on {
+            // Check if edge already exists
+            let existing = storage.list_edges(
+                Some(EdgeType::DependsOn),
+                Some(&task.id),
+                Some(dep_id),
+            )?;
+            
+            if !existing.is_empty() {
+                edges_skipped += 1;
+                details.push(format!("Skipped: {} -> {} (edge exists)", task.id, dep_id));
+                continue;
+            }
+            
+            // Create new edge
+            if !dry_run {
+                let id = storage.generate_edge_id(&task.id, dep_id, EdgeType::DependsOn);
+                let mut edge = Edge::new(
+                    id,
+                    task.id.clone(),
+                    dep_id.clone(),
+                    EdgeType::DependsOn,
+                );
+                edge.reason = Some("Migrated from task.depends_on".to_string());
+                storage.add_edge(&edge)?;
+            }
+            edges_created += 1;
+            details.push(format!("Created: {} -> {} (depends_on)", task.id, dep_id));
+        }
+        
+        if clean_unused && !task.depends_on.is_empty() {
+            tasks_to_clear.push(task.id.clone());
+        }
+    }
+    
+    // Process bugs
+    for bug in &bugs {
+        if bug.depends_on.is_empty() {
+            continue;
+        }
+        
+        for dep_id in &bug.depends_on {
+            // Check if edge already exists
+            let existing = storage.list_edges(
+                Some(EdgeType::DependsOn),
+                Some(&bug.id),
+                Some(dep_id),
+            )?;
+            
+            if !existing.is_empty() {
+                edges_skipped += 1;
+                details.push(format!("Skipped: {} -> {} (edge exists)", bug.id, dep_id));
+                continue;
+            }
+            
+            // Create new edge
+            if !dry_run {
+                let id = storage.generate_edge_id(&bug.id, dep_id, EdgeType::DependsOn);
+                let mut edge = Edge::new(
+                    id,
+                    bug.id.clone(),
+                    dep_id.clone(),
+                    EdgeType::DependsOn,
+                );
+                edge.reason = Some("Migrated from bug.depends_on".to_string());
+                storage.add_edge(&edge)?;
+            }
+            edges_created += 1;
+            details.push(format!("Created: {} -> {} (depends_on)", bug.id, dep_id));
+        }
+        
+        if clean_unused && !bug.depends_on.is_empty() {
+            bugs_to_clear.push(bug.id.clone());
+        }
+    }
+    
+    // Clear depends_on fields if requested
+    if clean_unused && !dry_run {
+        for task_id in &tasks_to_clear {
+            if let Ok(mut task) = storage.get_task(task_id) {
+                task.depends_on.clear();
+                task.updated_at = Utc::now();
+                storage.update_task(&task)?;
+                depends_on_cleared += 1;
+            }
+        }
+        
+        for bug_id in &bugs_to_clear {
+            if let Ok(mut bug) = storage.get_bug(bug_id) {
+                bug.depends_on.clear();
+                bug.updated_at = Utc::now();
+                storage.update_bug(&bug)?;
+                depends_on_cleared += 1;
+            }
+        }
+    } else if clean_unused && dry_run {
+        depends_on_cleared = tasks_to_clear.len() + bugs_to_clear.len();
+    }
+    
+    Ok(EdgeMigrationResult {
+        tasks_scanned: tasks.len(),
+        bugs_scanned: bugs.len(),
+        edges_created,
+        edges_skipped,
+        depends_on_cleared,
+        dry_run,
+        details,
+    })
+}
+
 // === Log Command ===
 
 /// A log entry representing a change.
@@ -7246,5 +7433,152 @@ mod tests {
         let result = search_link(temp.path(), None, None, None).unwrap();
         let human = result.to_human();
         assert_eq!(human, "No edges found.");
+    }
+
+    // === Doctor Edge Migration Tests ===
+
+    #[test]
+    fn test_doctor_migrate_edges_no_legacy_deps() {
+        let temp = setup();
+        
+        // Create tasks without depends_on
+        task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
+        task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
+        
+        let result = doctor_migrate_edges(temp.path(), false, false).unwrap();
+        
+        assert_eq!(result.tasks_scanned, 2);
+        assert_eq!(result.edges_created, 0);
+        assert_eq!(result.edges_skipped, 0);
+        assert_eq!(result.depends_on_cleared, 0);
+        assert!(!result.dry_run);
+    }
+
+    #[test]
+    fn test_doctor_migrate_edges_with_legacy_deps() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+        
+        // Create tasks
+        let task1 = task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
+        let task2 = task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
+        
+        // Manually add legacy depends_on to task1
+        let mut task = storage.get_task(&task1.id).unwrap();
+        task.depends_on.push(task2.id.clone());
+        task.updated_at = chrono::Utc::now();
+        storage.update_task(&task).unwrap();
+        
+        // Run migration
+        let result = doctor_migrate_edges(temp.path(), false, false).unwrap();
+        
+        assert_eq!(result.tasks_scanned, 2);
+        assert_eq!(result.edges_created, 1);
+        assert_eq!(result.edges_skipped, 0);
+        assert_eq!(result.depends_on_cleared, 0); // clean_unused was false
+        
+        // Verify edge was created
+        let storage2 = Storage::open(temp.path()).unwrap();
+        let edges = storage2.list_edges(Some(EdgeType::DependsOn), Some(&task1.id), Some(&task2.id)).unwrap();
+        assert_eq!(edges.len(), 1);
+    }
+
+    #[test]
+    fn test_doctor_migrate_edges_dry_run() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+        
+        // Create tasks
+        let task1 = task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
+        let task2 = task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
+        
+        // Manually add legacy depends_on
+        let mut task = storage.get_task(&task1.id).unwrap();
+        task.depends_on.push(task2.id.clone());
+        task.updated_at = chrono::Utc::now();
+        storage.update_task(&task).unwrap();
+        
+        // Run dry run
+        let result = doctor_migrate_edges(temp.path(), false, true).unwrap();
+        
+        assert!(result.dry_run);
+        assert_eq!(result.edges_created, 1); // Would have created
+        
+        // Verify no edge was actually created
+        let storage2 = Storage::open(temp.path()).unwrap();
+        let edges = storage2.list_edges(Some(EdgeType::DependsOn), Some(&task1.id), Some(&task2.id)).unwrap();
+        assert_eq!(edges.len(), 0);
+    }
+
+    #[test]
+    fn test_doctor_migrate_edges_clean_unused() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+        
+        // Create tasks
+        let task1 = task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
+        let task2 = task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
+        
+        // Manually add legacy depends_on
+        let mut task = storage.get_task(&task1.id).unwrap();
+        task.depends_on.push(task2.id.clone());
+        task.updated_at = chrono::Utc::now();
+        storage.update_task(&task).unwrap();
+        
+        // Run migration with clean_unused
+        let result = doctor_migrate_edges(temp.path(), true, false).unwrap();
+        
+        assert_eq!(result.edges_created, 1);
+        assert_eq!(result.depends_on_cleared, 1);
+        
+        // Verify depends_on was cleared
+        let storage2 = Storage::open(temp.path()).unwrap();
+        let task_after = storage2.get_task(&task1.id).unwrap();
+        assert!(task_after.depends_on.is_empty());
+    }
+
+    #[test]
+    fn test_doctor_migrate_edges_skips_existing() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+        
+        // Create tasks
+        let task1 = task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
+        let task2 = task_create(temp.path(), "Task 2".to_string(), None, None, None, vec![], None).unwrap();
+        
+        // Create edge first using the proper method
+        link_add(temp.path(), &task1.id, &task2.id, "depends_on", None).unwrap();
+        
+        // Also add legacy depends_on for the same relationship
+        let mut task = storage.get_task(&task1.id).unwrap();
+        task.depends_on.push(task2.id.clone());
+        task.updated_at = chrono::Utc::now();
+        storage.update_task(&task).unwrap();
+        
+        // Run migration
+        let result = doctor_migrate_edges(temp.path(), false, false).unwrap();
+        
+        assert_eq!(result.edges_created, 0);
+        assert_eq!(result.edges_skipped, 1);
+    }
+
+    #[test]
+    fn test_doctor_migrate_edges_output_format() {
+        let temp = setup();
+        
+        // Create task without deps
+        task_create(temp.path(), "Task 1".to_string(), None, None, None, vec![], None).unwrap();
+        
+        let result = doctor_migrate_edges(temp.path(), false, true).unwrap();
+        
+        // Test JSON output
+        let json = result.to_json();
+        assert!(json.contains("\"tasks_scanned\":1"));
+        assert!(json.contains("\"dry_run\":true"));
+        
+        // Test human output
+        let human = result.to_human();
+        assert!(human.contains("DRY RUN"));
+        assert!(human.contains("Tasks scanned: 1"));
     }
 }

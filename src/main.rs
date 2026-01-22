@@ -304,9 +304,14 @@ fn run_command(
             let result = commands::blocked(repo_path)?;
             output(&result, human);
         }
-        Some(Commands::Doctor) => {
-            let result = commands::doctor(repo_path)?;
-            output(&result, human);
+        Some(Commands::Doctor { migrate_edges, clean_unused, dry_run }) => {
+            if migrate_edges {
+                let result = commands::doctor_migrate_edges(repo_path, clean_unused, dry_run)?;
+                output(&result, human);
+            } else {
+                let result = commands::doctor(repo_path)?;
+                output(&result, human);
+            }
         }
         Some(Commands::Log { task_id }) => {
             let result = commands::log(repo_path, task_id.as_deref())?;
@@ -750,7 +755,14 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
 
         Some(Commands::Blocked) => ("blocked".to_string(), serde_json::json!({})),
 
-        Some(Commands::Doctor) => ("doctor".to_string(), serde_json::json!({})),
+        Some(Commands::Doctor { migrate_edges, clean_unused, dry_run }) => (
+            "doctor".to_string(),
+            serde_json::json!({ 
+                "migrate_edges": migrate_edges,
+                "clean_unused": clean_unused,
+                "dry_run": dry_run
+            }),
+        ),
 
         Some(Commands::Log { task_id }) => (
             "log".to_string(),

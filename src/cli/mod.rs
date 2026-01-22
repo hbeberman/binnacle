@@ -60,7 +60,19 @@ pub enum Commands {
     Blocked,
 
     /// Health check and issue detection
-    Doctor,
+    Doctor {
+        /// Migrate legacy depends_on fields to edge relationships
+        #[arg(long)]
+        migrate_edges: bool,
+
+        /// Remove depends_on fields after migration (only works with --migrate-edges)
+        #[arg(long)]
+        clean_unused: bool,
+
+        /// Preview changes without making them
+        #[arg(long)]
+        dry_run: bool,
+    },
 
     /// Show audit trail of changes
     Log {
