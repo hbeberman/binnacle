@@ -1118,6 +1118,7 @@
         const RELOAD_DEBOUNCE_MS = 100;  // Client-side debounce as backup
         let wasConnected = false;  // Track connection state for toast notifications
         let disconnectToast = null;  // Track active disconnect toast
+        let initialLoadComplete = false;  // Track if we've done the initial data load
 
         function connectWebSocket() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1181,6 +1182,22 @@
                                 }
                             }
                         }
+                        
+                        // New task/bug detection: show auto-dismissing toast for new additions
+                        // Only show if we've done the initial load (skip first population)
+                        if (state.tasks && initialLoadComplete) {
+                            for (const task of state.tasks) {
+                                // Check if this is a new item (not in previous state)
+                                if (prevStatuses[task.id] === undefined) {
+                                    if (task.type === 'bug') {
+                                        showToast(`🐛 Bug added: ${task.id} - ${task.title}`, 'warning', 5000);
+                                    } else if (task.type === 'task') {
+                                        showToast(`📋 Task added: ${task.id} - ${task.title}`, 'info', 5000);
+                                    }
+                                }
+                            }
+                        }
+                        initialLoadComplete = true;
                         
                         // Completion detection: last ready task was claimed
                         const newReadyCount = state.ready ? state.ready.length : 0;
