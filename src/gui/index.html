@@ -1320,6 +1320,10 @@
         document.getElementById('auto-follow-switch').addEventListener('click', () => {
             state.graph.autoFollow = !state.graph.autoFollow;
             updateAutoFollowDisplay();
+            // When enabling auto-follow, immediately snap to current active task
+            if (state.graph.autoFollow) {
+                snapToActiveTask();
+            }
         });
 
         function updateAutoFollowDisplay() {
@@ -1328,6 +1332,15 @@
                 switchEl.classList.add('active');
             } else {
                 switchEl.classList.remove('active');
+            }
+        }
+
+        // Find and pan to the first in_progress task
+        function snapToActiveTask() {
+            if (!state.tasks) return;
+            const activeTask = state.tasks.find(t => t.status === 'in_progress');
+            if (activeTask) {
+                panToNode(activeTask.id);
             }
         }
 
