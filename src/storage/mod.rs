@@ -310,13 +310,12 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_test_links_task ON test_links(task_id);
             CREATE INDEX IF NOT EXISTS idx_test_results_test ON test_results(test_id);
 
-            -- Commit link tables
+            -- Commit link tables (supports linking to tasks and bugs)
             CREATE TABLE IF NOT EXISTS commit_links (
                 sha TEXT NOT NULL,
                 task_id TEXT NOT NULL,
                 linked_at TEXT NOT NULL,
-                PRIMARY KEY (sha, task_id),
-                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                PRIMARY KEY (sha, task_id)
             );
 
             CREATE INDEX IF NOT EXISTS idx_commit_links_task ON commit_links(task_id);
@@ -2642,24 +2641,41 @@ impl Storage {
     // === Commit Link Operations ===
 
     /// Link a commit to a task.
-    pub fn link_commit(&mut self, sha: &str, task_id: &str) -> Result<CommitLink> {
+    /// Link a commit to a task or bug.
+    pub fn link_commit(&mut self, sha: &str, entity_id: &str) -> Result<CommitLink> {
         // Validate SHA format
         validate_sha(sha)?;
 
-        // Validate task exists
-        self.get_task(task_id)?;
+        // Validate entity exists (task or bug)
+        let entity_type = self.get_entity_type(entity_id).map_err(|_| {
+            Error::NotFound(format!(
+                "Entity not found: {} (must be a task or bug)",
+                entity_id
+            ))
+        })?;
+
+        // Only allow tasks and bugs
+        match entity_type {
+            EntityType::Task | EntityType::Bug => {}
+            _ => {
+                return Err(Error::InvalidInput(format!(
+                    "Cannot link commits to {}: only tasks and bugs are supported",
+                    entity_type
+                )));
+            }
+        }
 
         // Check if already linked
         let exists: bool = self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM commit_links WHERE sha = ?1 AND task_id = ?2)",
-            params![sha, task_id],
+            params![sha, entity_id],
             |row| row.get(0),
         )?;
 
         if exists {
             return Err(Error::Other(format!(
-                "Commit {} is already linked to task {}",
-                sha, task_id
+                "Commit {} is already linked to {}",
+                sha, entity_id
             )));
         }
 
@@ -2668,13 +2684,13 @@ impl Storage {
         // Insert into SQLite cache
         self.conn.execute(
             "INSERT INTO commit_links (sha, task_id, linked_at) VALUES (?1, ?2, ?3)",
-            params![sha, task_id, linked_at.to_rfc3339()],
+            params![sha, entity_id, linked_at.to_rfc3339()],
         )?;
 
         // Append to JSONL
         let link = CommitLink {
             sha: sha.to_string(),
-            task_id: task_id.to_string(),
+            task_id: entity_id.to_string(),
             linked_at,
         };
         let commits_path = self.root.join("commits.jsonl");
@@ -2688,48 +2704,93 @@ impl Storage {
         Ok(link)
     }
 
-    /// Unlink a commit from a task.
-    pub fn unlink_commit(&mut self, sha: &str, task_id: &str) -> Result<()> {
+    /// Unlink a commit from a task or bug.
+    pub fn unlink_commit(&mut self, sha: &str, entity_id: &str) -> Result<()> {
         // Validate SHA format
         validate_sha(sha)?;
 
-        // Validate task exists
-        self.get_task(task_id)?;
+        // Validate entity exists (task or bug)
+        let entity_type = self.get_entity_type(entity_id).map_err(|_| {
+            Error::NotFound(format!(
+                "Entity not found: {} (must be a task or bug)",
+                entity_id
+            ))
+        })?;
+
+        // Only allow tasks and bugs
+        match entity_type {
+            EntityType::Task | EntityType::Bug => {}
+            _ => {
+                return Err(Error::InvalidInput(format!(
+                    "Cannot unlink commits from {}: only tasks and bugs are supported",
+                    entity_type
+                )));
+            }
+        }
 
         // Check if linked
         let exists: bool = self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM commit_links WHERE sha = ?1 AND task_id = ?2)",
-            params![sha, task_id],
+            params![sha, entity_id],
             |row| row.get(0),
         )?;
 
         if !exists {
             return Err(Error::NotFound(format!(
-                "Commit {} is not linked to task {}",
-                sha, task_id
+                "Commit {} is not linked to {}",
+                sha, entity_id
             )));
         }
 
         // Remove from cache
         self.conn.execute(
             "DELETE FROM commit_links WHERE sha = ?1 AND task_id = ?2",
-            params![sha, task_id],
+            params![sha, entity_id],
         )?;
 
         Ok(())
     }
 
-    /// Get all commits linked to a task.
+    /// Get all commits linked to a task (backward compatibility).
     pub fn get_commits_for_task(&self, task_id: &str) -> Result<Vec<CommitLink>> {
         // Validate task exists
         self.get_task(task_id)?;
 
+        self.get_commits_for_entity_internal(task_id)
+    }
+
+    /// Get all commits linked to a task or bug.
+    pub fn get_commits_for_entity(&self, entity_id: &str) -> Result<Vec<CommitLink>> {
+        // Validate entity exists (task or bug)
+        let entity_type = self.get_entity_type(entity_id).map_err(|_| {
+            Error::NotFound(format!(
+                "Entity not found: {} (must be a task or bug)",
+                entity_id
+            ))
+        })?;
+
+        // Only allow tasks and bugs
+        match entity_type {
+            EntityType::Task | EntityType::Bug => {}
+            _ => {
+                return Err(Error::InvalidInput(format!(
+                    "Cannot list commits for {}: only tasks and bugs are supported",
+                    entity_type
+                )));
+            }
+        }
+
+        self.get_commits_for_entity_internal(entity_id)
+    }
+
+    /// Internal helper to get commits for an entity (no validation).
+    fn get_commits_for_entity_internal(&self, entity_id: &str) -> Result<Vec<CommitLink>> {
         let mut stmt = self.conn.prepare(
             "SELECT sha, task_id, linked_at FROM commit_links WHERE task_id = ?1 ORDER BY linked_at DESC",
         )?;
 
         let links: Vec<CommitLink> = stmt
-            .query_map([task_id], |row| {
+            .query_map([entity_id], |row| {
                 let linked_at_str: String = row.get(2)?;
                 Ok(CommitLink {
                     sha: row.get(0)?,

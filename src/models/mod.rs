@@ -474,13 +474,15 @@ pub struct TestResult {
     pub executed_at: DateTime<Utc>,
 }
 
-/// Association between a commit and a task.
+/// Association between a commit and a task or bug.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitLink {
     /// Git commit SHA
     pub sha: String,
 
-    /// Task ID
+    /// Entity ID (task or bug)
+    /// Serializes as "task_id" for backward compatibility with existing data.
+    #[serde(alias = "entity_id")]
     pub task_id: String,
 
     /// When the link was created

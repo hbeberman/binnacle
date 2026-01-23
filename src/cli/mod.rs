@@ -819,26 +819,26 @@ pub enum TestCommands {
 /// Commit tracking subcommands
 #[derive(Subcommand, Debug)]
 pub enum CommitCommands {
-    /// Link a commit to a task
+    /// Link a commit to a task or bug
     Link {
         /// Commit SHA
         sha: String,
-        /// Task ID
-        task_id: String,
+        /// Entity ID (task bn-xxxx or bug bnb-xxxx)
+        entity_id: String,
     },
 
-    /// Unlink a commit from a task
+    /// Unlink a commit from a task or bug
     Unlink {
         /// Commit SHA
         sha: String,
-        /// Task ID
-        task_id: String,
+        /// Entity ID (task bn-xxxx or bug bnb-xxxx)
+        entity_id: String,
     },
 
-    /// List commits linked to a task
+    /// List commits linked to a task or bug
     List {
-        /// Task ID
-        task_id: String,
+        /// Entity ID (task bn-xxxx or bug bnb-xxxx)
+        entity_id: String,
     },
 }
 

@@ -1,9 +1,9 @@
 //! Integration tests for Commit Tracking operations via CLI.
 //!
 //! These tests verify that commit commands work correctly through the CLI:
-//! - `bn commit link <sha> <task_id>` links a commit to a task
-//! - `bn commit unlink <sha> <task_id>` unlinks a commit from a task
-//! - `bn commit list <task_id>` lists commits linked to a task
+//! - `bn commit link <sha> <entity_id>` links a commit to a task or bug
+//! - `bn commit unlink <sha> <entity_id>` unlinks a commit from a task or bug
+//! - `bn commit list <entity_id>` lists commits linked to a task or bug
 //! - JSON and human-readable output formats are correct
 
 mod common;
@@ -55,7 +55,7 @@ fn test_commit_link() {
         .success()
         .stdout(predicate::str::contains("\"sha\":\"a1b2c3d\""))
         .stdout(predicate::str::contains(format!(
-            "\"task_id\":\"{}\"",
+            "\"entity_id\":\"{}\"",
             task_id
         )));
 }
@@ -74,7 +74,7 @@ fn test_commit_link_human_readable() {
         .args(["-H", "commit", "link", "a1b2c3d", &task_id])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Linked commit a1b2c3d to task"))
+        .stdout(predicate::str::contains("Linked commit a1b2c3d to"))
         .stdout(predicate::str::contains(&task_id));
 }
 
@@ -225,7 +225,7 @@ fn test_commit_unlink() {
         .success()
         .stdout(predicate::str::contains("\"sha\":\"a1b2c3d\""))
         .stdout(predicate::str::contains(format!(
-            "\"task_id\":\"{}\"",
+            "\"entity_id\":\"{}\"",
             task_id
         )));
 }
@@ -249,9 +249,7 @@ fn test_commit_unlink_human_readable() {
         .args(["-H", "commit", "unlink", "a1b2c3d", &task_id])
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "Unlinked commit a1b2c3d from task",
-        ))
+        .stdout(predicate::str::contains("Unlinked commit a1b2c3d from"))
         .stdout(predicate::str::contains(&task_id));
 }
 
@@ -305,7 +303,7 @@ fn test_commit_list_empty_human_readable() {
         .args(["-H", "commit", "list", &task_id])
         .assert()
         .success()
-        .stdout(predicate::str::contains("No commits linked to task"));
+        .stdout(predicate::str::contains("No commits linked to"));
 }
 
 #[test]
@@ -360,7 +358,7 @@ fn test_commit_list_with_commits_human_readable() {
         .args(["-H", "commit", "list", &task_id])
         .assert()
         .success()
-        .stdout(predicate::str::contains("2 commit(s) linked to task"))
+        .stdout(predicate::str::contains("2 commit(s) linked to"))
         .stdout(predicate::str::contains("a1b2c3d"))
         .stdout(predicate::str::contains("e5f6789"));
 }
@@ -455,4 +453,144 @@ fn test_commit_link_unlink_list_roundtrip() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"count\":0"));
+}
+
+// === Bug Linking Tests ===
+
+#[test]
+fn test_commit_link_to_bug() {
+    let temp = init_binnacle();
+
+    // Create a bug
+    let output = bn_in(&temp)
+        .args(["bug", "create", "Test bug"])
+        .output()
+        .unwrap();
+    let bug_id = extract_task_id(&output);
+
+    // Link a commit to the bug
+    bn_in(&temp)
+        .args(["commit", "link", "a1b2c3d", &bug_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"sha\":\"a1b2c3d\""))
+        .stdout(predicate::str::contains(format!(
+            "\"entity_id\":\"{}\"",
+            bug_id
+        )));
+}
+
+#[test]
+fn test_commit_link_to_bug_human_readable() {
+    let temp = init_binnacle();
+
+    let output = bn_in(&temp)
+        .args(["bug", "create", "Test bug"])
+        .output()
+        .unwrap();
+    let bug_id = extract_task_id(&output);
+
+    bn_in(&temp)
+        .args(["-H", "commit", "link", "a1b2c3d", &bug_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Linked commit a1b2c3d to"))
+        .stdout(predicate::str::contains(&bug_id));
+}
+
+#[test]
+fn test_commit_unlink_from_bug() {
+    let temp = init_binnacle();
+
+    let output = bn_in(&temp)
+        .args(["bug", "create", "Test bug"])
+        .output()
+        .unwrap();
+    let bug_id = extract_task_id(&output);
+
+    // Link then unlink
+    bn_in(&temp)
+        .args(["commit", "link", "a1b2c3d", &bug_id])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["commit", "unlink", "a1b2c3d", &bug_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"sha\":\"a1b2c3d\""))
+        .stdout(predicate::str::contains(format!(
+            "\"entity_id\":\"{}\"",
+            bug_id
+        )));
+}
+
+#[test]
+fn test_commit_list_for_bug() {
+    let temp = init_binnacle();
+
+    let output = bn_in(&temp)
+        .args(["bug", "create", "Test bug"])
+        .output()
+        .unwrap();
+    let bug_id = extract_task_id(&output);
+
+    // Link multiple commits
+    bn_in(&temp)
+        .args(["commit", "link", "a1b2c3d", &bug_id])
+        .assert()
+        .success();
+    bn_in(&temp)
+        .args(["commit", "link", "e5f6789", &bug_id])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["commit", "list", &bug_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"count\":2"))
+        .stdout(predicate::str::contains("a1b2c3d"))
+        .stdout(predicate::str::contains("e5f6789"));
+}
+
+#[test]
+fn test_same_commit_linked_to_task_and_bug() {
+    let temp = init_binnacle();
+
+    // Create a task
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Test task"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Create a bug
+    let bug_output = bn_in(&temp)
+        .args(["bug", "create", "Test bug"])
+        .output()
+        .unwrap();
+    let bug_id = extract_task_id(&bug_output);
+
+    // Link same commit to both task and bug
+    bn_in(&temp)
+        .args(["commit", "link", "a1b2c3d", &task_id])
+        .assert()
+        .success();
+    bn_in(&temp)
+        .args(["commit", "link", "a1b2c3d", &bug_id])
+        .assert()
+        .success();
+
+    // Both should have the commit
+    bn_in(&temp)
+        .args(["commit", "list", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"count\":1"));
+    bn_in(&temp)
+        .args(["commit", "list", &bug_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"count\":1"));
 }

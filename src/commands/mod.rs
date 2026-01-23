@@ -7795,7 +7795,7 @@ pub fn compact(repo_path: &Path) -> Result<CompactResult> {
 #[derive(Serialize)]
 pub struct CommitLinked {
     pub sha: String,
-    pub task_id: String,
+    pub entity_id: String,
 }
 
 impl Output for CommitLinked {
@@ -7804,25 +7804,25 @@ impl Output for CommitLinked {
     }
 
     fn to_human(&self) -> String {
-        format!("Linked commit {} to task {}", self.sha, self.task_id)
+        format!("Linked commit {} to {}", self.sha, self.entity_id)
     }
 }
 
-/// Link a commit to a task.
-pub fn commit_link(repo_path: &Path, sha: &str, task_id: &str) -> Result<CommitLinked> {
+/// Link a commit to a task or bug.
+pub fn commit_link(repo_path: &Path, sha: &str, entity_id: &str) -> Result<CommitLinked> {
     let mut storage = Storage::open(repo_path)?;
-    storage.link_commit(sha, task_id)?;
+    storage.link_commit(sha, entity_id)?;
 
     Ok(CommitLinked {
         sha: sha.to_string(),
-        task_id: task_id.to_string(),
+        entity_id: entity_id.to_string(),
     })
 }
 
 #[derive(Serialize)]
 pub struct CommitUnlinked {
     pub sha: String,
-    pub task_id: String,
+    pub entity_id: String,
 }
 
 impl Output for CommitUnlinked {
@@ -7831,24 +7831,24 @@ impl Output for CommitUnlinked {
     }
 
     fn to_human(&self) -> String {
-        format!("Unlinked commit {} from task {}", self.sha, self.task_id)
+        format!("Unlinked commit {} from {}", self.sha, self.entity_id)
     }
 }
 
-/// Unlink a commit from a task.
-pub fn commit_unlink(repo_path: &Path, sha: &str, task_id: &str) -> Result<CommitUnlinked> {
+/// Unlink a commit from a task or bug.
+pub fn commit_unlink(repo_path: &Path, sha: &str, entity_id: &str) -> Result<CommitUnlinked> {
     let mut storage = Storage::open(repo_path)?;
-    storage.unlink_commit(sha, task_id)?;
+    storage.unlink_commit(sha, entity_id)?;
 
     Ok(CommitUnlinked {
         sha: sha.to_string(),
-        task_id: task_id.to_string(),
+        entity_id: entity_id.to_string(),
     })
 }
 
 #[derive(Serialize)]
 pub struct CommitList {
-    pub task_id: String,
+    pub entity_id: String,
     pub commits: Vec<CommitLink>,
     pub count: usize,
 }
@@ -7860,13 +7860,13 @@ impl Output for CommitList {
 
     fn to_human(&self) -> String {
         if self.commits.is_empty() {
-            return format!("No commits linked to task {}", self.task_id);
+            return format!("No commits linked to {}", self.entity_id);
         }
 
         let mut lines = Vec::new();
         lines.push(format!(
-            "{} commit(s) linked to task {}:\n",
-            self.count, self.task_id
+            "{} commit(s) linked to {}:\n",
+            self.count, self.entity_id
         ));
 
         for link in &self.commits {
@@ -7881,14 +7881,14 @@ impl Output for CommitList {
     }
 }
 
-/// List commits linked to a task.
-pub fn commit_list(repo_path: &Path, task_id: &str) -> Result<CommitList> {
+/// List commits linked to a task or bug.
+pub fn commit_list(repo_path: &Path, entity_id: &str) -> Result<CommitList> {
     let storage = Storage::open(repo_path)?;
-    let commits = storage.get_commits_for_task(task_id)?;
+    let commits = storage.get_commits_for_entity(entity_id)?;
     let count = commits.len();
 
     Ok(CommitList {
-        task_id: task_id.to_string(),
+        entity_id: entity_id.to_string(),
         commits,
         count,
     })
@@ -9479,7 +9479,7 @@ mod tests {
 
         let result = commit_link(temp.path(), "a1b2c3d", &task.id).unwrap();
         assert_eq!(result.sha, "a1b2c3d");
-        assert_eq!(result.task_id, task.id);
+        assert_eq!(result.entity_id, task.id);
     }
 
     #[test]
@@ -9527,7 +9527,7 @@ mod tests {
         let result = commit_unlink(temp.path(), "a1b2c3d", &task.id).unwrap();
 
         assert_eq!(result.sha, "a1b2c3d");
-        assert_eq!(result.task_id, task.id);
+        assert_eq!(result.entity_id, task.id);
 
         // Verify commit is no longer linked
         let list = commit_list(temp.path(), &task.id).unwrap();
@@ -9571,7 +9571,7 @@ mod tests {
 
         let list = commit_list(temp.path(), &task.id).unwrap();
         assert_eq!(list.count, 2);
-        assert_eq!(list.task_id, task.id);
+        assert_eq!(list.entity_id, task.id);
     }
 
     #[test]

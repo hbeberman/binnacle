@@ -533,16 +533,16 @@ fn run_command(
             }
         },
         Some(Commands::Commit { command }) => match command {
-            CommitCommands::Link { sha, task_id } => {
-                let result = commands::commit_link(repo_path, &sha, &task_id)?;
+            CommitCommands::Link { sha, entity_id } => {
+                let result = commands::commit_link(repo_path, &sha, &entity_id)?;
                 output(&result, human);
             }
-            CommitCommands::Unlink { sha, task_id } => {
-                let result = commands::commit_unlink(repo_path, &sha, &task_id)?;
+            CommitCommands::Unlink { sha, entity_id } => {
+                let result = commands::commit_unlink(repo_path, &sha, &entity_id)?;
                 output(&result, human);
             }
-            CommitCommands::List { task_id } => {
-                let result = commands::commit_list(repo_path, &task_id)?;
+            CommitCommands::List { entity_id } => {
+                let result = commands::commit_list(repo_path, &entity_id)?;
                 output(&result, human);
             }
         },
@@ -1588,23 +1588,23 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         },
 
         Some(Commands::Commit { command }) => match command {
-            CommitCommands::Link { sha, task_id } => (
+            CommitCommands::Link { sha, entity_id } => (
                 "commit link".to_string(),
                 serde_json::json!({
                     "sha": sha,
-                    "task_id": task_id,
+                    "entity_id": entity_id,
                 }),
             ),
-            CommitCommands::Unlink { sha, task_id } => (
+            CommitCommands::Unlink { sha, entity_id } => (
                 "commit unlink".to_string(),
                 serde_json::json!({
                     "sha": sha,
-                    "task_id": task_id,
+                    "entity_id": entity_id,
                 }),
             ),
-            CommitCommands::List { task_id } => (
+            CommitCommands::List { entity_id } => (
                 "commit list".to_string(),
-                serde_json::json!({ "task_id": task_id }),
+                serde_json::json!({ "entity_id": entity_id }),
             ),
         },
 
