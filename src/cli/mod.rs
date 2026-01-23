@@ -826,7 +826,23 @@ pub enum SearchCommands {
 #[derive(Subcommand, Debug)]
 pub enum SystemCommands {
     /// Initialize binnacle for this repository
-    Init,
+    Init {
+        /// Write binnacle section to AGENTS.md (creates file if needed)
+        #[arg(long)]
+        write_agents_md: bool,
+
+        /// Write Claude Code skills file to ~/.claude/skills/binnacle/SKILL.md
+        #[arg(long)]
+        write_claude_skills: bool,
+
+        /// Write Codex skills file to ~/.codex/skills/binnacle/SKILL.md
+        #[arg(long)]
+        write_codex_skills: bool,
+
+        /// Skip interactive prompts (use flags to control what gets written)
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
 
     /// Data store management (import/export/inspect)
     Store {

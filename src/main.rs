@@ -574,8 +574,32 @@ fn run_command(
             }
         },
         Some(Commands::System { command }) => match command {
-            SystemCommands::Init => {
-                let result = commands::init(repo_path)?;
+            SystemCommands::Init {
+                write_agents_md,
+                write_claude_skills,
+                write_codex_skills,
+                yes,
+            } => {
+                let result = if yes {
+                    // Non-interactive: use flags directly
+                    commands::init_non_interactive(
+                        repo_path,
+                        write_agents_md,
+                        write_claude_skills,
+                        write_codex_skills,
+                    )?
+                } else if write_agents_md || write_claude_skills || write_codex_skills {
+                    // Flags provided without -y: use flags as the options
+                    commands::init_non_interactive(
+                        repo_path,
+                        write_agents_md,
+                        write_claude_skills,
+                        write_codex_skills,
+                    )?
+                } else {
+                    // Interactive mode (default)
+                    commands::init(repo_path)?
+                };
                 output(&result, human);
             }
             SystemCommands::Store { command } => match command {
@@ -1528,7 +1552,20 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         },
 
         Some(Commands::System { command }) => match command {
-            SystemCommands::Init => ("system init".to_string(), serde_json::json!({})),
+            SystemCommands::Init {
+                write_agents_md,
+                write_claude_skills,
+                write_codex_skills,
+                yes,
+            } => (
+                "system init".to_string(),
+                serde_json::json!({
+                    "write_agents_md": write_agents_md,
+                    "write_claude_skills": write_claude_skills,
+                    "write_codex_skills": write_codex_skills,
+                    "yes": yes,
+                }),
+            ),
             SystemCommands::Store { command } => match command {
                 StoreCommands::Show => ("system store show".to_string(), serde_json::json!({})),
                 StoreCommands::Export { output, format } => (

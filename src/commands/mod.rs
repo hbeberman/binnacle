@@ -146,6 +146,22 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
     )
 }
 
+/// Initialize binnacle for the current repository without interactive prompts.
+/// Use flags to control what gets written.
+pub fn init_non_interactive(
+    repo_path: &Path,
+    write_agents_md: bool,
+    write_claude_skills: bool,
+    write_codex_skills: bool,
+) -> Result<InitResult> {
+    init_with_options(
+        repo_path,
+        write_agents_md,
+        write_claude_skills,
+        write_codex_skills,
+    )
+}
+
 /// Initialize binnacle for the current repository with explicit options.
 /// Used internally and by tests.
 fn init_with_options(
