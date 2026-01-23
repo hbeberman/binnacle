@@ -66,48 +66,44 @@ fn test_agent_kill_help() {
 fn test_agent_kill_with_timeout() {
     let temp = init_binnacle();
 
-    // Register an agent first
+    // DON'T try to kill an agent that's registered with this test's PID!
+    // Instead, just test that the command accepts the timeout parameter with a non-existent agent
     bn_in(&temp)
-        .args(["orient", "--name", "killable-agent"])
+        .args(["agent", "kill", "99999", "--timeout", "2"])
         .assert()
-        .success();
-
-    // Try to kill by name (agent has different PID so cleanup will remove it)
-    // This tests that the command accepts the timeout parameter
-    bn_in(&temp)
-        .args(["agent", "kill", "killable-agent", "--timeout", "2"])
-        .assert()
-        .failure(); // Expected because agent's PID doesn't match any running process
+        .failure()
+        .stderr(predicate::str::contains("not found").or(predicate::str::contains("NotFound")));
 }
 
 #[test]
 fn test_agent_kill_after_orient() {
     let temp = init_binnacle();
 
-    // Register agent with orient
+    // Register agent with orient - this now uses the PARENT PID (this test process)
+    // so the agent persists across bn invocations
     bn_in(&temp)
         .args(["orient", "--name", "doomed-agent"])
         .assert()
         .success();
 
-    // Verify agent is listed
+    // Verify agent is listed - with the fix, the agent should now be present!
+    // (Previously it would be cleaned up as stale because it used bn's own PID)
     bn_in(&temp)
         .args(["agent", "list", "-H"])
         .assert()
         .success()
         .stdout(predicate::str::contains("doomed-agent"));
 
-    // Try to kill the agent (will fail because PID is already gone after orient subprocess exits)
-    // The stale cleanup will have already removed it
+    // Run orient again to verify agent tracking continues to work
     bn_in(&temp)
-        .args(["agent", "kill", "doomed-agent"])
+        .args(["orient", "--name", "doomed-agent"])
         .assert()
-        .failure();
+        .success();
 
-    // Agent should no longer be listed (removed by cleanup)
+    // Agent should still be present
     bn_in(&temp)
         .args(["agent", "list", "-H"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("doomed-agent").not());
+        .stdout(predicate::str::contains("doomed-agent"));
 }
