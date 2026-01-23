@@ -1,7 +1,7 @@
 # PRD: GUI Process Management
 
 **Idea:** bni-bbf8  
-**Status:** Germinating → Ready for implementation  
+**Status:** Implemented ✅  
 **Priority:** P2  
 **Tags:** gui, dx, process-management
 
@@ -141,18 +141,18 @@ If verification fails: `Error: PID 12345 is not a binnacle process. Refusing to 
 
 ## Implementation Tasks
 
-- [ ] Add `GuiPidFile` struct with read/write/delete methods
-- [ ] Add `--replace` flag to `bn gui` command
-- [ ] Add `--stop` flag to `bn gui` command  
-- [ ] Add `--status` flag to `bn gui` command
-- [ ] Implement graceful shutdown (SIGTERM + timeout + SIGKILL)
-- [ ] Implement process verification (cross-platform)
-- [ ] Write PID file on GUI startup
-- [ ] Clean up PID file on graceful shutdown
-- [ ] Update `just gui` to use `--replace` for smoother workflow
-- [ ] Add tests for PID file management
-- [ ] Add tests for process verification
-- [ ] Update documentation
+- [x] Add `GuiPidFile` struct with read/write/delete methods
+- [x] Add `--replace` flag to `bn gui` command
+- [x] Add `--stop` flag to `bn gui` command  
+- [x] Add `--status` flag to `bn gui` command
+- [x] Implement graceful shutdown (SIGTERM + timeout + SIGKILL)
+- [x] Implement process verification (cross-platform)
+- [x] Write PID file on GUI startup
+- [x] Clean up PID file on graceful shutdown
+- [x] Update `just gui` to use `--replace` for smoother workflow
+- [x] Add tests for PID file management
+- [x] Add tests for process verification
+- [x] Update documentation
 
 ## Testing Strategy
 
