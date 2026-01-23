@@ -31,6 +31,9 @@ fn main() {
     // Execute command
     let result = run_command(cli.command, &repo_path, human);
 
+    // Track agent activity (if this process is a registered agent)
+    commands::track_agent_activity(&repo_path);
+
     // Calculate duration
     let duration = start.elapsed().as_millis() as u64;
 

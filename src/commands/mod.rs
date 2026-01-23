@@ -6830,6 +6830,20 @@ pub fn agent_list(repo_path: &Path, status: Option<&str>) -> Result<AgentListRes
     })
 }
 
+/// Track agent activity if the current process is a registered agent.
+/// Updates last_activity_at and increments command_count.
+/// Silently ignores errors (e.g., if not an agent or storage issues).
+pub fn track_agent_activity(repo_path: &Path) {
+    // Only track if storage exists and can be opened
+    if Storage::exists(repo_path).unwrap_or(false)
+        && let Ok(mut storage) = Storage::open(repo_path)
+    {
+        let pid = std::process::id();
+        // Touch the agent if registered (silently ignore if not)
+        let _ = storage.touch_agent(pid);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
