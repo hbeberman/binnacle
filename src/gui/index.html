@@ -4141,6 +4141,39 @@
             ctx.closePath();
         }
 
+        // Draw a cloud/bubble path centered at (cx, cy) with the given radius
+        // Uses overlapping circles to create a puffy cloud shape
+        function drawCloudPath(ctx, cx, cy, radius) {
+            // Cloud made of overlapping arcs to create a bumpy outline
+            const r = radius * 0.55;  // Base lobe radius
+            
+            // Top lobe (slightly larger)
+            ctx.arc(cx, cy - radius * 0.35, r * 1.1, Math.PI * 1.0, Math.PI * 2.0, false);
+            
+            // Top-right lobe
+            ctx.arc(cx + radius * 0.55, cy - radius * 0.2, r * 0.9, Math.PI * 1.4, Math.PI * 0.3, false);
+            
+            // Right lobe
+            ctx.arc(cx + radius * 0.65, cy + radius * 0.25, r * 0.85, Math.PI * 1.7, Math.PI * 0.5, false);
+            
+            // Bottom-right lobe
+            ctx.arc(cx + radius * 0.3, cy + radius * 0.55, r * 0.8, Math.PI * 1.9, Math.PI * 0.7, false);
+            
+            // Bottom lobe
+            ctx.arc(cx - radius * 0.2, cy + radius * 0.55, r * 0.85, Math.PI * 0.0, Math.PI * 0.9, false);
+            
+            // Bottom-left lobe
+            ctx.arc(cx - radius * 0.6, cy + radius * 0.25, r * 0.85, Math.PI * 0.3, Math.PI * 1.1, false);
+            
+            // Left lobe
+            ctx.arc(cx - radius * 0.65, cy - radius * 0.15, r * 0.9, Math.PI * 0.5, Math.PI * 1.3, false);
+            
+            // Top-left lobe (connects back to top)
+            ctx.arc(cx - radius * 0.45, cy - radius * 0.35, r * 0.9, Math.PI * 0.7, Math.PI * 1.1, false);
+            
+            ctx.closePath();
+        }
+
         // Check if a node is in the queue (has a 'queued' edge to a queue node)
         function isNodeQueued(nodeId) {
             // Check state.edges (API data) directly, not state.graph.edges
@@ -4236,6 +4269,8 @@
                     drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
                 } else if (node.type === 'bug') {
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
+                } else if (node.type === 'idea') {
+                    drawCloudPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 10 * zoom, 0, Math.PI * 2);
                 }
@@ -4255,6 +4290,8 @@
                     drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'bug') {
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                } else if (node.type === 'idea') {
+                    drawCloudPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
                 }
@@ -4273,6 +4310,8 @@
                     drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'bug') {
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                } else if (node.type === 'idea') {
+                    drawCloudPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
                 }
@@ -4289,6 +4328,8 @@
                 ctx.beginPath();
                 if (node.type === 'bug') {
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 6 * zoom);
+                } else if (node.type === 'idea') {
+                    drawCloudPath(ctx, screenPos.x, screenPos.y, radius + 6 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 6 * zoom, 0, Math.PI * 2);
                 }
@@ -4299,6 +4340,8 @@
                 ctx.beginPath();
                 if (node.type === 'bug') {
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 4 * zoom);
+                } else if (node.type === 'idea') {
+                    drawCloudPath(ctx, screenPos.x, screenPos.y, radius + 4 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 4 * zoom, 0, Math.PI * 2);
                 }
@@ -4348,7 +4391,7 @@
                 ctx.restore();
             }
 
-            // Draw node shape (hexagon for queue, diamond for agent, square for bug, circle for others)
+            // Draw node shape (hexagon for queue, diamond for agent, square for bug, cloud for idea, circle for others)
             ctx.beginPath();
             if (node.type === 'queue') {
                 drawHexagonPath(ctx, screenPos.x, screenPos.y, radius);
@@ -4356,6 +4399,8 @@
                 drawDiamondPath(ctx, screenPos.x, screenPos.y, radius);
             } else if (node.type === 'bug') {
                 drawSquarePath(ctx, screenPos.x, screenPos.y, radius);
+            } else if (node.type === 'idea') {
+                drawCloudPath(ctx, screenPos.x, screenPos.y, radius);
             } else {
                 ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
             }
