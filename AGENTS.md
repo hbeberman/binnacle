@@ -3,6 +3,9 @@
 
 This project uses **bn** (binnacle) for long-horizon task/test status tracking. Run `bn orient` to get started!
 
+For new projects, the human should run `bn system init` which provides helpful prompts for setup.
+If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
+
 ## Task Workflow (IMPORTANT)
 
 1. **Before starting work**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress`

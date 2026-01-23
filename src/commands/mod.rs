@@ -197,6 +197,9 @@ const AGENTS_MD_BLURB: &str = r#"<!-- BEGIN BINNACLE SECTION -->
 
 This project uses **bn** (binnacle) for long-horizon task/test status tracking. Run `bn orient` to get started!
 
+For new projects, the human should run `bn system init` which provides helpful prompts for setup.
+If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
+
 ## Task Workflow (IMPORTANT)
 
 1. **Before starting work**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress`
@@ -487,7 +490,7 @@ fn update_agents_md(repo_path: &Path) -> Result<bool> {
 
 // === Orient Command ===
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct OrientResult {
     pub initialized: bool,
     pub total_tasks: usize,
@@ -543,14 +546,19 @@ impl Output for OrientResult {
 }
 
 /// Orient an AI agent to this project.
-/// Auto-initializes binnacle if not already initialized.
-pub fn orient(repo_path: &Path) -> Result<OrientResult> {
-    // Auto-initialize if needed (without prompts)
+/// If allow_init is true, auto-initializes binnacle if not already initialized.
+/// If allow_init is false and binnacle is not initialized, returns NotInitialized error.
+pub fn orient(repo_path: &Path, allow_init: bool) -> Result<OrientResult> {
+    // Check if initialized
     let initialized = if !Storage::exists(repo_path)? {
-        Storage::init(repo_path)?;
-        // Auto-update AGENTS.md (idempotent)
-        let _ = update_agents_md(repo_path);
-        true
+        if allow_init {
+            Storage::init(repo_path)?;
+            // Auto-update AGENTS.md (idempotent)
+            let _ = update_agents_md(repo_path);
+            true
+        } else {
+            return Err(Error::NotInitialized);
+        }
     } else {
         false
     };
@@ -8089,14 +8097,27 @@ mod tests {
     // === Orient Command Tests ===
 
     #[test]
-    fn test_orient_auto_initializes() {
+    fn test_orient_without_init_fails_when_not_initialized() {
         let temp = TestEnv::new_with_env();
 
         // Verify not initialized
         assert!(!Storage::exists(temp.path()).unwrap());
 
-        // Run orient
-        let result = orient(temp.path()).unwrap();
+        // Run orient without allow_init - should fail
+        let result = orient(temp.path(), false);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::NotInitialized));
+    }
+
+    #[test]
+    fn test_orient_with_init_creates_database() {
+        let temp = TestEnv::new_with_env();
+
+        // Verify not initialized
+        assert!(!Storage::exists(temp.path()).unwrap());
+
+        // Run orient with allow_init=true
+        let result = orient(temp.path(), true).unwrap();
         assert!(result.initialized);
 
         // Verify now initialized
@@ -8133,7 +8154,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path()).unwrap();
+        let result = orient(temp.path(), false).unwrap();
         assert!(!result.initialized); // Already initialized in setup()
         assert_eq!(result.total_tasks, 2);
         assert_eq!(result.ready_count, 2); // Both pending tasks are ready
@@ -8167,7 +8188,7 @@ mod tests {
         // B depends on A (so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = orient(temp.path()).unwrap();
+        let result = orient(temp.path(), false).unwrap();
         assert_eq!(result.total_tasks, 2);
         assert_eq!(result.ready_count, 1);
         assert!(result.ready_ids.contains(&task_a.id));
@@ -8205,7 +8226,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path()).unwrap();
+        let result = orient(temp.path(), false).unwrap();
         assert_eq!(result.in_progress_count, 1);
     }
 
@@ -8223,7 +8244,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path()).unwrap();
+        let result = orient(temp.path(), false).unwrap();
         let human = result.to_human();
 
         assert!(human.contains("Binnacle - AI agent task tracker"));

@@ -140,16 +140,29 @@ fn test_init_human_shows_agents_md_update() {
 // === bn orient Tests ===
 
 #[test]
-fn test_orient_auto_initializes() {
+fn test_orient_without_init_fails_when_not_initialized() {
+    let temp = TestEnv::new();
+
+    // Run orient without --init (should fail)
+    bn_in(&temp)
+        .arg("orient")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No binnacle database found"))
+        .stderr(predicate::str::contains("bn orient --init"));
+}
+
+#[test]
+fn test_orient_with_init_creates_database() {
     let temp = TestEnv::new();
     let agents_path = temp.path().join("AGENTS.md");
 
     // Verify not initialized
     assert!(!agents_path.exists());
 
-    // Run orient (should auto-init)
+    // Run orient --init (should succeed and initialize)
     bn_in(&temp)
-        .arg("orient")
+        .args(["orient", "--init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":true"));
@@ -273,7 +286,7 @@ fn test_orient_empty_project() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .arg("orient")
+        .args(["orient", "--init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"total_tasks\":0"))
@@ -285,9 +298,46 @@ fn test_orient_human_empty_project() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args(["-H", "orient"])
+        .args(["-H", "orient", "--init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Total tasks: 0"))
         .stdout(predicate::str::contains("Ready: 0"));
+}
+
+#[test]
+fn test_orient_init_is_idempotent() {
+    let temp = TestEnv::new();
+
+    // First --init
+    bn_in(&temp)
+        .args(["orient", "--init"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"initialized\":true"));
+
+    // Second --init should also succeed (no-op for already initialized)
+    bn_in(&temp)
+        .args(["orient", "--init"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"initialized\":false"));
+}
+
+#[test]
+fn test_orient_error_json_is_valid() {
+    let temp = TestEnv::new();
+
+    // Run orient without --init and capture JSON error
+    let output = bn_in(&temp).arg("orient").assert().failure();
+
+    // Get stderr and verify it's valid JSON with expected fields
+    let stderr = String::from_utf8_lossy(&output.get_output().stderr);
+    let json: serde_json::Value =
+        serde_json::from_str(stderr.trim()).expect("Error output should be valid JSON");
+
+    assert_eq!(json["error"], "No binnacle database found");
+    assert!(json["hint"].as_str().unwrap().contains("bn system init"));
+    assert!(json["hint"].as_str().unwrap().contains("bn orient --init"));
+    assert!(json["path"].is_string());
 }

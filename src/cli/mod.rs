@@ -27,7 +27,15 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Get project overview and current state (start here!)
-    Orient,
+    ///
+    /// Shows tasks, bugs, milestones, and their relationships.
+    /// For new projects, humans should use `bn system init` (interactive).
+    /// The --init flag is for AI agents needing non-interactive setup.
+    Orient {
+        /// Initialize database non-interactively (conservative defaults, for AI agents)
+        #[arg(long)]
+        init: bool,
+    },
 
     /// Show any entity by ID (auto-detects type)
     Show {

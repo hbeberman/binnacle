@@ -98,9 +98,31 @@ fn run_command(
     human: bool,
 ) -> Result<(), binnacle::Error> {
     match command {
-        Some(Commands::Orient) => {
-            let result = commands::orient(repo_path)?;
-            output(&result, human);
+        Some(Commands::Orient { init }) => {
+            match commands::orient(repo_path, init) {
+                Ok(result) => output(&result, human),
+                Err(binnacle::Error::NotInitialized) => {
+                    // Provide helpful error message for uninitialized database
+                    if human {
+                        eprintln!("Error: No binnacle database found.\n");
+                        eprintln!("To initialize a new database:");
+                        eprintln!(
+                            "    bn system init        # Interactive, recommended for humans"
+                        );
+                        eprintln!("    bn orient --init      # Non-interactive, for AI agents\n");
+                        eprintln!("Database location: {}", repo_path.display());
+                    } else {
+                        let err = serde_json::json!({
+                            "error": "No binnacle database found",
+                            "hint": "Human should run 'bn system init' (interactive). AI agents: use 'bn orient --init' (non-interactive, conservative defaults).",
+                            "path": repo_path
+                        });
+                        eprintln!("{}", err);
+                    }
+                    process::exit(1);
+                }
+                Err(e) => return Err(e),
+            }
         }
 
         Some(Commands::Show { id }) => {
@@ -1041,7 +1063,9 @@ fn not_implemented(command: &str, subcommand: &str, human: bool) {
 /// Serialize command to extract name and arguments for logging.
 fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) {
     match command {
-        Some(Commands::Orient) => ("orient".to_string(), serde_json::json!({})),
+        Some(Commands::Orient { init }) => {
+            ("orient".to_string(), serde_json::json!({ "init": init }))
+        }
 
         Some(Commands::Show { id }) => ("show".to_string(), serde_json::json!({ "id": id })),
 

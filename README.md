@@ -13,7 +13,7 @@ cargo install --path .
 
 # Initialize in your project
 cd your-project
-bn system init
+bn system init      # Interactive setup with prompts
 
 # Create a task
 bn task create "Implement user authentication"
@@ -40,6 +40,7 @@ bn task close bn-xxxx --reason "Implemented JWT auth"
 ```
 bn                    Status summary
 bn orient             Onboarding for AI agents
+bn system init        Initialize database (interactive, recommended)
 bn task create/list/show/update/close/delete
 bn link add/rm/list   Manage relationships (dependencies, etc.)
 bn ready              Tasks with no blockers
