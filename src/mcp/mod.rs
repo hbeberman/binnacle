@@ -1760,12 +1760,12 @@ pub mod tools {
 mod tests {
     use super::*;
     use crate::storage::Storage;
-    use tempfile::TempDir;
+    use crate::test_utils::TestEnv;
 
-    fn setup() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        Storage::init(temp.path()).unwrap();
-        temp
+    fn setup() -> TestEnv {
+        let env = TestEnv::new_with_env();
+        Storage::init(env.path()).unwrap();
+        env
     }
 
     #[test]

@@ -117,6 +117,11 @@ fn get_log_path(repo_path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>>
         return Ok(expand_home(&path));
     }
 
+    // Check BN_DATA_DIR override (used by tests for isolation)
+    if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
+        return Ok(PathBuf::from(override_dir).join("action.log"));
+    }
+
     // Default path: ~/.local/share/binnacle/action.log
     let home = dirs::home_dir().ok_or("Could not determine home directory")?;
     Ok(home.join(".local/share/binnacle/action.log"))

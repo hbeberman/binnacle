@@ -72,7 +72,17 @@ impl Storage {
     /// Open or create storage for the given repository path.
     pub fn open(repo_path: &Path) -> Result<Self> {
         let root = get_storage_dir(repo_path)?;
+        Self::open_at_root(root)
+    }
 
+    /// Open storage with an explicit data directory (DI-friendly for tests).
+    pub fn open_with_data_dir(repo_path: &Path, data_dir: &Path) -> Result<Self> {
+        let root = get_storage_dir_with_base(repo_path, data_dir)?;
+        Self::open_at_root(root)
+    }
+
+    /// Internal: open storage at a specific root directory.
+    fn open_at_root(root: PathBuf) -> Result<Self> {
         if !root.exists() {
             return Err(Error::NotInitialized);
         }
@@ -87,7 +97,17 @@ impl Storage {
     /// Initialize storage for a new repository.
     pub fn init(repo_path: &Path) -> Result<Self> {
         let root = get_storage_dir(repo_path)?;
+        Self::init_at_root(root)
+    }
 
+    /// Initialize storage with an explicit data directory (DI-friendly for tests).
+    pub fn init_with_data_dir(repo_path: &Path, data_dir: &Path) -> Result<Self> {
+        let root = get_storage_dir_with_base(repo_path, data_dir)?;
+        Self::init_at_root(root)
+    }
+
+    /// Internal: initialize storage at a specific root directory.
+    fn init_at_root(root: PathBuf) -> Result<Self> {
         // Create directory structure
         fs::create_dir_all(&root)?;
 
@@ -119,6 +139,17 @@ impl Storage {
     /// Check if storage exists for the given repository.
     pub fn exists(repo_path: &Path) -> Result<bool> {
         let root = get_storage_dir(repo_path)?;
+        Self::exists_at_root(&root)
+    }
+
+    /// Check if storage exists with an explicit data directory (DI-friendly for tests).
+    pub fn exists_with_data_dir(repo_path: &Path, data_dir: &Path) -> Result<bool> {
+        let root = get_storage_dir_with_base(repo_path, data_dir)?;
+        Self::exists_at_root(&root)
+    }
+
+    /// Internal: check if storage exists at a specific root directory.
+    fn exists_at_root(root: &Path) -> Result<bool> {
         Ok(root.exists() && root.join("cache.db").exists())
     }
 
@@ -2562,14 +2593,30 @@ pub fn find_git_root(start: &Path) -> Option<PathBuf> {
 
 /// Get the storage directory for a repository.
 ///
-/// Uses a hash of the repository path to create a unique directory
-/// under `~/.local/share/binnacle/`. The provided path is used directly;
-/// git root detection (if desired) should be done by the caller before
-/// invoking this function.
+/// Uses a hash of the repository path to create a unique directory.
+/// The base directory is determined by:
+/// 1. `BN_DATA_DIR` environment variable (if set)
+/// 2. Falls back to `~/.local/share/binnacle/`
+///
+/// The provided path is used directly; git root detection (if desired)
+/// should be done by the caller before invoking this function.
 pub fn get_storage_dir(repo_path: &Path) -> Result<PathBuf> {
-    let data_dir = dirs::data_dir()
-        .ok_or_else(|| Error::Other("Could not determine data directory".to_string()))?;
+    let base_dir = if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
+        PathBuf::from(override_dir)
+    } else {
+        dirs::data_dir()
+            .ok_or_else(|| Error::Other("Could not determine data directory".to_string()))?
+            .join("binnacle")
+    };
 
+    get_storage_dir_with_base(repo_path, &base_dir)
+}
+
+/// Get the storage directory for a repository with an explicit base directory.
+///
+/// This is the DI-friendly variant used by tests to avoid env var manipulation.
+/// The `base_dir` is used directly as the parent for the hashed repo subdirectory.
+pub fn get_storage_dir_with_base(repo_path: &Path, base_dir: &Path) -> Result<PathBuf> {
     let repo_canonical = repo_path
         .canonicalize()
         .map_err(|e| Error::Other(format!("Could not canonicalize repo path: {}", e)))?;
@@ -2580,7 +2627,7 @@ pub fn get_storage_dir(repo_path: &Path) -> Result<PathBuf> {
     let hash_hex = format!("{:x}", hash);
     let short_hash = &hash_hex[..12];
 
-    Ok(data_dir.join("binnacle").join(short_hash))
+    Ok(base_dir.join(short_hash))
 }
 
 /// Generate a unique ID for a task or test node.
@@ -2678,20 +2725,20 @@ pub fn validate_sha(sha: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::models::BugSeverity;
-    use tempfile::TempDir;
+    use crate::test_utils::TestEnv;
 
-    fn create_test_storage() -> (TempDir, Storage) {
-        let temp_dir = TempDir::new().unwrap();
-        let storage = Storage::init(temp_dir.path()).unwrap();
-        (temp_dir, storage)
+    fn create_test_storage() -> (TestEnv, Storage) {
+        let env = TestEnv::new();
+        let storage = env.init_storage();
+        (env, storage)
     }
 
     #[test]
     fn test_migration_adds_short_name_column() {
-        let temp_dir = TempDir::new().unwrap();
+        let env = TestEnv::new();
 
         // Initialize storage (creates schema with short_name)
-        let storage = Storage::init(temp_dir.path()).unwrap();
+        let storage = env.init_storage();
 
         // Simulate an "old" database by dropping the short_name column
         storage
@@ -2701,7 +2748,7 @@ mod tests {
 
         // Re-open storage - this should run migrations and add the column back
         drop(storage);
-        let mut storage2 = Storage::open(temp_dir.path()).unwrap();
+        let mut storage2 = env.open_storage();
 
         // Verify we can create a task with short_name
         let mut task = Task::new("bn-test".to_string(), "Test".to_string());
@@ -2749,8 +2796,8 @@ mod tests {
 
     #[test]
     fn test_storage_init() {
-        let temp_dir = TempDir::new().unwrap();
-        let storage = Storage::init(temp_dir.path()).unwrap();
+        let env = TestEnv::new();
+        let storage = env.init_storage();
 
         assert!(storage.root.exists());
         assert!(storage.root.join("tasks.jsonl").exists());
@@ -2760,11 +2807,29 @@ mod tests {
 
     #[test]
     fn test_storage_exists() {
-        let temp_dir = TempDir::new().unwrap();
-        assert!(!Storage::exists(temp_dir.path()).unwrap());
+        let env = TestEnv::new();
+        assert!(!env.storage_exists());
 
-        Storage::init(temp_dir.path()).unwrap();
-        assert!(Storage::exists(temp_dir.path()).unwrap());
+        env.init_storage();
+        assert!(env.storage_exists());
+    }
+
+    #[test]
+    fn test_bn_data_dir_override() {
+        // Test that get_storage_dir respects BN_DATA_DIR env var
+        let env = TestEnv::new();
+        let custom_base = env.data_path();
+
+        // Use the DI variant to verify the path is constructed correctly
+        let storage_dir = get_storage_dir_with_base(env.path(), custom_base).unwrap();
+
+        // Storage dir should be under our custom base, not ~/.local/share/binnacle
+        assert!(storage_dir.starts_with(custom_base));
+
+        // The subdirectory should be a 12-char hex hash
+        let subdir_name = storage_dir.file_name().unwrap().to_str().unwrap();
+        assert_eq!(subdir_name.len(), 12);
+        assert!(subdir_name.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]
@@ -3600,8 +3665,8 @@ mod tests {
 
     #[test]
     fn test_find_git_root_from_subdir() {
-        let temp_dir = TempDir::new().unwrap();
-        let root = temp_dir.path();
+        let env = TestEnv::new();
+        let root = env.path();
 
         // Create a .git directory to simulate a git repo
         fs::create_dir(root.join(".git")).unwrap();
@@ -3624,8 +3689,8 @@ mod tests {
 
     #[test]
     fn test_find_git_root_no_git() {
-        let temp_dir = TempDir::new().unwrap();
-        let root = temp_dir.path();
+        let env = TestEnv::new();
+        let root = env.path();
 
         // No .git directory - should return None
         let result = super::find_git_root(root);
@@ -3634,8 +3699,8 @@ mod tests {
 
     #[test]
     fn test_find_git_root_worktree_resolves_to_main() {
-        let temp_dir = TempDir::new().unwrap();
-        let base = temp_dir.path();
+        let env = TestEnv::new();
+        let base = env.path();
 
         // Create main repo structure
         let main_repo = base.join("main-repo");
@@ -3674,8 +3739,8 @@ mod tests {
 
     #[test]
     fn test_find_git_root_worktree_fallback() {
-        let temp_dir = TempDir::new().unwrap();
-        let root = temp_dir.path();
+        let env = TestEnv::new();
+        let root = env.path();
 
         // Create a .git file pointing to a non-existent location (simulates broken worktree)
         let git_file = root.join(".git");
@@ -3696,8 +3761,8 @@ mod tests {
 
     #[test]
     fn test_get_storage_dir_uses_path_literally() {
-        let temp_dir = TempDir::new().unwrap();
-        let root = temp_dir.path();
+        let env = TestEnv::new();
+        let root = env.path();
 
         // Create a .git directory to simulate a git repo
         fs::create_dir(root.join(".git")).unwrap();

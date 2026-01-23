@@ -6550,26 +6550,26 @@ pub fn commit_list(repo_path: &Path, task_id: &str) -> Result<CommitList> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use crate::test_utils::TestEnv;
 
-    fn setup() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        Storage::init(temp.path()).unwrap();
-        temp
+    fn setup() -> TestEnv {
+        let env = TestEnv::new_with_env();
+        Storage::init(env.path()).unwrap();
+        env
     }
 
     #[test]
     fn test_init_new() {
-        let temp = TempDir::new().unwrap();
-        let result = init_with_options(temp.path(), false, false, false).unwrap();
+        let env = TestEnv::new_with_env();
+        let result = init_with_options(env.path(), false, false, false).unwrap();
         assert!(result.initialized);
     }
 
     #[test]
     fn test_init_existing() {
-        let temp = TempDir::new().unwrap();
-        Storage::init(temp.path()).unwrap();
-        let result = init_with_options(temp.path(), false, false, false).unwrap();
+        let env = TestEnv::new_with_env();
+        Storage::init(env.path()).unwrap();
+        let result = init_with_options(env.path(), false, false, false).unwrap();
         assert!(!result.initialized);
     }
 
@@ -7951,7 +7951,7 @@ mod tests {
 
     #[test]
     fn test_init_creates_agents_md() {
-        let temp = TempDir::new().unwrap();
+        let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Verify AGENTS.md doesn't exist yet
@@ -7972,7 +7972,7 @@ mod tests {
 
     #[test]
     fn test_init_appends_to_existing_agents_md() {
-        let temp = TempDir::new().unwrap();
+        let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Create existing AGENTS.md
@@ -7991,7 +7991,7 @@ mod tests {
 
     #[test]
     fn test_init_appends_section_if_legacy_bn_orient() {
-        let temp = TempDir::new().unwrap();
+        let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Create existing AGENTS.md that references bn orient but lacks markers
@@ -8015,7 +8015,7 @@ mod tests {
 
     #[test]
     fn test_init_idempotent_agents_md() {
-        let temp = TempDir::new().unwrap();
+        let temp = TestEnv::new_with_env();
 
         // Run init twice with AGENTS.md enabled
         init_with_options(temp.path(), true, false, false).unwrap();
@@ -8028,7 +8028,7 @@ mod tests {
 
     #[test]
     fn test_init_no_change_when_standard_blurb_already_present() {
-        let temp = TempDir::new().unwrap();
+        let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Pre-create AGENTS.md with the exact standard content (with trailing newline)
@@ -8049,7 +8049,7 @@ mod tests {
 
     #[test]
     fn test_init_replaces_custom_binnacle_section() {
-        let temp = TempDir::new().unwrap();
+        let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Create existing AGENTS.md with custom binnacle section
@@ -8074,7 +8074,7 @@ mod tests {
 
     #[test]
     fn test_agents_md_has_html_markers() {
-        let temp = TempDir::new().unwrap();
+        let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Run init with AGENTS.md update enabled
@@ -8090,7 +8090,7 @@ mod tests {
 
     #[test]
     fn test_orient_auto_initializes() {
-        let temp = TempDir::new().unwrap();
+        let temp = TestEnv::new_with_env();
 
         // Verify not initialized
         assert!(!Storage::exists(temp.path()).unwrap());

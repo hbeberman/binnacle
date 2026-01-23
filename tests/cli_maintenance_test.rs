@@ -6,27 +6,25 @@
 //! - `bn config get/set/list` - configuration management
 //! - `bn compact` - storage compaction
 
-use assert_cmd::Command;
-use predicates::prelude::*;
-use tempfile::TempDir;
+mod common;
 
-/// Get a Command for the bn binary, running in a temp directory.
-fn bn_in(dir: &TempDir) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
-    cmd.current_dir(dir.path());
-    cmd
+use assert_cmd::Command;
+use common::TestEnv;
+use predicates::prelude::*;
+
+/// Get a Command for the bn binary in a TestEnv.
+fn bn_in(env: &TestEnv) -> Command {
+    env.bn()
 }
 
-/// Initialize binnacle in a temp directory and return the temp dir.
-fn init_binnacle() -> TempDir {
-    let temp = TempDir::new().unwrap();
-    bn_in(&temp).args(["system", "init"]).assert().success();
-    temp
+/// Initialize binnacle in a temp directory and return the TestEnv.
+fn init_binnacle() -> TestEnv {
+    TestEnv::init()
 }
 
 /// Create a task and return its ID.
-fn create_task(dir: &TempDir, title: &str) -> String {
-    let output = bn_in(dir)
+fn create_task(env: &TestEnv, title: &str) -> String {
+    let output = bn_in(env)
         .args(["task", "create", title])
         .output()
         .expect("Failed to run bn task create");
@@ -512,7 +510,7 @@ fn test_compact_with_tests() {
 
 #[test]
 fn test_doctor_not_initialized() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .arg("doctor")
@@ -523,7 +521,7 @@ fn test_doctor_not_initialized() {
 
 #[test]
 fn test_log_not_initialized() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .arg("log")
@@ -534,7 +532,7 @@ fn test_log_not_initialized() {
 
 #[test]
 fn test_config_not_initialized() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .args(["config", "list"])
@@ -545,7 +543,7 @@ fn test_config_not_initialized() {
 
 #[test]
 fn test_compact_not_initialized() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .arg("compact")

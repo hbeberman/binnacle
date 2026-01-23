@@ -5,22 +5,20 @@
 //! - JSON and human-readable output formats are correct
 //! - Filtering by status and tags works
 
-use assert_cmd::Command;
-use predicates::prelude::*;
-use tempfile::TempDir;
+mod common;
 
-/// Get a Command for the bn binary, running in a temp directory.
-fn bn_in(dir: &TempDir) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
-    cmd.current_dir(dir.path());
-    cmd
+use assert_cmd::Command;
+use common::TestEnv;
+use predicates::prelude::*;
+
+/// Get a Command for the bn binary in a TestEnv.
+fn bn_in(env: &TestEnv) -> Command {
+    env.bn()
 }
 
-/// Initialize binnacle in a temp directory and return the temp dir.
-fn init_binnacle() -> TempDir {
-    let temp = TempDir::new().unwrap();
-    bn_in(&temp).args(["system", "init"]).assert().success();
-    temp
+/// Initialize binnacle in a temp directory and return the TestEnv.
+fn init_binnacle() -> TestEnv {
+    TestEnv::init()
 }
 
 // === Idea Create Tests ===
