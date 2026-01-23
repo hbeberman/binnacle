@@ -1914,8 +1914,10 @@
                         await loadData();
                         
                         // Check for in_progress transitions when auto-follow is enabled
+                        // Only follow actual tasks, not agent nodes (which move around too much)
                         if (state.graph.autoFollow && state.tasks) {
                             for (const task of state.tasks) {
+                                if (task.type === 'agent') continue;  // Skip agent nodes
                                 const prevStatus = prevStatuses[task.id];
                                 if (task.status === 'in_progress' && prevStatus && prevStatus !== 'in_progress') {
                                     // Task just transitioned to in_progress - start following it with zoom to 100%
@@ -2673,16 +2675,9 @@
         function snapToActiveTask() {
             if (!state.tasks) return;
             
-            // First priority: find an active agent
-            const activeAgent = state.tasks.find(t => t.type === 'agent' && t.status === 'active');
-            if (activeAgent) {
-                state.graph.followingNodeId = activeAgent.id;
-                panToNode(activeAgent.id, true);  // Zoom to 100%
-                return;
-            }
-            
-            // Second priority: find an in_progress task
-            const activeTask = state.tasks.find(t => t.status === 'in_progress');
+            // Follow the active task (in_progress), not agent nodes
+            // Agent nodes move around too much and following them is distracting
+            const activeTask = state.tasks.find(t => t.status === 'in_progress' && t.type !== 'agent');
             if (activeTask) {
                 state.graph.followingNodeId = activeTask.id;
                 panToNode(activeTask.id, true);  // Zoom to 100%
