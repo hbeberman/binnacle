@@ -2,10 +2,10 @@
 # shellcheck disable=SC2016  # Backticks in prompts are intentional literals
 set -e
 
-# Blocked commands - agents should not terminate each other or themselves
+# Blocked commands - agents should not terminate each other
+# Note: bn goodbye is allowed - agents SHOULD terminate themselves gracefully when done
 BLOCKED_TOOLS=(
     --deny-tool "shell(bn agent kill:*)"
-    --deny-tool "shell(bn goodbye:*)"
 )
 
 # Tool permission sets (using arrays to properly handle arguments with spaces)
@@ -93,29 +93,29 @@ shift
 case "$AGENT_TYPE" in
     auto)
         echo "Launching Auto Worker Agent"
-        PROMPT='Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Look for newly created tasks first. Run `bn ready` to find available tasks, pick the highest priority one, claim it with `bn task update ID --status in_progress`, and start working immediately. Remember to mark it complete when you finish.'
+        PROMPT='Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Look for newly created tasks first. Run `bn ready` to find available tasks, pick the highest priority one, claim it with `bn task update ID --status in_progress`, and start working immediately. Remember to mark it complete when you finish. Run `bn goodbye` to gracefully terminate your agent session when all work is done.'
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     do)
         [[ $# -lt 1 ]] && { echo "Error: 'do' requires a description argument"; usage; }
         DESC="$1"
         echo "Launching Make Agent: $DESC"
-        PROMPT="Read PRD.md and use your binnacle skill to orient yourself. Then work on the following: $DESC. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work."
+        PROMPT="Read PRD.md and use your binnacle skill to orient yourself. Then work on the following: $DESC. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work. Run \`bn goodbye\` to gracefully terminate your agent session when all work is done."
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     prd)
         echo "Launching PRD Writer Agent"
-        PROMPT='Read PRD.md and use your binnacle skill to orient yourself. Your job is to find open ideas (tasks tagged with "idea" or in IDEAS.md) and help render them into proper PRDs. Check `bn task list --tag idea` and IDEAS.md for candidates. Pick the most promising idea and write a detailed PRD for it, then commit your work.'
+        PROMPT='Read PRD.md and use your binnacle skill to orient yourself. Your job is to find open ideas (tasks tagged with "idea" or in IDEAS.md) and help render them into proper PRDs. Check `bn task list --tag idea` and IDEAS.md for candidates. Pick the most promising idea and write a detailed PRD for it, then commit your work. Run `bn goodbye` to gracefully terminate your agent session when all work is done.'
         TOOLS=("${TOOLS_PRD[@]}")
         ;;
     buddy)
         echo "Launching Buddy Agent"
-        PROMPT='You are a binnacle buddy. Your job is to help the user quickly insert bugs, tasks, and ideas into the binnacle task graph. Run `bn orient` to understand the current state. Then ask the user what they would like to add or modify in binnacle. Keep interactions quick and focused on bn operations.'
+        PROMPT='You are a binnacle buddy. Your job is to help the user quickly insert bugs, tasks, and ideas into the binnacle task graph. Run `bn orient` to understand the current state. Then ask the user what they would like to add or modify in binnacle. Keep interactions quick and focused on bn operations. Run `bn goodbye` to gracefully terminate your agent session when the user is done.'
         TOOLS=("${TOOLS_BUDDY[@]}")
         ;;
     free)
         echo "Launching Free Agent"
-        PROMPT='You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn task show ID` (task details), `bn blocked` (blocked tasks). Run `bn orient` to see the current project state, then ask the user what they would like you to work on.'
+        PROMPT='You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn task show ID` (task details), `bn blocked` (blocked tasks). Run `bn orient` to see the current project state, then ask the user what they would like you to work on. Run `bn goodbye` to gracefully terminate your agent session when all work is done.'
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     *)
