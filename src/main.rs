@@ -106,6 +106,17 @@ fn run_command(
             output(&result, human);
         }
 
+        Some(Commands::Goodbye { reason, dry_run }) => {
+            let result = commands::goodbye(repo_path, reason)?;
+            output(&result, human);
+
+            // Actually terminate the parent process after output (unless dry-run)
+            if !dry_run {
+                // Use 5 second timeout before SIGKILL
+                commands::terminate_process(result.parent_pid, 5);
+            }
+        }
+
         Some(Commands::Show { id }) => {
             let result = commands::generic_show(repo_path, &id)?;
             output(&result, human);
@@ -1077,6 +1088,11 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         Some(Commands::Orient { name }) => {
             ("orient".to_string(), serde_json::json!({ "name": name }))
         }
+
+        Some(Commands::Goodbye { reason, dry_run }) => (
+            "goodbye".to_string(),
+            serde_json::json!({ "reason": reason, "dry_run": dry_run }),
+        ),
 
         Some(Commands::Show { id }) => ("show".to_string(), serde_json::json!({ "id": id })),
 
