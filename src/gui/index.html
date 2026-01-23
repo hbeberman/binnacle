@@ -1834,7 +1834,9 @@
                 searchQuery: '',
                 // Cached visibility for hit-testing (null until first frame)
                 visibleNodes: null,
-                visibleNodeIds: null
+                visibleNodeIds: null,
+                // Animation time for continuous effects (ms)
+                animationTime: 0
             }
         };
 
@@ -3356,6 +3358,9 @@
                 canvas.height = displayHeight;
             }
 
+            // Update animation time for continuous effects
+            state.graph.animationTime = performance.now();
+
             // Update camera pan animation if active
             updatePanAnimation();
 
@@ -3746,6 +3751,48 @@
                 ctx.arc(screenPos.x, screenPos.y, radius + 4 * zoom, 0, Math.PI * 2);
                 ctx.fillStyle = 'rgba(32, 178, 170, 0.15)';  // --queue-color with transparency
                 ctx.fill();
+            }
+
+            // Draw active task indicator: counter-rotating hatched rings (Ghost in the Shell style)
+            // Only for in_progress tasks/bugs/ideas (not queues/agents)
+            if (node.status === 'in_progress' && node.type !== 'queue' && node.type !== 'agent') {
+                const animTime = state.graph.animationTime;
+                const rotationSpeed = 0.001; // radians per ms
+                const outerRingRadius = radius + 14 * zoom;
+                const innerRingRadius = radius + 8 * zoom;
+                const ringWidth = 2.5 * zoom;
+                const hatchCount = 12;
+                const hatchLength = Math.PI / 18; // Arc length of each hatch
+                
+                // Outer ring - rotates clockwise
+                ctx.save();
+                ctx.translate(screenPos.x, screenPos.y);
+                ctx.rotate(animTime * rotationSpeed);
+                ctx.strokeStyle = 'rgba(240, 173, 78, 0.8)'; // Orange-amber like in_progress color
+                ctx.lineWidth = ringWidth;
+                ctx.lineCap = 'round';
+                for (let i = 0; i < hatchCount; i++) {
+                    const startAngle = (i * Math.PI * 2) / hatchCount;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, outerRingRadius, startAngle, startAngle + hatchLength);
+                    ctx.stroke();
+                }
+                ctx.restore();
+                
+                // Inner ring - rotates counter-clockwise
+                ctx.save();
+                ctx.translate(screenPos.x, screenPos.y);
+                ctx.rotate(-animTime * rotationSpeed * 1.5); // Faster and opposite direction
+                ctx.strokeStyle = 'rgba(255, 200, 100, 0.6)'; // Lighter orange-gold
+                ctx.lineWidth = ringWidth * 0.8;
+                ctx.lineCap = 'round';
+                for (let i = 0; i < hatchCount; i++) {
+                    const startAngle = (i * Math.PI * 2) / hatchCount + Math.PI / hatchCount; // Offset from outer ring
+                    ctx.beginPath();
+                    ctx.arc(0, 0, innerRingRadius, startAngle, startAngle + hatchLength * 0.8);
+                    ctx.stroke();
+                }
+                ctx.restore();
             }
 
             // Draw node shape (hexagon for queue, diamond for agent, circle for others)
