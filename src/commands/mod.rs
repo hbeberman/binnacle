@@ -1826,6 +1826,8 @@ pub struct TaskClosed {
     pub warning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub removed_from_queues: Vec<String>,
 }
 
 impl Output for TaskClosed {
@@ -1838,11 +1840,39 @@ impl Output for TaskClosed {
         if let Some(warning) = &self.warning {
             output.push_str(&format!("\nWarning: {}", warning));
         }
+        if !self.removed_from_queues.is_empty() {
+            output.push_str(&format!(
+                "\nRemoved from queue(s): {}",
+                self.removed_from_queues.join(", ")
+            ));
+        }
         if let Some(hint) = &self.hint {
             output.push_str(&format!("\nHint: {}", hint));
         }
         output
     }
+}
+
+/// Remove a task from all queues it's in (queued links) when it's closed.
+/// Returns the list of queue IDs the task was removed from.
+fn remove_task_from_queues(storage: &mut Storage, task_id: &str) -> Result<Vec<String>> {
+    use crate::models::EdgeType;
+
+    // Find all queued edges where this task is the source
+    let queued_edges = storage.list_edges(Some(EdgeType::Queued), Some(task_id), None)?;
+
+    let mut removed_queues = Vec::new();
+    for edge in queued_edges {
+        // Remove the edge (task -> queue)
+        if storage
+            .remove_edge(&edge.source, &edge.target, EdgeType::Queued)
+            .is_ok()
+        {
+            removed_queues.push(edge.target);
+        }
+    }
+
+    Ok(removed_queues)
 }
 
 fn promote_partial_tasks(storage: &mut Storage) -> Result<Vec<String>> {
@@ -1952,6 +1982,9 @@ pub fn task_close(
     // Silently ignore errors - agent tracking is optional
     let _ = storage.agent_remove_task(parent_pid, id);
 
+    // Auto-remove task from any queues it's in
+    let removed_from_queues = remove_task_from_queues(&mut storage, id)?;
+
     // Generate warning if force was used with incomplete deps
     let warning = if !incomplete_deps.is_empty() {
         Some(format!(
@@ -1970,6 +2003,7 @@ pub fn task_close(
         status: "done".to_string(),
         warning,
         hint,
+        removed_from_queues,
     })
 }
 
@@ -2719,6 +2753,8 @@ pub struct BugClosed {
     pub warning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub removed_from_queues: Vec<String>,
 }
 
 impl Output for BugClosed {
@@ -2730,6 +2766,12 @@ impl Output for BugClosed {
         let mut output = format!("Closed bug {}", self.id);
         if let Some(warning) = &self.warning {
             output.push_str(&format!("\nWarning: {}", warning));
+        }
+        if !self.removed_from_queues.is_empty() {
+            output.push_str(&format!(
+                "\nRemoved from queue(s): {}",
+                self.removed_from_queues.join(", ")
+            ));
         }
         if let Some(hint) = &self.hint {
             output.push_str(&format!("\nHint: {}", hint));
@@ -2784,6 +2826,9 @@ pub fn bug_close(
 
     storage.update_bug(&bug)?;
 
+    // Auto-remove bug from any queues it's in
+    let removed_from_queues = remove_task_from_queues(&mut storage, id)?;
+
     let warning = if !incomplete_deps.is_empty() {
         Some(format!(
             "Closed with {} incomplete dependencies",
@@ -2801,6 +2846,7 @@ pub fn bug_close(
         status: "done".to_string(),
         warning,
         hint,
+        removed_from_queues,
     })
 }
 

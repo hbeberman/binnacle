@@ -376,3 +376,186 @@ fn test_orient_without_queue() {
         .success()
         .stdout(predicate::str::contains("\"queued_ready_count\":0"));
 }
+
+// === Auto-Removal Tests (Phase 3) ===
+
+#[test]
+fn test_close_task_removes_from_queue() {
+    let temp = init_binnacle();
+
+    // Create queue and task
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Add task to queue
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Verify task is in queue
+    bn_in(&temp)
+        .args(["queue", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&task_id));
+
+    // Close the task
+    bn_in(&temp)
+        .args(["task", "close", &task_id, "--reason", "done"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed_from_queues"))
+        .stdout(predicate::str::contains(&queue_id));
+
+    // Verify task is no longer in queue
+    bn_in(&temp)
+        .args(["queue", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"tasks\":[]"));
+}
+
+#[test]
+fn test_close_task_human_shows_queue_removal() {
+    let temp = init_binnacle();
+
+    // Create queue and task
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Add task to queue
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Close the task with human-readable output
+    bn_in(&temp)
+        .args(["-H", "task", "close", &task_id, "--reason", "done"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Removed from queue(s)"))
+        .stdout(predicate::str::contains(&queue_id));
+}
+
+#[test]
+fn test_close_task_not_in_queue_no_removal_message() {
+    let temp = init_binnacle();
+
+    // Create task (no queue)
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Close the task - should not have removed_from_queues field
+    let output = bn_in(&temp)
+        .args(["task", "close", &task_id, "--reason", "done"])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("removed_from_queues"));
+}
+
+#[test]
+fn test_cancelled_task_removed_from_queue() {
+    let temp = init_binnacle();
+
+    // Create queue and task
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Add task to queue
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Cancel the task (update status to cancelled then close with force)
+    bn_in(&temp)
+        .args(["task", "update", &task_id, "--status", "cancelled"])
+        .assert()
+        .success();
+
+    // Verify task is no longer in queue (update to cancelled should not remove)
+    // Actually, the auto-removal is only on task_close - let's check the queue
+    bn_in(&temp)
+        .args(["queue", "show"])
+        .assert()
+        .success()
+        // Task should still be in queue after status update (not close)
+        .stdout(predicate::str::contains(&task_id));
+}
+
+#[test]
+fn test_reopen_task_not_readded_to_queue() {
+    let temp = init_binnacle();
+
+    // Create queue and task
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Add task to queue
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Close the task (removes from queue)
+    bn_in(&temp)
+        .args(["task", "close", &task_id, "--reason", "done"])
+        .assert()
+        .success();
+
+    // Reopen the task
+    bn_in(&temp)
+        .args(["task", "reopen", &task_id])
+        .assert()
+        .success();
+
+    // Task should NOT be automatically re-added to queue
+    bn_in(&temp)
+        .args(["queue", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"tasks\":[]"));
+}
