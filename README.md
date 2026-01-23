@@ -34,6 +34,33 @@ bn task close bn-xxxx --reason "Implemented JWT auth"
 - **Test tracking** - Link tests to tasks, auto-reopen tasks on regression
 - **Action logging** - Comprehensive audit log of all commands with timestamps and metadata
 - **MCP server** - Expose all operations as MCP tools for AI agents
+- **Work queue** - Prioritize tasks for agents with a global work queue
+
+## Queue (Agent Prioritization)
+
+The queue feature allows operators to signal which tasks agents should work on first:
+
+```bash
+# Create a queue (one per repo)
+bn queue create "Sprint 1"
+
+# Add tasks to the queue
+bn link add bn-xxxx bnq-yyyy --type queued
+
+# View queue and its tasks
+bn queue show
+
+# bn ready now shows queued tasks first
+bn ready -H
+# Ready tasks (5):
+#   [QUEUED]
+#     [P1] bn-xxxx: Fix auth bug
+#   [OTHER]
+#     [P2] bn-yyyy: Refactor utils
+
+# Tasks are automatically removed from queue when closed
+bn task close bn-xxxx --reason "Fixed"
+```
 
 ## Commands
 
@@ -45,6 +72,7 @@ bn task create/list/show/update/close/delete
 bn link add/rm/list   Manage relationships (dependencies, etc.)
 bn ready              Tasks with no blockers
 bn blocked            Tasks waiting on dependencies
+bn queue create/show/delete  Agent work prioritization
 bn test create/run    Test node management
 bn commit link/list   Associate commits with tasks
 bn mcp serve          Start MCP server
@@ -145,7 +173,8 @@ What works:
 - Test nodes with regression detection
 - Commit tracking
 - Action logging with sanitization
-- MCP server with 30 tools
+- Work queue for agent task prioritization
+- MCP server with 38+ tools
 - Web GUI with live updates (behind gui feature flag)
 - CI/CD via GitHub Actions
 

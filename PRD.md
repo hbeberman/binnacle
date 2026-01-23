@@ -560,6 +560,53 @@ This keeps all data within the repository without polluting the main branch or w
 
 ---
 
+## Phase 11: Queue Nodes ✅
+
+**Goal:** Agent task prioritization through a work queue
+
+### Motivation
+
+Introduce a **Queue** entity type (`bnq-xxxx`) that serves as a work pool for agent task prioritization. Operators can add tasks to the queue to signal they should be worked on first.
+
+### Deliverables
+- [x] Queue model (`bnq-xxxx` IDs)
+- [x] Commands: `bn queue create/show/delete`
+- [x] `queued` link type for task-to-queue membership
+- [x] `bn ready` integration (queued tasks sorted first)
+- [x] `bn orient` shows queue info
+- [x] Auto-removal of `queued` links when tasks are closed
+- [x] MCP tools: `bn_queue_create`, `bn_queue_show`, `bn_queue_delete`
+- [x] MCP resource: `binnacle://queue`
+- [x] MCP prompt: `prioritize_work`
+- [ ] GUI support (queue node rendering, visual styles)
+- [ ] Documentation updates
+
+### Key Design Decisions
+
+1. **Single global queue** - One queue per repo, keeping the model simple
+2. **Link-based membership** - Uses `bn link add/rm` with `--type queued`
+3. **Unordered membership** - Tasks sorted by priority (0-4), not explicit position
+4. **Auto-removal on close** - Completed tasks automatically leave the queue
+
+### Commands
+
+```bash
+bn queue create "Title" [--description "..."]   # Create queue (one per repo)
+bn queue show                                   # Show queue and its tasks
+bn queue delete                                 # Delete queue (removes all queue links)
+bn link add bn-xxxx bnq-xxxx --type queued      # Add task to queue
+bn link rm bn-xxxx bnq-xxxx                     # Remove task from queue
+```
+
+### Test Summary (Phase 11)
+- Unit tests for Queue model serialization
+- Integration tests for queue CRUD, ready ordering, auto-removal
+- MCP integration tests for queue tools and resources
+
+See `prds/PRD_QUEUE_NODES.md` for full specification.
+
+---
+
 ## Future Considerations (v2+)
 
 - Agent sessions (multi-agent coordination)
