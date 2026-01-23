@@ -6964,6 +6964,8 @@ pub struct AgentInfo {
     pub pid: u32,
     pub parent_pid: u32,
     pub name: String,
+    /// Agent's purpose/role (e.g., "Task Worker", "PRD Generator")
+    pub purpose: Option<String>,
     pub status: String,
     pub started_at: String,
     pub last_activity_at: String,
@@ -6986,9 +6988,14 @@ impl Output for AgentListResult {
         lines.push(String::new());
 
         for agent in &self.agents {
+            let purpose_str = agent
+                .purpose
+                .as_ref()
+                .map(|p| format!(" - {}", p))
+                .unwrap_or_default();
             lines.push(format!(
-                "  PID {}  {}  [{}]",
-                agent.pid, agent.name, agent.status
+                "  PID {}  {}{}  [{}]",
+                agent.pid, agent.name, purpose_str, agent.status
             ));
             lines.push(format!(
                 "    Started: {}  Last activity: {}",
@@ -7022,6 +7029,7 @@ pub fn agent_list(repo_path: &Path, status: Option<&str>) -> Result<AgentListRes
                 pid: a.pid,
                 parent_pid: a.parent_pid,
                 name: a.name,
+                purpose: a.purpose,
                 status: status_str.to_string(),
                 started_at: a.started_at.to_rfc3339(),
                 last_activity_at: a.last_activity_at.to_rfc3339(),

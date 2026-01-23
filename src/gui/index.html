@@ -307,6 +307,19 @@
             color: var(--accent-light);
         }
 
+        .agent-card .agent-purpose {
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            margin-top: 0.25rem;
+            font-style: italic;
+        }
+
+        .agent-card .agent-purpose.agent-unregistered {
+            color: var(--warning);
+            font-style: normal;
+            font-size: 0.8rem;
+        }
+
         .agent-card .agent-tasks {
             margin-top: 0.5rem;
             font-size: 0.9rem;
@@ -3551,10 +3564,14 @@
                 const tasksHtml = agent.tasks && agent.tasks.length > 0 
                     ? agent.tasks.map(t => `<span class="task-id">${escapeHtml(t)}</span>`).join(', ')
                     : 'None';
+                const purposeHtml = agent.purpose 
+                    ? `<div class="agent-purpose">${escapeHtml(agent.purpose)}</div>` 
+                    : '<div class="agent-purpose agent-unregistered">UNREGISTERED - use bn orient --register &quot;purpose&quot;</div>';
                 return `
                 <div class="card agent-card">
                     <button class="terminate-btn" onclick="showTerminateModal(${agent.pid}, '${escapeHtml(agent.name).replace(/'/g, "\\'")}', '${tasksHtml.replace(/'/g, "\\'")}')">✕ Terminate</button>
                     <div class="agent-name">${escapeHtml(agent.name)}</div>
+                    ${purposeHtml}
                     <div class="agent-pid">PID: ${agent.pid}</div>
                     <div class="card-meta">
                         <span class="badge badge-agent-${agent.status}">${agent.status}</span>
