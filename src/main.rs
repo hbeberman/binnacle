@@ -571,6 +571,11 @@ fn run_command(
             output(&result, human);
         }
         Some(Commands::Compact) => {
+            // DEPRECATED: Print warning before executing
+            eprintln!(
+                "Warning: 'bn compact' is deprecated and will be removed in a future version."
+            );
+            eprintln!("         Use 'bn system compact' instead if you need this functionality.");
             let result = commands::compact(repo_path)?;
             output(&result, human);
         }
@@ -677,6 +682,10 @@ fn run_command(
                     output(&result, human);
                 }
             },
+            SystemCommands::Compact => {
+                let result = commands::compact(repo_path)?;
+                output(&result, human);
+            }
         },
         Some(Commands::Agent { command }) => match command {
             AgentCommands::List { status } => {
@@ -1681,6 +1690,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 ),
                 StoreCommands::Dump => ("system store dump".to_string(), serde_json::json!({})),
             },
+            SystemCommands::Compact => ("system compact".to_string(), serde_json::json!({})),
         },
 
         Some(Commands::Agent { command }) => match command {

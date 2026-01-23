@@ -139,7 +139,8 @@ pub enum Commands {
         task_id: Option<String>,
     },
 
-    /// Summarize old closed tasks
+    /// Summarize old closed tasks (DEPRECATED: use 'bn system compact' instead)
+    #[command(hide = true)]
     Compact,
 
     /// Push/pull when sharing is enabled
@@ -914,6 +915,9 @@ pub enum SystemCommands {
         #[command(subcommand)]
         command: StoreCommands,
     },
+
+    /// Compact storage by removing duplicate entries
+    Compact,
 }
 
 /// Store management subcommands

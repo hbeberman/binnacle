@@ -526,6 +526,11 @@ impl McpServer {
                 let result = commands::config_list(repo)?;
                 Ok(result.to_json())
             }
+            // System tools
+            "bn_system_compact" => {
+                let result = commands::compact(repo)?;
+                Ok(result.to_json())
+            }
             // Milestone tools
             "bn_milestone_create" => {
                 let title = get_string_arg(args, "title")?;
@@ -1345,7 +1350,7 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "bn_compact".to_string(),
-            description: "Compact storage by summarizing old closed tasks".to_string(),
+            description: "(DEPRECATED: use bn_system_compact) Compact storage by summarizing old closed tasks".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {},
@@ -1387,6 +1392,16 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
         ToolDef {
             name: "bn_config_list".to_string(),
             description: "List all configuration values".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
+        // System tools
+        ToolDef {
+            name: "bn_system_compact".to_string(),
+            description: "Compact storage by removing duplicate entries".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {},
