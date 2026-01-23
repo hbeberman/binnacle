@@ -43,8 +43,14 @@
             /* Node type colors - queue (teal/cyan) */
             --queue-color: #20b2aa;
             --queue-color-light: #40d0c8;
+            /* Node type colors - agents (bright cyan/electric blue) */
+            --agent-active: #00d4ff;
+            --agent-idle: #6bb3c9;
+            --agent-stale: #4a6670;
             /* Edge type colors - queued */
             --edge-queued: #20b2aa;
+            /* Edge type colors - agent working_on */
+            --edge-agent: #00d4ff;
             /* Overlay backgrounds */
             --overlay-bg: rgba(0, 0, 0, 0.85);
         }
@@ -1688,7 +1694,8 @@
             parent_of: { name: 'Parent', category: 'hierarchy', defaultVisible: false },
             child_of: { name: 'Child', category: 'hierarchy', defaultVisible: false },
             tests: { name: 'Tests', category: 'fixes', defaultVisible: false },
-            queued: { name: 'Queued', category: 'queued', defaultVisible: true }
+            queued: { name: 'Queued', category: 'queued', defaultVisible: true },
+            working_on: { name: 'Working On', category: 'agent', defaultVisible: true }
         };
 
         // Load edge filter state from localStorage
@@ -1957,11 +1964,33 @@
                 depends_on: []
             }] : [];
             
-            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas, ...normalizedQueue];
+            // Normalize agents to have node-like fields for graph rendering
+            const normalizedAgents = (agentsData.agents || []).map(agent => ({
+                id: `agent-${agent.pid}`,
+                title: agent.name,
+                short_name: agent.purpose || agent.name,
+                type: 'agent',
+                status: agent.status,  // active, idle, stale
+                priority: 0,  // Agents are high priority for visibility
+                depends_on: [],
+                // Keep original agent data for reference
+                _agent: agent
+            }));
+            
+            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas, ...normalizedQueue, ...normalizedAgents];
             state.ready = readyData.tasks || [];
             state.tests = testsData.tests || [];
             state.log = logData.log || [];
-            state.edges = edgesData.edges || [];
+            
+            // Build agent-to-task edges ("working_on" edge type)
+            const agentEdges = (agentsData.agents || []).flatMap(agent => 
+                (agent.tasks || []).map(taskId => ({
+                    source: `agent-${agent.pid}`,
+                    target: taskId,
+                    edge_type: 'working_on'
+                }))
+            );
+            state.edges = [...(edgesData.edges || []), ...agentEdges];
             state.agents = agentsData.agents || [];
             
             updateStatsOverlay();
@@ -2571,9 +2600,19 @@
             });
         }
 
-        // Find and pan to the first in_progress task, zooming to 100%
+        // Find and pan to the first active agent or in_progress task, zooming to 100%
         function snapToActiveTask() {
             if (!state.tasks) return;
+            
+            // First priority: find an active agent
+            const activeAgent = state.tasks.find(t => t.type === 'agent' && t.status === 'active');
+            if (activeAgent) {
+                state.graph.followingNodeId = activeAgent.id;
+                panToNode(activeAgent.id, true);  // Zoom to 100%
+                return;
+            }
+            
+            // Second priority: find an in_progress task
             const activeTask = state.tasks.find(t => t.status === 'in_progress');
             if (activeTask) {
                 state.graph.followingNodeId = activeTask.id;
@@ -3511,6 +3550,15 @@
             ctx.closePath();
         }
 
+        // Draw a diamond (rhombus) path centered at (cx, cy) with the given radius
+        function drawDiamondPath(ctx, cx, cy, radius) {
+            ctx.moveTo(cx, cy - radius);       // Top
+            ctx.lineTo(cx + radius, cy);       // Right
+            ctx.lineTo(cx, cy + radius);       // Bottom
+            ctx.lineTo(cx - radius, cy);       // Left
+            ctx.closePath();
+        }
+
         // Check if a node is in the queue (has a 'queued' edge to a queue node)
         function isNodeQueued(nodeId) {
             // Check state.edges (API data) directly, not state.graph.edges
@@ -3561,6 +3609,13 @@
             // Queue color (teal) - queues don't have status, always same color
             const queueColor = '#20b2aa';  // --queue-color
             
+            // Agent colors (cyan/electric blue) - based on agent status
+            const agentColors = {
+                'active': '#00d4ff',       // Bright cyan for active
+                'idle': '#6bb3c9',         // Muted cyan for idle
+                'stale': '#4a6670'         // Dark gray-blue for stale
+            };
+            
             // Select color palette based on node type
             let colorPalette = colors;
             let color;
@@ -3572,6 +3627,9 @@
             } else if (node.type === 'idea') {
                 colorPalette = ideaColors;
                 color = colorPalette[node.status] || '#4a90e2';
+            } else if (node.type === 'agent') {
+                colorPalette = agentColors;
+                color = colorPalette[node.status] || '#00d4ff';
             } else {
                 color = colorPalette[node.status] || '#4a90e2';
             }
@@ -3584,6 +3642,8 @@
                 ctx.beginPath();
                 if (node.type === 'queue') {
                     drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
+                } else if (node.type === 'agent') {
+                    drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 10 * zoom, 0, Math.PI * 2);
                 }
@@ -3599,6 +3659,8 @@
                 ctx.beginPath();
                 if (node.type === 'queue') {
                     drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                } else if (node.type === 'agent') {
+                    drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
                 }
@@ -3613,6 +3675,8 @@
                 ctx.beginPath();
                 if (node.type === 'queue') {
                     drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                } else if (node.type === 'agent') {
+                    drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
                 }
@@ -3624,7 +3688,7 @@
             }
 
             // Draw queued indicator (teal glow for tasks in the queue)
-            const isQueued = node.type !== 'queue' && isNodeQueued(node.id);
+            const isQueued = node.type !== 'queue' && node.type !== 'agent' && isNodeQueued(node.id);
             if (isQueued) {
                 ctx.beginPath();
                 ctx.arc(screenPos.x, screenPos.y, radius + 6 * zoom, 0, Math.PI * 2);
@@ -3638,10 +3702,12 @@
                 ctx.fill();
             }
 
-            // Draw node shape (hexagon for queue, circle for others)
+            // Draw node shape (hexagon for queue, diamond for agent, circle for others)
             ctx.beginPath();
             if (node.type === 'queue') {
                 drawHexagonPath(ctx, screenPos.x, screenPos.y, radius);
+            } else if (node.type === 'agent') {
+                drawDiamondPath(ctx, screenPos.x, screenPos.y, radius);
             } else {
                 ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
             }
@@ -3728,6 +3794,12 @@
                         color: styles.getPropertyValue('--edge-queued').trim(),
                         dashed: true,
                         lineWidth: 2
+                    };
+                case 'working_on':
+                    return {
+                        color: styles.getPropertyValue('--edge-agent').trim() || '#00d4ff',
+                        dashed: false,
+                        lineWidth: 3  // Thicker to stand out
                     };
                 default:
                     return {
