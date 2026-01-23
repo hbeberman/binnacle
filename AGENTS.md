@@ -11,9 +11,19 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 1. **Before starting work**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress`
 2. **After completing work**: Run `bn task close <id> --reason "brief description"`
 3. **If blocked**: Run `bn task update <id> --status blocked`
-4. **For bugs**: Use `bn bug create/update/close` - not `bn task create --tag bug`
+4. **When terminating**: Run `bn goodbye` to gracefully end your session
+5. **For bugs**: Use `bn bug create/update/close` - not `bn task create --tag bug`
 
 The task graph drives development priorities. Always update task status to keep it accurate.
+
+## Before you mark task done (IMPORTANT)
+
+1. Run `bn ready` to check if any related tasks should also be closed
+2. Close ALL tasks you completed, not just the one you started with
+3. Verify the task graph is accurate before finalizing your work
+
+Run `bn --help` for the complete command reference.
+<!-- END BINNACLE SECTION -->
 
 ## CI Validation Requirements (CRITICAL)
 
@@ -27,14 +37,6 @@ Before committing ANY code changes:
 **Pre-commit hook**: Run `git config core.hooksPath hooks` to enable the pre-commit hook that automatically validates formatting and linting before allowing commits.
 
 **NEVER commit code that fails these checks.** CI will reject it and waste time.
-
-## Before you mark task done (IMPORTANT)
-
-1. Run `bn ready` to check if any related tasks should also be closed
-2. Close ALL tasks you completed, not just the one you started with
-3. Verify the task graph is accurate before finalizing your work
-4. Run `bn goodbye` to gracefully terminate your agent session
-<!-- END BINNACLE SECTION -->
 
 ## Build and Test
 
@@ -52,6 +54,7 @@ This project has TWO different `bn` binaries you need to distinguish:
    - Use `just install` to install your changes to the system bn
 
 **Quick reference:**
+
 - Task tracking: `bn orient`, `bn task list`, `bn ready` (uses system bn)
 - Testing code changes: `cargo run -- --help`, `cargo test` (uses dev build)
 - Install your changes: `just install` (copies dev build → system bn)
@@ -71,3 +74,11 @@ When testing GUI changes, follow this workflow to avoid excessive port approval 
    - The user can refresh their browser to pick up changes (if the binary wasn't replaced while running)
    - Or stop the existing GUI and run `just gui` again
 4. **Different port** - Use `BN_GUI_PORT=3031 just gui` if you need a separate instance
+
+## Using the Work Queue
+
+This repo has a work queue for prioritizing tasks. Queued tasks appear first in `bn ready`, non-queued tasks appear in "OTHER".
+
+- `bn queue show` - See queued tasks
+- `bn queue add <task-id>` - Add task to queue (prioritize it)
+- `bn queue rm <task-id>` - Remove from queue

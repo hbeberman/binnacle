@@ -208,7 +208,7 @@ fn init_with_options(
 }
 
 /// The blurb to add to AGENTS.md
-const AGENTS_MD_BLURB: &str = r#"<!-- BEGIN BINNACLE SECTION -->
+pub const AGENTS_MD_BLURB: &str = r#"<!-- BEGIN BINNACLE SECTION -->
 # Agent Instructions
 
 This project uses **bn** (binnacle) for long-horizon task/test status tracking. Run `bn orient` to get started!
@@ -222,6 +222,7 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 2. **After completing work**: Run `bn task close <id> --reason "brief description"`
 3. **If blocked**: Run `bn task update <id> --status blocked`
 4. **When terminating**: Run `bn goodbye` to gracefully end your session
+5. **For bugs**: Use `bn bug create/update/close` - not `bn task create --tag bug`
 
 The task graph drives development priorities. Always update task status to keep it accurate.
 
@@ -230,11 +231,13 @@ The task graph drives development priorities. Always update task status to keep 
 1. Run `bn ready` to check if any related tasks should also be closed
 2. Close ALL tasks you completed, not just the one you started with
 3. Verify the task graph is accurate before finalizing your work
+
+Run `bn --help` for the complete command reference.
 <!-- END BINNACLE SECTION -->
 "#;
 
 /// The skills file content for Claude Code
-const SKILLS_FILE_CONTENT: &str = r#"---
+pub const SKILLS_FILE_CONTENT: &str = r#"---
 name: binnacle
 description: Project planning supercharged. Use to determine tasks at the start of each session. Task and test tracker for multi-session development work with AI agents
 ---
@@ -253,11 +256,13 @@ Use `bn` (binnacle) for managing tasks, tests, and project planning across multi
 ## Key Commands
 
 ### Getting Oriented
+
 - `bn orient` - Get project overview and current state
 - `bn ready` - Show tasks ready to work on (no blockers)
 - `bn blocked` - Show tasks waiting on dependencies
 
 ### Task Management
+
 - `bn task create "Title" -p 2 --tag feature` - Create a new task
 - `bn task list` - List all tasks
 - `bn task show <id>` - Show task details
@@ -266,20 +271,88 @@ Use `bn` (binnacle) for managing tasks, tests, and project planning across multi
 - `bn task update <id> --title "New title"` - Update task details
 
 ### Links (Dependencies & Relationships)
-- `bn link add <source> <target> --type depends_on` - Add dependency
-- `bn link list <id>` - Show links for an entity
+
+Links connect entities in the task graph to model dependencies, relationships, and hierarchy.
+
+**Commands:**
+
+- `bn link add <source> <target> -t <type>` - Add a link between entities
+- `bn link add <source> <target> -t <type> -r "reason"` - Add link with explanation
+- `bn link list <id>` - Show all links for an entity
 - `bn link rm <source> <target>` - Remove a link
 
+**Edge Types:**
+
+- `depends_on` - Source requires target to be completed first (most common)
+- `blocks` - Source prevents target from starting (inverse of depends_on)
+- `related_to` - Soft connection, no ordering implied
+- `duplicates` - Source is a duplicate of target
+- `fixes` - Source (usually a task) fixes target (usually a bug)
+- `caused_by` - Source (bug) was caused by target
+- `supersedes` - Source replaces target (target should be closed)
+- `parent_of` / `child_of` - Hierarchy (milestones → tasks)
+- `tests` - Source (test) validates target (task)
+- `queued` - Source (task) is in target (queue)
+
+**Best Practices:**
+
+- Model blockers explicitly: `bn link add bn-task bn-blocker -t depends_on`
+- Add reasons for non-obvious links: `-r "needs API changes first"`
+- Use `bn search link -t depends_on` to find dependency chains
+- Link tasks to milestones: `bn link add bn-task bn-milestone -t child_of`
+- Avoid circular dependencies (use `bn doctor` to detect them)
+
 ### Test Tracking
+
 - `bn test create "Name" --cmd "cargo test" --task <id>` - Create and link test
 - `bn test run --all` - Run all tests
 - `bn test run --task <id>` - Run tests for a specific task
 - `bn test list` - List all tests
 
 ### Project Health
+
 - `bn doctor` - Check for issues in task graph
 - `bn log` - Show audit trail of changes
 - `bn log <task-id>` - Show changes for specific task
+
+### Bug Tracking
+
+- `bn bug create "Title" --severity medium` - Create a bug (severities: triage, low, medium, high, critical)
+- `bn bug list` - List all bugs
+- `bn bug close <id> --reason "fixed"` - Close a bug
+
+### Idea Management
+
+- `bn idea create "Title"` - Create a low-stakes idea seed
+- `bn idea list` - List all ideas
+- `bn idea update <id> --status promoted` - Promote idea to task
+
+### Milestones
+
+- `bn milestone create "v1.0" --due 2025-02-01` - Create milestone with due date
+- `bn milestone list` - List milestones
+- `bn milestone show <id>` - Show milestone with linked tasks
+
+### Queue (Work Prioritization)
+
+- `bn queue create "Sprint 1"` - Create a work queue
+- `bn queue add <task-id>` - Add task to queue
+- `bn queue show` - Show queued tasks in priority order
+
+### Graph Analysis
+
+- `bn graph components` - Find disconnected components in task graph
+
+### Universal Commands
+
+- `bn show <id>` - Show any entity by ID (auto-detects type)
+- `bn search link --type depends_on` - Search links/edges by type
+
+### Agent Lifecycle
+
+- `bn orient --name "MyAgent" --register "Implementing feature X"` - Register agent with purpose
+- `bn goodbye` - Gracefully terminate session (signals parent process)
+- `bn agent list` - List registered agents (human use)
 
 ## Task Workflow
 
