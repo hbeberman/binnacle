@@ -547,6 +547,120 @@
             background: #c9302c;
         }
 
+        .modal-btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .modal-btn-primary:hover {
+            background: var(--accent-light);
+        }
+
+        /* Agent Detail Modal */
+        .agent-detail-modal .modal-content {
+            max-width: 500px;
+        }
+
+        .agent-detail-modal .modal-content h3 {
+            color: var(--accent);
+            margin-bottom: 1.25rem;
+        }
+
+        .agent-detail-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .agent-detail-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .agent-detail-title {
+            flex: 1;
+        }
+
+        .agent-detail-title .agent-name {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .agent-detail-title .agent-pid {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .agent-detail-section {
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .agent-detail-section-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-tertiary);
+            margin-bottom: 0.5rem;
+        }
+
+        .agent-detail-purpose {
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+
+        .agent-detail-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+
+        .agent-detail-stat {
+            text-align: center;
+        }
+
+        .agent-detail-stat-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .agent-detail-stat-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .agent-detail-tasks {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .agent-detail-task-id {
+            background: var(--bg-secondary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            color: var(--accent-light);
+            font-family: monospace;
+        }
+
+        .agent-detail-timestamp {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
         /* Terminate button in agent card */
         .agent-card .terminate-btn {
             position: absolute;
@@ -1940,6 +2054,57 @@
                 </div>
             </div>
         </div>
+
+        <!-- Agent Detail Modal (shown on graph node double-click) -->
+        <div id="agent-detail-modal" class="modal-overlay agent-detail-modal" style="display: none;">
+            <div class="modal-content">
+                <h3>🤖 Agent Details</h3>
+                <div class="modal-body">
+                    <div class="agent-detail-header">
+                        <div class="agent-detail-icon">🤖</div>
+                        <div class="agent-detail-title">
+                            <div class="agent-name" id="agent-modal-name"></div>
+                            <div class="agent-pid" id="agent-modal-pid"></div>
+                        </div>
+                        <span class="badge" id="agent-modal-status-badge"></span>
+                    </div>
+
+                    <div class="agent-detail-section" id="agent-modal-purpose-section">
+                        <div class="agent-detail-section-title">Purpose</div>
+                        <div class="agent-detail-purpose" id="agent-modal-purpose"></div>
+                    </div>
+
+                    <div class="agent-detail-section">
+                        <div class="agent-detail-section-title">Statistics</div>
+                        <div class="agent-detail-grid">
+                            <div class="agent-detail-stat">
+                                <div class="agent-detail-stat-value" id="agent-modal-command-count">0</div>
+                                <div class="agent-detail-stat-label">Commands</div>
+                            </div>
+                            <div class="agent-detail-stat">
+                                <div class="agent-detail-stat-value" id="agent-modal-task-count">0</div>
+                                <div class="agent-detail-stat-label">Tasks</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="agent-detail-section" id="agent-modal-tasks-section" style="display: none;">
+                        <div class="agent-detail-section-title">Working On</div>
+                        <div class="agent-detail-tasks" id="agent-modal-tasks"></div>
+                    </div>
+
+                    <div class="agent-detail-section">
+                        <div class="agent-detail-section-title">Timeline</div>
+                        <div class="agent-detail-timestamp" id="agent-modal-started"></div>
+                        <div class="agent-detail-timestamp" id="agent-modal-last-activity"></div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button class="modal-btn modal-btn-cancel" onclick="closeAgentDetailModal()">Close</button>
+                    <button class="modal-btn modal-btn-danger" id="agent-modal-terminate-btn">Terminate</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -2849,7 +3014,14 @@
                 });
 
                 if (node) {
-                    // Toggle selection
+                    // Check if it's an agent node - show detail modal
+                    if (node.type === 'agent' && node._agent) {
+                        showAgentDetailModal(node._agent);
+                        e.preventDefault();
+                        return;
+                    }
+                    
+                    // Toggle selection for non-agent nodes
                     if (state.graph.selectedNode === node) {
                         state.graph.selectedNode = null;
                     } else {
@@ -4783,6 +4955,80 @@
                 showToast(`Failed to terminate agent: ${error}`, 'error');
             }
         }
+
+        // Agent Detail Modal functions (for graph node double-click)
+        let detailAgentPid = null;
+
+        function showAgentDetailModal(agent) {
+            detailAgentPid = agent.pid;
+            const modal = document.getElementById('agent-detail-modal');
+            
+            // Populate modal content
+            document.getElementById('agent-modal-name').textContent = agent.name;
+            document.getElementById('agent-modal-pid').textContent = `PID: ${agent.pid}`;
+            
+            // Status badge
+            const statusBadge = document.getElementById('agent-modal-status-badge');
+            statusBadge.textContent = agent.status;
+            statusBadge.className = `badge badge-agent-${agent.status}`;
+            
+            // Purpose
+            const purposeSection = document.getElementById('agent-modal-purpose-section');
+            const purposeEl = document.getElementById('agent-modal-purpose');
+            if (agent.purpose) {
+                purposeEl.textContent = agent.purpose;
+                purposeSection.style.display = 'block';
+            } else {
+                purposeEl.textContent = 'Not registered - use bn orient --register "purpose"';
+                purposeEl.style.fontStyle = 'italic';
+                purposeSection.style.display = 'block';
+            }
+            
+            // Statistics
+            document.getElementById('agent-modal-command-count').textContent = agent.command_count || 0;
+            document.getElementById('agent-modal-task-count').textContent = (agent.tasks || []).length;
+            
+            // Tasks
+            const tasksSection = document.getElementById('agent-modal-tasks-section');
+            const tasksEl = document.getElementById('agent-modal-tasks');
+            if (agent.tasks && agent.tasks.length > 0) {
+                tasksEl.innerHTML = agent.tasks.map(t => 
+                    `<span class="agent-detail-task-id">${escapeHtml(t)}</span>`
+                ).join('');
+                tasksSection.style.display = 'block';
+            } else {
+                tasksSection.style.display = 'none';
+            }
+            
+            // Timeline
+            document.getElementById('agent-modal-started').textContent = 
+                `🕐 Started: ${new Date(agent.started_at).toLocaleString()}`;
+            document.getElementById('agent-modal-last-activity').textContent = 
+                `⏱️ Last active: ${new Date(agent.last_activity_at).toLocaleString()}`;
+            
+            // Set up terminate button
+            document.getElementById('agent-modal-terminate-btn').onclick = () => {
+                closeAgentDetailModal();
+                const tasksHtml = agent.tasks && agent.tasks.length > 0 
+                    ? agent.tasks.map(t => `<span class="task-id">${escapeHtml(t)}</span>`).join(', ')
+                    : 'None';
+                showTerminateModal(agent.pid, agent.name, tasksHtml);
+            };
+            
+            modal.style.display = 'flex';
+        }
+
+        function closeAgentDetailModal() {
+            detailAgentPid = null;
+            document.getElementById('agent-detail-modal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside content
+        document.getElementById('agent-detail-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'agent-detail-modal') {
+                closeAgentDetailModal();
+            }
+        });
 
         function renderLog() {
             const list = document.getElementById('log-list');
