@@ -18,6 +18,7 @@ TOOLS_FULL=(
     --allow-tool "shell(cargo clippy)"
     --allow-tool "shell(cargo test)"
     --allow-tool "shell(cargo build)"
+    --allow-tool "shell(cargo check)"
     --allow-tool "shell(cargo audit)"
     --allow-tool "shell(rustc:*)"
     --allow-tool "shell(sleep)"
