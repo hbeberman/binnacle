@@ -4,13 +4,15 @@
 //! dependencies, tests, and activity logs.
 
 #[cfg(feature = "gui")]
+mod pid_file;
+#[cfg(feature = "gui")]
 mod server;
-
+#[cfg(feature = "gui")]
+mod watcher;
 #[cfg(feature = "gui")]
 mod websocket;
 
 #[cfg(feature = "gui")]
-mod watcher;
-
+pub use pid_file::{GuiPidFile, GuiPidInfo};
 #[cfg(feature = "gui")]
 pub use server::start_server;
