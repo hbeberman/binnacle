@@ -650,6 +650,12 @@ impl McpServer {
                 )?;
                 Ok(result.to_json())
             }
+            // Agent tools (read-only)
+            "bn_agent_list" => {
+                let status = get_optional_string(args, "status");
+                let result = commands::agent_list(repo, status.as_deref())?;
+                Ok(result.to_json())
+            }
             _ => Err(Error::Other(format!("Unknown tool: {}", name))),
         }
     }
@@ -1562,6 +1568,23 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "target": {
                         "type": "string",
                         "description": "Filter by target entity ID"
+                    }
+                },
+                "required": []
+            }),
+        },
+        // Agent tools (read-only - do NOT expose goodbye or kill via MCP)
+        ToolDef {
+            name: "bn_agent_list".to_string(),
+            description: "List registered AI agents with their status, activity, and current tasks"
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by agent status",
+                        "enum": ["active", "idle", "stale"]
                     }
                 },
                 "required": []
