@@ -6622,6 +6622,21 @@ pub fn config_get_bool(repo_path: &Path, key: &str, default: bool) -> bool {
     }
 }
 
+/// Get a string configuration value with default.
+///
+/// Returns the default value if the config is not set.
+pub fn config_get_string(repo_path: &Path, key: &str, default: &str) -> String {
+    let storage = match Storage::open(repo_path) {
+        Ok(s) => s,
+        Err(_) => return default.to_string(),
+    };
+
+    match storage.get_config(key) {
+        Ok(Some(value)) => value,
+        _ => default.to_string(),
+    }
+}
+
 /// Result of config set command.
 #[derive(Serialize)]
 pub struct ConfigSet {
@@ -6643,7 +6658,10 @@ impl Output for ConfigSet {
 pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet> {
     // Validate configuration values
     match key {
-        "action_log_enabled" | "action_log_sanitize" | "require_commit_for_close" => {
+        "action_log_enabled"
+        | "action_log_sanitize"
+        | "require_commit_for_close"
+        | "co-author.enabled" => {
             // Validate boolean values
             let value_lower = value.to_lowercase();
             if value_lower != "true"
@@ -6663,6 +6681,12 @@ pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet>
             // Validate path is not empty
             if value.trim().is_empty() {
                 return Err(Error::Other("action_log_path cannot be empty".to_string()));
+            }
+        }
+        "co-author.name" | "co-author.email" => {
+            // Validate non-empty strings
+            if value.trim().is_empty() {
+                return Err(Error::Other(format!("{} cannot be empty", key)));
             }
         }
         _ => {
@@ -13206,6 +13230,83 @@ mod tests {
         // Invalid values should fail
         assert!(config_set(temp.path(), "require_commit_for_close", "invalid").is_err());
         assert!(config_set(temp.path(), "require_commit_for_close", "maybe").is_err());
+    }
+
+    #[test]
+    fn test_co_author_enabled_config_validation() {
+        let temp = setup();
+
+        // Valid boolean values should work
+        assert!(config_set(temp.path(), "co-author.enabled", "true").is_ok());
+        assert!(config_set(temp.path(), "co-author.enabled", "false").is_ok());
+        assert!(config_set(temp.path(), "co-author.enabled", "1").is_ok());
+        assert!(config_set(temp.path(), "co-author.enabled", "0").is_ok());
+        assert!(config_set(temp.path(), "co-author.enabled", "yes").is_ok());
+        assert!(config_set(temp.path(), "co-author.enabled", "no").is_ok());
+
+        // Invalid values should fail
+        assert!(config_set(temp.path(), "co-author.enabled", "invalid").is_err());
+        assert!(config_set(temp.path(), "co-author.enabled", "maybe").is_err());
+    }
+
+    #[test]
+    fn test_co_author_name_config_validation() {
+        let temp = setup();
+
+        // Valid non-empty name should work
+        assert!(config_set(temp.path(), "co-author.name", "my-bot").is_ok());
+        assert!(config_set(temp.path(), "co-author.name", "binnacle-bot").is_ok());
+
+        // Empty name should fail
+        assert!(config_set(temp.path(), "co-author.name", "").is_err());
+        assert!(config_set(temp.path(), "co-author.name", "   ").is_err());
+    }
+
+    #[test]
+    fn test_co_author_email_config_validation() {
+        let temp = setup();
+
+        // Valid non-empty email should work
+        assert!(config_set(temp.path(), "co-author.email", "bot@example.com").is_ok());
+        assert!(config_set(temp.path(), "co-author.email", "noreply@binnacle.bot").is_ok());
+
+        // Empty email should fail
+        assert!(config_set(temp.path(), "co-author.email", "").is_err());
+        assert!(config_set(temp.path(), "co-author.email", "   ").is_err());
+    }
+
+    #[test]
+    fn test_config_get_string_default() {
+        let temp = setup();
+
+        // Non-existent key should return default
+        assert_eq!(
+            config_get_string(temp.path(), "co-author.name", "binnacle-bot"),
+            "binnacle-bot"
+        );
+        assert_eq!(
+            config_get_string(temp.path(), "co-author.email", "noreply@binnacle.bot"),
+            "noreply@binnacle.bot"
+        );
+    }
+
+    #[test]
+    fn test_config_get_string_set_value() {
+        let temp = setup();
+
+        // Set custom values
+        config_set(temp.path(), "co-author.name", "my-bot").unwrap();
+        config_set(temp.path(), "co-author.email", "bot@example.com").unwrap();
+
+        // Should return the set values, not defaults
+        assert_eq!(
+            config_get_string(temp.path(), "co-author.name", "binnacle-bot"),
+            "my-bot"
+        );
+        assert_eq!(
+            config_get_string(temp.path(), "co-author.email", "noreply@binnacle.bot"),
+            "bot@example.com"
+        );
     }
 
     #[test]
