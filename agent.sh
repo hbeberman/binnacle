@@ -14,14 +14,14 @@ Usage: ./agent.sh <agent-type> [args]
 
 Agent Types:
   auto              Pick a task from 'bn ready' and work on it immediately
-  make "desc"       Work on custom task described in the argument
+  do "desc"         Work on custom task described in the argument
   prd               Find open ideas and render them into PRDs
   buddy             Ask what bn operation to perform (insert bugs/tasks/ideas)
   open              Ask what to work on (general purpose)
 
 Examples:
   ./agent.sh auto
-  ./agent.sh make "find work related to gui alignment"
+  ./agent.sh do "find work related to gui alignment"
   ./agent.sh prd
   ./agent.sh buddy
   ./agent.sh open
@@ -41,8 +41,8 @@ case "$AGENT_TYPE" in
         PROMPT='Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Look for newly created tasks first. Run `bn ready` to find available tasks, pick the highest priority one, claim it with `bn task update <id> --status in_progress`, and start working immediately. Remember to mark it complete when you finish.'
         eval copilot $TOOLS_FULL -i "\"$PROMPT\""
         ;;
-    make)
-        [[ $# -lt 1 ]] && { echo "Error: 'make' requires a description argument"; usage; }
+    do)
+        [[ $# -lt 1 ]] && { echo "Error: 'do' requires a description argument"; usage; }
         DESC="$1"
         echo "Launching Make Agent: $DESC"
         PROMPT="Read PRD.md and use your binnacle skill to orient yourself. Then work on the following: $DESC. Test your changes, report results, and commit when complete. Create a task in binnacle if one doesn't exist for this work."
