@@ -7,6 +7,17 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+/// Result of process verification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProcessStatus {
+    /// Process exists and appears to be a binnacle GUI process
+    Running,
+    /// Process with this PID does not exist
+    NotRunning,
+    /// Process exists but is not a binnacle process (PID was recycled)
+    Stale,
+}
+
 /// Information stored in the GUI PID file
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuiPidInfo {
@@ -107,6 +118,28 @@ impl GuiPidFile {
         self.path.exists()
     }
 
+    /// Verify if the process recorded in the PID file is still running.
+    ///
+    /// This reads the PID file and checks if the process is:
+    /// - Still running
+    /// - Actually a binnacle process (not a recycled PID)
+    ///
+    /// # Returns
+    /// * `Ok(Some(ProcessStatus::Running, info))` if process exists and is binnacle
+    /// * `Ok(Some(ProcessStatus::NotRunning, info))` if process no longer exists
+    /// * `Ok(Some(ProcessStatus::Stale, info))` if PID was recycled to another process
+    /// * `Ok(None)` if no PID file exists
+    /// * `Err(e)` on IO errors
+    pub fn check_running(&self) -> io::Result<Option<(ProcessStatus, GuiPidInfo)>> {
+        match self.read()? {
+            Some(info) => {
+                let status = verify_process(info.pid);
+                Ok(Some((status, info)))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Parse PID file contents into GuiPidInfo.
     fn parse_contents(contents: &str) -> io::Result<GuiPidInfo> {
         let mut pid: Option<u32> = None;
@@ -147,6 +180,134 @@ impl GuiPidFile {
             host.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing HOST field"))?;
 
         Ok(GuiPidInfo { pid, port, host })
+    }
+}
+
+/// Verify if a process with the given PID is a running binnacle process.
+///
+/// Cross-platform implementation:
+/// - On Unix: checks /proc/<pid>/comm or uses kill(pid, 0) as fallback
+/// - On Windows: uses process snapshot APIs
+pub fn verify_process(pid: u32) -> ProcessStatus {
+    #[cfg(target_os = "linux")]
+    {
+        verify_process_linux(pid)
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        verify_process_macos(pid)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        verify_process_windows(pid)
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        verify_process_fallback(pid)
+    }
+}
+
+/// Linux implementation using /proc filesystem
+#[cfg(target_os = "linux")]
+fn verify_process_linux(pid: u32) -> ProcessStatus {
+    use std::fs;
+
+    let comm_path = format!("/proc/{}/comm", pid);
+    match fs::read_to_string(&comm_path) {
+        Ok(comm) => {
+            let comm = comm.trim();
+            // Check if the process name matches "bn" (our binary name)
+            if comm == "bn" {
+                ProcessStatus::Running
+            } else {
+                ProcessStatus::Stale
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => ProcessStatus::NotRunning,
+        Err(_) => {
+            // Permission denied or other error - fall back to signal check
+            verify_process_signal(pid)
+        }
+    }
+}
+
+/// macOS implementation using sysctl
+#[cfg(target_os = "macos")]
+fn verify_process_macos(pid: u32) -> ProcessStatus {
+    use std::process::Command;
+
+    // Use ps command to check process name
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let comm = String::from_utf8_lossy(&out.stdout);
+            let comm = comm.trim();
+            // On macOS, the full path may be shown or just the name
+            if comm.ends_with("bn") || comm == "bn" {
+                ProcessStatus::Running
+            } else {
+                ProcessStatus::Stale
+            }
+        }
+        Ok(_) => ProcessStatus::NotRunning,
+        Err(_) => verify_process_signal(pid),
+    }
+}
+
+/// Windows implementation using process APIs
+#[cfg(target_os = "windows")]
+fn verify_process_windows(pid: u32) -> ProcessStatus {
+    use std::process::Command;
+
+    // Use tasklist to check process
+    let output = Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let output_str = String::from_utf8_lossy(&out.stdout);
+            if output_str.contains("bn.exe") {
+                ProcessStatus::Running
+            } else if output_str.contains(&pid.to_string()) {
+                // Process exists but not our process
+                ProcessStatus::Stale
+            } else {
+                ProcessStatus::NotRunning
+            }
+        }
+        Ok(_) => ProcessStatus::NotRunning,
+        Err(_) => ProcessStatus::NotRunning,
+    }
+}
+
+/// Fallback for unsupported platforms using signal 0
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn verify_process_fallback(pid: u32) -> ProcessStatus {
+    verify_process_signal(pid)
+}
+
+/// Signal-based check (Unix only) - cannot distinguish our process from others
+#[cfg(unix)]
+fn verify_process_signal(pid: u32) -> ProcessStatus {
+    use std::process::Command;
+
+    // Try kill -0 to check if process exists
+    let result = Command::new("kill").args(["-0", &pid.to_string()]).output();
+
+    match result {
+        Ok(out) if out.status.success() => {
+            // Process exists, but we can't verify it's ours
+            // Return Running as a best-effort (safer to assume it's ours)
+            ProcessStatus::Running
+        }
+        _ => ProcessStatus::NotRunning,
     }
 }
 
@@ -309,5 +470,58 @@ mod tests {
         let read_info = pid_file.read().unwrap().unwrap();
 
         assert_eq!(read_info.host, "::1");
+    }
+
+    #[test]
+    fn test_check_running_no_pid_file() {
+        let (_temp_dir, pid_file) = setup();
+        let result = pid_file.check_running().unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_running_with_pid_file() {
+        let (_temp_dir, pid_file) = setup();
+
+        // Use a PID that definitely doesn't exist (very high number)
+        let info = GuiPidInfo {
+            pid: 999999999,
+            port: 3030,
+            host: "127.0.0.1".to_string(),
+        };
+        pid_file.write(&info).unwrap();
+
+        let result = pid_file.check_running().unwrap();
+        assert!(result.is_some());
+        let (status, read_info) = result.unwrap();
+        assert_eq!(status, ProcessStatus::NotRunning);
+        assert_eq!(read_info.pid, 999999999);
+    }
+
+    #[test]
+    fn test_verify_nonexistent_process() {
+        // PID that almost certainly doesn't exist
+        let status = super::verify_process(999999999);
+        assert_eq!(status, ProcessStatus::NotRunning);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_verify_current_process() {
+        // Current process exists, but isn't named "bn" so should be Stale
+        let current_pid = std::process::id();
+        let status = super::verify_process(current_pid);
+        // Should be either Stale (not named "bn") or Running (fallback mode)
+        assert!(status == ProcessStatus::Stale || status == ProcessStatus::Running);
+    }
+
+    #[test]
+    fn test_process_status_clone_eq() {
+        let s1 = ProcessStatus::Running;
+        let s2 = s1.clone();
+        assert_eq!(s1, s2);
+
+        let s3 = ProcessStatus::NotRunning;
+        assert_ne!(s1, s3);
     }
 }

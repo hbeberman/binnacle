@@ -13,6 +13,6 @@ mod watcher;
 mod websocket;
 
 #[cfg(feature = "gui")]
-pub use pid_file::{GuiPidFile, GuiPidInfo};
+pub use pid_file::{GuiPidFile, GuiPidInfo, ProcessStatus, verify_process};
 #[cfg(feature = "gui")]
 pub use server::start_server;
