@@ -625,6 +625,10 @@ fn run_command(
                 let result = commands::agent_list(repo_path, status.as_deref())?;
                 output(&result, human);
             }
+            AgentCommands::Kill { target, timeout } => {
+                let result = commands::agent_kill(repo_path, &target, timeout)?;
+                output(&result, human);
+            }
         },
         #[cfg(feature = "gui")]
         Some(Commands::Gui {
@@ -1597,6 +1601,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             AgentCommands::List { status } => (
                 "agent list".to_string(),
                 serde_json::json!({ "status": status }),
+            ),
+            AgentCommands::Kill { target, timeout } => (
+                "agent kill".to_string(),
+                serde_json::json!({ "target": target, "timeout": timeout }),
             ),
         },
 
