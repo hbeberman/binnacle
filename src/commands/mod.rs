@@ -221,6 +221,7 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 1. **Before starting work**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress`
 2. **After completing work**: Run `bn task close <id> --reason "brief description"`
 3. **If blocked**: Run `bn task update <id> --status blocked`
+4. **When terminating**: Run `bn goodbye` to gracefully end your session
 
 The task graph drives development priorities. Always update task status to keep it accurate.
 
@@ -294,6 +295,7 @@ Use `bn` (binnacle) for managing tasks, tests, and project planning across multi
    - Run `bn ready` to check related tasks
    - Close ALL completed tasks: `bn task close <id> --reason "description"`
    - Run tests: `bn test run --all`
+5. **End of session**: Run `bn goodbye` to gracefully terminate
 
 ## Best Practices
 
@@ -342,6 +344,9 @@ bn task close bn-a1b2 --reason "Implemented feature X"
 
 # Run tests
 bn test run --all
+
+# End session gracefully
+bn goodbye
 ```
 
 ## Notes
@@ -554,6 +559,7 @@ impl Output for OrientResult {
         lines.push("  bn task list    List all tasks".to_string());
         lines.push("  bn task show X  Show task details".to_string());
         lines.push("  bn test run     Run linked tests".to_string());
+        lines.push("  bn goodbye      Gracefully terminate session".to_string());
         lines.push(String::new());
         lines.push("Run 'bn --help' for full command reference.".to_string());
 
