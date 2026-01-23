@@ -348,14 +348,17 @@
             right: 1rem;
             display: flex;
             flex-direction: row;
+            flex-wrap: wrap;
             gap: 0.5rem;
             z-index: 100;
             align-items: center;
+            justify-content: flex-end;
             background: var(--overlay-bg);
             border: 1px solid var(--border-color);
             border-radius: 6px;
             padding: 0.5rem;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            max-width: calc(100vw - 650px);
         }
 
         .graph-search {
@@ -998,6 +1001,55 @@
 
         .toast-info .toast-icon {
             color: var(--info);
+        }
+
+        /* Responsive layout for graph overlays */
+        @media (max-width: 1200px) {
+            .zoom-controls {
+                max-width: calc(100vw - 500px);
+            }
+            .stats-overlay {
+                left: 1rem;
+                top: 4.5rem;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .zoom-controls {
+                max-width: calc(100vw - 250px);
+            }
+            .graph-search {
+                width: 140px;
+            }
+        }
+
+        @media (max-width: 700px) {
+            .zoom-controls {
+                max-width: calc(100vw - 2rem);
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .graph-search {
+                width: 100%;
+            }
+            .hide-completed-toggle,
+            .auto-follow-toggle {
+                border-right: none;
+                padding-right: 0;
+                margin-right: 0;
+                justify-content: space-between;
+            }
+            .stats-overlay {
+                left: 1rem;
+                right: 1rem;
+                top: auto;
+                bottom: 1rem;
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            .edge-filters {
+                max-width: calc(100vw - 2rem);
+            }
         }
 
     </style>
