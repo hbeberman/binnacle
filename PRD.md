@@ -541,16 +541,16 @@ This keeps all data within the repository without polluting the main branch or w
 
 ---
 
-## Phase 10: Crates.io Publish Workflow (Alpha)
+## Phase 10: Crates.io Publish Workflow (Alpha) ✅
 
 **Goal:** Publish alpha releases to crates.io via GitHub Actions with safety checks.
 
 ### Deliverables
-- [ ] GitHub Actions workflow (`.github/workflows/publish.yml`) triggered by version tags (e.g., `v0.1.0-alpha.1`)
-- [ ] Preflight validation job: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features`
-- [ ] Publish job guarded by preflight success and `CARGO_REGISTRY_TOKEN` secret
-- [ ] Dry-run step (`cargo publish --dry-run`) before actual publish
-- [ ] Tag format documented in README (alpha versioning policy)
+- [x] GitHub Actions workflow (`.github/workflows/cd.yml`) triggered by releases (version tags)
+- [x] Preflight validation job: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features`
+- [x] Publish job guarded by preflight success and `CARGO_REGISTRY_TOKEN` secret
+- [x] Dry-run step (`cargo publish --dry-run`) before actual publish
+- [x] Tag format documented in README (alpha versioning policy)
 
 ### Workflow Outline
 1. On tag push matching `v*`.
@@ -578,8 +578,8 @@ Introduce a **Queue** entity type (`bnq-xxxx`) that serves as a work pool for ag
 - [x] MCP tools: `bn_queue_create`, `bn_queue_show`, `bn_queue_delete`
 - [x] MCP resource: `binnacle://queue`
 - [x] MCP prompt: `prioritize_work`
-- [ ] GUI support (queue node rendering, visual styles)
-- [ ] Documentation updates
+- [x] GUI support (queue node rendering, visual styles)
+- [x] Documentation updates
 
 ### Key Design Decisions
 
