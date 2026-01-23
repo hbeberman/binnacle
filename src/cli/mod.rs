@@ -706,7 +706,7 @@ pub enum LinkCommands {
         /// Type of relationship
         #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued"])]
         edge_type: String,
-        /// Reason for creating this relationship
+        /// Reason for creating this relationship (required for depends_on)
         #[arg(long)]
         reason: Option<String>,
     },

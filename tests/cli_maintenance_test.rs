@@ -157,7 +157,16 @@ fn test_doctor_migrate_edges_dry_run() {
 
     // Add a link the proper way (to create baseline)
     bn_in(&temp)
-        .args(["link", "add", &task1, &task2, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &task1,
+            &task2,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 

@@ -122,11 +122,29 @@ fn test_search_link_by_source() {
 
     // Create edges: task1 -> task2, task3 -> task2
     bn_in(&temp)
-        .args(["link", "add", task1_id, task2_id, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            task1_id,
+            task2_id,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["link", "add", task3_id, task2_id, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            task3_id,
+            task2_id,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -160,7 +178,16 @@ fn test_search_link_by_target() {
 
     // Create edge
     bn_in(&temp)
-        .args(["link", "add", task1_id, task2_id, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            task1_id,
+            task2_id,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -194,7 +221,16 @@ fn test_search_link_combined_filters() {
 
     // Create multiple edges
     bn_in(&temp)
-        .args(["link", "add", task1_id, task2_id, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            task1_id,
+            task2_id,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
     bn_in(&temp)

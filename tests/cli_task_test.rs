@@ -546,7 +546,16 @@ fn test_link_add() {
 
     // B depends on A
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"source\""))
@@ -577,7 +586,17 @@ fn test_link_add_human_readable() {
     let id_b = extract_task_id(&output_b);
 
     bn_in(&temp)
-        .args(["-H", "link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "-H",
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created link"));
@@ -601,13 +620,31 @@ fn test_link_add_cycle_rejected() {
 
     // A depends on B
     bn_in(&temp)
-        .args(["link", "add", &id_a, &id_b, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_a,
+            &id_b,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
     // B depends on A should fail (cycle)
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Cycle"));
@@ -631,7 +668,16 @@ fn test_link_rm() {
 
     // Add then remove dependency
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -671,11 +717,29 @@ fn test_link_list() {
 
     // B depends on A, C depends on B
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["link", "add", &id_c, &id_b, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_c,
+            &id_b,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -707,7 +771,16 @@ fn test_link_list_human_readable() {
 
     // B depends on A
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -739,7 +812,16 @@ fn test_ready_command() {
 
     // B depends on A (which is pending, so B is blocked)
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -786,7 +868,16 @@ fn test_blocked_command() {
 
     // B depends on A
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -817,7 +908,16 @@ fn test_blocked_command_human_readable() {
     let id_b = extract_task_id(&output_b);
 
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -847,7 +947,16 @@ fn test_ready_after_closing_dependency() {
 
     // B depends on A
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -904,11 +1013,29 @@ fn test_transitive_dependencies() {
     let id_c = extract_task_id(&output_c);
 
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["link", "add", &id_c, &id_b, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_c,
+            &id_b,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -975,7 +1102,16 @@ fn test_task_show_blocking_info_json_format() {
 
     // B depends on A (pending)
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -1009,7 +1145,16 @@ fn test_task_show_blocking_info_human_readable() {
 
     // B depends on A
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -1047,7 +1192,16 @@ fn test_task_show_all_deps_complete() {
 
     // B depends on A (done)
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -1083,11 +1237,29 @@ fn test_task_show_transitive_blockers_json() {
     let id_c = extract_task_id(&output_c);
 
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["link", "add", &id_c, &id_b, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_c,
+            &id_b,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -1127,11 +1299,29 @@ fn test_task_show_multiple_blockers() {
 
     // C depends on both A and B
     bn_in(&temp)
-        .args(["link", "add", &id_c, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_c,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["link", "add", &id_c, &id_b, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_c,
+            &id_b,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -1172,7 +1362,16 @@ fn test_task_show_cancelled_deps_dont_block() {
 
     // B depends on A (cancelled)
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -1225,15 +1424,42 @@ fn test_task_show_mixed_status_blockers() {
 
     // D depends on all three
     bn_in(&temp)
-        .args(["link", "add", &id_d, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_d,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["link", "add", &id_d, &id_b, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_d,
+            &id_b,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
     bn_in(&temp)
-        .args(["link", "add", &id_d, &id_c, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_d,
+            &id_c,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -1528,7 +1754,16 @@ fn test_blocked_shows_edge_based_blockers() {
 
     // B depends on A via edge (not legacy depends_on)
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
@@ -1558,7 +1793,16 @@ fn test_blocked_human_shows_edge_blocker_id() {
     let id_b = extract_task_id(&output_b);
 
     bn_in(&temp)
-        .args(["link", "add", &id_b, &id_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 

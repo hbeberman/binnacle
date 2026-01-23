@@ -4100,7 +4100,7 @@ pub fn dep_show(repo_path: &Path, id: &str) -> Result<DepGraph> {
 
 // === Link Commands (Edge Management) ===
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct LinkAdded {
     pub id: String,
     pub source: String,
@@ -4140,6 +4140,13 @@ pub fn link_add(
 
     // Parse edge type
     let edge_type: EdgeType = edge_type_str.parse().map_err(|e: String| Error::Other(e))?;
+
+    // Require reason for depends_on links
+    if edge_type == EdgeType::DependsOn && reason.is_none() {
+        return Err(Error::Other(
+            "A --reason is required when creating depends_on links".to_string(),
+        ));
+    }
 
     // Validate entities exist
     validate_entity_exists(&storage, source)?;
@@ -11519,8 +11526,22 @@ mod tests {
         .unwrap();
 
         // Create edges: task1 -> task2, task3 -> task2
-        link_add(temp.path(), &task1.id, &task2.id, "depends_on", None).unwrap();
-        link_add(temp.path(), &task3.id, &task2.id, "depends_on", None).unwrap();
+        link_add(
+            temp.path(),
+            &task1.id,
+            &task2.id,
+            "depends_on",
+            Some("test dependency".to_string()),
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &task3.id,
+            &task2.id,
+            "depends_on",
+            Some("test dependency".to_string()),
+        )
+        .unwrap();
 
         // Search by source=task1
         let result = search_link(temp.path(), None, Some(&task1.id), None).unwrap();
@@ -11558,7 +11579,14 @@ mod tests {
         )
         .unwrap();
 
-        link_add(temp.path(), &task1.id, &task2.id, "depends_on", None).unwrap();
+        link_add(
+            temp.path(),
+            &task1.id,
+            &task2.id,
+            "depends_on",
+            Some("test dependency".to_string()),
+        )
+        .unwrap();
 
         // Search by target
         let result = search_link(temp.path(), None, None, Some(&task2.id)).unwrap();
@@ -11592,7 +11620,14 @@ mod tests {
         )
         .unwrap();
 
-        link_add(temp.path(), &task1.id, &task2.id, "depends_on", None).unwrap();
+        link_add(
+            temp.path(),
+            &task1.id,
+            &task2.id,
+            "depends_on",
+            Some("test dependency".to_string()),
+        )
+        .unwrap();
         link_add(temp.path(), &task1.id, &task2.id, "related_to", None).unwrap();
 
         // Filter by type and source
@@ -11610,6 +11645,56 @@ mod tests {
         .unwrap();
         assert_eq!(result.count, 1);
         assert_eq!(result.edges[0].edge_type, "related_to");
+    }
+
+    #[test]
+    fn test_link_add_depends_on_requires_reason() {
+        let temp = setup();
+
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // depends_on without reason should fail
+        let result = link_add(temp.path(), &task1.id, &task2.id, "depends_on", None);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("--reason is required")
+        );
+
+        // depends_on with reason should succeed
+        let result = link_add(
+            temp.path(),
+            &task1.id,
+            &task2.id,
+            "depends_on",
+            Some("Needs task2 to complete first".to_string()),
+        );
+        assert!(result.is_ok());
+
+        // other edge types don't require reason
+        let result = link_add(temp.path(), &task1.id, &task2.id, "related_to", None);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -11870,7 +11955,14 @@ mod tests {
         .unwrap();
 
         // Create edge first using the proper method
-        link_add(temp.path(), &task1.id, &task2.id, "depends_on", None).unwrap();
+        link_add(
+            temp.path(),
+            &task1.id,
+            &task2.id,
+            "depends_on",
+            Some("test dependency".to_string()),
+        )
+        .unwrap();
 
         // Also add legacy depends_on for the same relationship
         let mut task = storage.get_task(&task1.id).unwrap();

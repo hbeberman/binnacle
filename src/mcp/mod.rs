@@ -1084,7 +1084,7 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     },
                     "reason": {
                         "type": "string",
-                        "description": "Optional reason for creating this link"
+                        "description": "Reason for creating this link (required for depends_on)"
                     }
                 },
                 "required": ["source", "target", "edge_type"]
@@ -2165,7 +2165,8 @@ mod tests {
                 &json!({
                     "source": child_id,
                     "target": parent_id,
-                    "edge_type": "depends_on"
+                    "edge_type": "depends_on",
+                    "reason": "test dependency"
                 }),
             )
             .unwrap();

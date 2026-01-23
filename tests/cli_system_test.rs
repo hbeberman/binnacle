@@ -693,7 +693,16 @@ fn test_export_import_roundtrip() {
 
     // Create dependency
     bn_in(&temp1)
-        .args(["link", "add", &task_b, &task_a, "--type", "depends_on"])
+        .args([
+            "link",
+            "add",
+            &task_b,
+            &task_a,
+            "--type",
+            "depends_on",
+            "--reason",
+            "test dep",
+        ])
         .assert()
         .success();
 
