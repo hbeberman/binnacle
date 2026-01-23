@@ -40,6 +40,16 @@ pub enum Commands {
         name: Option<String>,
     },
 
+    /// Gracefully terminate this agent (signals parent process)
+    Goodbye {
+        /// Optional reason for termination
+        reason: Option<String>,
+
+        /// Log goodbye without actually terminating (for testing)
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Show any entity by ID (auto-detects type)
     Show {
         /// Entity ID (e.g., bn-a1b2, bnt-0001)

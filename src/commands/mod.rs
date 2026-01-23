@@ -6844,6 +6844,187 @@ pub fn track_agent_activity(repo_path: &Path) {
     }
 }
 
+// === Goodbye Command ===
+
+/// Result of goodbye command.
+#[derive(Serialize)]
+pub struct GoodbyeResult {
+    pub agent_name: Option<String>,
+    pub parent_pid: u32,
+    pub was_registered: bool,
+    pub reason: Option<String>,
+    pub terminated: bool,
+}
+
+impl Output for GoodbyeResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if !self.was_registered {
+            lines.push(
+                "Warning: Agent not registered (did you run bn orient?). Terminating anyway."
+                    .to_string(),
+            );
+        }
+
+        if let Some(name) = &self.agent_name {
+            lines.push(format!("Goodbye logged for agent: {}", name));
+        } else {
+            lines.push("Goodbye logged.".to_string());
+        }
+
+        if let Some(reason) = &self.reason {
+            lines.push(format!("Reason: {}", reason));
+        }
+
+        lines.push(format!("Terminating agent (PID {})...", self.parent_pid));
+
+        lines.join("\n")
+    }
+}
+
+/// Gracefully terminate the agent.
+///
+/// This command:
+/// 1. Looks up agent registration by current PID
+/// 2. If not registered: logs warning, proceeds anyway
+/// 3. Logs termination with optional reason
+/// 4. Removes own registration from agents.jsonl
+/// 5. Sends SIGTERM to parent PID (then SIGKILL after timeout if still running)
+pub fn goodbye(repo_path: &Path, reason: Option<String>) -> Result<GoodbyeResult> {
+    let pid = std::process::id();
+    let parent_pid = get_parent_pid().unwrap_or(0);
+
+    if parent_pid == 0 {
+        return Err(Error::Other("Could not determine parent PID".to_string()));
+    }
+
+    let mut storage = Storage::open(repo_path)?;
+
+    // Clean up stale agents first
+    let _ = storage.cleanup_stale_agents();
+
+    // Check if agent is registered
+    let agent = storage.get_agent(pid).ok();
+    let was_registered = agent.is_some();
+    let agent_name = agent.as_ref().map(|a| a.name.clone());
+
+    // Remove agent from registry if registered
+    if was_registered {
+        let _ = storage.remove_agent(pid);
+    }
+
+    Ok(GoodbyeResult {
+        agent_name,
+        parent_pid,
+        was_registered,
+        reason,
+        terminated: true, // Actual termination happens in main.rs after output
+    })
+}
+
+/// Send SIGTERM to a process, then SIGKILL after timeout if still running.
+/// Returns true if process was terminated, false if it didn't exist or couldn't be terminated.
+#[cfg(unix)]
+pub fn terminate_process(pid: u32, timeout_secs: u64) -> bool {
+    use std::process::Command;
+    use std::thread;
+    use std::time::Duration;
+
+    // Check if process exists first
+    let exists = Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+
+    if !exists {
+        return false;
+    }
+
+    // Send SIGTERM
+    let term_sent = Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+
+    if !term_sent {
+        return false;
+    }
+
+    // Wait for process to exit (check every 100ms)
+    let check_interval = Duration::from_millis(100);
+    let timeout = Duration::from_secs(timeout_secs);
+    let start = std::time::Instant::now();
+
+    while start.elapsed() < timeout {
+        let still_running = Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false);
+
+        if !still_running {
+            return true; // Process exited gracefully
+        }
+
+        thread::sleep(check_interval);
+    }
+
+    // Process still running after timeout - send SIGKILL
+    let _ = Command::new("kill")
+        .args(["-KILL", &pid.to_string()])
+        .output();
+
+    true
+}
+
+/// Send termination signal to a process on Windows.
+#[cfg(windows)]
+pub fn terminate_process(pid: u32, timeout_secs: u64) -> bool {
+    use std::process::Command;
+    use std::thread;
+    use std::time::Duration;
+
+    // Try graceful termination first
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string()])
+        .output();
+
+    // Wait for process to exit
+    let check_interval = Duration::from_millis(100);
+    let timeout = Duration::from_secs(timeout_secs);
+    let start = std::time::Instant::now();
+
+    while start.elapsed() < timeout {
+        // Check if process is still running
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
+            .output();
+
+        if let Ok(out) = output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if !stdout.contains(&pid.to_string()) {
+                return true; // Process exited
+            }
+        }
+
+        thread::sleep(check_interval);
+    }
+
+    // Force kill after timeout
+    let _ = Command::new("taskkill")
+        .args(["/F", "/PID", &pid.to_string()])
+        .output();
+
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -10792,5 +10973,51 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.err().map(|e| e.to_string()).unwrap_or_default();
         assert!(err_msg.contains("already has a parent"));
+    }
+
+    // === Goodbye Tests ===
+
+    #[test]
+    fn test_goodbye_unregistered_agent() {
+        let temp = setup();
+
+        // Goodbye without orient should still work (unregistered agent)
+        let result = goodbye(temp.path(), None);
+        assert!(result.is_ok());
+
+        let goodbye_result = result.unwrap();
+        assert!(!goodbye_result.was_registered);
+        assert!(goodbye_result.agent_name.is_none());
+        assert!(goodbye_result.parent_pid > 0);
+    }
+
+    #[test]
+    fn test_goodbye_with_reason() {
+        let temp = setup();
+
+        let result = goodbye(temp.path(), Some("Task completed".to_string()));
+        assert!(result.is_ok());
+
+        let goodbye_result = result.unwrap();
+        assert_eq!(goodbye_result.reason, Some("Task completed".to_string()));
+    }
+
+    #[test]
+    fn test_goodbye_output_format() {
+        let temp = setup();
+
+        let result = goodbye(temp.path(), Some("Done".to_string())).unwrap();
+
+        // Test JSON output
+        let json = result.to_json();
+        assert!(json.contains("parent_pid"));
+        assert!(json.contains("was_registered"));
+        assert!(json.contains("terminated"));
+        assert!(json.contains("Done"));
+
+        // Test human output
+        let human = result.to_human();
+        assert!(human.contains("Terminating agent"));
+        assert!(human.contains("Reason: Done"));
     }
 }
