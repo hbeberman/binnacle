@@ -585,19 +585,23 @@ pub fn orient(repo_path: &Path, allow_init: bool, name: Option<String>) -> Resul
     // Register agent (cleanup stale ones first)
     let _ = storage.cleanup_stale_agents();
 
-    let pid = std::process::id();
-    let parent_pid = get_parent_pid().unwrap_or(0);
+    // Use parent PID as the agent identifier. The bn command itself exits after each
+    // invocation, but the parent process (shell/AI agent) persists across multiple
+    // bn commands. This prevents agents from being immediately cleaned up as "stale".
+    let bn_pid = std::process::id();
+    let parent_pid = get_parent_pid().unwrap_or(bn_pid);
+    let agent_pid = parent_pid;
 
-    // Use provided name or auto-generate
-    let agent_name = name.unwrap_or_else(|| format!("agent-{}", pid));
+    // Use provided name or auto-generate (with parent PID for uniqueness)
+    let agent_name = name.unwrap_or_else(|| format!("agent-{}", agent_pid));
 
     // Check if already registered (update activity) or register new
-    if storage.get_agent(pid).is_ok() {
+    if storage.get_agent(agent_pid).is_ok() {
         // Already registered, just touch to update activity
-        let _ = storage.touch_agent(pid);
+        let _ = storage.touch_agent(agent_pid);
     } else {
-        // Register new agent
-        let agent = Agent::new(pid, parent_pid, agent_name);
+        // Register new agent with parent PID as primary identifier
+        let agent = Agent::new(agent_pid, bn_pid, agent_name);
         storage.register_agent(&agent)?;
     }
 
@@ -1622,16 +1626,16 @@ pub fn task_update(
         // If setting status to done, also set closed_at
         if new_status == TaskStatus::Done {
             task.closed_at = Some(Utc::now());
-            // Remove task from agent's tasks list
-            let pid = std::process::id();
-            let _ = storage.agent_remove_task(pid, id);
+            // Remove task from agent's tasks list (use parent_pid since that's how agents are registered)
+            let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
+            let _ = storage.agent_remove_task(parent_pid, id);
         }
 
         // If setting status to in_progress, track task association for registered agents
         if new_status == TaskStatus::InProgress {
-            let pid = std::process::id();
+            let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
             // Check if agent is registered and already has tasks
-            if let Ok(agent) = storage.get_agent(pid)
+            if let Ok(agent) = storage.get_agent(parent_pid)
                 && !agent.tasks.is_empty()
                 && !force
             {
@@ -1648,7 +1652,7 @@ pub fn task_update(
                 )));
             }
             // Silently ignore errors - agent tracking is optional
-            let _ = storage.agent_add_task(pid, id);
+            let _ = storage.agent_add_task(parent_pid, id);
         }
 
         task.status = new_status;
@@ -1814,9 +1818,9 @@ pub fn task_close(
     promote_partial_tasks(&mut storage)?;
 
     // Remove task from agent's tasks list if the current process is a registered agent
-    let pid = std::process::id();
+    let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
     // Silently ignore errors - agent tracking is optional
-    let _ = storage.agent_remove_task(pid, id);
+    let _ = storage.agent_remove_task(parent_pid, id);
 
     // Generate warning if force was used with incomplete deps
     let warning = if !incomplete_deps.is_empty() {
@@ -6870,9 +6874,10 @@ pub fn track_agent_activity(repo_path: &Path) {
     if Storage::exists(repo_path).unwrap_or(false)
         && let Ok(mut storage) = Storage::open(repo_path)
     {
-        let pid = std::process::id();
+        // Use parent_pid since that's how agents are registered (bn command itself exits)
+        let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
         // Touch the agent if registered (silently ignore if not)
-        let _ = storage.touch_agent(pid);
+        let _ = storage.touch_agent(parent_pid);
     }
 }
 
@@ -7019,7 +7024,7 @@ impl Output for GoodbyeResult {
 /// 4. Removes own registration from agents.jsonl
 /// 5. Sends SIGTERM to parent PID (then SIGKILL after timeout if still running)
 pub fn goodbye(repo_path: &Path, reason: Option<String>) -> Result<GoodbyeResult> {
-    let pid = std::process::id();
+    let bn_pid = std::process::id();
     let parent_pid = get_parent_pid().unwrap_or(0);
 
     if parent_pid == 0 {
@@ -7031,15 +7036,18 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>) -> Result<GoodbyeResult
     // Clean up stale agents first
     let _ = storage.cleanup_stale_agents();
 
-    // Check if agent is registered
-    let agent = storage.get_agent(pid).ok();
+    // Check if agent is registered using parent PID (which is how orient registers it)
+    let agent = storage.get_agent(parent_pid).ok();
     let was_registered = agent.is_some();
     let agent_name = agent.as_ref().map(|a| a.name.clone());
 
-    // Remove agent from registry if registered
+    // Remove agent from registry if registered (using parent_pid)
     if was_registered {
-        let _ = storage.remove_agent(pid);
+        let _ = storage.remove_agent(parent_pid);
     }
+
+    // Log the bn command PID for debugging
+    let _ = bn_pid;
 
     Ok(GoodbyeResult {
         agent_name,
@@ -7554,10 +7562,11 @@ mod tests {
     fn test_task_close_removes_agent_association() {
         let temp = setup();
 
-        // Register current process as an agent
-        let pid = std::process::id();
-        let parent_pid = 1;
-        let agent = Agent::new(pid, parent_pid, "test-agent".to_string());
+        // Register using parent PID since that's how agents are now identified
+        // (the bn command itself exits, so we track the parent process instead)
+        let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
+        let bn_pid = std::process::id();
+        let agent = Agent::new(parent_pid, bn_pid, "test-agent".to_string());
         {
             let mut storage = Storage::open(temp.path()).unwrap();
             storage.register_agent(&agent).unwrap();
@@ -7594,7 +7603,7 @@ mod tests {
         // Verify task is in agent's list
         {
             let storage = Storage::open(temp.path()).unwrap();
-            let agent = storage.get_agent(pid).unwrap();
+            let agent = storage.get_agent(parent_pid).unwrap();
             assert!(
                 agent.tasks.contains(&task.id),
                 "Agent should have the task in its tasks list"
@@ -7606,7 +7615,7 @@ mod tests {
 
         // Verify task is removed from agent's list
         let storage = Storage::open(temp.path()).unwrap();
-        let agent = storage.get_agent(pid).unwrap();
+        let agent = storage.get_agent(parent_pid).unwrap();
         assert!(
             !agent.tasks.contains(&task.id),
             "Agent should no longer have the closed task"
@@ -7763,10 +7772,10 @@ mod tests {
     fn test_task_update_in_progress_tracks_agent_association() {
         let temp = setup();
 
-        // Register current process as an agent
-        let pid = std::process::id();
-        let parent_pid = 1;
-        let agent = Agent::new(pid, parent_pid, "test-agent".to_string());
+        // Register using parent PID since that's how agents are now identified
+        let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
+        let bn_pid = std::process::id();
+        let agent = Agent::new(parent_pid, bn_pid, "test-agent".to_string());
         {
             let mut storage = Storage::open(temp.path()).unwrap();
             storage.register_agent(&agent).unwrap();
@@ -7802,7 +7811,7 @@ mod tests {
 
         // Verify agent has the task in its tasks list
         let storage = Storage::open(temp.path()).unwrap();
-        let updated_agent = storage.get_agent(pid).unwrap();
+        let updated_agent = storage.get_agent(parent_pid).unwrap();
         assert!(
             updated_agent.tasks.contains(&task.id),
             "Agent should have the task in its tasks list"
@@ -7813,10 +7822,10 @@ mod tests {
     fn test_task_update_in_progress_warns_on_multiple_tasks() {
         let temp = setup();
 
-        // Register current process as an agent
-        let pid = std::process::id();
-        let parent_pid = 1;
-        let agent = Agent::new(pid, parent_pid, "test-agent".to_string());
+        // Register using parent PID since that's how agents are now identified
+        let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
+        let bn_pid = std::process::id();
+        let agent = Agent::new(parent_pid, bn_pid, "test-agent".to_string());
         {
             let mut storage = Storage::open(temp.path()).unwrap();
             storage.register_agent(&agent).unwrap();
@@ -7886,10 +7895,10 @@ mod tests {
     fn test_task_update_in_progress_force_allows_multiple_tasks() {
         let temp = setup();
 
-        // Register current process as an agent
-        let pid = std::process::id();
-        let parent_pid = 1;
-        let agent = Agent::new(pid, parent_pid, "test-agent".to_string());
+        // Register using parent PID since that's how agents are now identified
+        let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
+        let bn_pid = std::process::id();
+        let agent = Agent::new(parent_pid, bn_pid, "test-agent".to_string());
         {
             let mut storage = Storage::open(temp.path()).unwrap();
             storage.register_agent(&agent).unwrap();
@@ -7951,7 +7960,7 @@ mod tests {
 
         // Verify agent has both tasks
         let storage = Storage::open(temp.path()).unwrap();
-        let agent = storage.get_agent(pid).unwrap();
+        let agent = storage.get_agent(parent_pid).unwrap();
         assert_eq!(agent.tasks.len(), 2);
     }
 
