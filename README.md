@@ -213,6 +213,39 @@ When enabled:
 
 - `BN_DATA_DIR` - Override the base directory for binnacle data storage. By default, data is stored in `~/.local/share/binnacle/`. When set, binnacle stores data in `$BN_DATA_DIR/<repo-hash>/` instead. Useful for testing or isolating data between environments.
 
+## Releases
+
+Binnacle uses [semantic versioning](https://semver.org/) with alpha suffixes during early development:
+
+- **Format**: `0.x.y-alpha.z` (e.g., `0.0.1-alpha.2`)
+- **Alpha releases** indicate the API is unstable and breaking changes may occur
+
+### Creating a Release
+
+1. Update the version in `Cargo.toml`
+2. Commit the version change
+3. Create a GitHub Release with a tag matching the version (e.g., `v0.0.1-alpha.3`)
+
+The CI/CD pipeline will:
+- Verify the git tag matches `Cargo.toml` version
+- Run all tests, formatting, and linting checks
+- Build and upload binaries to the GitHub Release
+- Publish to [crates.io](https://crates.io/crates/binnacle)
+
+> [!NOTE]
+> The tag **must** match the `Cargo.toml` version exactly (with a `v` prefix). 
+> For example, version `0.0.1-alpha.3` requires tag `v0.0.1-alpha.3`.
+
+### Installing Releases
+
+```bash
+# From crates.io (when published)
+cargo install binnacle --features gui
+
+# From GitHub Release (download binary)
+# See https://github.com/hbeberman/binnacle/releases
+```
+
 ## Status
 
 Core functionality is complete (Phases 0-7). The project tracks its own development with binnacle.
