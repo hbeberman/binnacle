@@ -1,6 +1,6 @@
 # PRD: `bn system` Command Subdomain
 
-**Status:** Draft
+**Status:** Implemented
 **Author:** Claude
 **Date:** 2026-01-21
 

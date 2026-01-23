@@ -10,7 +10,7 @@
 
 use crate::models::{
     Agent, AgentType, Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone,
-    Queue, Task, TaskStatus, TestNode, TestResult,
+    Queue, Task, TaskStatus, TestNode, TestResult, graph::UnionFind,
 };
 use crate::storage::{EntityType, Storage, generate_id, parse_status};
 use crate::{Error, Result};
@@ -4933,6 +4933,214 @@ pub fn link_list(
     })
 }
 
+// === Graph Commands ===
+
+/// A single connected component in the task graph.
+#[derive(Serialize)]
+pub struct GraphComponent {
+    /// Component number (1-indexed)
+    pub id: usize,
+    /// Number of entities in this component
+    pub entity_count: usize,
+    /// Root nodes (entities with no dependencies within this component)
+    pub root_nodes: Vec<String>,
+    /// All entity IDs in this component
+    pub entity_ids: Vec<String>,
+}
+
+impl GraphComponent {
+    fn to_human(&self, verbose: bool) -> String {
+        let isolated = self.entity_count == 1;
+        if verbose {
+            let mut lines = vec![format!(
+                "Component {} ({} {}{})",
+                self.id,
+                self.entity_count,
+                if self.entity_count == 1 {
+                    "entity"
+                } else {
+                    "entities"
+                },
+                if isolated { " - isolated" } else { "" }
+            )];
+            lines.push(format!(
+                "  Root nodes: {}",
+                if self.root_nodes.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    self.root_nodes.join(", ")
+                }
+            ));
+            lines.join("\n")
+        } else {
+            format!(
+                "Component {}: {} {}{}",
+                self.id,
+                self.entity_count,
+                if self.entity_count == 1 {
+                    "entity"
+                } else {
+                    "entities"
+                },
+                if isolated { " (isolated)" } else { "" }
+            )
+        }
+    }
+}
+
+/// Result of graph component analysis.
+#[derive(Serialize)]
+pub struct GraphComponentsResult {
+    /// Number of disconnected components
+    pub component_count: usize,
+    /// Details of each component
+    pub components: Vec<GraphComponent>,
+    /// Suggestion for reducing fragmentation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
+}
+
+impl Output for GraphComponentsResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.component_count == 0 {
+            return "No entities found in the graph.".to_string();
+        }
+
+        let mut lines = vec![format!(
+            "Task Graph: {} disconnected component{}",
+            self.component_count,
+            if self.component_count == 1 { "" } else { "s" }
+        )];
+
+        lines.push(String::new()); // blank line
+
+        for component in &self.components {
+            lines.push(component.to_human(true));
+        }
+
+        if let Some(ref suggestion) = self.suggestion {
+            lines.push(String::new());
+            lines.push(format!("Tip: {}", suggestion));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Analyze the task graph and identify disconnected components.
+///
+/// Uses Union-Find algorithm to efficiently find connected components
+/// treating all edges as undirected for connectivity purposes.
+pub fn graph_components(repo_path: &Path) -> Result<GraphComponentsResult> {
+    let storage = Storage::open(repo_path)?;
+
+    // Get all entities (tasks, bugs, milestones, ideas)
+    let tasks = storage.list_tasks(None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None)?;
+    let milestones = storage.list_milestones(None, None, None)?;
+    let ideas = storage.list_ideas(None, None)?;
+
+    // Get all edges
+    let edges = storage.list_edges(None, None, None)?;
+
+    // Build union-find structure
+    let mut uf = UnionFind::new();
+
+    // Add all entities
+    for task in &tasks {
+        uf.make_set(task.id.clone());
+    }
+    for bug in &bugs {
+        uf.make_set(bug.id.clone());
+    }
+    for milestone in &milestones {
+        uf.make_set(milestone.id.clone());
+    }
+    for idea in &ideas {
+        uf.make_set(idea.id.clone());
+    }
+
+    // Union connected entities via edges (treating edges as undirected)
+    for edge in &edges {
+        // Only consider edges where both endpoints exist
+        if uf.find(&edge.source).is_some() && uf.find(&edge.target).is_some() {
+            uf.union(&edge.source, &edge.target);
+        }
+    }
+
+    // Get components
+    let raw_components = uf.components();
+
+    // For each component, find root nodes (entities with no dependencies within the component)
+    let mut components: Vec<GraphComponent> = Vec::new();
+
+    // Build a set of all entities that have dependencies (things that depend on others)
+    let has_dependency: std::collections::HashSet<String> = edges
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.edge_type,
+                EdgeType::DependsOn | EdgeType::ChildOf | EdgeType::Blocks
+            )
+        })
+        .map(|e| {
+            if matches!(e.edge_type, EdgeType::Blocks) {
+                e.target.clone() // For "blocks", target is blocked (has dependency)
+            } else {
+                e.source.clone() // For depends_on/child_of, source has dependencies
+            }
+        })
+        .collect();
+
+    for (idx, mut entity_ids) in raw_components.into_iter().enumerate() {
+        entity_ids.sort(); // Consistent ordering
+
+        // Root nodes are entities that:
+        // 1. Don't depend on anything within the component, OR
+        // 2. Are only depended upon (not depending on others)
+        let root_nodes: Vec<String> = entity_ids
+            .iter()
+            .filter(|id| !has_dependency.contains(*id))
+            .cloned()
+            .collect();
+
+        components.push(GraphComponent {
+            id: idx + 1,
+            entity_count: entity_ids.len(),
+            root_nodes,
+            entity_ids,
+        });
+    }
+
+    // Sort components by size (largest first)
+    components.sort_by(|a, b| b.entity_count.cmp(&a.entity_count));
+
+    // Re-number after sorting
+    for (idx, comp) in components.iter_mut().enumerate() {
+        comp.id = idx + 1;
+    }
+
+    let component_count = components.len();
+    let suggestion = if component_count > 1 {
+        Some(
+            "Use 'bn link add <child> <parent> --type depends_on' to connect components."
+                .to_string(),
+        )
+    } else {
+        None
+    };
+
+    Ok(GraphComponentsResult {
+        component_count,
+        components,
+        suggestion,
+    })
+}
+
 // === Search Commands ===
 
 /// Search result for link queries
@@ -5963,6 +6171,21 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
             message: format!(
                 "{} idea(s) have legacy bni- prefix - run 'bn doctor --fix' to migrate to bn- prefix",
                 legacy_prefix_count
+            ),
+            entity_id: None,
+        });
+    }
+
+    // Check for disconnected components in the task graph
+    if let Ok(components_result) = graph_components(repo_path)
+        && components_result.component_count > 1
+    {
+        issues.push(DoctorIssue {
+            severity: "info".to_string(),
+            category: "graph".to_string(),
+            message: format!(
+                "Task graph has {} disconnected components. Run 'bn graph components' for details.",
+                components_result.component_count
             ),
             entity_id: None,
         });
@@ -13375,5 +13598,148 @@ mod tests {
         let result = sync(temp.path(), None, false, false).unwrap();
         assert!(result.error.is_some());
         assert!(result.error.unwrap().contains("binnacle-data"));
+    }
+
+    // === Graph Component Tests ===
+
+    #[test]
+    fn test_graph_components_empty() {
+        let temp = setup();
+        let result = graph_components(temp.path()).unwrap();
+        assert_eq!(result.component_count, 0);
+        assert!(result.components.is_empty());
+        assert!(result.suggestion.is_none());
+    }
+
+    #[test]
+    fn test_graph_components_single_isolated_task() {
+        let temp = setup();
+
+        // Create a single task
+        task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let result = graph_components(temp.path()).unwrap();
+        assert_eq!(result.component_count, 1);
+        assert_eq!(result.components.len(), 1);
+        assert_eq!(result.components[0].entity_count, 1);
+        assert_eq!(result.components[0].root_nodes.len(), 1);
+        assert!(result.suggestion.is_none()); // No suggestion for single component
+    }
+
+    #[test]
+    fn test_graph_components_multiple_isolated() {
+        let temp = setup();
+
+        // Create two unconnected tasks
+        task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let result = graph_components(temp.path()).unwrap();
+        assert_eq!(result.component_count, 2);
+        assert!(result.suggestion.is_some()); // Should suggest connecting
+    }
+
+    #[test]
+    fn test_graph_components_connected_tasks() {
+        let temp = setup();
+
+        // Create two tasks and link them
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link task1 depends on task2
+        link_add(
+            temp.path(),
+            &task1.id,
+            &task2.id,
+            "depends_on",
+            Some("dependency".to_string()),
+        )
+        .unwrap();
+
+        let result = graph_components(temp.path()).unwrap();
+        assert_eq!(result.component_count, 1);
+        assert_eq!(result.components[0].entity_count, 2);
+        // task2 should be root (task1 depends on it)
+        assert!(result.components[0].root_nodes.contains(&task2.id));
+    }
+
+    #[test]
+    fn test_graph_components_human_output() {
+        let temp = setup();
+
+        // Create two isolated tasks
+        task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let result = graph_components(temp.path()).unwrap();
+        let human = result.to_human();
+
+        assert!(human.contains("2 disconnected components"));
+        assert!(human.contains("isolated"));
+        assert!(human.contains("Tip:"));
     }
 }

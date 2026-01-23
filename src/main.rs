@@ -612,7 +612,8 @@ fn run_command(
         },
         Some(Commands::Graph { command }) => match command {
             GraphCommands::Components => {
-                not_implemented("graph components", "", human);
+                let result = commands::graph_components(repo_path)?;
+                output(&result, human);
             }
         },
         Some(Commands::Search { command }) => match command {
@@ -1144,30 +1145,6 @@ fn send_signal(pid: u32, signal: Signal) -> bool {
         .output()
         .map(|out| out.status.success())
         .unwrap_or(false)
-}
-
-/// Print a not-implemented message for a command.
-fn not_implemented(command: &str, subcommand: &str, human: bool) {
-    if human {
-        if subcommand.is_empty() {
-            println!("Command '{}' is not yet implemented.", command);
-        } else {
-            println!(
-                "Command '{} {}' is not yet implemented.",
-                command, subcommand
-            );
-        }
-    } else if subcommand.is_empty() {
-        println!(
-            r#"{{"status": "not_implemented", "command": "{}"}}"#,
-            command
-        );
-    } else {
-        println!(
-            r#"{{"status": "not_implemented", "command": "{}", "subcommand": "{}"}}"#,
-            command, subcommand
-        );
-    }
 }
 
 /// Serialize command to extract name and arguments for logging.
