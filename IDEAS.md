@@ -11,7 +11,7 @@
 - [ ] Enable theming support as a configuration option for `bn gui`
 - [x] Make tests use a separate bn storage that isn't the actual repo's storage to avoid polluting the real task graph with test fixtures (BN_DATA_DIR env var)
 - [ ] Offer to include auto-approve rules for copilot, codex, opencode, and claude
-- [ ] Add the concept of a question that can be linked to any other resource type, and a user then links an answer off of it
+- [x] Add the concept of a question that can be linked to any other resource type, and a user then links an answer off of it → See `prds/PRD_QUESTION_ANSWER_NODES.md`
 - [ ] Make `bn gui` automatically pick the first available port
 - [ ] Require bugs to be linked to existing tasks (or other objects) so we can trace bugs back to the original intent of the feature
 - [x] Add PRD as a first-class object in binnacle, programmatically linked to tasks so each task can trace back to its owning PRD (instead of separate .md files) → See `prds/PRD_PRD_NODES.md`
