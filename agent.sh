@@ -84,7 +84,7 @@ case "$AGENT_TYPE" in
         [[ $# -lt 1 ]] && { echo "Error: 'do' requires a description argument"; usage; }
         DESC="$1"
         echo "Launching Make Agent: $DESC"
-        PROMPT="Read PRD.md and use your binnacle skill to orient yourself. Then work on the following: $DESC. Test your changes, report results, and commit when complete. Create a task in binnacle if one doesn't exist for this work."
+        PROMPT="Read PRD.md and use your binnacle skill to orient yourself. Then work on the following: $DESC. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work."
         copilot "${BLOCKED_TOOLS[@]}" "${TOOLS_FULL[@]}" -i "$PROMPT"
         ;;
     prd)
