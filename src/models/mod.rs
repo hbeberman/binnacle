@@ -243,7 +243,7 @@ impl Bug {
 /// that can be captured quickly and potentially grown into full PRDs or tasks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Idea {
-    /// Unique identifier (e.g., "bni-a1b2")
+    /// Unique identifier (e.g., "bn-a1b2")
     pub id: String,
 
     /// Entity type marker
@@ -925,7 +925,7 @@ mod tests {
 
     #[test]
     fn test_idea_serialization_roundtrip() {
-        let idea = Idea::new("bni-test".to_string(), "Test idea".to_string());
+        let idea = Idea::new("bn-test".to_string(), "Test idea".to_string());
         let json = serde_json::to_string(&idea).unwrap();
         let deserialized: Idea = serde_json::from_str(&json).unwrap();
         assert_eq!(idea.id, deserialized.id);
@@ -951,7 +951,7 @@ mod tests {
 
     #[test]
     fn test_idea_default_values() {
-        let json = r#"{"id":"bni-test","type":"idea","title":"Test","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#;
+        let json = r#"{"id":"bn-test","type":"idea","title":"Test","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#;
         let idea: Idea = serde_json::from_str(json).unwrap();
         assert_eq!(idea.status, IdeaStatus::Seed);
         assert!(idea.tags.is_empty());
