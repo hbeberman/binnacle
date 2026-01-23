@@ -987,10 +987,10 @@
 
         .info-panel {
             position: absolute;
-            top: 1rem;
+            top: 4rem;  /* Below graph-controls */
             right: 1rem;
             width: 320px;
-            max-height: calc(100% - 2rem);
+            max-height: calc(100% - 5rem);
             background: var(--overlay-bg);
             border: 1px solid var(--border-color);
             border-radius: 8px;
@@ -999,7 +999,7 @@
             opacity: 0;
             visibility: hidden;
             transition: opacity 0.2s ease, visibility 0.2s ease;
-            z-index: 100;
+            z-index: 99;  /* Below graph-controls */
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         }
 
@@ -1294,6 +1294,14 @@
             }
             .zoom-buttons {
                 justify-content: center;
+            }
+            .info-panel {
+                top: auto;
+                bottom: 5rem;  /* Above the graph-filters on mobile */
+                left: 1rem;
+                right: 1rem;
+                width: auto;
+                max-height: 50vh;
             }
         }
 
