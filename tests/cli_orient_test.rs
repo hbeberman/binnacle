@@ -165,7 +165,8 @@ fn test_orient_with_init_creates_database() {
         .args(["orient", "--type", "worker", "--init"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"initialized\":true"));
+        .stdout(predicate::str::contains("\"ready\":true"))
+        .stdout(predicate::str::contains("\"just_initialized\":true"));
 
     // Verify AGENTS.md was created
     assert!(agents_path.exists());
@@ -179,7 +180,8 @@ fn test_orient_works_when_already_initialized() {
         .args(["orient", "--type", "worker"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"initialized\":false"))
+        .stdout(predicate::str::contains("\"ready\":true"))
+        .stdout(predicate::str::contains("\"just_initialized\":false"))
         .stdout(predicate::str::contains("\"total_tasks\""));
 }
 
@@ -323,14 +325,16 @@ fn test_orient_init_is_idempotent() {
         .args(["orient", "--type", "worker", "--init"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"initialized\":true"));
+        .stdout(predicate::str::contains("\"ready\":true"))
+        .stdout(predicate::str::contains("\"just_initialized\":true"));
 
     // Second --init should also succeed (no-op for already initialized)
     bn_in(&temp)
         .args(["orient", "--type", "worker", "--init"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"initialized\":false"));
+        .stdout(predicate::str::contains("\"ready\":true"))
+        .stdout(predicate::str::contains("\"just_initialized\":false"));
 }
 
 #[test]
