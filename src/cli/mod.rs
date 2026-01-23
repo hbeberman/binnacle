@@ -13,6 +13,12 @@ pub struct Cli {
     #[arg(short = 'H', long = "human", global = true)]
     pub human_readable: bool,
 
+    /// Run as if bn was started in <path> instead of the current directory.
+    /// The path must exist. Bypasses git root detection - uses the path literally.
+    /// Can also be set via BN_REPO environment variable.
+    #[arg(short = 'C', long = "repo", global = true, env = "BN_REPO")]
+    pub repo_path: Option<std::path::PathBuf>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

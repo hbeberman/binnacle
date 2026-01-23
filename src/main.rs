@@ -8,6 +8,7 @@ use binnacle::cli::{
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
+use binnacle::storage::find_git_root;
 use clap::Parser;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -18,8 +19,8 @@ fn main() {
     let cli = Cli::parse();
     let human = cli.human_readable;
 
-    // Get the current working directory as the repo path
-    let repo_path = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    // Determine repo path: --repo flag > BN_REPO env > auto-detect git root > cwd
+    let repo_path = resolve_repo_path(cli.repo_path, human);
 
     // Serialize command for logging
     let (cmd_name, args_json) = serialize_command(&cli.command);
@@ -50,6 +51,44 @@ fn main() {
             eprintln!(r#"{{"error": "{}"}}"#, e);
         }
         process::exit(1);
+    }
+}
+
+/// Resolve the repository path based on explicit flag, environment variable, or auto-detection.
+///
+/// Priority: --repo flag > BN_REPO env var > git root detection > current working directory
+///
+/// When an explicit path is provided (via -C/--repo or BN_REPO), it is used literally
+/// without git root detection. This allows targeting specific subdirectories even within
+/// a git repository.
+///
+/// When no explicit path is given, we auto-detect the git root from the current directory
+/// to ensure consistent storage regardless of which subdirectory the user runs from.
+fn resolve_repo_path(explicit_path: Option<PathBuf>, human: bool) -> PathBuf {
+    match explicit_path {
+        Some(path) => {
+            // Explicit path specified - verify it exists, use it literally (no git root detection)
+            if !path.exists() {
+                if human {
+                    eprintln!(
+                        "Error: Specified repo path does not exist: {}",
+                        path.display()
+                    );
+                } else {
+                    eprintln!(
+                        r#"{{"error": "Specified repo path does not exist: {}"}}"#,
+                        path.display()
+                    );
+                }
+                process::exit(1);
+            }
+            path
+        }
+        None => {
+            // Auto-detect: try git root first, fall back to cwd
+            let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            find_git_root(&cwd).unwrap_or(cwd)
+        }
     }
 }
 
