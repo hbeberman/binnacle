@@ -221,7 +221,7 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 1. **Before starting work**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress`
 2. **After completing work**: Run `bn task close <id> --reason "brief description"`
 3. **If blocked**: Run `bn task update <id> --status blocked`
-4. **When terminating**: Run `bn goodbye` to gracefully end your session
+4. **When terminating**: Run `bn goodbye "summary of what was accomplished"` to gracefully end your session
 5. **For bugs**: Use `bn bug create/update/close` - not `bn task create --tag bug`
 
 The task graph drives development priorities. Always update task status to keep it accurate.
@@ -368,7 +368,7 @@ Links connect entities in the task graph to model dependencies, relationships, a
    - Run `bn ready` to check related tasks
    - Close ALL completed tasks: `bn task close <id> --reason "description"`
    - Run tests: `bn test run --all`
-5. **End of session**: Run `bn goodbye` to gracefully terminate
+5. **End of session**: Run `bn goodbye "summary of what was accomplished"` to gracefully terminate
 
 ## Best Practices
 
@@ -419,7 +419,7 @@ bn task close bn-a1b2 --reason "Implemented feature X"
 bn test run --all
 
 # End session gracefully
-bn goodbye
+bn goodbye "completed task bn-a1b2"
 ```
 
 ## Notes
@@ -665,7 +665,8 @@ impl Output for OrientResult {
         lines.push("  bn task list    List all tasks".to_string());
         lines.push("  bn task show X  Show task details".to_string());
         lines.push("  bn test run     Run linked tests".to_string());
-        lines.push("  bn goodbye      Gracefully terminate self (agent) when done".to_string());
+        lines
+            .push("  bn goodbye \"reason\"  Gracefully terminate (include a summary!)".to_string());
         lines.push(String::new());
         lines.push("Run 'bn --help' for full command reference.".to_string());
 
@@ -855,6 +856,47 @@ fn get_grandparent_pid() -> Option<u32> {
 
 #[cfg(not(unix))]
 fn get_grandparent_pid() -> Option<u32> {
+    None
+}
+
+/// Find a registered agent that is an ancestor of the current process.
+/// This traverses the process tree upwards to find any agent that was
+/// registered by a parent shell (since each bn command runs in a new subprocess).
+/// Returns the agent's PID if found, None otherwise.
+#[cfg(unix)]
+fn find_ancestor_agent(storage: &Storage) -> Option<u32> {
+    // Get all registered agents
+    let agents = storage.list_agents(None).ok()?;
+    if agents.is_empty() {
+        return None;
+    }
+
+    // Build a set of registered agent PIDs for fast lookup
+    let agent_pids: std::collections::HashSet<u32> = agents.iter().map(|a| a.pid).collect();
+
+    // Traverse the process tree upwards looking for a registered agent
+    let mut current_pid = get_parent_pid()?;
+
+    // Limit depth to avoid infinite loops (shouldn't happen, but be safe)
+    for _ in 0..100 {
+        if current_pid <= 1 {
+            // Reached init/systemd
+            break;
+        }
+
+        if agent_pids.contains(&current_pid) {
+            return Some(current_pid);
+        }
+
+        // Move up to the parent
+        current_pid = get_ppid_of_pid(current_pid)?;
+    }
+
+    None
+}
+
+#[cfg(not(unix))]
+fn find_ancestor_agent(_storage: &Storage) -> Option<u32> {
     None
 }
 
@@ -1824,16 +1866,24 @@ pub fn task_update(
         // If setting status to done, also set closed_at
         if new_status == TaskStatus::Done {
             task.closed_at = Some(Utc::now());
-            // Remove task from agent's tasks list (use parent_pid since that's how agents are registered)
-            let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
-            let _ = storage.agent_remove_task(parent_pid, id);
+            // Remove task from agent's tasks list
+            // First try to find the ancestor agent (for when bn commands run in subprocesses)
+            // Fall back to parent_pid for backwards compatibility
+            let agent_pid = find_ancestor_agent(&storage)
+                .or_else(get_parent_pid)
+                .unwrap_or_else(std::process::id);
+            let _ = storage.agent_remove_task(agent_pid, id);
         }
 
         // If setting status to in_progress, track task association for registered agents
         if new_status == TaskStatus::InProgress {
-            let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
+            // First try to find the ancestor agent (for when bn commands run in subprocesses)
+            // Fall back to parent_pid for backwards compatibility
+            let agent_pid = find_ancestor_agent(&storage)
+                .or_else(get_parent_pid)
+                .unwrap_or_else(std::process::id);
             // Check if agent is registered and already has tasks
-            if let Ok(agent) = storage.get_agent(parent_pid)
+            if let Ok(agent) = storage.get_agent(agent_pid)
                 && !agent.tasks.is_empty()
                 && !force
             {
@@ -1850,7 +1900,7 @@ pub fn task_update(
                 )));
             }
             // Silently ignore errors - agent tracking is optional
-            let _ = storage.agent_add_task(parent_pid, id);
+            let _ = storage.agent_add_task(agent_pid, id);
         }
 
         task.status = new_status;
@@ -2051,9 +2101,13 @@ pub fn task_close(
     promote_partial_tasks(&mut storage)?;
 
     // Remove task from agent's tasks list if the current process is a registered agent
-    let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
+    // First try to find the ancestor agent (for when bn commands run in subprocesses)
+    // Fall back to parent_pid for backwards compatibility
+    let agent_pid = find_ancestor_agent(&storage)
+        .or_else(get_parent_pid)
+        .unwrap_or_else(std::process::id);
     // Silently ignore errors - agent tracking is optional
-    let _ = storage.agent_remove_task(parent_pid, id);
+    let _ = storage.agent_remove_task(agent_pid, id);
 
     // Auto-remove task from any queues it's in
     let removed_from_queues = remove_task_from_queues(&mut storage, id)?;
@@ -7769,10 +7823,13 @@ pub fn track_agent_activity(repo_path: &Path) {
     if Storage::exists(repo_path).unwrap_or(false)
         && let Ok(mut storage) = Storage::open(repo_path)
     {
-        // Use parent_pid since that's how agents are registered (bn command itself exits)
-        let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
+        // First try to find the ancestor agent (for when bn commands run in subprocesses)
+        // Fall back to parent_pid for backwards compatibility
+        let agent_pid = find_ancestor_agent(&storage)
+            .or_else(get_parent_pid)
+            .unwrap_or_else(std::process::id);
         // Touch the agent if registered (silently ignore if not)
-        let _ = storage.touch_agent(parent_pid);
+        let _ = storage.touch_agent(agent_pid);
     }
 }
 
@@ -7880,6 +7937,9 @@ pub struct GoodbyeResult {
     pub was_registered: bool,
     pub reason: Option<String>,
     pub terminated: bool,
+    /// Warning message when reason is not provided
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 impl Output for GoodbyeResult {
@@ -7893,6 +7953,13 @@ impl Output for GoodbyeResult {
         if !self.was_registered {
             lines.push(
                 "Warning: Agent not registered (did you run bn orient?). Terminating anyway."
+                    .to_string(),
+            );
+        }
+
+        if self.reason.is_none() {
+            lines.push(
+                "Warning: No reason provided. Please use: bn goodbye \"reason for termination\""
                     .to_string(),
             );
         }
@@ -7962,6 +8029,13 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>) -> Result<GoodbyeResult
     // Log the bn command PID for debugging
     let _ = bn_pid;
 
+    // Add warning if no reason provided
+    let warning = if reason.is_none() {
+        Some("No reason provided. Please use: bn goodbye \"reason for termination\"".to_string())
+    } else {
+        None
+    };
+
     Ok(GoodbyeResult {
         agent_name,
         parent_pid,
@@ -7969,6 +8043,7 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>) -> Result<GoodbyeResult
         was_registered,
         reason,
         terminated: true, // Actual termination happens in main.rs after output
+        warning,
     })
 }
 

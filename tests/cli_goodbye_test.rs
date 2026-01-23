@@ -156,3 +156,51 @@ fn test_goodbye_dry_run_flag() {
         .success()
         .stdout(predicate::str::contains("dry-run"));
 }
+
+#[test]
+fn test_goodbye_without_reason_warns() {
+    let temp = init_binnacle();
+
+    // Run goodbye without a reason - should warn
+    bn_in(&temp)
+        .args(["goodbye", "-H", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Warning: No reason provided"));
+}
+
+#[test]
+fn test_goodbye_with_reason_no_warning() {
+    let temp = init_binnacle();
+
+    // Run goodbye with a reason - should NOT warn about missing reason
+    bn_in(&temp)
+        .args(["goodbye", "-H", "--dry-run", "Task completed successfully"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Warning: No reason provided").not());
+}
+
+#[test]
+fn test_goodbye_json_includes_warning_field() {
+    let temp = init_binnacle();
+
+    // Run goodbye without reason and check JSON output includes warning
+    let output = bn_in(&temp)
+        .args(["goodbye", "--dry-run"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // Should have warning field when no reason provided
+    assert!(json.get("warning").is_some());
+    assert!(
+        json["warning"]
+            .as_str()
+            .unwrap()
+            .contains("No reason provided")
+    );
+}
