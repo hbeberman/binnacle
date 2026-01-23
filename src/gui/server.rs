@@ -65,6 +65,7 @@ pub async fn start_server(
         .route("/api/ideas", get(get_ideas))
         .route("/api/ready", get(get_ready))
         .route("/api/tests", get(get_tests))
+        .route("/api/queue", get(get_queue))
         .route("/api/edges", get(get_edges))
         .route("/api/log", get(get_log))
         .route("/api/agents", get(get_agents))
@@ -151,6 +152,15 @@ async fn get_tests(State(state): State<AppState>) -> Result<Json<serde_json::Val
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "tests": tests })))
+}
+
+/// Get the queue (if it exists)
+async fn get_queue(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+    match storage.get_queue() {
+        Ok(queue) => Ok(Json(serde_json::json!({ "queue": queue }))),
+        Err(_) => Ok(Json(serde_json::json!({ "queue": null }))),
+    }
 }
 
 /// Get all agents

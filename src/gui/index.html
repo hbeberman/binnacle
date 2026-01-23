@@ -40,6 +40,11 @@
             --idea-in-progress: #7a4db8;
             --idea-blocked: #5c3a8a;
             --idea-done: #8fbc8f;
+            /* Node type colors - queue (teal/cyan) */
+            --queue-color: #20b2aa;
+            --queue-color-light: #40d0c8;
+            /* Edge type colors - queued */
+            --edge-queued: #20b2aa;
             /* Overlay backgrounds */
             --overlay-bg: rgba(0, 0, 0, 0.85);
         }
@@ -1775,7 +1780,7 @@
         // Data loading
         async function loadData() {
             // Load all data in parallel
-            const [configData, tasksData, bugsData, ideasData, readyData, testsData, logData, edgesData, agentsData] = await Promise.all([
+            const [configData, tasksData, bugsData, ideasData, readyData, testsData, logData, edgesData, agentsData, queueData] = await Promise.all([
                 fetch('/api/config').then(r => r.json()),
                 fetch('/api/tasks').then(r => r.json()),
                 fetch('/api/bugs').then(r => r.json()),
@@ -1784,7 +1789,8 @@
                 fetch('/api/tests').then(r => r.json()),
                 fetch('/api/log').then(r => r.json()),
                 fetch('/api/edges').then(r => r.json()),
-                fetch('/api/agents').then(r => r.json())
+                fetch('/api/agents').then(r => r.json()),
+                fetch('/api/queue').then(r => r.json())
             ]);
             
             // Update the document title with project name
@@ -1807,8 +1813,17 @@
                 short_name: idea.short_name || null,
                 depends_on: idea.depends_on || []
             }));
+            // Normalize queue to have node-like fields for graph rendering
+            const normalizedQueue = queueData.queue ? [{
+                ...queueData.queue,
+                type: 'queue',
+                status: 'active',  // Queues don't have status, use 'active' for rendering
+                priority: 0,
+                short_name: queueData.queue.title || null,
+                depends_on: []
+            }] : [];
             
-            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas];
+            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas, ...normalizedQueue];
             state.ready = readyData.tasks || [];
             state.tests = testsData.tests || [];
             state.log = logData.log || [];
@@ -3256,6 +3271,24 @@
             return lines;
         }
 
+        // Draw a hexagon path centered at (cx, cy) with the given radius
+        function drawHexagonPath(ctx, cx, cy, radius) {
+            const sides = 6;
+            const angleOffset = Math.PI / 6; // Rotate 30 degrees so flat side is at bottom
+            ctx.moveTo(
+                cx + radius * Math.cos(angleOffset),
+                cy + radius * Math.sin(angleOffset)
+            );
+            for (let i = 1; i <= sides; i++) {
+                const angle = angleOffset + (i * 2 * Math.PI / sides);
+                ctx.lineTo(
+                    cx + radius * Math.cos(angle),
+                    cy + radius * Math.sin(angle)
+                );
+            }
+            ctx.closePath();
+        }
+
         function drawNode(ctx, node, canvas) {
             const isHovered = node === state.graph.hoveredNode;
             const isDragging = node === state.graph.draggedNode;
@@ -3294,14 +3327,23 @@
                 'done': '#8fbc8f'          // --idea-done
             };
             
+            // Queue color (teal) - queues don't have status, always same color
+            const queueColor = '#20b2aa';  // --queue-color
+            
             // Select color palette based on node type
             let colorPalette = colors;
-            if (node.type === 'bug') {
+            let color;
+            if (node.type === 'queue') {
+                color = queueColor;
+            } else if (node.type === 'bug') {
                 colorPalette = bugColors;
+                color = colorPalette[node.status] || '#4a90e2';
             } else if (node.type === 'idea') {
                 colorPalette = ideaColors;
+                color = colorPalette[node.status] || '#4a90e2';
+            } else {
+                color = colorPalette[node.status] || '#4a90e2';
             }
-            const color = colorPalette[node.status] || '#4a90e2';
             
             // Apply dimming for filtered-out nodes
             ctx.globalAlpha = isDimmed ? 0.3 : 1.0;
@@ -3309,7 +3351,11 @@
             // Draw selection highlight (persistent)
             if (isSelected) {
                 ctx.beginPath();
-                ctx.arc(screenPos.x, screenPos.y, radius + 10 * zoom, 0, Math.PI * 2);
+                if (node.type === 'queue') {
+                    drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
+                } else {
+                    ctx.arc(screenPos.x, screenPos.y, radius + 10 * zoom, 0, Math.PI * 2);
+                }
                 ctx.strokeStyle = '#f0ad4e';
                 ctx.lineWidth = 4;
                 ctx.stroke();
@@ -3320,7 +3366,11 @@
             // Draw drag highlight (active)
             if (isDragging) {
                 ctx.beginPath();
-                ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
+                if (node.type === 'queue') {
+                    drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                } else {
+                    ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
+                }
                 ctx.fillStyle = 'rgba(74, 144, 226, 0.3)';
                 ctx.fill();
                 ctx.strokeStyle = '#4a90e2';
@@ -3330,7 +3380,11 @@
             // Draw hover highlight
             else if (isHovered) {
                 ctx.beginPath();
-                ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
+                if (node.type === 'queue') {
+                    drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                } else {
+                    ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
+                }
                 ctx.fillStyle = 'rgba(74, 144, 226, 0.2)';
                 ctx.fill();
                 ctx.strokeStyle = '#6aa8f0';
@@ -3338,9 +3392,13 @@
                 ctx.stroke();
             }
 
-            // Draw circle
+            // Draw node shape (hexagon for queue, circle for others)
             ctx.beginPath();
-            ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
+            if (node.type === 'queue') {
+                drawHexagonPath(ctx, screenPos.x, screenPos.y, radius);
+            } else {
+                ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
+            }
             ctx.fillStyle = color;
             ctx.fill();
             ctx.strokeStyle = (isHovered || isDragging) ? '#ffffff' : '#e8edf3';
@@ -3417,6 +3475,12 @@
                     return {
                         color: styles.getPropertyValue('--edge-hierarchy').trim(),
                         dashed: false,
+                        lineWidth: 2
+                    };
+                case 'queued':
+                    return {
+                        color: styles.getPropertyValue('--edge-queued').trim(),
+                        dashed: true,
                         lineWidth: 2
                     };
                 default:
