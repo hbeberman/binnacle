@@ -23,8 +23,8 @@ pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
 use crate::models::{
-    Bug, CommitLink, Edge, EdgeDirection, EdgeType, HydratedEdge, Idea, IdeaStatus, Milestone,
-    MilestoneProgress, Task, TaskStatus, TestNode, TestResult,
+    Agent, AgentStatus, Bug, CommitLink, Edge, EdgeDirection, EdgeType, HydratedEdge, Idea,
+    IdeaStatus, Milestone, MilestoneProgress, Task, TaskStatus, TestNode, TestResult,
 };
 use crate::{Error, Result};
 use chrono::Utc;
@@ -120,6 +120,7 @@ impl Storage {
             "edges.jsonl",
             "commits.jsonl",
             "test-results.jsonl",
+            "agents.jsonl",
         ];
         for file in files {
             let path = root.join(file);
@@ -341,6 +342,27 @@ impl Storage {
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            -- Agent tables (for AI agent lifecycle management)
+            CREATE TABLE IF NOT EXISTS agents (
+                pid INTEGER PRIMARY KEY,
+                parent_pid INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                started_at TEXT NOT NULL,
+                last_activity_at TEXT NOT NULL,
+                command_count INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS agent_tasks (
+                pid INTEGER NOT NULL,
+                task_id TEXT NOT NULL,
+                PRIMARY KEY (pid, task_id),
+                FOREIGN KEY (pid) REFERENCES agents(pid) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
+            CREATE INDEX IF NOT EXISTS idx_agent_tasks_pid ON agent_tasks(pid);
             "#,
         )?;
 
@@ -389,6 +411,8 @@ impl Storage {
             DELETE FROM test_links;
             DELETE FROM tests;
             DELETE FROM edges;
+            DELETE FROM agent_tasks;
+            DELETE FROM agents;
             "#,
         )?;
 
@@ -482,6 +506,23 @@ impl Storage {
                     && edge.entity_type == "edge"
                 {
                     self.cache_edge(&edge)?;
+                }
+            }
+        }
+
+        // Re-read agents from agents.jsonl
+        let agents_path = self.root.join("agents.jsonl");
+        if agents_path.exists() {
+            let file = File::open(&agents_path)?;
+            let reader = BufReader::new(file);
+
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(agent) = serde_json::from_str::<Agent>(&line) {
+                    self.cache_agent(&agent)?;
                 }
             }
         }
@@ -2499,6 +2540,247 @@ impl Storage {
 
         Ok(links)
     }
+
+    // === Agent Operations ===
+
+    /// Register a new agent or update an existing one.
+    pub fn register_agent(&mut self, agent: &Agent) -> Result<()> {
+        // Append to JSONL
+        let agents_path = self.root.join("agents.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&agents_path)?;
+
+        let json = serde_json::to_string(agent)?;
+        writeln!(file, "{}", json)?;
+
+        // Update cache
+        self.cache_agent(agent)?;
+
+        Ok(())
+    }
+
+    /// Cache an agent in SQLite.
+    fn cache_agent(&self, agent: &Agent) -> Result<()> {
+        // Insert or replace the agent
+        self.conn.execute(
+            "INSERT OR REPLACE INTO agents (pid, parent_pid, name, status, started_at, last_activity_at, command_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                agent.pid,
+                agent.parent_pid,
+                agent.name,
+                format!("{:?}", agent.status).to_lowercase(),
+                agent.started_at.to_rfc3339(),
+                agent.last_activity_at.to_rfc3339(),
+                agent.command_count,
+            ],
+        )?;
+
+        // Update agent tasks
+        self.conn
+            .execute("DELETE FROM agent_tasks WHERE pid = ?1", params![agent.pid])?;
+
+        for task_id in &agent.tasks {
+            self.conn.execute(
+                "INSERT INTO agent_tasks (pid, task_id) VALUES (?1, ?2)",
+                params![agent.pid, task_id],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Get an agent by PID.
+    pub fn get_agent(&self, pid: u32) -> Result<Agent> {
+        // First check if agent exists in cache (handles removed agents)
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM agents WHERE pid = ?1)",
+            params![pid],
+            |row| row.get(0),
+        )?;
+
+        if !exists {
+            return Err(Error::NotFound(format!(
+                "Agent not found with PID: {}",
+                pid
+            )));
+        }
+
+        // Read from JSONL to get the latest version
+        let agents_path = self.root.join("agents.jsonl");
+        let file = File::open(&agents_path)?;
+        let reader = BufReader::new(file);
+
+        let mut latest: Option<Agent> = None;
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(agent) = serde_json::from_str::<Agent>(&line)
+                && agent.pid == pid
+            {
+                latest = Some(agent);
+            }
+        }
+
+        latest.ok_or_else(|| Error::NotFound(format!("Agent not found with PID: {}", pid)))
+    }
+
+    /// List all agents, optionally filtered by status.
+    pub fn list_agents(&self, status: Option<&str>) -> Result<Vec<Agent>> {
+        let mut sql = String::from("SELECT pid FROM agents WHERE 1=1");
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(s) = status {
+            sql.push_str(" AND status = ?");
+            params_vec.push(Box::new(s.to_string()));
+        }
+
+        sql.push_str(" ORDER BY started_at DESC");
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let pids: Vec<u32> = stmt
+            .query_map(params_refs.as_slice(), |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Fetch full agent data from JSONL
+        let mut agents = Vec::new();
+        for pid in pids {
+            if let Ok(agent) = self.get_agent(pid) {
+                agents.push(agent);
+            }
+        }
+
+        Ok(agents)
+    }
+
+    /// Remove an agent from the registry.
+    pub fn remove_agent(&mut self, pid: u32) -> Result<()> {
+        // Check if agent exists
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM agents WHERE pid = ?1)",
+            params![pid],
+            |row| row.get(0),
+        )?;
+
+        if !exists {
+            return Err(Error::NotFound(format!(
+                "Agent not found with PID: {}",
+                pid
+            )));
+        }
+
+        // Remove from cache (JSONL is append-only, so we just remove from cache)
+        self.conn
+            .execute("DELETE FROM agent_tasks WHERE pid = ?1", params![pid])?;
+        self.conn
+            .execute("DELETE FROM agents WHERE pid = ?1", params![pid])?;
+
+        Ok(())
+    }
+
+    /// Update an agent's activity timestamp and increment command count.
+    pub fn touch_agent(&mut self, pid: u32) -> Result<()> {
+        let mut agent = self.get_agent(pid)?;
+        agent.touch();
+        self.register_agent(&agent)?;
+        Ok(())
+    }
+
+    /// Update agent status.
+    pub fn update_agent_status(&mut self, pid: u32, status: AgentStatus) -> Result<()> {
+        let mut agent = self.get_agent(pid)?;
+        agent.status = status;
+        self.register_agent(&agent)?;
+        Ok(())
+    }
+
+    /// Add a task to an agent's working set.
+    pub fn agent_add_task(&mut self, pid: u32, task_id: &str) -> Result<()> {
+        let mut agent = self.get_agent(pid)?;
+        if !agent.tasks.contains(&task_id.to_string()) {
+            agent.tasks.push(task_id.to_string());
+            self.register_agent(&agent)?;
+        }
+        Ok(())
+    }
+
+    /// Remove a task from an agent's working set.
+    pub fn agent_remove_task(&mut self, pid: u32, task_id: &str) -> Result<()> {
+        let mut agent = self.get_agent(pid)?;
+        agent.tasks.retain(|t| t != task_id);
+        self.register_agent(&agent)?;
+        Ok(())
+    }
+
+    /// Get agent by name.
+    pub fn get_agent_by_name(&self, name: &str) -> Result<Agent> {
+        // First try to find in cache
+        let pid: Option<u32> = self
+            .conn
+            .query_row(
+                "SELECT pid FROM agents WHERE name = ?1 ORDER BY started_at DESC LIMIT 1",
+                params![name],
+                |row| row.get(0),
+            )
+            .ok();
+
+        match pid {
+            Some(p) => self.get_agent(p),
+            None => Err(Error::NotFound(format!("Agent not found: {}", name))),
+        }
+    }
+
+    /// Clean up stale agents (PIDs that are no longer running).
+    /// Returns the list of removed agent PIDs.
+    pub fn cleanup_stale_agents(&mut self) -> Result<Vec<u32>> {
+        let agents = self.list_agents(None)?;
+        let mut removed = Vec::new();
+
+        for agent in agents {
+            if !agent.is_alive() {
+                // Remove the stale agent
+                if self.remove_agent(agent.pid).is_ok() {
+                    removed.push(agent.pid);
+                }
+            }
+        }
+
+        Ok(removed)
+    }
+
+    /// Mark agents as idle or stale based on activity.
+    /// - Idle: No activity in the last 5 minutes
+    /// - Stale: PID is no longer running
+    pub fn update_agent_statuses(&mut self) -> Result<()> {
+        let agents = self.list_agents(None)?;
+        let now = chrono::Utc::now();
+        let idle_threshold = chrono::Duration::minutes(5);
+
+        for mut agent in agents {
+            let new_status = if !agent.is_alive() {
+                AgentStatus::Stale
+            } else if now.signed_duration_since(agent.last_activity_at) > idle_threshold {
+                AgentStatus::Idle
+            } else {
+                AgentStatus::Active
+            };
+
+            if agent.status != new_status {
+                agent.status = new_status;
+                self.register_agent(&agent)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Resolve a git worktree's `.git` file to find the main repository root.
@@ -3783,5 +4065,120 @@ mod tests {
         let git_root_from_subdir = super::find_git_root(&subdir).unwrap();
         let storage_via_git_root = super::get_storage_dir(&git_root_from_subdir).unwrap();
         assert_eq!(storage_from_root, storage_via_git_root);
+    }
+
+    // === Agent Tests ===
+
+    #[test]
+    fn test_agent_register_and_get() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        let retrieved = storage.get_agent(1234).unwrap();
+        assert_eq!(retrieved.pid, 1234);
+        assert_eq!(retrieved.parent_pid, 1000);
+        assert_eq!(retrieved.name, "test-agent");
+    }
+
+    #[test]
+    fn test_agent_list() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let agent1 = Agent::new(1234, 1000, "agent-1".to_string());
+        let agent2 = Agent::new(5678, 1000, "agent-2".to_string());
+        storage.register_agent(&agent1).unwrap();
+        storage.register_agent(&agent2).unwrap();
+
+        let agents = storage.list_agents(None).unwrap();
+        assert_eq!(agents.len(), 2);
+    }
+
+    #[test]
+    fn test_agent_remove() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        storage.remove_agent(1234).unwrap();
+
+        // Should fail to get removed agent
+        let result = storage.get_agent(1234);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_agent_touch() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        storage.touch_agent(1234).unwrap();
+
+        let updated = storage.get_agent(1234).unwrap();
+        assert_eq!(updated.command_count, 1);
+    }
+
+    #[test]
+    fn test_agent_add_task() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        storage.agent_add_task(1234, "bn-task").unwrap();
+
+        let updated = storage.get_agent(1234).unwrap();
+        assert_eq!(updated.tasks, vec!["bn-task".to_string()]);
+    }
+
+    #[test]
+    fn test_agent_get_by_name() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let agent = Agent::new(1234, 1000, "claude".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        let retrieved = storage.get_agent_by_name("claude").unwrap();
+        assert_eq!(retrieved.pid, 1234);
+    }
+
+    #[test]
+    fn test_agent_update_status() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        storage
+            .update_agent_status(1234, AgentStatus::Idle)
+            .unwrap();
+
+        let updated = storage.get_agent(1234).unwrap();
+        assert_eq!(updated.status, AgentStatus::Idle);
+    }
+
+    #[test]
+    fn test_cleanup_stale_agents() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Register an agent with a PID that doesn't exist (99999999)
+        let agent = Agent::new(99999999, 1000, "stale-agent".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        // Should be listed initially
+        let agents = storage.list_agents(None).unwrap();
+        assert_eq!(agents.len(), 1);
+
+        // Cleanup should remove it
+        let removed = storage.cleanup_stale_agents().unwrap();
+        assert_eq!(removed, vec![99999999]);
+
+        // Should be empty now
+        let agents = storage.list_agents(None).unwrap();
+        assert_eq!(agents.len(), 0);
     }
 }

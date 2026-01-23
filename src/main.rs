@@ -2,9 +2,9 @@
 
 use binnacle::action_log;
 use binnacle::cli::{
-    BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands, IdeaCommands,
-    LinkCommands, McpCommands, MilestoneCommands, SearchCommands, StoreCommands, SystemCommands,
-    TaskCommands, TestCommands,
+    AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands,
+    IdeaCommands, LinkCommands, McpCommands, MilestoneCommands, SearchCommands, StoreCommands,
+    SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -98,8 +98,8 @@ fn run_command(
     human: bool,
 ) -> Result<(), binnacle::Error> {
     match command {
-        Some(Commands::Orient { init }) => {
-            match commands::orient(repo_path, init) {
+        Some(Commands::Orient { init, name }) => {
+            match commands::orient(repo_path, init, name) {
                 Ok(result) => output(&result, human),
                 Err(binnacle::Error::NotInitialized) => {
                     // Provide helpful error message for uninitialized database
@@ -628,6 +628,12 @@ fn run_command(
                 }
             },
         },
+        Some(Commands::Agent { command }) => match command {
+            AgentCommands::List { status } => {
+                let result = commands::agent_list(repo_path, status.as_deref())?;
+                output(&result, human);
+            }
+        },
         #[cfg(feature = "gui")]
         Some(Commands::Gui {
             port,
@@ -1087,8 +1093,8 @@ fn not_implemented(command: &str, subcommand: &str, human: bool) {
 /// Serialize command to extract name and arguments for logging.
 fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) {
     match command {
-        Some(Commands::Orient { init }) => {
-            ("orient".to_string(), serde_json::json!({ "init": init }))
+        Some(Commands::Orient { init, name }) => {
+            ("orient".to_string(), serde_json::json!({ "init": init, "name": name }))
         }
 
         Some(Commands::Show { id }) => ("show".to_string(), serde_json::json!({ "id": id })),
@@ -1588,6 +1594,13 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     }),
                 ),
             },
+        },
+
+        Some(Commands::Agent { command }) => match command {
+            AgentCommands::List { status } => (
+                "agent list".to_string(),
+                serde_json::json!({ "status": status }),
+            ),
         },
 
         #[cfg(feature = "gui")]

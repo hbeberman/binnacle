@@ -9,8 +9,8 @@
 //! - `commit` - Commit tracking
 
 use crate::models::{
-    Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone, Task, TaskStatus,
-    TestNode, TestResult,
+    Agent, Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone, Task,
+    TaskStatus, TestNode, TestResult,
 };
 use crate::storage::{EntityType, Storage, generate_id, parse_status};
 use crate::{Error, Result};
@@ -564,7 +564,7 @@ impl Output for OrientResult {
 /// Orient an AI agent to this project.
 /// If allow_init is true, auto-initializes binnacle if not already initialized.
 /// If allow_init is false and binnacle is not initialized, returns NotInitialized error.
-pub fn orient(repo_path: &Path, allow_init: bool) -> Result<OrientResult> {
+pub fn orient(repo_path: &Path, allow_init: bool, name: Option<String>) -> Result<OrientResult> {
     // Check if initialized
     let initialized = if !Storage::exists(repo_path)? {
         if allow_init {
@@ -580,7 +580,27 @@ pub fn orient(repo_path: &Path, allow_init: bool) -> Result<OrientResult> {
     };
 
     // Get current state
-    let storage = Storage::open(repo_path)?;
+    let mut storage = Storage::open(repo_path)?;
+
+    // Register agent (cleanup stale ones first)
+    let _ = storage.cleanup_stale_agents();
+
+    let pid = std::process::id();
+    let parent_pid = get_parent_pid().unwrap_or(0);
+
+    // Use provided name or auto-generate
+    let agent_name = name.unwrap_or_else(|| format!("agent-{}", pid));
+
+    // Check if already registered (update activity) or register new
+    if storage.get_agent(pid).is_ok() {
+        // Already registered, just touch to update activity
+        let _ = storage.touch_agent(pid);
+    } else {
+        // Register new agent
+        let agent = Agent::new(pid, parent_pid, agent_name);
+        storage.register_agent(&agent)?;
+    }
+
     let tasks = storage.list_tasks(None, None, None)?;
 
     let mut ready_ids = Vec::new();
@@ -635,6 +655,18 @@ pub fn orient(repo_path: &Path, allow_init: bool) -> Result<OrientResult> {
         blocked_count,
         in_progress_count,
     })
+}
+
+/// Get the parent process ID.
+#[cfg(unix)]
+fn get_parent_pid() -> Option<u32> {
+    use std::os::unix::process::parent_id;
+    Some(parent_id())
+}
+
+#[cfg(not(unix))]
+fn get_parent_pid() -> Option<u32> {
+    None
 }
 
 // === Generic Show Command ===
@@ -6706,6 +6738,98 @@ pub fn commit_list(repo_path: &Path, task_id: &str) -> Result<CommitList> {
     })
 }
 
+// === Agent Commands ===
+
+use crate::models::AgentStatus;
+
+/// Result of agent list command.
+#[derive(Serialize)]
+pub struct AgentListResult {
+    pub agents: Vec<AgentInfo>,
+    pub count: usize,
+}
+
+/// Agent information for list output.
+#[derive(Serialize)]
+pub struct AgentInfo {
+    pub pid: u32,
+    pub parent_pid: u32,
+    pub name: String,
+    pub status: String,
+    pub started_at: String,
+    pub last_activity_at: String,
+    pub tasks: Vec<String>,
+    pub command_count: u64,
+}
+
+impl Output for AgentListResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.agents.is_empty() {
+            return "No agents registered.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("Agents ({}):", self.count));
+        lines.push(String::new());
+
+        for agent in &self.agents {
+            lines.push(format!(
+                "  PID {}  {}  [{}]",
+                agent.pid, agent.name, agent.status
+            ));
+            lines.push(format!(
+                "    Started: {}  Last activity: {}",
+                agent.started_at, agent.last_activity_at
+            ));
+            if !agent.tasks.is_empty() {
+                lines.push(format!("    Tasks: {}", agent.tasks.join(", ")));
+            }
+            lines.push(format!("    Commands: {}", agent.command_count));
+            lines.push(String::new());
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// List active agents.
+pub fn agent_list(repo_path: &Path, status: Option<&str>) -> Result<AgentListResult> {
+    let storage = Storage::open(repo_path)?;
+    let agents = storage.list_agents(status)?;
+
+    let agent_infos: Vec<AgentInfo> = agents
+        .into_iter()
+        .map(|a| {
+            let status_str = match a.status {
+                AgentStatus::Active => "active",
+                AgentStatus::Idle => "idle",
+                AgentStatus::Stale => "stale",
+            };
+            AgentInfo {
+                pid: a.pid,
+                parent_pid: a.parent_pid,
+                name: a.name,
+                status: status_str.to_string(),
+                started_at: a.started_at.to_rfc3339(),
+                last_activity_at: a.last_activity_at.to_rfc3339(),
+                tasks: a.tasks,
+                command_count: a.command_count,
+            }
+        })
+        .collect();
+
+    let count = agent_infos.len();
+
+    Ok(AgentListResult {
+        agents: agent_infos,
+        count,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8255,7 +8379,7 @@ mod tests {
         assert!(!Storage::exists(temp.path()).unwrap());
 
         // Run orient without allow_init - should fail
-        let result = orient(temp.path(), false);
+        let result = orient(temp.path(), false, None);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::NotInitialized));
     }
@@ -8268,7 +8392,7 @@ mod tests {
         assert!(!Storage::exists(temp.path()).unwrap());
 
         // Run orient with allow_init=true
-        let result = orient(temp.path(), true).unwrap();
+        let result = orient(temp.path(), true, None).unwrap();
         assert!(result.initialized);
 
         // Verify now initialized
@@ -8305,7 +8429,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), false).unwrap();
+        let result = orient(temp.path(), false, None).unwrap();
         assert!(!result.initialized); // Already initialized in setup()
         assert_eq!(result.total_tasks, 2);
         assert_eq!(result.ready_count, 2); // Both pending tasks are ready
@@ -8339,7 +8463,7 @@ mod tests {
         // B depends on A (so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = orient(temp.path(), false).unwrap();
+        let result = orient(temp.path(), false, None).unwrap();
         assert_eq!(result.total_tasks, 2);
         assert_eq!(result.ready_count, 1);
         assert!(result.ready_ids.contains(&task_a.id));
@@ -8377,7 +8501,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), false).unwrap();
+        let result = orient(temp.path(), false, None).unwrap();
         assert_eq!(result.in_progress_count, 1);
     }
 
@@ -8395,7 +8519,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), false).unwrap();
+        let result = orient(temp.path(), false, None).unwrap();
         let human = result.to_human();
 
         assert!(human.contains("Binnacle - AI agent task tracker"));
