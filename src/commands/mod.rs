@@ -5926,6 +5926,21 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
         });
     }
 
+    // Check for legacy bni- prefixed ideas (should use bn- prefix)
+    let ideas = storage.list_ideas(None, None)?;
+    let legacy_prefix_count = ideas.iter().filter(|i| i.id.starts_with("bni-")).count();
+    if legacy_prefix_count > 0 {
+        issues.push(DoctorIssue {
+            severity: "warning".to_string(),
+            category: "legacy_prefix".to_string(),
+            message: format!(
+                "{} idea(s) have legacy bni- prefix - run 'bn doctor --fix' to migrate to bn- prefix",
+                legacy_prefix_count
+            ),
+            entity_id: None,
+        });
+    }
+
     let stats = DoctorStats {
         total_tasks: tasks.len(),
         total_tests: tests.len(),
@@ -6014,12 +6029,36 @@ pub fn doctor_fix(repo_path: &Path) -> Result<DoctorFixResult> {
         ));
     }
 
+    // Fix: Migrate legacy bni- prefixed ideas to bn- prefix
+    let ideas = storage.list_ideas(None, None)?;
+    let legacy_ideas: Vec<_> = ideas
+        .into_iter()
+        .filter(|i| i.id.starts_with("bni-"))
+        .collect();
+    for mut idea in legacy_ideas {
+        let old_id = idea.id.clone();
+        // Generate new bn- prefixed ID (replace bni- with bn-)
+        let new_id = format!("bn-{}", &old_id[4..]);
+        idea.id = new_id.clone();
+
+        // Add the idea with new ID (this writes to JSONL and updates cache)
+        storage.add_idea(&idea)?;
+
+        // Update any edges that reference the old ID
+        storage.update_edge_entity_id(&old_id, &new_id)?;
+
+        // Delete the old idea from cache (JSONL retains history, but cache is updated)
+        storage.delete_idea(&old_id)?;
+
+        fixes_applied.push(format!("Migrated idea {} → {}", old_id, new_id));
+    }
+
     // Run doctor again to get remaining issues
     let result = doctor(repo_path)?;
     let issues_remaining: Vec<DoctorIssue> = result
         .issues
         .into_iter()
-        .filter(|issue| issue.category != "queue")
+        .filter(|issue| issue.category != "queue" && issue.category != "legacy_prefix")
         .collect();
 
     Ok(DoctorFixResult {
@@ -9654,6 +9693,54 @@ mod tests {
         let result = doctor(temp.path()).unwrap();
         assert_eq!(result.stats.total_tasks, 2);
         assert_eq!(result.stats.total_tests, 1);
+    }
+
+    #[test]
+    fn test_doctor_detects_legacy_bni_prefix() {
+        let temp = setup();
+
+        // Create a queue so we don't get that warning
+        let mut storage = Storage::open(temp.path()).unwrap();
+        let queue = Queue::new("bnq-test".to_string(), "Test Queue".to_string());
+        storage.create_queue(&queue).unwrap();
+
+        // Manually create an idea with the legacy bni- prefix
+        let idea = crate::models::Idea::new("bni-test".to_string(), "Test Idea".to_string());
+        storage.add_idea(&idea).unwrap();
+        drop(storage);
+
+        let result = doctor(temp.path()).unwrap();
+        assert!(!result.healthy);
+        assert!(result.issues.iter().any(|i| i.category == "legacy_prefix"));
+    }
+
+    #[test]
+    fn test_doctor_fix_migrates_bni_prefix() {
+        let temp = setup();
+
+        // Create a queue so we don't get that warning
+        let mut storage = Storage::open(temp.path()).unwrap();
+        let queue = Queue::new("bnq-test".to_string(), "Test Queue".to_string());
+        storage.create_queue(&queue).unwrap();
+
+        // Manually create an idea with the legacy bni- prefix
+        let idea = crate::models::Idea::new("bni-abcd".to_string(), "Test Idea".to_string());
+        storage.add_idea(&idea).unwrap();
+        drop(storage);
+
+        // Run doctor fix
+        let result = doctor_fix(temp.path()).unwrap();
+        assert!(
+            result
+                .fixes_applied
+                .iter()
+                .any(|f| f.contains("Migrated idea bni-abcd"))
+        );
+
+        // Verify the idea now has bn- prefix
+        let storage = Storage::open(temp.path()).unwrap();
+        assert!(storage.get_idea("bn-abcd").is_ok());
+        assert!(storage.get_idea("bni-abcd").is_err());
     }
 
     // === Log Command Tests ===
