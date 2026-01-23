@@ -914,6 +914,22 @@ pub enum SystemCommands {
         #[command(subcommand)]
         command: StoreCommands,
     },
+
+    /// Emit embedded templates to stdout (no side effects, no init required)
+    Emit {
+        /// Which template to emit
+        #[arg(value_enum)]
+        template: EmitTemplate,
+    },
+}
+
+/// Template types for the emit command
+#[derive(Clone, Debug, clap::ValueEnum)]
+pub enum EmitTemplate {
+    /// AGENTS.md binnacle section content
+    Agents,
+    /// SKILL.md file content
+    Skill,
 }
 
 /// Store management subcommands

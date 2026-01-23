@@ -24,6 +24,23 @@ if ! cargo clippy --all-targets --all-features --quiet -- -D warnings 2>&1; then
     exit 1
 fi
 
+# Check if AGENTS.md is in sync with embedded blurb
+# Uses cargo run to check against the code being committed, not the installed bn
+echo "  → Checking AGENTS.md sync..."
+
+# Extract current binnacle section from AGENTS.md
+current_section=$(sed -n '/<!-- BEGIN BINNACLE SECTION -->/,/<!-- END BINNACLE SECTION -->/p' AGENTS.md 2>/dev/null || true)
+
+# Get expected content from the code being committed
+expected_section=$(cargo run --quiet -- -H system emit agents 2>/dev/null || true)
+
+if [ -n "$expected_section" ] && [ "$current_section" != "$expected_section" ]; then
+    echo ""
+    echo "❌ AGENTS.md binnacle section is out of sync!"
+    echo "   Run 'cargo run -- system init --write-agents-md -y' to update, then stage AGENTS.md"
+    exit 1
+fi
+
 # Run cargo audit for security vulnerabilities
 echo "  → Running security audit..."
 if ! command -v cargo-audit &> /dev/null; then

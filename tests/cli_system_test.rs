@@ -1192,3 +1192,92 @@ fn test_folder_import_roundtrip_via_store_path() {
     assert!(list_str.contains("Roundtrip Task A"));
     assert!(list_str.contains("Roundtrip Task B"));
 }
+
+// ============================================================================
+// bn system emit Tests
+// ============================================================================
+
+#[test]
+fn test_system_emit_agents_human_format() {
+    // emit command doesn't require initialization
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "agents"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("<!-- BEGIN BINNACLE SECTION -->"))
+        .stdout(predicate::str::contains("<!-- END BINNACLE SECTION -->"))
+        .stdout(predicate::str::contains("bn orient"))
+        .stdout(predicate::str::contains("bn ready"));
+}
+
+#[test]
+fn test_system_emit_agents_json_format() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "emit", "agents"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let content = json["content"]
+        .as_str()
+        .expect("content field should exist");
+    assert!(content.contains("<!-- BEGIN BINNACLE SECTION -->"));
+    assert!(content.contains("<!-- END BINNACLE SECTION -->"));
+}
+
+#[test]
+fn test_system_emit_skill_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "skill"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("name: binnacle"))
+        .stdout(predicate::str::contains("Key Commands"))
+        .stdout(predicate::str::contains("Task Management"));
+}
+
+#[test]
+fn test_system_emit_skill_json_format() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "emit", "skill"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let content = json["content"]
+        .as_str()
+        .expect("content field should exist");
+    assert!(content.contains("name: binnacle"));
+    assert!(content.contains("Key Commands"));
+}
+
+#[test]
+fn test_system_emit_no_init_required() {
+    // Verify emit works without any initialization
+    let temp = TestEnv::new();
+
+    // Don't call init - just run emit directly
+    bn_in(&temp)
+        .args(["system", "emit", "agents"])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["system", "emit", "skill"])
+        .assert()
+        .success();
+}

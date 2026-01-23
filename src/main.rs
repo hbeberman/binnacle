@@ -2,9 +2,9 @@
 
 use binnacle::action_log;
 use binnacle::cli::{
-    AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands,
-    IdeaCommands, LinkCommands, McpCommands, MilestoneCommands, QueueCommands, SearchCommands,
-    StoreCommands, SystemCommands, TaskCommands, TestCommands,
+    AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, EmitTemplate,
+    GraphCommands, IdeaCommands, LinkCommands, McpCommands, MilestoneCommands, QueueCommands,
+    SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -677,6 +677,17 @@ fn run_command(
                     output(&result, human);
                 }
             },
+            SystemCommands::Emit { template } => {
+                let content = match template {
+                    EmitTemplate::Agents => commands::AGENTS_MD_BLURB,
+                    EmitTemplate::Skill => commands::SKILLS_FILE_CONTENT,
+                };
+                if human {
+                    println!("{}", content.trim());
+                } else {
+                    println!("{}", serde_json::json!({"content": content.trim()}));
+                }
+            }
         },
         Some(Commands::Agent { command }) => match command {
             AgentCommands::List { status } => {
@@ -1681,6 +1692,16 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 ),
                 StoreCommands::Dump => ("system store dump".to_string(), serde_json::json!({})),
             },
+            SystemCommands::Emit { template } => {
+                let template_name = match template {
+                    EmitTemplate::Agents => "agents",
+                    EmitTemplate::Skill => "skill",
+                };
+                (
+                    "system emit".to_string(),
+                    serde_json::json!({ "template": template_name }),
+                )
+            }
         },
 
         Some(Commands::Agent { command }) => match command {
