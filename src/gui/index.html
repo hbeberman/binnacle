@@ -4130,6 +4130,25 @@
             });
         }
 
+        // Global escape key handler to close modals
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                // Close terminate modal if open
+                const terminateModal = document.getElementById('terminate-modal');
+                if (terminateModal && terminateModal.style.display !== 'none') {
+                    closeTerminateModal();
+                    e.preventDefault();
+                    return;
+                }
+                // Close edge filters dropdown if open
+                const edgeFilters = document.querySelector('.edge-filters.open');
+                if (edgeFilters) {
+                    edgeFilters.classList.remove('open');
+                    e.preventDefault();
+                }
+            }
+        });
+
         // Initialize
         initializeEdgeFilters();
         initializeStatFilters();
