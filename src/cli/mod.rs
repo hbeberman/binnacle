@@ -149,6 +149,10 @@ pub enum Commands {
         /// Port to listen on (default: 3030, or BN_GUI_PORT env var)
         #[arg(short, long, env = "BN_GUI_PORT", default_value = "3030")]
         port: u16,
+
+        /// Host address to bind to (default: 127.0.0.1, use 0.0.0.0 for network access)
+        #[arg(long, env = "BN_GUI_HOST", default_value = "127.0.0.1")]
+        host: String,
     },
 }
 

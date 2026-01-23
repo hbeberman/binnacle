@@ -40,6 +40,8 @@
             --idea-in-progress: #9b6ed8;
             --idea-blocked: #7a4db3;
             --idea-done: #8fbc8f;
+            /* Overlay backgrounds */
+            --overlay-bg: rgba(0, 0, 0, 0.85);
         }
 
         body {
@@ -324,7 +326,7 @@
 
         .node-tooltip {
             position: fixed;
-            background: rgba(0, 0, 0, 0.85);
+            background: var(--overlay-bg);
             color: var(--text-primary);
             padding: 1rem;
             border-radius: 8px;
@@ -349,15 +351,20 @@
             gap: 0.5rem;
             z-index: 100;
             align-items: center;
+            background: var(--overlay-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         }
 
         .graph-search {
             height: 32px;
-            width: 220px;
+            width: 180px;
             padding: 0 0.75rem;
-            border-radius: 6px;
+            border-radius: 4px;
             border: 1px solid var(--border-color);
-            background: var(--bg-secondary);
+            background: var(--bg-tertiary);
             color: var(--text-primary);
             font-size: 0.85rem;
         }
@@ -377,8 +384,8 @@
             display: flex;
             align-items: center;
             gap: 0.4rem;
-            margin-right: 0.5rem;
-            padding-right: 0.75rem;
+            margin-right: 0.25rem;
+            padding-right: 0.5rem;
             border-right: 1px solid var(--border-color);
         }
 
@@ -392,11 +399,11 @@
             width: 32px;
             height: 18px;
             border-radius: 9px;
-            background: var(--text-tertiary);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
             cursor: pointer;
             position: relative;
-            transition: background 0.2s ease;
-            border: none;
+            transition: background 0.2s ease, border-color 0.2s ease;
             padding: 0;
         }
 
@@ -414,6 +421,7 @@
 
         .auto-follow-switch.active {
             background: #22c55e;
+            border-color: #22c55e;
         }
 
         .auto-follow-switch.active::after {
@@ -425,8 +433,8 @@
             display: flex;
             align-items: center;
             gap: 0.4rem;
-            margin-right: 0.5rem;
-            padding-right: 0.75rem;
+            margin-right: 0.25rem;
+            padding-right: 0.5rem;
             border-right: 1px solid var(--border-color);
         }
 
@@ -440,11 +448,11 @@
             width: 32px;
             height: 18px;
             border-radius: 9px;
-            background: var(--text-tertiary);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
             cursor: pointer;
             position: relative;
-            transition: background 0.2s ease;
-            border: none;
+            transition: background 0.2s ease, border-color 0.2s ease;
             padding: 0;
         }
 
@@ -462,6 +470,7 @@
 
         .hide-completed-switch.active {
             background: #22c55e;
+            border-color: #22c55e;
         }
 
         .hide-completed-switch.active::after {
@@ -473,7 +482,7 @@
             position: absolute;
             top: 1rem;
             left: 1rem;
-            background: var(--bg-secondary);
+            background: var(--overlay-bg);
             border: 1px solid var(--border-color);
             border-radius: 6px;
             padding: 0.5rem;
@@ -482,6 +491,7 @@
             flex-direction: column;
             gap: 0.25rem;
             max-width: 200px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         }
 
         .edge-filters-header {
@@ -556,7 +566,7 @@
             position: absolute;
             top: 1rem;
             left: 220px;
-            background: var(--bg-secondary);
+            background: var(--overlay-bg);
             border: 1px solid var(--border-color);
             border-radius: 6px;
             padding: 0.5rem 0.75rem;
@@ -566,6 +576,7 @@
             gap: 0.75rem;
             font-size: 0.85rem;
             color: var(--text-secondary);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         }
 
         .stats-overlay .stat-group {
@@ -599,13 +610,13 @@
         }
 
         .zoom-btn {
-            width: 40px;
-            height: 40px;
-            background: var(--bg-secondary);
+            width: 32px;
+            height: 32px;
+            background: var(--bg-tertiary);
             border: 1px solid var(--border-color);
-            border-radius: 6px;
+            border-radius: 4px;
             color: var(--text-primary);
-            font-size: 1.2rem;
+            font-size: 1.1rem;
             cursor: pointer;
             transition: all 0.2s ease;
             display: flex;
@@ -615,19 +626,17 @@
 
         .zoom-btn:hover {
             background: var(--accent-blue);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
         }
 
         .zoom-level {
-            background: var(--bg-secondary);
+            background: var(--bg-tertiary);
             border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 0.5rem 0.75rem;
-            font-size: 0.85rem;
+            border-radius: 4px;
+            padding: 0.35rem 0.5rem;
+            font-size: 0.8rem;
             text-align: center;
             color: var(--text-secondary);
-            min-width: 50px;
+            min-width: 45px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -657,7 +666,7 @@
         /* Edge tooltip styles */
         .edge-tooltip {
             position: fixed;
-            background: rgba(0, 0, 0, 0.9);
+            background: var(--overlay-bg);
             color: var(--text-primary);
             padding: 0.75rem 1rem;
             border-radius: 6px;
@@ -728,7 +737,7 @@
             right: 1rem;
             width: 320px;
             max-height: calc(100% - 2rem);
-            background: rgba(0, 0, 0, 0.85);
+            background: var(--overlay-bg);
             border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 1rem;

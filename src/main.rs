@@ -583,8 +583,8 @@ fn run_command(
             },
         },
         #[cfg(feature = "gui")]
-        Some(Commands::Gui { port }) => {
-            run_gui(repo_path, port)?;
+        Some(Commands::Gui { port, host }) => {
+            run_gui(repo_path, port, &host)?;
         }
         None => {
             // Default: show status summary
@@ -619,7 +619,7 @@ fn output<T: Output>(result: &T, human: bool) {
 
 /// Run the GUI web server
 #[cfg(feature = "gui")]
-fn run_gui(repo_path: &Path, port: u16) -> Result<(), binnacle::Error> {
+fn run_gui(repo_path: &Path, port: u16, host: &str) -> Result<(), binnacle::Error> {
     use binnacle::storage::Storage;
 
     // Ensure storage is initialized
@@ -633,7 +633,7 @@ fn run_gui(repo_path: &Path, port: u16) -> Result<(), binnacle::Error> {
         .build()
         .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?
         .block_on(async {
-            binnacle::gui::start_server(repo_path, port)
+            binnacle::gui::start_server(repo_path, port, host)
                 .await
                 .map_err(|e| binnacle::Error::Other(format!("GUI server error: {}", e)))
         })
@@ -1155,7 +1155,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         },
 
         #[cfg(feature = "gui")]
-        Some(Commands::Gui { port }) => ("gui".to_string(), serde_json::json!({ "port": port })),
+        Some(Commands::Gui { port, host }) => (
+            "gui".to_string(),
+            serde_json::json!({ "port": port, "host": host }),
+        ),
 
         None => ("status".to_string(), serde_json::json!({})),
     }

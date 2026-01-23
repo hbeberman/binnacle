@@ -26,7 +26,11 @@ pub struct AppState {
 }
 
 /// Start the GUI web server
-pub async fn start_server(repo_path: &Path, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn start_server(
+    repo_path: &Path,
+    port: u16,
+    host: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let storage = Storage::open(repo_path)?;
     let storage_dir = crate::storage::get_storage_dir(repo_path)?;
     let (update_tx, _) = broadcast::channel(100);
@@ -66,7 +70,10 @@ pub async fn start_server(repo_path: &Path, port: u16) -> Result<(), Box<dyn std
         .route("/ws", get(crate::gui::websocket::ws_handler))
         .with_state(state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let host_addr: std::net::IpAddr = host
+        .parse()
+        .map_err(|e| format!("Invalid host address '{}': {}", host, e))?;
+    let addr = SocketAddr::from((host_addr, port));
     println!("Starting binnacle GUI at http://{}", addr);
     println!("Press Ctrl+C to stop");
 
