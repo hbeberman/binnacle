@@ -559,7 +559,7 @@ impl Output for OrientResult {
         lines.push("  bn task list    List all tasks".to_string());
         lines.push("  bn task show X  Show task details".to_string());
         lines.push("  bn test run     Run linked tests".to_string());
-        lines.push("  bn goodbye      Gracefully terminate session".to_string());
+        lines.push("  bn goodbye      Gracefully terminate self (agent) when done".to_string());
         lines.push(String::new());
         lines.push("Run 'bn --help' for full command reference.".to_string());
 

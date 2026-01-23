@@ -33,6 +33,7 @@ Before committing ANY code changes:
 1. Run `bn ready` to check if any related tasks should also be closed
 2. Close ALL tasks you completed, not just the one you started with
 3. Verify the task graph is accurate before finalizing your work
+4. Run `bn goodbye` to gracefully terminate your agent session
 <!-- END BINNACLE SECTION -->
 
 ## Build and Test
