@@ -2515,7 +2515,9 @@
             }] : [];
             
             // Normalize agents to have node-like fields for graph rendering
-            const normalizedAgents = (agentsData.agents || []).map(agent => ({
+            // Only show worker agents in the graph (filter out planner and buddy agents)
+            const workerAgents = (agentsData.agents || []).filter(agent => agent.agent_type === 'worker');
+            const normalizedAgents = workerAgents.map(agent => ({
                 id: `agent-${agent.pid}`,
                 title: agent.name,
                 short_name: agent.purpose || agent.name,
@@ -2533,7 +2535,8 @@
             state.log = logData.log || [];
             
             // Build agent-to-task edges ("working_on" edge type)
-            const agentEdges = (agentsData.agents || []).flatMap(agent => 
+            // Only include edges from worker agents (same filter as node rendering)
+            const agentEdges = workerAgents.flatMap(agent => 
                 (agent.tasks || []).map(taskId => ({
                     source: `agent-${agent.pid}`,
                     target: taskId,
