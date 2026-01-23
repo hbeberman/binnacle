@@ -1,6 +1,6 @@
 # PRD: Require Git Commit for Task Closure
 
-**Status:** Draft
+**Status:** Implemented
 **Author:** Claude
 **Date:** 2026-01-22
 
@@ -298,3 +298,14 @@ bn task close bn-zzzz  # Should succeed
 3. **Cancelled exempt**: Only `done` status requires commits; `cancelled` does not
 4. **Warning for missing commits**: Invalid commit refs warn but don't block (git rebase scenario)
 5. **Validation is optional**: Commit existence check is best-effort, not blocking
+
+---
+
+## Implementation Notes
+
+All features described in this PRD have been implemented:
+- `bn config set/get require_commit_for_close` works
+- `bn task close` and `bn task update --status done` enforce commit requirement when enabled
+- `--force` flag bypasses the requirement
+- Error messages include helpful hints about linking commits
+- Unit and integration tests verify the behavior
