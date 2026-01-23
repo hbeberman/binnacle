@@ -1752,6 +1752,8 @@ pub struct TaskClosed {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 impl Output for TaskClosed {
@@ -1763,6 +1765,9 @@ impl Output for TaskClosed {
         let mut output = format!("Closed task {}", self.id);
         if let Some(warning) = &self.warning {
             output.push_str(&format!("\nWarning: {}", warning));
+        }
+        if let Some(hint) = &self.hint {
+            output.push_str(&format!("\nHint: {}", hint));
         }
         output
     }
@@ -1885,10 +1890,14 @@ pub fn task_close(
         None
     };
 
+    // Include a hint to remind agents to call goodbye when done
+    let hint = Some("Run 'bn goodbye' when you're done with all your work.".to_string());
+
     Ok(TaskClosed {
         id: id.to_string(),
         status: "done".to_string(),
         warning,
+        hint,
     })
 }
 
@@ -2636,6 +2645,8 @@ pub struct BugClosed {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 impl Output for BugClosed {
@@ -2647,6 +2658,9 @@ impl Output for BugClosed {
         let mut output = format!("Closed bug {}", self.id);
         if let Some(warning) = &self.warning {
             output.push_str(&format!("\nWarning: {}", warning));
+        }
+        if let Some(hint) = &self.hint {
+            output.push_str(&format!("\nHint: {}", hint));
         }
         output
     }
@@ -2707,10 +2721,14 @@ pub fn bug_close(
         None
     };
 
+    // Include a hint to remind agents to call goodbye when done
+    let hint = Some("Run 'bn goodbye' when you're done with all your work.".to_string());
+
     Ok(BugClosed {
         id: id.to_string(),
         status: "done".to_string(),
         warning,
+        hint,
     })
 }
 
