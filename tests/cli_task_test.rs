@@ -2077,3 +2077,67 @@ fn test_task_update_status_cancelled_ignores_commit_requirement() {
         .success()
         .stdout(predicate::str::contains("\"updated_fields\""));
 }
+
+#[test]
+fn test_task_close_json_includes_goodbye_hint() {
+    let temp = init_binnacle();
+
+    // Create a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task with hint"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    // Close the task and check JSON output includes hint
+    let close_output = bn_in(&temp)
+        .args(["task", "close", &id, "--reason", "Done"])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&close_output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // Should have hint field reminding about goodbye
+    assert!(json.get("hint").is_some(), "JSON should include hint field");
+    assert!(
+        json["hint"].as_str().unwrap().contains("goodbye"),
+        "Hint should mention goodbye command"
+    );
+}
+
+#[test]
+fn test_bug_close_json_includes_goodbye_hint() {
+    let temp = init_binnacle();
+
+    // Create a bug
+    let output = bn_in(&temp)
+        .args(["bug", "create", "Bug with hint"])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Bug create should be JSON");
+    let id = json["id"].as_str().unwrap();
+
+    // Close the bug and check JSON output includes hint
+    let close_output = bn_in(&temp)
+        .args(["bug", "close", id, "--reason", "Fixed"])
+        .output()
+        .unwrap();
+
+    let close_stdout = String::from_utf8_lossy(&close_output.stdout);
+    let close_json: serde_json::Value =
+        serde_json::from_str(&close_stdout).expect("Bug close output should be valid JSON");
+
+    // Should have hint field reminding about goodbye
+    assert!(
+        close_json.get("hint").is_some(),
+        "JSON should include hint field"
+    );
+    assert!(
+        close_json["hint"].as_str().unwrap().contains("goodbye"),
+        "Hint should mention goodbye command"
+    );
+}
