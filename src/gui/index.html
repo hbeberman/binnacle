@@ -3289,6 +3289,13 @@
             ctx.closePath();
         }
 
+        // Check if a node is in the queue (has a 'queued' edge to a queue node)
+        function isNodeQueued(nodeId) {
+            return state.graph.edges.some(edge => 
+                edge.from === nodeId && edge.edge_type === 'queued'
+            );
+        }
+
         function drawNode(ctx, node, canvas) {
             const isHovered = node === state.graph.hoveredNode;
             const isDragging = node === state.graph.draggedNode;
@@ -3390,6 +3397,21 @@
                 ctx.strokeStyle = '#6aa8f0';
                 ctx.lineWidth = 3;
                 ctx.stroke();
+            }
+
+            // Draw queued indicator (teal glow for tasks in the queue)
+            const isQueued = node.type !== 'queue' && isNodeQueued(node.id);
+            if (isQueued) {
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, radius + 6 * zoom, 0, Math.PI * 2);
+                ctx.strokeStyle = '#20b2aa';  // --queue-color
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                // Add subtle glow effect
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, radius + 4 * zoom, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(32, 178, 170, 0.15)';  // --queue-color with transparency
+                ctx.fill();
             }
 
             // Draw node shape (hexagon for queue, circle for others)
