@@ -817,16 +817,16 @@ impl McpServer {
                 Ok((description.to_string(), messages))
             }
             "prioritize_work" => {
-                let description = "Help decide what tasks to add to the work queue";
+                let description = "Help decide what tasks or bugs to add to the work queue";
                 let messages = vec![json!({
                     "role": "user",
                     "content": {
                         "type": "text",
                         "text": "Please help me prioritize work by:\n\
-                            1. Running `bn ready` to see available tasks\n\
+                            1. Running `bn ready` to see available tasks and bugs\n\
                             2. Running `bn queue show` to see current queue state\n\
-                            3. Analyzing task priorities, dependencies, and tags\n\
-                            4. Suggesting which tasks should be added to the queue with `bn queue add <task-id>`\n\
+                            3. Analyzing priorities, dependencies, and tags\n\
+                            4. Suggesting which items should be added to the queue with `bn queue add <id>`\n\
                             Consider: urgency, dependencies, blocking relationships, and effort level.\n\
                             Explain your reasoning for each suggestion."
                     }
@@ -1651,7 +1651,7 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "bn_queue_show".to_string(),
-            description: "Show the queue and its prioritized tasks".to_string(),
+            description: "Show the queue and its prioritized items".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {},
@@ -1717,7 +1717,7 @@ pub fn get_resource_definitions() -> Vec<ResourceDef> {
         ResourceDef {
             uri: "binnacle://queue".to_string(),
             name: "Work Queue".to_string(),
-            description: "The prioritized work queue and its tasks".to_string(),
+            description: "The prioritized work queue and its items".to_string(),
             mime_type: Some("application/json".to_string()),
         },
     ]
@@ -1769,7 +1769,7 @@ pub fn get_prompt_definitions() -> Vec<PromptDef> {
         },
         PromptDef {
             name: "prioritize_work".to_string(),
-            description: "Help decide what tasks to add to the work queue".to_string(),
+            description: "Help decide what tasks or bugs to add to the work queue".to_string(),
             arguments: None,
         },
     ]
