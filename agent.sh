@@ -17,14 +17,14 @@ Agent Types:
   do "desc"         Work on custom task described in the argument
   prd               Find open ideas and render them into PRDs
   buddy             Ask what bn operation to perform (insert bugs/tasks/ideas)
-  open              Ask what to work on (general purpose)
+  free              General purpose with binnacle orientation
 
 Examples:
   ./agent.sh auto
   ./agent.sh do "find work related to gui alignment"
   ./agent.sh prd
   ./agent.sh buddy
-  ./agent.sh open
+  ./agent.sh free
 EOF
     exit 1
 }
@@ -38,30 +38,30 @@ shift
 case "$AGENT_TYPE" in
     auto)
         echo "Launching Auto Worker Agent"
-        PROMPT='Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Look for newly created tasks first. Run `bn ready` to find available tasks, pick the highest priority one, claim it with `bn task update <id> --status in_progress`, and start working immediately. Remember to mark it complete when you finish.'
-        eval copilot $TOOLS_FULL -i "\"$PROMPT\""
+        PROMPT="Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Look for newly created tasks first. Run \`bn ready\` to find available tasks, pick the highest priority one, claim it with \`bn task update <id> --status in_progress\`, and start working immediately. Remember to mark it complete when you finish."
+        eval copilot "$TOOLS_FULL" -i "\"$PROMPT\""
         ;;
     do)
         [[ $# -lt 1 ]] && { echo "Error: 'do' requires a description argument"; usage; }
         DESC="$1"
         echo "Launching Make Agent: $DESC"
         PROMPT="Read PRD.md and use your binnacle skill to orient yourself. Then work on the following: $DESC. Test your changes, report results, and commit when complete. Create a task in binnacle if one doesn't exist for this work."
-        eval copilot $TOOLS_FULL -i "\"$PROMPT\""
+        eval copilot "$TOOLS_FULL" -i "\"$PROMPT\""
         ;;
     prd)
         echo "Launching PRD Writer Agent"
-        PROMPT='Read PRD.md and use your binnacle skill to orient yourself. Your job is to find open ideas (tasks tagged with "idea" or in IDEAS.md) and help render them into proper PRDs. Check `bn task list --tag idea` and IDEAS.md for candidates. Pick the most promising idea and write a detailed PRD for it, then commit your work.'
-        eval copilot $TOOLS_PRD -i "\"$PROMPT\""
+        PROMPT="Read PRD.md and use your binnacle skill to orient yourself. Your job is to find open ideas (tasks tagged with \"idea\" or in IDEAS.md) and help render them into proper PRDs. Check \`bn task list --tag idea\` and IDEAS.md for candidates. Pick the most promising idea and write a detailed PRD for it, then commit your work."
+        eval copilot "$TOOLS_PRD" -i "\"$PROMPT\""
         ;;
     buddy)
         echo "Launching Buddy Agent"
-        PROMPT='You are a binnacle buddy. Your job is to help the user quickly insert bugs, tasks, and ideas into the binnacle task graph. Run `bn orient` to understand the current state. Then ask the user what they would like to add or modify in binnacle. Keep interactions quick and focused on bn operations.'
-        eval copilot $TOOLS_BUDDY -i "\"$PROMPT\""
+        PROMPT="You are a binnacle buddy. Your job is to help the user quickly insert bugs, tasks, and ideas into the binnacle task graph. Run \`bn orient\` to understand the current state. Then ask the user what they would like to add or modify in binnacle. Keep interactions quick and focused on bn operations."
+        eval copilot "$TOOLS_BUDDY" -i "\"$PROMPT\""
         ;;
-    open)
-        echo "Launching Open Agent"
-        PROMPT='Read PRD.md and use your binnacle skill to orient yourself with `bn orient`. Then ask the user what binnacle item or general task they would like you to work on. Wait for their direction before starting any work.'
-        eval copilot $TOOLS_FULL -i "\"$PROMPT\""
+    free)
+        echo "Launching Free Agent"
+        PROMPT="You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: \`bn orient\` (get overview), \`bn ready\` (see available tasks), \`bn task list\` (all tasks), \`bn task show <id>\` (task details), \`bn blocked\` (blocked tasks). Run \`bn orient\` to see the current project state, then ask the user what they would like you to work on."
+        eval copilot "$TOOLS_FULL" -i "\"$PROMPT\""
         ;;
     *)
         echo "Error: Unknown agent type '$AGENT_TYPE'"
