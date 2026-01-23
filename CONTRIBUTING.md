@@ -11,7 +11,12 @@ Thank you for contributing to binnacle! This guide will help you get started.
    cargo build
    ```
 
-2. **Enable git hooks**
+2. **Install cargo-audit** (required for pre-commit hook)
+   ```bash
+   cargo install cargo-audit
+   ```
+
+3. **Enable git hooks**
    ```bash
    git config core.hooksPath hooks
    ```
@@ -19,6 +24,7 @@ Thank you for contributing to binnacle! This guide will help you get started.
    This configures git to use the tracked hooks in the `hooks/` directory, which includes a pre-commit hook that validates:
    - Code formatting (`cargo fmt --check`)
    - Linting (`cargo clippy -- -D warnings`)
+   - Security vulnerabilities (`cargo audit`)
 
 ## Development Workflow
 
@@ -32,6 +38,9 @@ just check
 
 # Run tests
 just test
+
+# Security audit
+cargo audit
 
 # Or individually
 cargo fmt --check

@@ -24,5 +24,22 @@ if ! cargo clippy --all-targets --all-features --quiet -- -D warnings 2>&1; then
     exit 1
 fi
 
+# Run cargo audit for security vulnerabilities
+echo "  → Running security audit..."
+if ! command -v cargo-audit &> /dev/null; then
+    echo ""
+    echo "❌ cargo-audit not installed!"
+    echo "   Install with: cargo install cargo-audit"
+    exit 1
+fi
+
+if ! cargo audit 2>&1; then
+    echo ""
+    echo "❌ Security audit failed!"
+    echo "   Fix the vulnerabilities reported above before committing."
+    echo "   To skip temporarily: git commit --no-verify"
+    exit 1
+fi
+
 echo "✅ All pre-commit checks passed!"
 exit 0
