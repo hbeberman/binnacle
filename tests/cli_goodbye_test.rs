@@ -87,7 +87,7 @@ fn test_goodbye_after_orient_shows_agent_name() {
 
     // Register agent with orient
     bn_in(&temp)
-        .args(["orient", "--name", "test-agent"])
+        .args(["orient", "--type", "worker", "--name", "test-agent"])
         .assert()
         .success();
 
@@ -111,7 +111,7 @@ fn test_goodbye_removes_agent_from_registry() {
 
     // Register agent
     bn_in(&temp)
-        .args(["orient", "--name", "cleanup-agent"])
+        .args(["orient", "--type", "worker", "--name", "cleanup-agent"])
         .assert()
         .success();
 

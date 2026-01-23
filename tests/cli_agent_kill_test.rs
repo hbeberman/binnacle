@@ -82,7 +82,7 @@ fn test_agent_kill_after_orient() {
     // Register agent with orient - this now uses the PARENT PID (this test process)
     // so the agent persists across bn invocations
     bn_in(&temp)
-        .args(["orient", "--name", "doomed-agent"])
+        .args(["orient", "--type", "worker", "--name", "doomed-agent"])
         .assert()
         .success();
 
@@ -96,7 +96,7 @@ fn test_agent_kill_after_orient() {
 
     // Run orient again to verify agent tracking continues to work
     bn_in(&temp)
-        .args(["orient", "--name", "doomed-agent"])
+        .args(["orient", "--type", "worker", "--name", "doomed-agent"])
         .assert()
         .success();
 

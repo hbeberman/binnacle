@@ -500,6 +500,19 @@ pub enum AgentStatus {
     Stale,
 }
 
+/// Agent type for categorizing agent roles.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentType {
+    /// Worker agents execute tasks and make code changes
+    #[default]
+    Worker,
+    /// Planner agents create PRDs, break down features, and organize work
+    Planner,
+    /// Buddy agents assist humans with code review, questions, and guidance
+    Buddy,
+}
+
 /// An AI agent registered with Binnacle for lifecycle management.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
@@ -511,6 +524,10 @@ pub struct Agent {
 
     /// Agent name (e.g., "claude", "copilot", or custom name)
     pub name: String,
+
+    /// Agent type (worker, planner, buddy)
+    #[serde(default)]
+    pub agent_type: AgentType,
 
     /// Agent's purpose/role (e.g., "Task Worker", "PRD Generator")
     /// Agents that don't register a purpose are labeled "UNREGISTERED"
@@ -537,13 +554,14 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Create a new agent with the given PID and name.
-    pub fn new(pid: u32, parent_pid: u32, name: String) -> Self {
+    /// Create a new agent with the given PID, name, and type.
+    pub fn new(pid: u32, parent_pid: u32, name: String, agent_type: AgentType) -> Self {
         let now = Utc::now();
         Self {
             pid,
             parent_pid,
             name,
+            agent_type,
             purpose: None,
             started_at: now,
             last_activity_at: now,
@@ -554,12 +572,19 @@ impl Agent {
     }
 
     /// Create a new agent with a purpose.
-    pub fn new_with_purpose(pid: u32, parent_pid: u32, name: String, purpose: String) -> Self {
+    pub fn new_with_purpose(
+        pid: u32,
+        parent_pid: u32,
+        name: String,
+        agent_type: AgentType,
+        purpose: String,
+    ) -> Self {
         let now = Utc::now();
         Self {
             pid,
             parent_pid,
             name,
+            agent_type,
             purpose: Some(purpose),
             started_at: now,
             last_activity_at: now,
@@ -1131,10 +1156,11 @@ mod tests {
 
     #[test]
     fn test_agent_new() {
-        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        let agent = Agent::new(1234, 1000, "test-agent".to_string(), AgentType::Worker);
         assert_eq!(agent.pid, 1234);
         assert_eq!(agent.parent_pid, 1000);
         assert_eq!(agent.name, "test-agent");
+        assert_eq!(agent.agent_type, AgentType::Worker);
         assert!(agent.tasks.is_empty());
         assert_eq!(agent.command_count, 0);
         assert_eq!(agent.status, AgentStatus::Active);
@@ -1142,12 +1168,13 @@ mod tests {
 
     #[test]
     fn test_agent_serialization_roundtrip() {
-        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        let agent = Agent::new(1234, 1000, "test-agent".to_string(), AgentType::Planner);
         let json = serde_json::to_string(&agent).unwrap();
         let deserialized: Agent = serde_json::from_str(&json).unwrap();
         assert_eq!(agent.pid, deserialized.pid);
         assert_eq!(agent.parent_pid, deserialized.parent_pid);
         assert_eq!(agent.name, deserialized.name);
+        assert_eq!(agent.agent_type, deserialized.agent_type);
         assert_eq!(agent.status, deserialized.status);
     }
 
@@ -1168,7 +1195,7 @@ mod tests {
 
     #[test]
     fn test_agent_touch() {
-        let mut agent = Agent::new(1234, 1000, "test-agent".to_string());
+        let mut agent = Agent::new(1234, 1000, "test-agent".to_string(), AgentType::Worker);
         let initial_time = agent.last_activity_at;
         assert_eq!(agent.command_count, 0);
 

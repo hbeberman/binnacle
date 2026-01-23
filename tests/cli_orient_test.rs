@@ -145,7 +145,7 @@ fn test_orient_without_init_fails_when_not_initialized() {
 
     // Run orient without --init (should fail)
     bn_in(&temp)
-        .arg("orient")
+        .args(["orient", "--type", "worker"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("No binnacle database found"))
@@ -162,7 +162,7 @@ fn test_orient_with_init_creates_database() {
 
     // Run orient --init (should succeed and initialize)
     bn_in(&temp)
-        .args(["orient", "--init"])
+        .args(["orient", "--type", "worker", "--init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":true"));
@@ -176,7 +176,7 @@ fn test_orient_works_when_already_initialized() {
     let temp = init_binnacle();
 
     bn_in(&temp)
-        .arg("orient")
+        .args(["orient", "--type", "worker"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":false"))
@@ -193,7 +193,7 @@ fn test_orient_shows_task_counts() {
     create_task(&temp, "Task C");
 
     bn_in(&temp)
-        .arg("orient")
+        .args(["orient", "--type", "worker"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"total_tasks\":3"))
@@ -223,7 +223,7 @@ fn test_orient_shows_blocked_tasks() {
         .success();
 
     bn_in(&temp)
-        .arg("orient")
+        .args(["orient", "--type", "worker"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ready_count\":1"))
@@ -243,7 +243,7 @@ fn test_orient_shows_in_progress_tasks() {
         .success();
 
     bn_in(&temp)
-        .arg("orient")
+        .args(["orient", "--type", "worker"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"in_progress_count\":1"));
@@ -255,7 +255,7 @@ fn test_orient_human_format() {
     create_task(&temp, "My Task");
 
     bn_in(&temp)
-        .args(["-H", "orient"])
+        .args(["-H", "orient", "--type", "worker"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Binnacle - AI agent task tracker"))
@@ -271,7 +271,7 @@ fn test_orient_human_shows_ready_task_ids() {
     let task_id = create_task(&temp, "My Task");
 
     bn_in(&temp)
-        .args(["-H", "orient"])
+        .args(["-H", "orient", "--type", "worker"])
         .assert()
         .success()
         .stdout(predicate::str::contains(&task_id));
@@ -283,7 +283,7 @@ fn test_orient_json_includes_ready_ids() {
     let task_id = create_task(&temp, "My Task");
 
     bn_in(&temp)
-        .arg("orient")
+        .args(["orient", "--type", "worker"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ready_ids\""))
@@ -295,7 +295,7 @@ fn test_orient_empty_project() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args(["orient", "--init"])
+        .args(["orient", "--type", "worker", "--init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"total_tasks\":0"))
@@ -307,7 +307,7 @@ fn test_orient_human_empty_project() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args(["-H", "orient", "--init"])
+        .args(["-H", "orient", "--type", "worker", "--init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Total tasks: 0"))
@@ -320,14 +320,14 @@ fn test_orient_init_is_idempotent() {
 
     // First --init
     bn_in(&temp)
-        .args(["orient", "--init"])
+        .args(["orient", "--type", "worker", "--init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":true"));
 
     // Second --init should also succeed (no-op for already initialized)
     bn_in(&temp)
-        .args(["orient", "--init"])
+        .args(["orient", "--type", "worker", "--init"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":false"));
@@ -338,7 +338,10 @@ fn test_orient_error_json_is_valid() {
     let temp = TestEnv::new();
 
     // Run orient without --init and capture JSON error
-    let output = bn_in(&temp).arg("orient").assert().failure();
+    let output = bn_in(&temp)
+        .args(["orient", "--type", "worker"])
+        .assert()
+        .failure();
 
     // Get stderr and verify it's valid JSON with expected fields
     let stderr = String::from_utf8_lossy(&output.get_output().stderr);
@@ -361,6 +364,8 @@ fn test_orient_with_register_registers_purpose() {
     bn_in(&temp)
         .args([
             "orient",
+            "--type",
+            "worker",
             "--name",
             "test-worker",
             "--register",
@@ -388,5 +393,53 @@ fn test_orient_help_shows_register_flag() {
         .assert()
         .success()
         .stdout(predicate::str::contains("--register"))
-        .stdout(predicate::str::contains("purpose"));
+        .stdout(predicate::str::contains("purpose"))
+        .stdout(predicate::str::contains("--type"));
+}
+
+#[test]
+fn test_orient_requires_type_flag() {
+    let temp = init_binnacle();
+
+    // Run orient without --type (should fail)
+    bn_in(&temp)
+        .arg("orient")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--type"));
+}
+
+#[test]
+fn test_orient_accepts_all_agent_types() {
+    let temp = TestEnv::new();
+
+    // Test worker type
+    bn_in(&temp)
+        .args(["orient", "--type", "worker", "--init"])
+        .assert()
+        .success();
+
+    // Test planner type
+    bn_in(&temp)
+        .args(["orient", "--type", "planner"])
+        .assert()
+        .success();
+
+    // Test buddy type
+    bn_in(&temp)
+        .args(["orient", "--type", "buddy"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_orient_rejects_invalid_type() {
+    let temp = init_binnacle();
+
+    // Run orient with invalid type
+    bn_in(&temp)
+        .args(["orient", "--type", "invalid"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid"));
 }
