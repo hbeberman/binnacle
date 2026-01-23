@@ -82,6 +82,31 @@ mod gui_enabled {
             .success()
             .stdout(predicates::str::contains("not running"));
     }
+
+    #[test]
+    fn test_gui_replace_flag_in_help() {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.arg("gui").arg("--help");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains("--replace"))
+            .stdout(predicates::str::contains(
+                "Stop any running GUI server and start a new one",
+            ));
+    }
+
+    #[test]
+    fn test_gui_replace_requires_init() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // --replace should also require initialization
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("--replace");
+        cmd.assert()
+            .failure()
+            .stderr(predicates::str::contains("Not initialized"));
+    }
 }
 
 #[cfg(not(feature = "gui"))]

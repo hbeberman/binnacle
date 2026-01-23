@@ -588,11 +588,14 @@ fn run_command(
             host,
             status,
             stop,
+            replace,
         }) => {
             if stop {
                 stop_gui(repo_path, human)?;
             } else if status {
                 show_gui_status(repo_path, human)?;
+            } else if replace {
+                replace_gui(repo_path, port, &host, human)?;
             } else {
                 run_gui(repo_path, port, &host)?;
             }
@@ -659,6 +662,118 @@ fn run_gui(repo_path: &Path, port: u16, host: &str) -> Result<(), binnacle::Erro
                 pid_file.delete().ok();
             }
         }
+    }
+
+    // Write PID file before starting server
+    let current_pid = std::process::id();
+    let pid_info = GuiPidInfo {
+        pid: current_pid,
+        port,
+        host: host.to_string(),
+    };
+    pid_file
+        .write(&pid_info)
+        .map_err(|e| binnacle::Error::Other(format!("Failed to write PID file: {}", e)))?;
+
+    // Create tokio runtime and run the server
+    let result = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?
+        .block_on(async {
+            binnacle::gui::start_server(repo_path, port, host)
+                .await
+                .map_err(|e| binnacle::Error::Other(format!("GUI server error: {}", e)))
+        });
+
+    // Clean up PID file on shutdown (whether success or error)
+    pid_file.delete().ok();
+
+    result
+}
+
+/// Stop any running GUI server and start a new one
+#[cfg(feature = "gui")]
+fn replace_gui(
+    repo_path: &Path,
+    port: u16,
+    host: &str,
+    human: bool,
+) -> Result<(), binnacle::Error> {
+    use binnacle::gui::{GuiPidFile, GuiPidInfo, ProcessStatus};
+    use binnacle::storage::{Storage, get_storage_dir};
+    use std::thread;
+    use std::time::Duration;
+
+    // Ensure storage is initialized
+    if !Storage::exists(repo_path)? {
+        return Err(binnacle::Error::NotInitialized);
+    }
+
+    let storage_dir = get_storage_dir(repo_path)?;
+    let pid_file = GuiPidFile::new(&storage_dir);
+
+    // Check if a GUI is already running and stop it
+    if let Some((status, info)) = pid_file
+        .check_running()
+        .map_err(|e| binnacle::Error::Other(format!("Failed to check PID file: {}", e)))?
+    {
+        match status {
+            ProcessStatus::Running => {
+                let pid = info.pid;
+                if human {
+                    println!("Stopping existing GUI server (PID: {})...", pid);
+                }
+
+                // Send SIGTERM for graceful shutdown
+                if send_signal(pid, Signal::Term) {
+                    // Wait for graceful shutdown with timeout
+                    const GRACEFUL_TIMEOUT: Duration = Duration::from_secs(5);
+                    const POLL_INTERVAL: Duration = Duration::from_millis(100);
+                    let deadline = std::time::Instant::now() + GRACEFUL_TIMEOUT;
+
+                    loop {
+                        thread::sleep(POLL_INTERVAL);
+
+                        match pid_file.check_running() {
+                            Ok(Some((ProcessStatus::Running, _))) => {
+                                if std::time::Instant::now() >= deadline {
+                                    // Timeout - send SIGKILL
+                                    if human {
+                                        println!(
+                                            "Graceful shutdown timed out, forcing termination..."
+                                        );
+                                    }
+                                    send_signal(pid, Signal::Kill);
+                                    thread::sleep(Duration::from_millis(500));
+                                    break;
+                                }
+                                // Keep waiting
+                            }
+                            _ => {
+                                // Process stopped
+                                if human {
+                                    println!("Previous server stopped");
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Clean up stale PID file
+                pid_file.delete().ok();
+            }
+            ProcessStatus::Stale | ProcessStatus::NotRunning => {
+                // Clean up stale PID file
+                pid_file.delete().ok();
+            }
+        }
+    }
+
+    // Now start the new server
+    if human {
+        println!("Starting GUI server on http://{}:{}...", host, port);
     }
 
     // Write PID file before starting server
@@ -1420,9 +1535,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             host,
             status,
             stop,
+            replace,
         }) => (
             "gui".to_string(),
-            serde_json::json!({ "port": port, "host": host, "status": status, "stop": stop }),
+            serde_json::json!({ "port": port, "host": host, "status": status, "stop": stop, "replace": replace }),
         ),
 
         None => ("status".to_string(), serde_json::json!({})),

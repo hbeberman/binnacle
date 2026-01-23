@@ -161,6 +161,10 @@ pub enum Commands {
         /// Stop a running GUI server gracefully (SIGTERM, then SIGKILL after timeout)
         #[arg(long)]
         stop: bool,
+
+        /// Stop any running GUI server and start a new one (combines --stop + start)
+        #[arg(long)]
+        replace: bool,
     },
 }
 
