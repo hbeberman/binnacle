@@ -88,6 +88,7 @@ pub struct InitResult {
     pub agents_md_updated: bool,
     pub skills_file_created: bool,
     pub codex_skills_file_created: bool,
+    pub copilot_prompts_created: bool,
 }
 
 impl Output for InitResult {
@@ -117,6 +118,11 @@ impl Output for InitResult {
             lines
                 .push("Created Codex skills file at ~/.codex/skills/binnacle/SKILL.md".to_string());
         }
+        if self.copilot_prompts_created {
+            lines.push(
+                "Created Copilot agents at .github/agents/ and .github/instructions/".to_string(),
+            );
+        }
         lines.join("\n")
     }
 }
@@ -138,11 +144,18 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         true,
     );
 
+    // Prompt for Copilot agents creation (default No - new feature)
+    let create_copilot_prompts = prompt_yes_no(
+        "Create Copilot workflow agents at .github/agents/ and .github/instructions/?",
+        false,
+    );
+
     init_with_options(
         repo_path,
         update_agents_md,
         create_claude_skills,
         create_codex_skills,
+        create_copilot_prompts,
     )
 }
 
@@ -153,12 +166,14 @@ pub fn init_non_interactive(
     write_agents_md: bool,
     write_claude_skills: bool,
     write_codex_skills: bool,
+    write_copilot_prompts: bool,
 ) -> Result<InitResult> {
     init_with_options(
         repo_path,
         write_agents_md,
         write_claude_skills,
         write_codex_skills,
+        write_copilot_prompts,
     )
 }
 
@@ -169,6 +184,7 @@ fn init_with_options(
     update_agents: bool,
     create_claude_skills: bool,
     create_codex_skills: bool,
+    create_copilot_prompts: bool,
 ) -> Result<InitResult> {
     let already_exists = Storage::exists(repo_path)?;
     let storage = if already_exists {
@@ -198,12 +214,20 @@ fn init_with_options(
         false
     };
 
+    // Create Copilot workflow prompts if requested
+    let copilot_prompts_created = if create_copilot_prompts {
+        create_copilot_prompt_files(repo_path)?
+    } else {
+        false
+    };
+
     Ok(InitResult {
         initialized: !already_exists,
         storage_path: storage.root().to_string_lossy().to_string(),
         agents_md_updated,
         skills_file_created,
         codex_skills_file_created,
+        copilot_prompts_created,
     })
 }
 
@@ -229,11 +253,29 @@ The task graph drives development priorities. Always update task status to keep 
 
 **Tip**: Use `bn show <id>` to view any entity by ID - it auto-detects the type from the prefix (bn-, bnt-, bni-, bnq-).
 
+## Creating Tasks (Best Practices)
+
+- **Always use short names** (`-s`): They appear in the GUI and make tasks scannable
+  - `bn task create -s "short name" -d "description" "Full task title"`
+- **Add dependencies with reasons**: `bn link add <task> <blocker> -t depends_on --reason "why"`
+- **Link to milestones**: `bn link add <task> <milestone> -t child_of`
+
 ## Before you mark task done (IMPORTANT)
 
 1. Run `bn ready` to check if any related tasks should also be closed
 2. Close ALL tasks you completed, not just the one you started with
 3. Verify the task graph is accurate before finalizing your work
+
+## Workflow Stages
+
+For complex features, suggest the human use specialized agents:
+
+1. **@binnacle-plan** - Research and outline (for ambiguous or large tasks)
+2. **@binnacle-prd** - Detailed specification (when plan is approved)
+3. **@binnacle-tasks** - Create bn tasks from PRD
+4. **Execute** - Implement with task tracking (you're here)
+
+If a task seems too large or unclear, suggest the human invoke the planning workflow.
 
 Run `bn --help` for the complete command reference.
 <!-- END BINNACLE SECTION -->
@@ -266,12 +308,15 @@ Use `bn` (binnacle) for managing tasks, tests, and project planning across multi
 
 ### Task Management
 
-- `bn task create "Title" -p 2 --tag feature` - Create a new task
+- `bn task create -s "short" -p 2 -d "description" "Title"` - Create task with short name (recommended)
+- `bn task create "Title" -p 2 --tag feature` - Create a basic task
 - `bn task list` - List all tasks
 - `bn task show <id>` - Show task details
 - `bn task update <id> --status in_progress` - Update task status
 - `bn task close <id> --reason "completed"` - Close a task
 - `bn task update <id> --title "New title"` - Update task details
+
+**Tip:** Always use `-s "short name"` - short names appear in the GUI and make tasks much easier to scan.
 
 ### Links (Dependencies & Relationships)
 
@@ -279,8 +324,7 @@ Links connect entities in the task graph to model dependencies, relationships, a
 
 **Commands:**
 
-- `bn link add <source> <target> -t <type>` - Add a link between entities
-- `bn link add <source> <target> -t <type> -r "reason"` - Add link with explanation
+- `bn link add <source> <target> -t <type> --reason "why"` - Add a link (reason required for depends_on)
 - `bn link list <id>` - Show all links for an entity
 - `bn link rm <source> <target>` - Remove a link
 
@@ -375,9 +419,10 @@ Links connect entities in the task graph to model dependencies, relationships, a
 
 ## Best Practices
 
+- **Always use short names** - `bn task create -s "short" ...` makes tasks scannable in GUI
 - **Always update task status** - Keep the task graph accurate
 - **Close all related tasks** - Don't leave completed work marked as pending
-- **Use dependencies** - Model blockers explicitly with `bn link add --type depends_on`
+- **Use dependencies with reasons** - `bn link add -t depends_on --reason "needs X first"`
 - **Link tests to tasks** - Enables regression detection
 - **Run `bn doctor` regularly** - Catch inconsistencies early
 - **Tag tasks** - Use tags for categorization (feature, bug, refactor, etc.)
@@ -402,9 +447,9 @@ bn ready
 # Start working on a task
 bn task update bn-a1b2 --status in_progress
 
-# Discover a blocker, create it
-bn task create "Fix authentication bug" -p 0 --tag bug
-bn link add bn-a1b2 bn-c3d4 --type depends_on  # bn-a1b2 depends on bn-c3d4
+# Discover a blocker, create it with short name
+bn task create -s "auth fix" -p 0 --tag bug "Fix authentication bug"
+bn link add bn-a1b2 bn-c3d4 -t depends_on --reason "auth must work first"
 
 # Work on the blocker instead
 bn task update bn-c3d4 --status in_progress
@@ -431,6 +476,287 @@ bn goodbye "completed task bn-a1b2"
 - All changes are tracked in an append-only log
 - Use `bn compact` to summarize old closed tasks
 - Run `bn --help` for full command reference
+"#;
+
+/// Copilot instructions file content (binnacle.instructions.md)
+pub const COPILOT_INSTRUCTIONS_CONTENT: &str = r#"---
+applyTo: '**'
+---
+# Binnacle Project Instructions
+
+This project uses **binnacle** (`bn`) for task and workflow tracking.
+
+## Quick Reference
+
+- `bn orient` - Get project overview and current state
+- `bn ready` - Show tasks ready to work on
+- `bn task update <id> --status in_progress` - Start a task
+- `bn task close <id> --reason "description"` - Complete a task
+- `bn goodbye` - End your session gracefully
+
+## Workflow Stages
+
+For complex features, suggest the human use specialized agents:
+
+1. **@binnacle-plan** - Research and outline (for ambiguous or large tasks)
+2. **@binnacle-prd** - Detailed specification (when plan is approved)
+3. **@binnacle-tasks** - Create bn tasks from PRD
+4. **Execute** - Implement with task tracking (you're here)
+
+If a task seems too large or unclear, suggest the human invoke the planning workflow.
+
+Always update task status to keep the graph accurate.
+"#;
+
+/// Plan agent content (binnacle-plan.agent.md)
+pub const PLAN_AGENT_CONTENT: &str = r#"---
+name: Binnacle Plan
+description: Research and outline multi-step plans for binnacle-tracked projects
+argument-hint: Outline the goal or problem to research
+tools: ['search', 'read/problems', 'agent', 'web/fetch', 'binnacle/*', 'read/readFile','execute/testFailure']
+handoffs:
+  - label: Create PRD
+    agent: Binnacle PRD
+    prompt: Create a full PRD based on this research and plan.
+    send: true
+---
+You are a PLANNING AGENT for a binnacle-tracked project.
+
+Your SOLE responsibility is planning. NEVER start implementation.
+
+<stopping_rules>
+STOP IMMEDIATELY if you consider:
+- Running file editing tools
+- Creating or modifying binnacle tasks
+- Switching to implementation mode
+
+If you catch yourself planning steps for YOU to execute, STOP.
+Plans describe steps for ANOTHER agent to execute later.
+
+You have access to #tool:binnacle/* only to GATHER CONTEXT, NOT to create or modify tasks.
+</stopping_rules>
+
+<workflow>
+## 1. Gather Context
+
+Use #tool:agent to research comprehensively:
+- Search codebase for relevant patterns
+- Check for existing PRDs or design docs
+- Check `bn ready` for related tasks
+- Review recent commits if relevant
+
+DO NOT make other tool calls after #tool:agent returns!
+
+Stop at 80% confidence.
+
+## 2. Present Plan
+
+Summarize your proposed plan using the <plan_format> below.
+MANDATORY: Pause for user feedback.
+
+## 3. Iterate
+
+Incorporate feedback and repeat <workflow> until approved.
+Once approved, hand off to PRD agent.
+</workflow>
+
+<plan_format>
+## Plan: {Title (2-10 words)}
+
+{Brief summary: what, how, why. (20-100 words)}
+
+### Steps (3-6)
+1. {Action with [file](path) links and `symbol` references}
+2. {Next step}
+3. {...}
+
+### Considerations (0-3)
+1. {Question or tradeoff? Option A / Option B}
+2. {...}
+</plan_format>
+
+<output_rules>
+- DON'T show code blocks, but describe changes and link to relevant files
+- NO manual testing sections unless explicitly requested
+- ONLY write the plan, without unnecessary preamble or postamble
+</output_rules>
+
+<!-- NOTE: #tool:"binnacle/*" requires MCP setup. See bn docs. -->
+"#;
+
+/// PRD agent content (binnacle-prd.agent.md)
+pub const PRD_AGENT_CONTENT: &str = r#"---
+name: Binnacle PRD
+description: Convert approved plans into detailed PRDs for binnacle-tracked projects
+argument-hint: Create a PRD document at path {path}
+tools: ['search', 'agent', 'web/fetch', 'edit', 'binnacle/*', 'read/readFile']
+handoffs:
+  - label: Create Tasks
+    agent: Binnacle Tasks
+    prompt: Split the approved PRD into binnacle tasks for implementation.
+    send: true
+---
+You are a technical program manager creating PRDs for a binnacle-tracked project.
+
+Your SOLE responsibility is documentation. NEVER start implementation.
+
+<stopping_rules>
+STOP IMMEDIATELY if you consider:
+- Editing files OTHER than the PRD document
+- Creating or modifying binnacle tasks
+- Switching to implementation mode
+
+If you catch yourself planning steps for YOU to execute, STOP.
+You have access to #tool:binnacle only to GATHER CONTEXT, NOT to create or modify tasks.
+</stopping_rules>
+
+<workflow>
+## Before Drafting
+
+ASK clarifying questions if:
+- Behavior is ambiguous
+- Edge cases aren't addressed
+- "Done" state is unclear
+- Multiple interpretations exist
+
+**Do NOT guess. Do NOT assume. ASK.**
+3 questions now saves 3 revision rounds later.
+
+## 1. Research (if needed)
+
+Use #tool:agent for deep codebase research.
+DO NOT make other tool calls after #tool:agent returns!
+
+## 2. Summarize Plan
+
+Present a concise plan summary for user approval.
+MANDATORY: Pause for feedback before writing PRD.
+
+## 3. Handle Feedback
+
+Once the user replies, restart <workflow> to gather additional context.
+DON'T start writing the PRD until the plan summary is approved.
+
+## 4. Write PRD
+
+Once approved, ask for file path if not specified.
+Write PRD to `prds/PRD_<NAME>.md` using the template below.
+</workflow>
+
+<prd_template>
+# PRD: {Title}
+
+**Status:** Draft
+**Author:** {Your name}
+**Date:** {YYYY-MM-DD}
+
+## Overview
+{1 paragraph summary}
+
+## Motivation
+{Why is this needed? What problem does it solve?}
+
+## Non-Goals
+- {What is out of scope}
+
+## Dependencies
+- {Required features or changes}
+
+---
+
+## Specification
+{Detailed description with examples, tables, diagrams as needed}
+
+## Implementation
+{Files to modify, code patterns to follow}
+
+## Testing
+{How to validate the implementation}
+
+## Open Questions
+- {Unresolved decisions}
+</prd_template>
+
+<!-- NOTE: #tool:binnacle requires MCP setup. See bn docs. -->
+"#;
+
+/// Tasks agent content (binnacle-tasks.agent.md)
+pub const TASKS_AGENT_CONTENT: &str = r#"---
+name: Binnacle Tasks
+description: Convert PRDs into binnacle tasks with dependencies
+tools: ['search', 'agent', 'binnacle/*', 'read/readFile']
+handoffs:
+  - label: Start Implementation
+    agent: agent
+    prompt: "Start implementation. Run `bn ready` to see tasks, pick one, mark it in_progress, and begin working. Update task status as you go."
+    send: true
+---
+You are a dev lead converting PRDs into binnacle tasks.
+
+Your SOLE responsibility is task creation. NEVER start implementation.
+
+<stopping_rules>
+STOP IMMEDIATELY if you consider:
+- Editing source code files
+- Running tests
+- Switching to implementation mode
+
+If you catch yourself planning steps for YOU to execute, STOP.
+You are creating tasks for ANOTHER agent to execute later.
+</stopping_rules>
+
+<workflow>
+## 1. Review PRD
+
+Read the PRD carefully. Ask clarifying questions if ambiguous.
+**Do NOT guess. Do NOT assume. ASK.**
+
+## 2. Check Binnacle State
+
+Run `bn orient` first. If binnacle is not initialized, STOP and inform the user.
+
+Use #tool:agent to research existing tasks:
+- Have it run `bn task list` and `bn search` to find related tasks
+- The sub-agent should NOT create or edit tasks (RESEARCH ONLY)
+
+## 3. Check Existing Tasks
+
+Look for related tasks to avoid duplicates or find dependencies.
+Reuse existing tasks where possible instead of creating new ones.
+
+## 4. Create Tasks
+
+Create a parent milestone, then individual tasks:
+
+```bash
+# Create milestone
+bn milestone create "PRD: Feature Name" -d "Implements PRD at prds/PRD_NAME.md"
+
+# Create tasks with short names for GUI visibility
+bn task create -s "short name" -p 2 -d "Description" "Full task title"
+
+# Link to milestone
+bn link add <task-id> <milestone-id> -t child_of
+
+# Set dependencies between tasks (--reason is important!)
+bn link add <task-id> <blocker-id> -t depends_on --reason "why this dependency exists"
+```
+
+## 5. Iterate
+
+Add tasks incrementally. Pause for user feedback on structure.
+Only mark complete when all tasks are clear and properly linked.
+</workflow>
+
+<task_guidelines>
+- **Actionable**: Each task = one clear action
+- **Specific**: Include enough detail to implement
+- **Short names**: Always use `-s` flag (appears in GUI)
+- **Dependencies**: Model blockers explicitly with `depends_on` and always add `--reason`
+- **Hierarchy**: Link tasks to milestones with `child_of`
+</task_guidelines>
+
+<!-- NOTE: #tool:binnacle requires MCP setup. See bn docs. -->
 "#;
 
 /// Create the Claude Code skills file for binnacle.
@@ -477,6 +803,50 @@ fn create_codex_skills_file() -> Result<bool> {
     // Write the skills file (overwrites if exists)
     fs::write(&skills_path, SKILLS_FILE_CONTENT)
         .map_err(|e| Error::Other(format!("Failed to create Codex skills file: {}", e)))?;
+
+    Ok(true)
+}
+
+/// Create Copilot workflow agent and instruction files in the repository.
+/// Writes to .github/agents/ and .github/instructions/
+/// Always overwrites if the files already exist.
+/// Returns true if the files were created/updated.
+pub fn create_copilot_prompt_files(repo_path: &Path) -> Result<bool> {
+    let agents_dir = repo_path.join(".github").join("agents");
+    let instructions_dir = repo_path.join(".github").join("instructions");
+
+    // Create directories if they don't exist
+    fs::create_dir_all(&agents_dir)
+        .map_err(|e| Error::Other(format!("Failed to create .github/agents directory: {}", e)))?;
+    fs::create_dir_all(&instructions_dir).map_err(|e| {
+        Error::Other(format!(
+            "Failed to create .github/instructions directory: {}",
+            e
+        ))
+    })?;
+
+    // Write the agent files
+    fs::write(
+        agents_dir.join("binnacle-plan.agent.md"),
+        PLAN_AGENT_CONTENT,
+    )
+    .map_err(|e| Error::Other(format!("Failed to write binnacle-plan.agent.md: {}", e)))?;
+
+    fs::write(agents_dir.join("binnacle-prd.agent.md"), PRD_AGENT_CONTENT)
+        .map_err(|e| Error::Other(format!("Failed to write binnacle-prd.agent.md: {}", e)))?;
+
+    fs::write(
+        agents_dir.join("binnacle-tasks.agent.md"),
+        TASKS_AGENT_CONTENT,
+    )
+    .map_err(|e| Error::Other(format!("Failed to write binnacle-tasks.agent.md: {}", e)))?;
+
+    // Write the instructions file
+    fs::write(
+        instructions_dir.join("binnacle.instructions.md"),
+        COPILOT_INSTRUCTIONS_CONTENT,
+    )
+    .map_err(|e| Error::Other(format!("Failed to write binnacle.instructions.md: {}", e)))?;
 
     Ok(true)
 }
@@ -9179,7 +9549,7 @@ mod tests {
     #[test]
     fn test_init_new() {
         let env = TestEnv::new_with_env();
-        let result = init_with_options(env.path(), false, false, false).unwrap();
+        let result = init_with_options(env.path(), false, false, false, false).unwrap();
         assert!(result.initialized);
     }
 
@@ -9187,7 +9557,7 @@ mod tests {
     fn test_init_existing() {
         let env = TestEnv::new_with_env();
         Storage::init(env.path()).unwrap();
-        let result = init_with_options(env.path(), false, false, false).unwrap();
+        let result = init_with_options(env.path(), false, false, false, false).unwrap();
         assert!(!result.initialized);
     }
 
@@ -10911,7 +11281,7 @@ mod tests {
         assert!(!agents_path.exists());
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
         assert!(!result.skills_file_created);
@@ -10932,7 +11302,7 @@ mod tests {
         std::fs::write(&agents_path, "# My Existing Agents\n\nSome content here.\n").unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
 
@@ -10955,7 +11325,7 @@ mod tests {
         .unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated); // Should be updated to add markers
 
@@ -10971,8 +11341,8 @@ mod tests {
         let temp = TestEnv::new_with_env();
 
         // Run init twice with AGENTS.md enabled
-        init_with_options(temp.path(), true, false, false).unwrap();
-        let result = init_with_options(temp.path(), true, false, false).unwrap();
+        init_with_options(temp.path(), true, false, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
 
         // Second run should not update AGENTS.md (content unchanged)
         assert!(!result.initialized); // binnacle already exists
@@ -10991,7 +11361,7 @@ mod tests {
         Storage::init(temp.path()).unwrap();
 
         // Now run init with AGENTS.md update - should detect no change needed
-        let result = init_with_options(temp.path(), true, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
         assert!(!result.initialized); // binnacle already exists
         assert!(!result.agents_md_updated); // Content already matches exactly
 
@@ -11013,7 +11383,7 @@ mod tests {
         .unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated); // Section was replaced with standard content
 
@@ -11031,7 +11401,7 @@ mod tests {
         let agents_path = temp.path().join("AGENTS.md");
 
         // Run init with AGENTS.md update enabled
-        init_with_options(temp.path(), true, false, false).unwrap();
+        init_with_options(temp.path(), true, false, false, false).unwrap();
 
         // Verify AGENTS.md contains HTML markers
         let contents = std::fs::read_to_string(&agents_path).unwrap();

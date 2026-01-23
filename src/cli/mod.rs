@@ -936,6 +936,10 @@ pub enum SystemCommands {
         #[arg(long)]
         write_codex_skills: bool,
 
+        /// Write Copilot workflow agents to .github/agents/ and .github/instructions/
+        #[arg(long)]
+        write_copilot_prompts: bool,
+
         /// Skip interactive prompts (use flags to control what gets written)
         #[arg(long, short = 'y')]
         yes: bool,
@@ -976,6 +980,14 @@ pub enum EmitTemplate {
     Agents,
     /// SKILL.md file content
     Skill,
+    /// Binnacle plan agent prompt (binnacle-plan.prompt.md)
+    PlanAgent,
+    /// Binnacle PRD agent prompt (binnacle-prd.prompt.md)
+    PrdAgent,
+    /// Binnacle tasks agent prompt (binnacle-tasks.prompt.md)
+    TasksAgent,
+    /// Binnacle Copilot instructions (binnacle.instructions.md)
+    CopilotInstructions,
 }
 
 /// Store management subcommands

@@ -24,7 +24,7 @@ fn init_binnacle() -> TestEnv {
     let env = TestEnv::new();
     env.bn()
         .args(["system", "init"])
-        .write_stdin("n\nn\nn\n")
+        .write_stdin("n\nn\nn\nn\n")
         .assert()
         .success();
     env
@@ -75,10 +75,10 @@ fn parse_json_from_mixed_output(output: &[u8]) -> Value {
 fn test_system_init_new_repo() {
     let temp = TestEnv::new();
 
-    // Provide "n\n" responses to all interactive prompts
+    // Provide "n\n" responses to all interactive prompts (4 total)
     let output = bn_in(&temp)
         .args(["system", "init"])
-        .write_stdin("n\nn\nn\n")
+        .write_stdin("n\nn\nn\nn\n")
         .assert()
         .success()
         .get_output()
@@ -104,7 +104,7 @@ fn test_system_init_existing_repo() {
     // Initialize again (should be idempotent)
     let output = bn_in(&temp)
         .args(["system", "init"])
-        .write_stdin("n\nn\nn\n")
+        .write_stdin("n\nn\nn\nn\n")
         .assert()
         .success()
         .get_output()
@@ -122,10 +122,77 @@ fn test_system_init_human_format() {
 
     bn_in(&temp)
         .args(["-H", "system", "init"])
-        .write_stdin("n\nn\nn\n")
+        .write_stdin("n\nn\nn\nn\n")
         .assert()
         .success()
         .stdout(predicate::str::contains("Initialized binnacle"));
+}
+
+#[test]
+fn test_system_init_write_copilot_prompts_flag() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "init", "--write-copilot-prompts", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["initialized"], true);
+    assert_eq!(json["copilot_prompts_created"], true);
+
+    // Verify files were created
+    let agents_dir = temp.path().join(".github").join("agents");
+    let instructions_dir = temp.path().join(".github").join("instructions");
+
+    assert!(agents_dir.join("binnacle-plan.agent.md").exists());
+    assert!(agents_dir.join("binnacle-prd.agent.md").exists());
+    assert!(agents_dir.join("binnacle-tasks.agent.md").exists());
+    assert!(instructions_dir.join("binnacle.instructions.md").exists());
+
+    // Verify content
+    let plan_content = fs::read_to_string(agents_dir.join("binnacle-plan.agent.md")).unwrap();
+    assert!(plan_content.contains("name: Binnacle Plan"));
+    assert!(plan_content.contains("PLANNING AGENT"));
+}
+
+#[test]
+fn test_system_init_write_copilot_prompts_idempotent() {
+    let temp = TestEnv::new();
+
+    // First init
+    bn_in(&temp)
+        .args(["system", "init", "--write-copilot-prompts", "-y"])
+        .assert()
+        .success();
+
+    // Second init should overwrite without error
+    let output = bn_in(&temp)
+        .args(["system", "init", "--write-copilot-prompts", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["initialized"], false); // Already initialized
+    assert_eq!(json["copilot_prompts_created"], true); // Still created/updated
+}
+
+#[test]
+fn test_system_init_write_copilot_prompts_human_output() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "init", "--write-copilot-prompts", "-y"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Copilot agents"))
+        .stdout(predicate::str::contains(".github/agents"));
 }
 
 // ============================================================================
@@ -1280,4 +1347,76 @@ fn test_system_emit_no_init_required() {
         .args(["system", "emit", "skill"])
         .assert()
         .success();
+}
+
+#[test]
+fn test_system_emit_plan_agent_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "plan-agent"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("name: Binnacle Plan"))
+        .stdout(predicate::str::contains("PLANNING AGENT"))
+        .stdout(predicate::str::contains("binnacle/*"));
+}
+
+#[test]
+fn test_system_emit_prd_agent_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "prd-agent"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("name: Binnacle PRD"))
+        .stdout(predicate::str::contains("PRDs"))
+        .stdout(predicate::str::contains("prd_template"));
+}
+
+#[test]
+fn test_system_emit_tasks_agent_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "tasks-agent"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("name: Binnacle Tasks"))
+        .stdout(predicate::str::contains("task creation"))
+        .stdout(predicate::str::contains("bn milestone create"));
+}
+
+#[test]
+fn test_system_emit_copilot_instructions_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "copilot-instructions"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("applyTo: '**'"))
+        .stdout(predicate::str::contains("Binnacle Project Instructions"))
+        .stdout(predicate::str::contains("bn orient"));
+}
+
+#[test]
+fn test_system_emit_plan_agent_json_format() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "emit", "plan-agent"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let content = json["content"]
+        .as_str()
+        .expect("content field should exist");
+    assert!(content.contains("name: Binnacle Plan"));
+    assert!(content.contains("PLANNING AGENT"));
 }

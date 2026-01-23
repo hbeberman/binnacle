@@ -640,6 +640,7 @@ fn run_command(
                 write_agents_md,
                 write_claude_skills,
                 write_codex_skills,
+                write_copilot_prompts,
                 yes,
             } => {
                 let result = if yes {
@@ -649,14 +650,20 @@ fn run_command(
                         write_agents_md,
                         write_claude_skills,
                         write_codex_skills,
+                        write_copilot_prompts,
                     )?
-                } else if write_agents_md || write_claude_skills || write_codex_skills {
+                } else if write_agents_md
+                    || write_claude_skills
+                    || write_codex_skills
+                    || write_copilot_prompts
+                {
                     // Flags provided without -y: use flags as the options
                     commands::init_non_interactive(
                         repo_path,
                         write_agents_md,
                         write_claude_skills,
                         write_codex_skills,
+                        write_copilot_prompts,
                     )?
                 } else {
                     // Interactive mode (default)
@@ -697,6 +704,10 @@ fn run_command(
                 let content = match template {
                     EmitTemplate::Agents => commands::AGENTS_MD_BLURB,
                     EmitTemplate::Skill => commands::SKILLS_FILE_CONTENT,
+                    EmitTemplate::PlanAgent => commands::PLAN_AGENT_CONTENT,
+                    EmitTemplate::PrdAgent => commands::PRD_AGENT_CONTENT,
+                    EmitTemplate::TasksAgent => commands::TASKS_AGENT_CONTENT,
+                    EmitTemplate::CopilotInstructions => commands::COPILOT_INSTRUCTIONS_CONTENT,
                 };
                 if human {
                     println!("{}", content.trim());
@@ -1675,6 +1686,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 write_agents_md,
                 write_claude_skills,
                 write_codex_skills,
+                write_copilot_prompts,
                 yes,
             } => (
                 "system init".to_string(),
@@ -1682,6 +1694,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "write_agents_md": write_agents_md,
                     "write_claude_skills": write_claude_skills,
                     "write_codex_skills": write_codex_skills,
+                    "write_copilot_prompts": write_copilot_prompts,
                     "yes": yes,
                 }),
             ),
@@ -1712,6 +1725,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 let template_name = match template {
                     EmitTemplate::Agents => "agents",
                     EmitTemplate::Skill => "skill",
+                    EmitTemplate::PlanAgent => "plan-agent",
+                    EmitTemplate::PrdAgent => "prd-agent",
+                    EmitTemplate::TasksAgent => "tasks-agent",
+                    EmitTemplate::CopilotInstructions => "copilot-instructions",
                 };
                 (
                     "system emit".to_string(),

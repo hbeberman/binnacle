@@ -19,11 +19,29 @@ The task graph drives development priorities. Always update task status to keep 
 
 **Tip**: Use `bn show <id>` to view any entity by ID - it auto-detects the type from the prefix (bn-, bnt-, bni-, bnq-).
 
+## Creating Tasks (Best Practices)
+
+- **Always use short names** (`-s`): They appear in the GUI and make tasks scannable
+  - `bn task create -s "short name" -d "description" "Full task title"`
+- **Add dependencies with reasons**: `bn link add <task> <blocker> -t depends_on --reason "why"`
+- **Link to milestones**: `bn link add <task> <milestone> -t child_of`
+
 ## Before you mark task done (IMPORTANT)
 
 1. Run `bn ready` to check if any related tasks should also be closed
 2. Close ALL tasks you completed, not just the one you started with
 3. Verify the task graph is accurate before finalizing your work
+
+## Workflow Stages
+
+For complex features, suggest the human use specialized agents:
+
+1. **@binnacle-plan** - Research and outline (for ambiguous or large tasks)
+2. **@binnacle-prd** - Detailed specification (when plan is approved)
+3. **@binnacle-tasks** - Create bn tasks from PRD
+4. **Execute** - Implement with task tracking (you're here)
+
+If a task seems too large or unclear, suggest the human invoke the planning workflow.
 
 Run `bn --help` for the complete command reference.
 <!-- END BINNACLE SECTION -->
