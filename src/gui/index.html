@@ -2630,28 +2630,9 @@
 
         function setGraphSearchQuery(query) {
             state.graph.searchQuery = query;
-
-            const visibleIds = state.graph.visibleNodeIds ?? new Set(getVisibleNodes(state.graph.nodes).map(n => n.id));
-
-            if (state.graph.hoveredNode && !visibleIds.has(state.graph.hoveredNode.id)) {
-                state.graph.hoveredNode = null;
-                updateTooltip(null);
-            }
-
-            if (state.graph.hoveredEdge) {
-                // Clear edge tooltip; edge hover recalculates based on visibility
-                state.graph.hoveredEdge = null;
-                updateEdgeTooltip(null);
-            }
-
-            if (state.graph.selectedNode && !visibleIds.has(state.graph.selectedNode.id)) {
-                state.graph.selectedNode = null;
-                updateInfoPanel(null);
-            }
-
-            if (state.graph.followingNodeId && !visibleIds.has(state.graph.followingNodeId)) {
-                state.graph.followingNodeId = null;
-            }
+            // Note: We no longer need to clear selection/hover here since
+            // non-matching nodes are now dimmed rather than hidden.
+            // The visibleNodeIds check only applies to hideCompleted filtering.
         }
 
         function initializeGraphSearch() {
@@ -3296,8 +3277,6 @@
          * - EXCEPT those in active dependency chains
          */
         function getVisibleNodes(nodes) {
-            const normalizedQuery = normalizeSearchQuery(state.graph.searchQuery);
-
             // If hideCompleted is not enabled, start with all nodes
             let visible = nodes;
 
@@ -3320,11 +3299,8 @@
                 });
             }
 
-            // Apply search filter (render-only; hides non-matching nodes)
-            if (normalizedQuery) {
-                visible = visible.filter(node => nodeMatchesSearch(node, normalizedQuery));
-            }
-
+            // Note: Search no longer hides nodes - non-matching nodes are dimmed instead
+            // See drawNode() for dimming logic
             return visible;
         }
 
@@ -3667,7 +3643,15 @@
             
             // Check if node matches current highlight filter
             const matchesFilter = nodeMatchesFilter(node);
-            const isDimmed = state.graph.highlightFilter && !matchesFilter;
+            const highlightDimmed = state.graph.highlightFilter && !matchesFilter;
+            
+            // Check if node matches current search query (dim non-matching instead of hiding)
+            const normalizedQuery = normalizeSearchQuery(state.graph.searchQuery);
+            const matchesSearch = nodeMatchesSearch(node, normalizedQuery);
+            const searchDimmed = normalizedQuery && !matchesSearch;
+            
+            // Node is dimmed if either filter or search doesn't match
+            const isDimmed = highlightDimmed || searchDimmed;
 
             // Transform world coordinates to screen coordinates
             const screenPos = worldToScreen(node.x, node.y, canvas);
