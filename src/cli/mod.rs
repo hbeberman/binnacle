@@ -32,6 +32,9 @@ pub enum Commands {
     /// For new projects, humans should use `bn system init` (interactive).
     /// The --init flag is for AI agents needing non-interactive setup.
     Orient {
+        /// Agent type (required): worker, planner, or buddy
+        #[arg(long = "type", short = 't', value_parser = ["worker", "planner", "buddy"])]
+        agent_type: String,
         /// Initialize database non-interactively (conservative defaults, for AI agents)
         #[arg(long)]
         init: bool,

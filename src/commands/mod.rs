@@ -9,8 +9,8 @@
 //! - `commit` - Commit tracking
 
 use crate::models::{
-    Agent, Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone, Queue,
-    Task, TaskStatus, TestNode, TestResult,
+    Agent, AgentType, Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone,
+    Queue, Task, TaskStatus, TestNode, TestResult,
 };
 use crate::storage::{EntityType, Storage, generate_id, parse_status};
 use crate::{Error, Result};
@@ -674,15 +674,32 @@ impl Output for OrientResult {
     }
 }
 
+/// Parse agent type string to AgentType enum.
+fn parse_agent_type(s: &str) -> Result<AgentType> {
+    match s.to_lowercase().as_str() {
+        "worker" => Ok(AgentType::Worker),
+        "planner" => Ok(AgentType::Planner),
+        "buddy" => Ok(AgentType::Buddy),
+        _ => Err(Error::InvalidInput(format!(
+            "Invalid agent type '{}'. Must be one of: worker, planner, buddy",
+            s
+        ))),
+    }
+}
+
 /// Orient an AI agent to this project.
 /// If allow_init is true, auto-initializes binnacle if not already initialized.
 /// If allow_init is false and binnacle is not initialized, returns NotInitialized error.
 pub fn orient(
     repo_path: &Path,
+    agent_type_str: &str,
     allow_init: bool,
     name: Option<String>,
     purpose: Option<String>,
 ) -> Result<OrientResult> {
+    // Parse agent type first
+    let agent_type = parse_agent_type(agent_type_str)?;
+
     // Check if initialized
     let initialized = if !Storage::exists(repo_path)? {
         if allow_init {
@@ -713,20 +730,21 @@ pub fn orient(
     // Use provided name or auto-generate (with parent PID for uniqueness)
     let agent_name = name.unwrap_or_else(|| format!("agent-{}", agent_pid));
 
-    // Check if already registered (update activity and potentially purpose) or register new
+    // Check if already registered (update activity, type, and potentially purpose) or register new
     if let Ok(mut existing_agent) = storage.get_agent(agent_pid) {
-        // Update purpose if provided (allows re-registering with a purpose)
+        // Update type and purpose if provided (allows re-registering)
+        existing_agent.agent_type = agent_type;
         if purpose.is_some() {
             existing_agent.purpose = purpose;
-            storage.update_agent(&existing_agent)?;
         }
+        storage.update_agent(&existing_agent)?;
         let _ = storage.touch_agent(agent_pid);
     } else {
         // Register new agent with parent PID as primary identifier
         let agent = if let Some(ref p) = purpose {
-            Agent::new_with_purpose(agent_pid, bn_pid, agent_name, p.clone())
+            Agent::new_with_purpose(agent_pid, bn_pid, agent_name, agent_type, p.clone())
         } else {
-            Agent::new(agent_pid, bn_pid, agent_name)
+            Agent::new(agent_pid, bn_pid, agent_name, agent_type)
         };
         storage.register_agent(&agent)?;
     }
@@ -8555,7 +8573,12 @@ mod tests {
         // (the bn command itself exits, so we track the parent process instead)
         let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
         let bn_pid = std::process::id();
-        let agent = Agent::new(parent_pid, bn_pid, "test-agent".to_string());
+        let agent = Agent::new(
+            parent_pid,
+            bn_pid,
+            "test-agent".to_string(),
+            AgentType::Worker,
+        );
         {
             let mut storage = Storage::open(temp.path()).unwrap();
             storage.register_agent(&agent).unwrap();
@@ -8764,7 +8787,12 @@ mod tests {
         // Register using parent PID since that's how agents are now identified
         let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
         let bn_pid = std::process::id();
-        let agent = Agent::new(parent_pid, bn_pid, "test-agent".to_string());
+        let agent = Agent::new(
+            parent_pid,
+            bn_pid,
+            "test-agent".to_string(),
+            AgentType::Worker,
+        );
         {
             let mut storage = Storage::open(temp.path()).unwrap();
             storage.register_agent(&agent).unwrap();
@@ -8814,7 +8842,12 @@ mod tests {
         // Register using parent PID since that's how agents are now identified
         let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
         let bn_pid = std::process::id();
-        let agent = Agent::new(parent_pid, bn_pid, "test-agent".to_string());
+        let agent = Agent::new(
+            parent_pid,
+            bn_pid,
+            "test-agent".to_string(),
+            AgentType::Worker,
+        );
         {
             let mut storage = Storage::open(temp.path()).unwrap();
             storage.register_agent(&agent).unwrap();
@@ -8887,7 +8920,12 @@ mod tests {
         // Register using parent PID since that's how agents are now identified
         let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
         let bn_pid = std::process::id();
-        let agent = Agent::new(parent_pid, bn_pid, "test-agent".to_string());
+        let agent = Agent::new(
+            parent_pid,
+            bn_pid,
+            "test-agent".to_string(),
+            AgentType::Worker,
+        );
         {
             let mut storage = Storage::open(temp.path()).unwrap();
             storage.register_agent(&agent).unwrap();
@@ -9961,7 +9999,7 @@ mod tests {
         assert!(!Storage::exists(temp.path()).unwrap());
 
         // Run orient without allow_init - should fail
-        let result = orient(temp.path(), false, None, None);
+        let result = orient(temp.path(), "worker", false, None, None);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::NotInitialized));
     }
@@ -9974,7 +10012,7 @@ mod tests {
         assert!(!Storage::exists(temp.path()).unwrap());
 
         // Run orient with allow_init=true
-        let result = orient(temp.path(), true, None, None).unwrap();
+        let result = orient(temp.path(), "worker", true, None, None).unwrap();
         assert!(result.initialized);
 
         // Verify now initialized
@@ -10011,7 +10049,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), false, None, None).unwrap();
+        let result = orient(temp.path(), "worker", false, None, None).unwrap();
         assert!(!result.initialized); // Already initialized in setup()
         assert_eq!(result.total_tasks, 2);
         assert_eq!(result.ready_count, 2); // Both pending tasks are ready
@@ -10045,7 +10083,7 @@ mod tests {
         // B depends on A (so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = orient(temp.path(), false, None, None).unwrap();
+        let result = orient(temp.path(), "worker", false, None, None).unwrap();
         assert_eq!(result.total_tasks, 2);
         assert_eq!(result.ready_count, 1);
         assert!(result.ready_ids.contains(&task_a.id));
@@ -10083,7 +10121,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), false, None, None).unwrap();
+        let result = orient(temp.path(), "worker", false, None, None).unwrap();
         assert_eq!(result.in_progress_count, 1);
     }
 
@@ -10101,7 +10139,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), false, None, None).unwrap();
+        let result = orient(temp.path(), "worker", false, None, None).unwrap();
         let human = result.to_human();
 
         assert!(human.contains("Binnacle - AI agent task tracker"));
@@ -10117,6 +10155,7 @@ mod tests {
         // Orient with a purpose
         let _result = orient(
             temp.path(),
+            "worker",
             false,
             Some("test-agent".to_string()),
             Some("Task Worker".to_string()),
@@ -10141,7 +10180,14 @@ mod tests {
         let temp = setup();
 
         // Orient without a purpose
-        let _result = orient(temp.path(), false, Some("anon-agent".to_string()), None).unwrap();
+        let _result = orient(
+            temp.path(),
+            "worker",
+            false,
+            Some("anon-agent".to_string()),
+            None,
+        )
+        .unwrap();
 
         // Check the agent was registered without purpose (UNREGISTERED)
         let storage = Storage::open(temp.path()).unwrap();
@@ -10160,7 +10206,14 @@ mod tests {
         let temp = setup();
 
         // First orient without purpose
-        let _result = orient(temp.path(), false, Some("update-agent".to_string()), None).unwrap();
+        let _result = orient(
+            temp.path(),
+            "worker",
+            false,
+            Some("update-agent".to_string()),
+            None,
+        )
+        .unwrap();
 
         // Verify UNREGISTERED
         {
@@ -10173,6 +10226,7 @@ mod tests {
         // Orient again with purpose - should update the existing agent
         let _result = orient(
             temp.path(),
+            "planner",
             false,
             Some("update-agent".to_string()),
             Some("PRD Generator".to_string()),
@@ -12593,7 +12647,7 @@ mod tests {
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Register an agent with a fake PID (won't be running)
-        let agent = Agent::new(99998, 1, "test-agent".to_string());
+        let agent = Agent::new(99998, 1, "test-agent".to_string(), AgentType::Worker);
         storage.register_agent(&agent).unwrap();
 
         // Kill by PID - agent gets cleaned up as stale during kill
@@ -12613,7 +12667,7 @@ mod tests {
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Register an agent with a fake PID
-        let agent = Agent::new(99997, 1, "named-agent".to_string());
+        let agent = Agent::new(99997, 1, "named-agent".to_string(), AgentType::Worker);
         storage.register_agent(&agent).unwrap();
 
         // Kill by name - agent gets cleaned up as stale during kill

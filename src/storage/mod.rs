@@ -3246,7 +3246,7 @@ pub fn validate_sha(sha: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::BugSeverity;
+    use crate::models::{AgentType, BugSeverity};
     use crate::test_utils::TestEnv;
 
     fn create_test_storage() -> (TestEnv, Storage) {
@@ -4313,7 +4313,7 @@ mod tests {
     fn test_agent_register_and_get() {
         let (_temp_dir, mut storage) = create_test_storage();
 
-        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        let agent = Agent::new(1234, 1000, "test-agent".to_string(), AgentType::Worker);
         storage.register_agent(&agent).unwrap();
 
         let retrieved = storage.get_agent(1234).unwrap();
@@ -4326,8 +4326,8 @@ mod tests {
     fn test_agent_list() {
         let (_temp_dir, mut storage) = create_test_storage();
 
-        let agent1 = Agent::new(1234, 1000, "agent-1".to_string());
-        let agent2 = Agent::new(5678, 1000, "agent-2".to_string());
+        let agent1 = Agent::new(1234, 1000, "agent-1".to_string(), AgentType::Worker);
+        let agent2 = Agent::new(5678, 1000, "agent-2".to_string(), AgentType::Planner);
         storage.register_agent(&agent1).unwrap();
         storage.register_agent(&agent2).unwrap();
 
@@ -4339,7 +4339,7 @@ mod tests {
     fn test_agent_remove() {
         let (_temp_dir, mut storage) = create_test_storage();
 
-        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        let agent = Agent::new(1234, 1000, "test-agent".to_string(), AgentType::Worker);
         storage.register_agent(&agent).unwrap();
 
         storage.remove_agent(1234).unwrap();
@@ -4353,7 +4353,7 @@ mod tests {
     fn test_agent_touch() {
         let (_temp_dir, mut storage) = create_test_storage();
 
-        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        let agent = Agent::new(1234, 1000, "test-agent".to_string(), AgentType::Worker);
         storage.register_agent(&agent).unwrap();
 
         storage.touch_agent(1234).unwrap();
@@ -4366,7 +4366,7 @@ mod tests {
     fn test_agent_add_task() {
         let (_temp_dir, mut storage) = create_test_storage();
 
-        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        let agent = Agent::new(1234, 1000, "test-agent".to_string(), AgentType::Worker);
         storage.register_agent(&agent).unwrap();
 
         storage.agent_add_task(1234, "bn-task").unwrap();
@@ -4379,7 +4379,7 @@ mod tests {
     fn test_agent_get_by_name() {
         let (_temp_dir, mut storage) = create_test_storage();
 
-        let agent = Agent::new(1234, 1000, "claude".to_string());
+        let agent = Agent::new(1234, 1000, "claude".to_string(), AgentType::Buddy);
         storage.register_agent(&agent).unwrap();
 
         let retrieved = storage.get_agent_by_name("claude").unwrap();
@@ -4390,7 +4390,7 @@ mod tests {
     fn test_agent_update_status() {
         let (_temp_dir, mut storage) = create_test_storage();
 
-        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        let agent = Agent::new(1234, 1000, "test-agent".to_string(), AgentType::Worker);
         storage.register_agent(&agent).unwrap();
 
         storage
@@ -4406,7 +4406,7 @@ mod tests {
         let (_temp_dir, mut storage) = create_test_storage();
 
         // Register an agent with a PID that doesn't exist (99999999)
-        let agent = Agent::new(99999999, 1000, "stale-agent".to_string());
+        let agent = Agent::new(99999999, 1000, "stale-agent".to_string(), AgentType::Worker);
         storage.register_agent(&agent).unwrap();
 
         // Should be listed initially
