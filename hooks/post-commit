@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Binnacle post-commit hook
+# Reminds agents to run bn goodbye when their session is complete
+
+# Only show reminder if binnacle is initialized for this repo
+if command -v bn &> /dev/null && bn doctor > /dev/null 2>&1; then
+    echo ""
+    echo "💡 Reminder: Run 'bn goodbye' when your session is complete."
+    echo "   This updates binnacle and gracefully terminates your agent session."
+fi
+
+exit 0
