@@ -1015,7 +1015,7 @@
                     <span>Active Task</span>
                 </div>
                 <div class="active-task-id" id="active-task-id">No active task</div>
-                <div class="active-task-title" id="active-task-title">Start work with bn task update &lt;id&gt; --status in_progress</div>
+                <div class="active-task-title" id="active-task-title"></div>
                 <div class="active-task-meta" id="active-task-meta"></div>
             </div>
         </header>
@@ -1513,7 +1513,7 @@
             } else {
                 pane.classList.add('empty');
                 idEl.textContent = 'No active task';
-                titleEl.textContent = 'Start work with bn task update <id> --status in_progress';
+                titleEl.textContent = '';
                 titleEl.title = '';
                 metaEl.innerHTML = '';
             }
