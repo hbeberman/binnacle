@@ -5636,6 +5636,16 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
         }
     }
 
+    // Check if primary queue exists
+    if storage.get_queue().is_err() {
+        issues.push(DoctorIssue {
+            severity: "warning".to_string(),
+            category: "queue".to_string(),
+            message: "No primary queue exists - run 'bn doctor --fix' to create one".to_string(),
+            entity_id: None,
+        });
+    }
+
     let stats = DoctorStats {
         total_tasks: tasks.len(),
         total_tests: tests.len(),
@@ -5647,6 +5657,94 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
         healthy: issues.is_empty(),
         issues,
         stats,
+    })
+}
+
+/// Result of the doctor fix command.
+#[derive(Serialize)]
+pub struct DoctorFixResult {
+    pub fixes_applied: Vec<String>,
+    pub issues_remaining: Vec<DoctorIssue>,
+}
+
+impl Output for DoctorFixResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if self.fixes_applied.is_empty() {
+            lines.push("Doctor Fix: No fixable issues found".to_string());
+        } else {
+            lines.push(format!(
+                "Doctor Fix: {} fix(es) applied",
+                self.fixes_applied.len()
+            ));
+            lines.push(String::new());
+            lines.push("Fixes applied:".to_string());
+            for fix in &self.fixes_applied {
+                lines.push(format!("  ✓ {}", fix));
+            }
+        }
+
+        if !self.issues_remaining.is_empty() {
+            lines.push(String::new());
+            lines.push(format!(
+                "Remaining issues ({}):",
+                self.issues_remaining.len()
+            ));
+            for issue in &self.issues_remaining {
+                let severity_marker = match issue.severity.as_str() {
+                    "error" => "[ERROR]",
+                    "warning" => "[WARN]",
+                    _ => "[INFO]",
+                };
+                let entity = issue
+                    .entity_id
+                    .as_ref()
+                    .map(|id| format!(" ({})", id))
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "  {} {}: {}{}",
+                    severity_marker, issue.category, issue.message, entity
+                ));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Run doctor with automatic fixes for repairable issues.
+pub fn doctor_fix(repo_path: &Path) -> Result<DoctorFixResult> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut fixes_applied = Vec::new();
+
+    // Fix: Create primary queue if missing
+    if storage.get_queue().is_err() {
+        let title = "Work Queue".to_string();
+        let queue_id = generate_id("bnq", &title);
+        let queue = Queue::new(queue_id.clone(), title.clone());
+        storage.create_queue(&queue)?;
+        fixes_applied.push(format!(
+            "Created primary queue '{}' ({})",
+            queue.title, queue_id
+        ));
+    }
+
+    // Run doctor again to get remaining issues
+    let result = doctor(repo_path)?;
+    let issues_remaining: Vec<DoctorIssue> = result
+        .issues
+        .into_iter()
+        .filter(|issue| issue.category != "queue")
+        .collect();
+
+    Ok(DoctorFixResult {
+        fixes_applied,
+        issues_remaining,
     })
 }
 
@@ -9137,6 +9235,13 @@ mod tests {
     #[test]
     fn test_doctor_healthy() {
         let temp = setup();
+
+        // Create a queue so the repo is fully healthy
+        let mut storage = Storage::open(temp.path()).unwrap();
+        let queue = Queue::new("bnq-test".to_string(), "Test Queue".to_string());
+        storage.create_queue(&queue).unwrap();
+        drop(storage);
+
         task_create(
             temp.path(),
             "Task A".to_string(),

@@ -1146,6 +1146,72 @@
             border-left: 3px solid var(--success);
         }
 
+        /* Queue toggle in info panel */
+        .info-panel-queue-section {
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .info-panel-queue-label {
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .info-panel-queue-label::before {
+            content: '📋';
+        }
+
+        .queue-toggle-switch {
+            width: 40px;
+            height: 22px;
+            border-radius: 11px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            position: relative;
+            transition: background 0.2s ease, border-color 0.2s ease;
+            padding: 0;
+        }
+
+        .queue-toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+        .queue-toggle-switch.active {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .queue-toggle-switch.active::after {
+            transform: translateX(18px);
+            background: white;
+        }
+
+        .queue-toggle-switch:hover {
+            border-color: var(--accent-light);
+        }
+
+        .queue-toggle-switch:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         /* Toast Notification System */
         .toast-container {
             position: fixed;
@@ -1418,6 +1484,10 @@
                         <span id="info-panel-short-name" class="info-panel-short-name"></span>
                     </div>
                     <div id="info-panel-meta" class="info-panel-meta"></div>
+                    <div id="info-panel-queue-section" class="info-panel-queue-section" style="display: none;">
+                        <span class="info-panel-queue-label">In Queue</span>
+                        <button id="queue-toggle-btn" class="queue-toggle-switch" title="Toggle queue membership"></button>
+                    </div>
                     <div id="info-panel-description-section" class="info-panel-section">
                         <div class="info-panel-section-title">Description</div>
                         <div id="info-panel-description" class="info-panel-description"></div>
@@ -2867,6 +2937,21 @@
                 closedSection.style.display = 'none';
             }
 
+            // Queue toggle - only show for tasks/bugs that can be queued
+            const queueSection = document.getElementById('info-panel-queue-section');
+            const queueToggle = document.getElementById('queue-toggle-btn');
+            const canBeQueued = task.type === 'task' || task.type === 'bug' || !task.type;
+            const isCompleted = task.status === 'done' || task.status === 'cancelled' || task.status === 'discarded';
+            
+            if (canBeQueued && !isCompleted) {
+                queueSection.style.display = 'flex';
+                const isQueued = isNodeQueued(task.id);
+                queueToggle.classList.toggle('active', isQueued);
+                queueToggle.title = isQueued ? 'Remove from queue' : 'Add to queue';
+            } else {
+                queueSection.style.display = 'none';
+            }
+
             // Show panel
             panel.classList.add('visible');
         }
@@ -2875,6 +2960,40 @@
         document.getElementById('info-panel-close').addEventListener('click', () => {
             state.graph.selectedNode = null;
             updateInfoPanel(null);
+        });
+
+        // Queue toggle button click handler
+        document.getElementById('queue-toggle-btn').addEventListener('click', async () => {
+            const selectedNode = state.graph.selectedNode;
+            if (!selectedNode) return;
+
+            const queueToggle = document.getElementById('queue-toggle-btn');
+            queueToggle.disabled = true;
+
+            try {
+                const response = await fetch('/api/queue/toggle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ node_id: selectedNode.id })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    const isQueued = result.queued;
+                    queueToggle.classList.toggle('active', isQueued);
+                    queueToggle.title = isQueued ? 'Remove from queue' : 'Add to queue';
+                    showToast(result.message, 'success');
+                    // Refresh data to update edges and visual state
+                    await loadData();
+                } else {
+                    showToast(result.error || 'Failed to toggle queue', 'error');
+                }
+            } catch (err) {
+                showToast('Failed to toggle queue: ' + err.message, 'error');
+            } finally {
+                queueToggle.disabled = false;
+            }
         });
 
         // Coordinate transformation functions

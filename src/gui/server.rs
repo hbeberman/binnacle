@@ -13,8 +13,8 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast};
 
-use crate::models::{Edge, EdgeType};
-use crate::storage::Storage;
+use crate::models::{Edge, EdgeType, Queue};
+use crate::storage::{Storage, generate_id};
 
 /// Shared application state
 #[derive(Clone)]
@@ -68,6 +68,7 @@ pub async fn start_server(
         .route("/api/ready", get(get_ready))
         .route("/api/tests", get(get_tests))
         .route("/api/queue", get(get_queue))
+        .route("/api/queue/toggle", post(toggle_queue_membership))
         .route("/api/edges", get(get_edges))
         .route("/api/edges", post(add_edge))
         .route("/api/log", get(get_log))
@@ -313,4 +314,92 @@ async fn add_edge(
             "edge_type": request.edge_type
         }
     })))
+}
+
+/// Request body for toggling queue membership
+#[derive(Deserialize)]
+struct ToggleQueueRequest {
+    node_id: String,
+}
+
+/// Toggle a node's membership in the queue
+async fn toggle_queue_membership(
+    State(state): State<AppState>,
+    Json(request): Json<ToggleQueueRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let mut storage = state.storage.lock().await;
+
+    // Get or create the queue
+    let queue = match storage.get_queue() {
+        Ok(q) => q,
+        Err(_) => {
+            // Create default queue if it doesn't exist
+            let title = "Work Queue".to_string();
+            let queue_id = generate_id("bnq", &title);
+            let new_queue = Queue::new(queue_id.clone(), title);
+            storage.create_queue(&new_queue).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+            })?;
+            new_queue
+        }
+    };
+
+    // Check if the node is already queued
+    let edges = storage
+        .list_edges(
+            Some(EdgeType::Queued),
+            Some(&request.node_id),
+            Some(&queue.id),
+        )
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    let is_queued = !edges.is_empty();
+
+    if is_queued {
+        // Remove from queue
+        storage
+            .remove_edge(&request.node_id, &queue.id, EdgeType::Queued)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+            })?;
+
+        Ok(Json(serde_json::json!({
+            "success": true,
+            "queued": false,
+            "message": format!("{} removed from queue", request.node_id)
+        })))
+    } else {
+        // Add to queue
+        let edge_id = storage.generate_edge_id(&request.node_id, &queue.id, EdgeType::Queued);
+        let edge = Edge::new(
+            edge_id,
+            request.node_id.clone(),
+            queue.id.clone(),
+            EdgeType::Queued,
+        );
+
+        storage.add_edge(&edge).map_err(|e| {
+            (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+        })?;
+
+        Ok(Json(serde_json::json!({
+            "success": true,
+            "queued": true,
+            "message": format!("{} added to queue", request.node_id)
+        })))
+    }
 }

@@ -39,11 +39,22 @@ fn create_task(env: &TestEnv, title: &str) -> String {
     stdout[id_start..id_end].to_string()
 }
 
+/// Create a queue to make the repo fully healthy
+fn create_queue(env: &TestEnv) {
+    bn_in(env)
+        .args(["queue", "create", "Work Queue"])
+        .assert()
+        .success();
+}
+
 // === Doctor Tests ===
 
 #[test]
 fn test_doctor_healthy_json() {
     let temp = init_binnacle();
+
+    // Create a queue to make repo fully healthy
+    create_queue(&temp);
 
     // Create a task to have some data
     create_task(&temp, "Test task");
@@ -59,6 +70,9 @@ fn test_doctor_healthy_json() {
 #[test]
 fn test_doctor_healthy_human() {
     let temp = init_binnacle();
+
+    // Create a queue to make repo fully healthy
+    create_queue(&temp);
 
     bn_in(&temp)
         .args(["-H", "doctor"])
@@ -101,6 +115,34 @@ fn test_doctor_human_stats() {
         .success()
         .stdout(predicate::str::contains("Tasks: 1"))
         .stdout(predicate::str::contains("Storage:"));
+}
+
+// === Doctor Fix Tests ===
+
+#[test]
+fn test_doctor_fix_creates_queue() {
+    let temp = init_binnacle();
+
+    // Without a queue, doctor should report an issue
+    bn_in(&temp)
+        .args(["-H", "doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No primary queue exists"));
+
+    // Run doctor --fix to create the queue
+    bn_in(&temp)
+        .args(["-H", "doctor", "--fix"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Created primary queue"));
+
+    // Now doctor should report healthy
+    bn_in(&temp)
+        .args(["-H", "doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Health check: OK"));
 }
 
 // === Doctor Edge Migration Tests ===

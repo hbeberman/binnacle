@@ -127,6 +127,10 @@ pub enum Commands {
         /// Preview changes without making them
         #[arg(long)]
         dry_run: bool,
+
+        /// Automatically fix issues that can be repaired
+        #[arg(long)]
+        fix: bool,
     },
 
     /// Show audit trail of changes
