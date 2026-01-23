@@ -146,8 +146,20 @@ pub enum Commands {
     #[command(hide = true)]
     Compact,
 
-    /// Push/pull when sharing is enabled
-    Sync,
+    /// Push/pull binnacle data with remote (requires orphan-branch backend)
+    Sync {
+        /// Remote name (default: origin)
+        #[arg(short, long)]
+        remote: Option<String>,
+
+        /// Only push, don't pull
+        #[arg(long, conflicts_with = "pull")]
+        push: bool,
+
+        /// Only pull, don't push
+        #[arg(long, conflicts_with = "push")]
+        pull: bool,
+    },
 
     /// Configuration management
     Config {

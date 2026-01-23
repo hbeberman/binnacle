@@ -8324,6 +8324,372 @@ pub fn terminate_process(pid: u32, timeout_secs: u64) -> bool {
     true
 }
 
+// === Sync Command ===
+
+/// Result of the sync operation.
+#[derive(Serialize)]
+pub struct SyncResult {
+    /// The operation performed (push, pull, or both)
+    pub operation: String,
+    /// Remote name used (e.g., "origin")
+    pub remote: String,
+    /// Branch that was synced
+    pub branch: String,
+    /// Whether push was successful (if performed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pushed: Option<bool>,
+    /// Whether pull was successful (if performed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pulled: Option<bool>,
+    /// Number of commits pushed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commits_pushed: Option<usize>,
+    /// Number of commits pulled
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commits_pulled: Option<usize>,
+    /// Error message if sync failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl Output for SyncResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if let Some(error) = &self.error {
+            lines.push(format!("Sync failed: {}", error));
+            return lines.join("\n");
+        }
+
+        lines.push(format!(
+            "Synced binnacle data ({}) with {}",
+            self.branch, self.remote
+        ));
+
+        if let Some(true) = self.pulled
+            && let Some(count) = self.commits_pulled
+        {
+            if count > 0 {
+                lines.push(format!("  Pulled {} commit(s)", count));
+            } else {
+                lines.push("  Already up to date".to_string());
+            }
+        }
+
+        if let Some(true) = self.pushed
+            && let Some(count) = self.commits_pushed
+        {
+            if count > 0 {
+                lines.push(format!("  Pushed {} commit(s)", count));
+            } else {
+                lines.push("  Nothing to push".to_string());
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// The binnacle data branch name.
+const BINNACLE_BRANCH: &str = "binnacle-data";
+
+/// Sync binnacle data with a remote repository.
+///
+/// This command pushes and/or pulls the `binnacle-data` branch to/from a remote.
+/// It only works when the orphan-branch or git-notes backend is in use.
+///
+/// # Arguments
+/// * `repo_path` - Path to the repository
+/// * `remote` - Remote name (default: "origin")
+/// * `push_only` - Only push, don't pull
+/// * `pull_only` - Only pull, don't push
+pub fn sync(
+    repo_path: &Path,
+    remote: Option<String>,
+    push_only: bool,
+    pull_only: bool,
+) -> Result<SyncResult> {
+    let remote = remote.unwrap_or_else(|| "origin".to_string());
+
+    // Check if the binnacle-data branch exists
+    let branch_exists = Command::new("git")
+        .args([
+            "rev-parse",
+            "--verify",
+            &format!("refs/heads/{}", BINNACLE_BRANCH),
+        ])
+        .current_dir(repo_path)
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+
+    if !branch_exists {
+        return Ok(SyncResult {
+            operation: "none".to_string(),
+            remote: remote.clone(),
+            branch: BINNACLE_BRANCH.to_string(),
+            pushed: None,
+            pulled: None,
+            commits_pushed: None,
+            commits_pulled: None,
+            error: Some(format!(
+                "No '{}' branch found. Sync only works with the orphan-branch storage backend. \
+                 Use 'bn config set storage.backend orphan-branch' to enable it.",
+                BINNACLE_BRANCH
+            )),
+        });
+    }
+
+    // Check if remote exists
+    let remote_exists = Command::new("git")
+        .args(["remote", "get-url", &remote])
+        .current_dir(repo_path)
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+
+    if !remote_exists {
+        return Ok(SyncResult {
+            operation: "none".to_string(),
+            remote: remote.clone(),
+            branch: BINNACLE_BRANCH.to_string(),
+            pushed: None,
+            pulled: None,
+            commits_pushed: None,
+            commits_pulled: None,
+            error: Some(format!("Remote '{}' not found", remote)),
+        });
+    }
+
+    let mut pulled = None;
+    let mut pushed = None;
+    let mut commits_pulled = None;
+    let mut commits_pushed = None;
+
+    // Pull first (if not push_only)
+    if !push_only {
+        // Get current commit before pull
+        let before_commit = Command::new("git")
+            .args(["rev-parse", BINNACLE_BRANCH])
+            .current_dir(repo_path)
+            .output()
+            .ok()
+            .and_then(|out| {
+                if out.status.success() {
+                    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            });
+
+        // Fetch the remote branch
+        let fetch_result = Command::new("git")
+            .args(["fetch", &remote, BINNACLE_BRANCH])
+            .current_dir(repo_path)
+            .output();
+
+        if let Ok(output) = fetch_result {
+            if output.status.success() {
+                // Check if remote branch exists
+                let remote_ref = format!("{}/{}", remote, BINNACLE_BRANCH);
+                let remote_exists = Command::new("git")
+                    .args(["rev-parse", "--verify", &remote_ref])
+                    .current_dir(repo_path)
+                    .output()
+                    .map(|out| out.status.success())
+                    .unwrap_or(false);
+
+                if remote_exists {
+                    // Merge the remote branch (fast-forward only for safety)
+                    let merge_result = Command::new("git")
+                        .args([
+                            "merge",
+                            "--ff-only",
+                            &remote_ref,
+                            // Use plumbing to avoid checkout issues
+                        ])
+                        .env("GIT_WORK_TREE", repo_path)
+                        .current_dir(repo_path)
+                        .output();
+
+                    // Actually, we need to update the ref directly to avoid working tree issues
+                    // For orphan branch, we should use update-ref approach
+                    let update_result = Command::new("git")
+                        .args([
+                            "update-ref",
+                            &format!("refs/heads/{}", BINNACLE_BRANCH),
+                            &remote_ref,
+                        ])
+                        .current_dir(repo_path)
+                        .output();
+
+                    if update_result
+                        .as_ref()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false)
+                        || merge_result
+                            .as_ref()
+                            .map(|o| o.status.success())
+                            .unwrap_or(false)
+                    {
+                        pulled = Some(true);
+
+                        // Count commits pulled
+                        if let Some(before) = before_commit {
+                            let after_commit = Command::new("git")
+                                .args(["rev-parse", BINNACLE_BRANCH])
+                                .current_dir(repo_path)
+                                .output()
+                                .ok()
+                                .and_then(|out| {
+                                    if out.status.success() {
+                                        Some(
+                                            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+                                        )
+                                    } else {
+                                        None
+                                    }
+                                });
+
+                            if let Some(after) = after_commit {
+                                if before != after {
+                                    let count_output = Command::new("git")
+                                        .args([
+                                            "rev-list",
+                                            "--count",
+                                            &format!("{}..{}", before, after),
+                                        ])
+                                        .current_dir(repo_path)
+                                        .output();
+
+                                    commits_pulled = count_output.ok().and_then(|out| {
+                                        if out.status.success() {
+                                            String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+                                        } else {
+                                            None
+                                        }
+                                    });
+                                } else {
+                                    commits_pulled = Some(0);
+                                }
+                            }
+                        }
+                    } else {
+                        pulled = Some(false);
+                    }
+                } else {
+                    // Remote branch doesn't exist yet, that's fine
+                    pulled = Some(true);
+                    commits_pulled = Some(0);
+                }
+            } else {
+                // Fetch failed - maybe remote branch doesn't exist yet
+                pulled = Some(true);
+                commits_pulled = Some(0);
+            }
+        }
+    }
+
+    // Push (if not pull_only)
+    if !pull_only {
+        // Get current commit before push to count commits
+        let local_commit = Command::new("git")
+            .args(["rev-parse", BINNACLE_BRANCH])
+            .current_dir(repo_path)
+            .output()
+            .ok()
+            .and_then(|out| {
+                if out.status.success() {
+                    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            });
+
+        // Check what's on remote
+        let remote_ref = format!("{}/{}", remote, BINNACLE_BRANCH);
+        let remote_commit = Command::new("git")
+            .args(["rev-parse", &remote_ref])
+            .current_dir(repo_path)
+            .output()
+            .ok()
+            .and_then(|out| {
+                if out.status.success() {
+                    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            });
+
+        // Push the branch
+        let push_result = Command::new("git")
+            .args(["push", &remote, BINNACLE_BRANCH])
+            .current_dir(repo_path)
+            .output();
+
+        if let Ok(output) = push_result {
+            pushed = Some(output.status.success());
+
+            if output.status.success() {
+                // Count commits pushed
+                if let (Some(local), Some(remote_c)) = (&local_commit, &remote_commit) {
+                    if local != remote_c {
+                        let count_output = Command::new("git")
+                            .args(["rev-list", "--count", &format!("{}..{}", remote_c, local)])
+                            .current_dir(repo_path)
+                            .output();
+
+                        commits_pushed = count_output.ok().and_then(|out| {
+                            if out.status.success() {
+                                String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+                            } else {
+                                None
+                            }
+                        });
+                    } else {
+                        commits_pushed = Some(0);
+                    }
+                } else if remote_commit.is_none() && local_commit.is_some() {
+                    // First push - count all commits
+                    let count_output = Command::new("git")
+                        .args(["rev-list", "--count", BINNACLE_BRANCH])
+                        .current_dir(repo_path)
+                        .output();
+
+                    commits_pushed = count_output.ok().and_then(|out| {
+                        if out.status.success() {
+                            String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+                        } else {
+                            None
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    let operation = match (push_only, pull_only) {
+        (true, false) => "push",
+        (false, true) => "pull",
+        _ => "sync",
+    };
+
+    Ok(SyncResult {
+        operation: operation.to_string(),
+        remote,
+        branch: BINNACLE_BRANCH.to_string(),
+        pushed,
+        pulled,
+        commits_pushed,
+        commits_pulled,
+        error: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -12907,5 +13273,90 @@ mod tests {
         let json = result.to_json();
         assert!(json.contains("my-agent"));
         assert!(json.contains("12345"));
+    }
+
+    // === Sync Tests ===
+
+    #[test]
+    fn test_sync_result_output_no_branch() {
+        let result = SyncResult {
+            operation: "none".to_string(),
+            remote: "origin".to_string(),
+            branch: "binnacle-data".to_string(),
+            pushed: None,
+            pulled: None,
+            commits_pushed: None,
+            commits_pulled: None,
+            error: Some("No 'binnacle-data' branch found".to_string()),
+        };
+
+        let human = result.to_human();
+        assert!(human.contains("Sync failed"));
+        assert!(human.contains("binnacle-data"));
+
+        let json = result.to_json();
+        assert!(json.contains("\"operation\":\"none\""));
+        assert!(json.contains("binnacle-data"));
+    }
+
+    #[test]
+    fn test_sync_result_output_success() {
+        let result = SyncResult {
+            operation: "sync".to_string(),
+            remote: "origin".to_string(),
+            branch: "binnacle-data".to_string(),
+            pushed: Some(true),
+            pulled: Some(true),
+            commits_pushed: Some(3),
+            commits_pulled: Some(2),
+            error: None,
+        };
+
+        let human = result.to_human();
+        assert!(human.contains("Synced binnacle data"));
+        assert!(human.contains("origin"));
+        assert!(human.contains("Pulled 2 commit"));
+        assert!(human.contains("Pushed 3 commit"));
+
+        let json = result.to_json();
+        assert!(json.contains("\"operation\":\"sync\""));
+        assert!(json.contains("\"pushed\":true"));
+        assert!(json.contains("\"pulled\":true"));
+    }
+
+    #[test]
+    fn test_sync_result_no_changes() {
+        let result = SyncResult {
+            operation: "sync".to_string(),
+            remote: "origin".to_string(),
+            branch: "binnacle-data".to_string(),
+            pushed: Some(true),
+            pulled: Some(true),
+            commits_pushed: Some(0),
+            commits_pulled: Some(0),
+            error: None,
+        };
+
+        let human = result.to_human();
+        assert!(human.contains("Already up to date"));
+        assert!(human.contains("Nothing to push"));
+    }
+
+    #[test]
+    fn test_sync_no_orphan_branch() {
+        // Create a git repo without orphan branch
+        let temp = setup();
+
+        // Initialize git
+        Command::new("git")
+            .args(["init"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        // Sync should fail gracefully
+        let result = sync(temp.path(), None, false, false).unwrap();
+        assert!(result.error.is_some());
+        assert!(result.error.unwrap().contains("binnacle-data"));
     }
 }

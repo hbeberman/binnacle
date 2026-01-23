@@ -584,8 +584,9 @@ fn run_command(
             let result = commands::compact(repo_path)?;
             output(&result, human);
         }
-        Some(Commands::Sync) => {
-            not_implemented("sync", "", human);
+        Some(Commands::Sync { remote, push, pull }) => {
+            let result = commands::sync(repo_path, remote, push, pull)?;
+            output(&result, human);
         }
         Some(Commands::Config { command }) => match command {
             ConfigCommands::Get { key } => {
@@ -1633,7 +1634,14 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
 
         Some(Commands::Compact) => ("compact".to_string(), serde_json::json!({})),
 
-        Some(Commands::Sync) => ("sync".to_string(), serde_json::json!({})),
+        Some(Commands::Sync { remote, push, pull }) => (
+            "sync".to_string(),
+            serde_json::json!({
+                "remote": remote,
+                "push_only": push,
+                "pull_only": pull
+            }),
+        ),
 
         Some(Commands::Config { command }) => match command {
             ConfigCommands::Get { key } => {
