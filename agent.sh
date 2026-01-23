@@ -105,7 +105,7 @@ case "$AGENT_TYPE" in
         ;;
     prd)
         echo "Launching PRD Writer Agent"
-        PROMPT='Read PRD.md and use your binnacle skill to orient yourself. Your job is to find open ideas and help render them into proper PRDs. Check `bn idea list` for candidates. Pick the most promising idea, then STOP and ask the user clarifying questions before writing the PRD. Ask about: scope boundaries (what is in/out), target users, success criteria, implementation constraints, dependencies on other work, and priority relative to other features. Only after getting answers should you write the PRD. Save PRDs to prds/ directory. Run `bn goodbye "summary of PRDs created"` to gracefully terminate your agent session when all work is done.'
+        PROMPT='Read PRD.md and use your binnacle skill to orient yourself. Your job is to help render ideas into proper PRDs. First, ask the user: "Do you have a specific idea or topic in mind, or would you like me to pick one from the open ideas?" If the user provides a topic, work on that. Otherwise, check `bn idea list` for candidates and pick the most promising one. Then STOP and ask clarifying questions before writing the PRD. Ask about: scope boundaries (what is in/out), target users, success criteria, implementation constraints, dependencies on other work, and priority relative to other features. Only after getting answers should you write the PRD. Save PRDs to prds/ directory. Run `bn goodbye "summary of PRDs created"` to gracefully terminate your agent session when all work is done.'
         TOOLS=("${TOOLS_PRD[@]}")
         ;;
     buddy)
