@@ -1942,6 +1942,8 @@
                         <span class="stat-group" id="stat-ideas">💭 0 ideas</span>
                         <span class="stat-separator">|</span>
                         <span class="stat-group" id="stat-milestones">🏁 0 milestones</span>
+                        <span class="stat-separator">|</span>
+                        <span class="stat-group" id="stat-queued">⬡ 0 queued</span>
                     </div>
                     <div class="edge-filters" id="edge-filters">
                         <button class="edge-filters-btn" id="edge-filters-btn">
@@ -2594,6 +2596,7 @@
             const readyCount = state.ready ? state.ready.length : 0;
             const ideaCount = state.tasks.filter(t => t.type === 'idea' && openIdeaStatuses.includes(t.status)).length;
             const milestoneCount = state.tasks.filter(t => t.type === 'milestone' && openStatuses.includes(t.status)).length;
+            const queuedCount = state.tasks.filter(t => t.type !== 'queue' && t.type !== 'agent' && isNodeQueued(t.id)).length;
 
             // Update DOM elements
             document.getElementById('stat-bugs').textContent = `🐛 ${bugCount} bug${bugCount !== 1 ? 's' : ''}`;
@@ -2601,6 +2604,7 @@
             document.getElementById('stat-ready').textContent = `✅ ${readyCount} ready`;
             document.getElementById('stat-ideas').textContent = `💭 ${ideaCount} idea${ideaCount !== 1 ? 's' : ''}`;
             document.getElementById('stat-milestones').textContent = `🏁 ${milestoneCount} milestone${milestoneCount !== 1 ? 's' : ''}`;
+            document.getElementById('stat-queued').textContent = `⬡ ${queuedCount} queued`;
             
             // Update active state for stat filters
             updateStatFilterHighlights();
@@ -2663,7 +2667,8 @@
                 'stat-blocked': 'blocked',
                 'stat-ready': 'ready',
                 'stat-ideas': 'ideas',
-                'stat-milestones': 'milestones'
+                'stat-milestones': 'milestones',
+                'stat-queued': 'queued'
             };
             
             for (const [elementId, filterName] of Object.entries(filterMap)) {
@@ -2695,7 +2700,8 @@
                 'blocked': 'stat-blocked',
                 'ready': 'stat-ready',
                 'ideas': 'stat-ideas',
-                'milestones': 'stat-milestones'
+                'milestones': 'stat-milestones',
+                'queued': 'stat-queued'
             };
             
             for (const [filter, elementId] of Object.entries(filterMap)) {
@@ -2726,6 +2732,8 @@
                     return node.type === 'idea' && ['seed', 'germinating'].includes(node.status);
                 case 'milestones':
                     return node.type === 'milestone' && openStatuses.includes(node.status);
+                case 'queued':
+                    return node.type !== 'queue' && node.type !== 'agent' && isNodeQueued(node.id);
                 default:
                     return true;
             }
