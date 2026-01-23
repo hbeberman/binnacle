@@ -672,6 +672,36 @@ impl Agent {
     }
 }
 
+/// Session state for commit-msg hook detection.
+/// Written to session.json in the storage directory when `bn orient` is called.
+/// Used by git hooks to detect active agent sessions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionState {
+    /// Process ID of the agent (parent PID of bn process)
+    pub agent_pid: u32,
+
+    /// Type of agent (worker, planner, buddy)
+    pub agent_type: AgentType,
+
+    /// When the session started (orient was called)
+    pub started_at: DateTime<Utc>,
+
+    /// Whether orient was called in this session
+    pub orient_called: bool,
+}
+
+impl SessionState {
+    /// Create a new session state.
+    pub fn new(agent_pid: u32, agent_type: AgentType) -> Self {
+        Self {
+            agent_pid,
+            agent_type,
+            started_at: Utc::now(),
+            orient_called: true,
+        }
+    }
+}
+
 /// A work pool for agent task prioritization.
 /// Only one queue can exist per repository.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1272,5 +1302,33 @@ mod tests {
         // After ensure_id, it should have a proper bna-xxxx ID
         agent.ensure_id();
         assert!(agent.id.starts_with("bna-"));
+    }
+
+    #[test]
+    fn test_session_state_new() {
+        let state = SessionState::new(1234, AgentType::Worker);
+        assert_eq!(state.agent_pid, 1234);
+        assert_eq!(state.agent_type, AgentType::Worker);
+        assert!(state.orient_called);
+    }
+
+    #[test]
+    fn test_session_state_serialization_roundtrip() {
+        let state = SessionState::new(5678, AgentType::Planner);
+        let json = serde_json::to_string(&state).unwrap();
+        let deserialized: SessionState = serde_json::from_str(&json).unwrap();
+        assert_eq!(state.agent_pid, deserialized.agent_pid);
+        assert_eq!(state.agent_type, deserialized.agent_type);
+        assert_eq!(state.orient_called, deserialized.orient_called);
+    }
+
+    #[test]
+    fn test_session_state_json_format() {
+        let state = SessionState::new(9999, AgentType::Buddy);
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("\"agent_pid\":9999"));
+        assert!(json.contains("\"agent_type\":\"buddy\""));
+        assert!(json.contains("\"orient_called\":true"));
+        assert!(json.contains("\"started_at\""));
     }
 }

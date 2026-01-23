@@ -3151,6 +3151,36 @@ impl Storage {
 
         Ok(())
     }
+
+    // === Session State Operations ===
+
+    /// Write session state to session.json for commit-msg hook detection.
+    pub fn write_session_state(&self, state: &crate::models::SessionState) -> Result<()> {
+        let session_path = self.root.join("session.json");
+        let json = serde_json::to_string_pretty(state)?;
+        fs::write(&session_path, json)?;
+        Ok(())
+    }
+
+    /// Read session state from session.json if it exists.
+    pub fn read_session_state(&self) -> Result<crate::models::SessionState> {
+        let session_path = self.root.join("session.json");
+        if !session_path.exists() {
+            return Err(Error::NotFound("No active session".to_string()));
+        }
+        let content = fs::read_to_string(&session_path)?;
+        let state: crate::models::SessionState = serde_json::from_str(&content)?;
+        Ok(state)
+    }
+
+    /// Delete session state file.
+    pub fn clear_session_state(&self) -> Result<()> {
+        let session_path = self.root.join("session.json");
+        if session_path.exists() {
+            fs::remove_file(&session_path)?;
+        }
+        Ok(())
+    }
 }
 
 /// Resolve a git worktree's `.git` file to find the main repository root.
@@ -4550,5 +4580,67 @@ mod tests {
         // Should be empty now
         let agents = storage.list_agents(None).unwrap();
         assert_eq!(agents.len(), 0);
+    }
+
+    // === Session State Tests ===
+
+    #[test]
+    fn test_session_state_write_and_read() {
+        use crate::models::SessionState;
+        let (_temp_dir, storage) = create_test_storage();
+
+        let state = SessionState::new(1234, AgentType::Worker);
+        storage.write_session_state(&state).unwrap();
+
+        let read_state = storage.read_session_state().unwrap();
+        assert_eq!(read_state.agent_pid, 1234);
+        assert_eq!(read_state.agent_type, AgentType::Worker);
+        assert!(read_state.orient_called);
+    }
+
+    #[test]
+    fn test_session_state_read_not_found() {
+        let (_temp_dir, storage) = create_test_storage();
+
+        // No session state written yet
+        let result = storage.read_session_state();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_session_state_clear() {
+        use crate::models::SessionState;
+        let (_temp_dir, storage) = create_test_storage();
+
+        let state = SessionState::new(5678, AgentType::Planner);
+        storage.write_session_state(&state).unwrap();
+
+        // Verify it exists
+        assert!(storage.read_session_state().is_ok());
+
+        // Clear it
+        storage.clear_session_state().unwrap();
+
+        // Verify it's gone
+        assert!(storage.read_session_state().is_err());
+    }
+
+    #[test]
+    fn test_session_state_overwrite() {
+        use crate::models::SessionState;
+        let (_temp_dir, storage) = create_test_storage();
+
+        // Write first state
+        let state1 = SessionState::new(1111, AgentType::Worker);
+        storage.write_session_state(&state1).unwrap();
+
+        // Overwrite with second state
+        let state2 = SessionState::new(2222, AgentType::Buddy);
+        storage.write_session_state(&state2).unwrap();
+
+        // Should read the second state
+        let read_state = storage.read_session_state().unwrap();
+        assert_eq!(read_state.agent_pid, 2222);
+        assert_eq!(read_state.agent_type, AgentType::Buddy);
     }
 }

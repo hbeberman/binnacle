@@ -10,7 +10,7 @@
 
 use crate::models::{
     Agent, AgentType, Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone,
-    Queue, Task, TaskStatus, TestNode, TestResult, graph::UnionFind,
+    Queue, SessionState, Task, TaskStatus, TestNode, TestResult, graph::UnionFind,
 };
 use crate::storage::{EntityType, Storage, generate_id, parse_status};
 use crate::{Error, Result};
@@ -733,7 +733,7 @@ pub fn orient(
     // Check if already registered (update activity, type, and potentially purpose) or register new
     if let Ok(mut existing_agent) = storage.get_agent(agent_pid) {
         // Update type and purpose if provided (allows re-registering)
-        existing_agent.agent_type = agent_type;
+        existing_agent.agent_type = agent_type.clone();
         if purpose.is_some() {
             existing_agent.purpose = purpose;
         }
@@ -742,12 +742,16 @@ pub fn orient(
     } else {
         // Register new agent with parent PID as primary identifier
         let agent = if let Some(ref p) = purpose {
-            Agent::new_with_purpose(agent_pid, bn_pid, agent_name, agent_type, p.clone())
+            Agent::new_with_purpose(agent_pid, bn_pid, agent_name, agent_type.clone(), p.clone())
         } else {
-            Agent::new(agent_pid, bn_pid, agent_name, agent_type)
+            Agent::new(agent_pid, bn_pid, agent_name, agent_type.clone())
         };
         storage.register_agent(&agent)?;
     }
+
+    // Write session state for commit-msg hook detection
+    let session_state = SessionState::new(agent_pid, agent_type);
+    storage.write_session_state(&session_state)?;
 
     let tasks = storage.list_tasks(None, None, None)?;
 
@@ -13741,5 +13745,37 @@ mod tests {
         assert!(human.contains("2 disconnected components"));
         assert!(human.contains("isolated"));
         assert!(human.contains("Tip:"));
+    }
+
+    #[test]
+    fn test_orient_writes_session_state() {
+        let temp = setup();
+
+        // Run orient
+        let _result = orient(temp.path(), "worker", false, None, None).unwrap();
+
+        // Verify session state was written
+        let storage = Storage::open(temp.path()).unwrap();
+        let session = storage.read_session_state().unwrap();
+
+        // Session should reflect the orient call
+        assert!(session.orient_called);
+        assert_eq!(session.agent_type, crate::models::AgentType::Worker);
+    }
+
+    #[test]
+    fn test_orient_updates_session_state_on_reorient() {
+        let temp = setup();
+
+        // First orient as worker
+        orient(temp.path(), "worker", false, None, None).unwrap();
+
+        // Second orient as planner
+        orient(temp.path(), "planner", false, None, None).unwrap();
+
+        // Verify session state reflects latest orient
+        let storage = Storage::open(temp.path()).unwrap();
+        let session = storage.read_session_state().unwrap();
+        assert_eq!(session.agent_type, crate::models::AgentType::Planner);
     }
 }
