@@ -1687,7 +1687,8 @@
             supersedes: { name: 'Supersedes', category: 'informational', defaultVisible: false },
             parent_of: { name: 'Parent', category: 'hierarchy', defaultVisible: false },
             child_of: { name: 'Child', category: 'hierarchy', defaultVisible: false },
-            tests: { name: 'Tests', category: 'fixes', defaultVisible: false }
+            tests: { name: 'Tests', category: 'fixes', defaultVisible: false },
+            queued: { name: 'Queued', category: 'queued', defaultVisible: true }
         };
 
         // Load edge filter state from localStorage
@@ -4046,6 +4047,7 @@
                 case 'informational': return styles.getPropertyValue('--edge-informational').trim();
                 case 'fixes': return styles.getPropertyValue('--edge-fixes').trim();
                 case 'hierarchy': return styles.getPropertyValue('--edge-hierarchy').trim();
+                case 'queued': return styles.getPropertyValue('--edge-queued').trim();
                 default: return styles.getPropertyValue('--edge-default').trim();
             }
         }
