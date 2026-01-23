@@ -4355,7 +4355,9 @@ pub fn search_link(
 #[derive(Serialize)]
 pub struct ReadyTasks {
     pub tasks: Vec<Task>,
+    pub bugs: Vec<Bug>,
     pub count: usize,
+    pub bug_count: usize,
 }
 
 impl Output for ReadyTasks {
@@ -4364,35 +4366,68 @@ impl Output for ReadyTasks {
     }
 
     fn to_human(&self) -> String {
-        if self.tasks.is_empty() {
-            return "No ready tasks.".to_string();
+        let mut lines = Vec::new();
+
+        // Show bugs first (higher priority typically)
+        if !self.bugs.is_empty() {
+            lines.push(format!("{} ready bug(s):\n", self.bug_count));
+            for bug in &self.bugs {
+                let tags = if bug.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", bug.tags.join(", "))
+                };
+                lines.push(format!(
+                    "  {} P{} {} ({}){}",
+                    bug.id,
+                    bug.priority,
+                    bug.title,
+                    format!("{:?}", bug.severity).to_lowercase(),
+                    tags
+                ));
+            }
+            if !self.tasks.is_empty() {
+                lines.push(String::new()); // blank line between sections
+            }
         }
 
-        let mut lines = Vec::new();
-        lines.push(format!("{} ready task(s):\n", self.count));
+        // Show tasks
+        if !self.tasks.is_empty() {
+            lines.push(format!("{} ready task(s):\n", self.count));
+            for task in &self.tasks {
+                let tags = if task.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", task.tags.join(", "))
+                };
+                lines.push(format!(
+                    "  {} P{} {}{}",
+                    task.id, task.priority, task.title, tags
+                ));
+            }
+        }
 
-        for task in &self.tasks {
-            let tags = if task.tags.is_empty() {
-                String::new()
-            } else {
-                format!(" [{}]", task.tags.join(", "))
-            };
-            lines.push(format!(
-                "  {} P{} {}{}",
-                task.id, task.priority, task.title, tags
-            ));
+        if lines.is_empty() {
+            return "No ready tasks or bugs.".to_string();
         }
 
         lines.join("\n")
     }
 }
 
-/// Get tasks that are ready (no open blockers).
+/// Get tasks and bugs that are ready (no open blockers).
 pub fn ready(repo_path: &Path) -> Result<ReadyTasks> {
     let storage = Storage::open(repo_path)?;
     let tasks = storage.get_ready_tasks()?;
+    let bugs = storage.get_ready_bugs()?;
     let count = tasks.len();
-    Ok(ReadyTasks { tasks, count })
+    let bug_count = bugs.len();
+    Ok(ReadyTasks {
+        tasks,
+        bugs,
+        count,
+        bug_count,
+    })
 }
 
 #[derive(Serialize)]

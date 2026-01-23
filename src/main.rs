@@ -1116,9 +1116,10 @@ fn not_implemented(command: &str, subcommand: &str, human: bool) {
 /// Serialize command to extract name and arguments for logging.
 fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) {
     match command {
-        Some(Commands::Orient { init, name }) => {
-            ("orient".to_string(), serde_json::json!({ "init": init, "name": name }))
-        }
+        Some(Commands::Orient { init, name }) => (
+            "orient".to_string(),
+            serde_json::json!({ "init": init, "name": name }),
+        ),
 
         Some(Commands::Goodbye { reason, dry_run }) => (
             "goodbye".to_string(),

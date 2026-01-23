@@ -1436,6 +1436,37 @@ impl Storage {
         Ok(ready)
     }
 
+    /// Get bugs that are ready (no open blockers).
+    pub fn get_ready_bugs(&self) -> Result<Vec<Bug>> {
+        let bugs = self.list_bugs(None, None, None, None)?;
+        let mut ready = Vec::new();
+
+        for bug in bugs {
+            match bug.status {
+                TaskStatus::Pending | TaskStatus::Reopened => {
+                    // Check legacy depends_on field
+                    let legacy_deps_done = bug.depends_on.is_empty()
+                        || bug
+                            .depends_on
+                            .iter()
+                            .all(|dep_id| self.is_entity_done(dep_id));
+
+                    // Check edge-based dependencies
+                    let edge_deps = self.get_edge_dependencies(&bug.id).unwrap_or_default();
+                    let edge_deps_done = edge_deps.is_empty()
+                        || edge_deps.iter().all(|dep_id| self.is_entity_done(dep_id));
+
+                    if legacy_deps_done && edge_deps_done {
+                        ready.push(bug);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(ready)
+    }
+
     /// Check if an entity (task or bug) is in a "done" state.
     pub fn is_entity_done(&self, id: &str) -> bool {
         if let Ok(task) = self.get_task(id) {
