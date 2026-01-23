@@ -157,6 +157,10 @@ pub enum Commands {
         /// Show status of running GUI server and exit
         #[arg(long)]
         status: bool,
+
+        /// Stop a running GUI server gracefully (SIGTERM, then SIGKILL after timeout)
+        #[arg(long)]
+        stop: bool,
     },
 }
 

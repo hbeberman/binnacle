@@ -583,8 +583,15 @@ fn run_command(
             },
         },
         #[cfg(feature = "gui")]
-        Some(Commands::Gui { port, host, status }) => {
-            if status {
+        Some(Commands::Gui {
+            port,
+            host,
+            status,
+            stop,
+        }) => {
+            if stop {
+                stop_gui(repo_path, human)?;
+            } else if status {
                 show_gui_status(repo_path, human)?;
             } else {
                 run_gui(repo_path, port, &host)?;
@@ -740,6 +747,156 @@ fn show_gui_status(repo_path: &Path, human: bool) -> Result<(), binnacle::Error>
     }
 
     Ok(())
+}
+
+/// Stop a running GUI server with graceful shutdown
+#[cfg(feature = "gui")]
+fn stop_gui(repo_path: &Path, human: bool) -> Result<(), binnacle::Error> {
+    use binnacle::gui::{GuiPidFile, ProcessStatus};
+    use binnacle::storage::get_storage_dir;
+    use std::thread;
+    use std::time::Duration;
+
+    let storage_dir = get_storage_dir(repo_path)?;
+    let pid_file = GuiPidFile::new(&storage_dir);
+
+    match pid_file
+        .check_running()
+        .map_err(|e| binnacle::Error::Other(format!("Failed to check PID file: {}", e)))?
+    {
+        Some((status, info)) => match status {
+            ProcessStatus::Running => {
+                let pid = info.pid;
+                if human {
+                    println!("Stopping GUI server (PID: {})...", pid);
+                }
+
+                // Send SIGTERM for graceful shutdown
+                if !send_signal(pid, Signal::Term) {
+                    // Process already gone
+                    pid_file.delete().ok();
+                    if human {
+                        println!("Process already stopped");
+                    } else {
+                        println!(
+                            r#"{{"status":"stopped","pid":{},"method":"already_gone"}}"#,
+                            pid
+                        );
+                    }
+                    return Ok(());
+                }
+
+                // Wait for graceful shutdown with timeout
+                const GRACEFUL_TIMEOUT: Duration = Duration::from_secs(5);
+                const POLL_INTERVAL: Duration = Duration::from_millis(100);
+                let deadline = std::time::Instant::now() + GRACEFUL_TIMEOUT;
+
+                loop {
+                    thread::sleep(POLL_INTERVAL);
+
+                    // Check if process is still running
+                    match pid_file.check_running() {
+                        Ok(Some((ProcessStatus::Running, _))) => {
+                            if std::time::Instant::now() >= deadline {
+                                // Timeout - send SIGKILL
+                                if human {
+                                    println!("Graceful shutdown timed out, forcing termination...");
+                                }
+                                send_signal(pid, Signal::Kill);
+                                thread::sleep(Duration::from_millis(500));
+                                pid_file.delete().ok();
+                                if human {
+                                    println!("GUI server forcefully terminated");
+                                } else {
+                                    println!(
+                                        r#"{{"status":"stopped","pid":{},"method":"sigkill"}}"#,
+                                        pid
+                                    );
+                                }
+                                return Ok(());
+                            }
+                            // Keep waiting
+                        }
+                        _ => {
+                            // Process stopped
+                            pid_file.delete().ok();
+                            if human {
+                                println!("GUI server stopped gracefully");
+                            } else {
+                                println!(
+                                    r#"{{"status":"stopped","pid":{},"method":"sigterm"}}"#,
+                                    pid
+                                );
+                            }
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            ProcessStatus::NotRunning | ProcessStatus::Stale => {
+                // Clean up stale PID file
+                pid_file.delete().ok();
+                if human {
+                    println!("GUI server is not running (cleaned up stale PID file)");
+                } else {
+                    println!(r#"{{"status":"not_running","cleaned_stale":true}}"#);
+                }
+            }
+        },
+        None => {
+            if human {
+                println!("GUI server is not running (no PID file)");
+            } else {
+                println!(r#"{{"status":"not_running"}}"#);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Signal type for process termination
+#[cfg(feature = "gui")]
+enum Signal {
+    Term,
+    Kill,
+}
+
+/// Send a signal to a process. Returns false if process doesn't exist.
+#[cfg(all(feature = "gui", unix))]
+fn send_signal(pid: u32, signal: Signal) -> bool {
+    use std::process::Command;
+
+    let signal_str = match signal {
+        Signal::Term => "-TERM",
+        Signal::Kill => "-KILL",
+    };
+
+    Command::new("kill")
+        .args([signal_str, &pid.to_string()])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+/// Send a signal to a process on Windows. Returns false if process doesn't exist.
+#[cfg(all(feature = "gui", windows))]
+fn send_signal(pid: u32, signal: Signal) -> bool {
+    use std::process::Command;
+
+    // On Windows, we use taskkill. /T kills child processes too.
+    // SIGTERM equivalent: taskkill (graceful)
+    // SIGKILL equivalent: taskkill /F (force)
+    let args = match signal {
+        Signal::Term => vec!["/PID", &pid.to_string()],
+        Signal::Kill => vec!["/F", "/PID", &pid.to_string()],
+    };
+
+    Command::new("taskkill")
+        .args(&args)
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
 }
 
 /// Print a not-implemented message for a command.
@@ -1258,9 +1415,14 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         },
 
         #[cfg(feature = "gui")]
-        Some(Commands::Gui { port, host, status }) => (
+        Some(Commands::Gui {
+            port,
+            host,
+            status,
+            stop,
+        }) => (
             "gui".to_string(),
-            serde_json::json!({ "port": port, "host": host, "status": status }),
+            serde_json::json!({ "port": port, "host": host, "status": status, "stop": stop }),
         ),
 
         None => ("status".to_string(), serde_json::json!({})),

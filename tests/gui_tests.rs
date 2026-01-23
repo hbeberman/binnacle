@@ -34,6 +34,54 @@ mod gui_enabled {
         cmd.arg("gui").arg("--port").arg("8080").arg("--help");
         cmd.assert().success();
     }
+
+    #[test]
+    fn test_gui_stop_flag_in_help() {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.arg("gui").arg("--help");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains("--stop"))
+            .stdout(predicates::str::contains("gracefully"));
+    }
+
+    #[test]
+    fn test_gui_stop_when_not_running_json() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle first
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Stop should report not running (JSON)
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("--stop");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains(r#""status":"not_running""#));
+    }
+
+    #[test]
+    fn test_gui_stop_when_not_running_human() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle first
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Stop should report not running (human-readable)
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("--stop").arg("-H");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains("not running"));
+    }
 }
 
 #[cfg(not(feature = "gui"))]
