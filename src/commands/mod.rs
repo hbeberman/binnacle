@@ -1630,6 +1630,23 @@ pub fn task_update(
         // If setting status to in_progress, track task association for registered agents
         if new_status == TaskStatus::InProgress {
             let pid = std::process::id();
+            // Check if agent is registered and already has tasks
+            if let Ok(agent) = storage.get_agent(pid)
+                && !agent.tasks.is_empty()
+                && !force
+            {
+                let existing_tasks = agent.tasks.join(", ");
+                return Err(Error::Other(format!(
+                    "Agent already has {} task(s) in progress: {}\n\n\
+                    Taking on multiple tasks may lead to context thrashing.\n\
+                    Complete your current task first, or use --force to override.\n\n\
+                    Hint: Run 'bn task close {}' when done, or 'bn task update {} --status in_progress --force'",
+                    agent.tasks.len(),
+                    existing_tasks,
+                    agent.tasks.first().unwrap_or(&String::new()),
+                    id
+                )));
+            }
             // Silently ignore errors - agent tracking is optional
             let _ = storage.agent_add_task(pid, id);
         }
@@ -7790,6 +7807,152 @@ mod tests {
             updated_agent.tasks.contains(&task.id),
             "Agent should have the task in its tasks list"
         );
+    }
+
+    #[test]
+    fn test_task_update_in_progress_warns_on_multiple_tasks() {
+        let temp = setup();
+
+        // Register current process as an agent
+        let pid = std::process::id();
+        let parent_pid = 1;
+        let agent = Agent::new(pid, parent_pid, "test-agent".to_string());
+        {
+            let mut storage = Storage::open(temp.path()).unwrap();
+            storage.register_agent(&agent).unwrap();
+        }
+
+        // Create two tasks
+        let task1 = task_create(
+            temp.path(),
+            "First task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Second task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Set first task to in_progress
+        let result = task_update(
+            temp.path(),
+            &task1.id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            vec![],
+            vec![],
+            None,
+            false,
+        );
+        assert!(result.is_ok(), "First task should succeed");
+
+        // Try to set second task to in_progress without force
+        let result = task_update(
+            temp.path(),
+            &task2.id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            vec![],
+            vec![],
+            None,
+            false,
+        );
+        assert!(result.is_err(), "Second task should fail without force");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("already has"),
+            "Error should mention existing tasks"
+        );
+    }
+
+    #[test]
+    fn test_task_update_in_progress_force_allows_multiple_tasks() {
+        let temp = setup();
+
+        // Register current process as an agent
+        let pid = std::process::id();
+        let parent_pid = 1;
+        let agent = Agent::new(pid, parent_pid, "test-agent".to_string());
+        {
+            let mut storage = Storage::open(temp.path()).unwrap();
+            storage.register_agent(&agent).unwrap();
+        }
+
+        // Create two tasks
+        let task1 = task_create(
+            temp.path(),
+            "First task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Second task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Set first task to in_progress
+        task_update(
+            temp.path(),
+            &task1.id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            vec![],
+            vec![],
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Set second task to in_progress with force
+        let result = task_update(
+            temp.path(),
+            &task2.id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            vec![],
+            vec![],
+            None,
+            true, // force = true
+        );
+        assert!(result.is_ok(), "Second task should succeed with force");
+
+        // Verify agent has both tasks
+        let storage = Storage::open(temp.path()).unwrap();
+        let agent = storage.get_agent(pid).unwrap();
+        assert_eq!(agent.tasks.len(), 2);
     }
 
     #[test]
