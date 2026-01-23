@@ -158,6 +158,32 @@ Sanitization automatically:
 - Truncates long strings
 - Summarizes large arrays
 
+### Require Commit for Closure
+
+Enable enforcement that tasks must have at least one linked commit before being closed:
+
+```bash
+# Enable the requirement
+bn config set require_commit_for_close true
+
+# Now tasks require a linked commit to close
+bn task close bn-xxxx  # Error: no commits linked
+bn commit link abc1234 bn-xxxx
+bn task close bn-xxxx  # Success
+
+# Bypass with --force when needed (e.g., docs-only tasks)
+bn task close bn-xxxx --force --reason "Documentation only"
+```
+
+**Config key:**
+
+- `require_commit_for_close` - Require linked commits before closing tasks as done (default: `false`)
+
+When enabled:
+- `bn task close` and `bn task update --status done` check for linked commits
+- Use `--force` to bypass the check for legitimate cases (config changes, documentation)
+- `cancelled` status is exempt (no commit required)
+
 ### Environment Variables
 
 - `BN_DATA_DIR` - Override the base directory for binnacle data storage. By default, data is stored in `~/.local/share/binnacle/`. When set, binnacle stores data in `$BN_DATA_DIR/<repo-hash>/` instead. Useful for testing or isolating data between environments.
