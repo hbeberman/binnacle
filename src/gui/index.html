@@ -1795,7 +1795,7 @@
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
             state.ws = new WebSocket(`${protocol}//${location.host}/ws`);
 
-            state.ws.onopen = () => {
+            state.ws.onopen = async () => {
                 updateConnectionStatus(true);
                 // Show reconnection toast only if we were previously connected
                 if (wasConnected) {
@@ -1806,8 +1806,13 @@
                     }
                     showToast('Connection restored', 'success', 3000);
                 }
+                const isInitialLoad = !wasConnected;
                 wasConnected = true;
-                loadData();
+                await loadData();
+                // On initial page load, snap to active task if auto-follow is enabled
+                if (isInitialLoad && state.graph.autoFollow) {
+                    snapToActiveTask();
+                }
             };
 
             state.ws.onmessage = (event) => {
