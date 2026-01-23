@@ -557,6 +557,110 @@ fn test_compact_with_tests() {
         .stdout(predicate::str::contains("\"count\":1"));
 }
 
+/// Regression test: Ideas must be preserved after compact.
+/// This test ensures rebuild_cache correctly reads ideas.jsonl.
+/// Issue: Ideas were not being read back into cache after compact
+/// because rebuild_cache was missing the ideas.jsonl reading code.
+#[test]
+fn test_compact_preserves_ideas() {
+    let temp = init_binnacle();
+
+    // Create multiple ideas
+    bn_in(&temp)
+        .args(["idea", "create", "First idea"])
+        .assert()
+        .success();
+
+    let output = bn_in(&temp)
+        .args(["idea", "create", "Second idea"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id2 = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    bn_in(&temp)
+        .args(["idea", "create", "Third idea"])
+        .assert()
+        .success();
+
+    // Update one idea
+    bn_in(&temp)
+        .args(["idea", "update", id2, "--status", "germinating"])
+        .assert()
+        .success();
+
+    // Run compact (triggers rebuild_cache)
+    bn_in(&temp).arg("compact").assert().success();
+
+    // Verify all ideas still exist
+    bn_in(&temp)
+        .args(["idea", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"count\":3"));
+
+    // Verify the updated idea has correct status
+    bn_in(&temp)
+        .args(["idea", "show", id2])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"germinating\""));
+}
+
+/// Regression test: Bugs must be preserved after compact.
+/// This test ensures rebuild_cache correctly reads bugs.jsonl.
+#[test]
+fn test_compact_preserves_bugs() {
+    let temp = init_binnacle();
+
+    // Create multiple bugs
+    bn_in(&temp)
+        .args(["bug", "create", "First bug"])
+        .assert()
+        .success();
+
+    let output = bn_in(&temp)
+        .args(["bug", "create", "Second bug"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id2 = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    bn_in(&temp)
+        .args(["bug", "create", "Third bug"])
+        .assert()
+        .success();
+
+    // Run compact (triggers rebuild_cache)
+    bn_in(&temp).arg("compact").assert().success();
+
+    // Verify all bugs still exist
+    bn_in(&temp)
+        .args(["bug", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"count\":3"));
+
+    // Verify a specific bug can be retrieved
+    bn_in(&temp)
+        .args(["bug", "show", id2])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Second bug"));
+}
+
 // === Not Initialized Tests ===
 
 #[test]

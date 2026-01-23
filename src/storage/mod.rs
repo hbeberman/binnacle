@@ -444,6 +444,8 @@ impl Storage {
             DELETE FROM bug_dependencies;
             DELETE FROM bug_tags;
             DELETE FROM bugs;
+            DELETE FROM idea_tags;
+            DELETE FROM ideas;
             DELETE FROM milestone_tags;
             DELETE FROM milestones;
             DELETE FROM test_links;
@@ -506,6 +508,25 @@ impl Storage {
                     && bug.entity_type == "bug"
                 {
                     self.cache_bug(&bug)?;
+                }
+            }
+        }
+
+        // Re-read ideas from ideas.jsonl
+        let ideas_path = self.root.join("ideas.jsonl");
+        if ideas_path.exists() {
+            let file = File::open(&ideas_path)?;
+            let reader = BufReader::new(file);
+
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(idea) = serde_json::from_str::<Idea>(&line)
+                    && idea.entity_type == "idea"
+                {
+                    self.cache_idea(&idea)?;
                 }
             }
         }
