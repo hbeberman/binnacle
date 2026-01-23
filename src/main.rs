@@ -583,8 +583,12 @@ fn run_command(
             },
         },
         #[cfg(feature = "gui")]
-        Some(Commands::Gui { port, host }) => {
-            run_gui(repo_path, port, &host)?;
+        Some(Commands::Gui { port, host, status }) => {
+            if status {
+                show_gui_status(repo_path, human)?;
+            } else {
+                run_gui(repo_path, port, &host)?;
+            }
         }
         None => {
             // Default: show status summary
@@ -676,6 +680,66 @@ fn run_gui(repo_path: &Path, port: u16, host: &str) -> Result<(), binnacle::Erro
     pid_file.delete().ok();
 
     result
+}
+
+/// Show the status of the GUI server
+#[cfg(feature = "gui")]
+fn show_gui_status(repo_path: &Path, human: bool) -> Result<(), binnacle::Error> {
+    use binnacle::gui::{GuiPidFile, ProcessStatus};
+    use binnacle::storage::get_storage_dir;
+
+    let storage_dir = get_storage_dir(repo_path)?;
+    let pid_file = GuiPidFile::new(&storage_dir);
+
+    match pid_file
+        .check_running()
+        .map_err(|e| binnacle::Error::Other(format!("Failed to check PID file: {}", e)))?
+    {
+        Some((status, info)) => {
+            let status_str = match status {
+                ProcessStatus::Running => "running",
+                ProcessStatus::NotRunning => "not_running",
+                ProcessStatus::Stale => "stale",
+            };
+
+            if human {
+                match status {
+                    ProcessStatus::Running => {
+                        println!("GUI server is running");
+                        println!("  PID:  {}", info.pid);
+                        println!("  Port: {}", info.port);
+                        println!("  Host: {}", info.host);
+                        println!("  URL:  http://{}:{}", info.host, info.port);
+                    }
+                    ProcessStatus::NotRunning => {
+                        println!("GUI server is not running (stale PID file found)");
+                        println!("  Last PID:  {}", info.pid);
+                        println!("  Last Port: {}", info.port);
+                    }
+                    ProcessStatus::Stale => {
+                        println!(
+                            "GUI server is not running (PID {} was reused by another process)",
+                            info.pid
+                        );
+                    }
+                }
+            } else {
+                println!(
+                    r#"{{"status":"{}","pid":{},"port":{},"host":"{}"}}"#,
+                    status_str, info.pid, info.port, info.host
+                );
+            }
+        }
+        None => {
+            if human {
+                println!("GUI server is not running (no PID file)");
+            } else {
+                println!(r#"{{"status":"not_running"}}"#);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Print a not-implemented message for a command.
@@ -1194,9 +1258,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         },
 
         #[cfg(feature = "gui")]
-        Some(Commands::Gui { port, host }) => (
+        Some(Commands::Gui { port, host, status }) => (
             "gui".to_string(),
-            serde_json::json!({ "port": port, "host": host }),
+            serde_json::json!({ "port": port, "host": host, "status": status }),
         ),
 
         None => ("status".to_string(), serde_json::json!({})),

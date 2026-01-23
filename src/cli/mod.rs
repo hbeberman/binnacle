@@ -153,6 +153,10 @@ pub enum Commands {
         /// Host address to bind to (default: 127.0.0.1, use 0.0.0.0 for network access)
         #[arg(long, env = "BN_GUI_HOST", default_value = "127.0.0.1")]
         host: String,
+
+        /// Show status of running GUI server and exit
+        #[arg(long)]
+        status: bool,
     },
 }
 
