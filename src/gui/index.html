@@ -3513,8 +3513,10 @@
 
         // Check if a node is in the queue (has a 'queued' edge to a queue node)
         function isNodeQueued(nodeId) {
-            return state.graph.edges.some(edge => 
-                edge.from === nodeId && edge.edge_type === 'queued'
+            // Check state.edges (API data) directly, not state.graph.edges
+            // state.graph.edges is only populated when the graph view is rendered
+            return (state.edges || []).some(edge => 
+                edge.source === nodeId && edge.edge_type === 'queued'
             );
         }
 
