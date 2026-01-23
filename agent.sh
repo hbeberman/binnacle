@@ -98,6 +98,7 @@ case "$AGENT_TYPE" in
         ;;
     do)
         [[ $# -lt 1 ]] && { echo "Error: 'do' requires a description argument"; usage; }
+        [[ $# -gt 1 ]] && { echo "Error: Too many arguments. Did you forget to quote the description?"; echo "  Try: ./agent.sh do \"$*\""; exit 1; }
         DESC="$1"
         echo "Launching Make Agent: $DESC"
         PROMPT="Read PRD.md and use your binnacle skill to orient yourself. Then work on the following: $DESC. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work. Run \`bn goodbye \"summary of what was accomplished\"\` to gracefully terminate your agent session when all work is done."
