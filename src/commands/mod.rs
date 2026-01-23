@@ -3772,6 +3772,26 @@ fn validate_edge_type_constraints(
                     "parent_of edge source cannot be a test".to_string(),
                 ));
             }
+            // Check if target already has a parent (strict hierarchy: only one parent allowed)
+            let existing_parents =
+                storage.list_edges(Some(EdgeType::ParentOf), None, Some(target))?;
+            if !existing_parents.is_empty() {
+                let existing_parent = &existing_parents[0].source;
+                return Err(Error::Other(format!(
+                    "Entity {} already has a parent ({}). Only one parent is allowed.",
+                    target, existing_parent
+                )));
+            }
+            // Also check for child_of edges from target (inverse relationship)
+            let existing_child_of =
+                storage.list_edges(Some(EdgeType::ChildOf), Some(target), None)?;
+            if !existing_child_of.is_empty() {
+                let existing_parent = &existing_child_of[0].target;
+                return Err(Error::Other(format!(
+                    "Entity {} already has a parent via child_of edge ({}). Only one parent is allowed.",
+                    target, existing_parent
+                )));
+            }
         }
         EdgeType::ChildOf => {
             // Task/Bug → Task/Milestone
@@ -3779,6 +3799,26 @@ fn validate_edge_type_constraints(
                 return Err(Error::Other(
                     "child_of edge source cannot be a test".to_string(),
                 ));
+            }
+            // Check if source already has a parent (strict hierarchy: only one parent allowed)
+            let existing_child_of =
+                storage.list_edges(Some(EdgeType::ChildOf), Some(source), None)?;
+            if !existing_child_of.is_empty() {
+                let existing_parent = &existing_child_of[0].target;
+                return Err(Error::Other(format!(
+                    "Entity {} already has a parent ({}). Only one parent is allowed.",
+                    source, existing_parent
+                )));
+            }
+            // Also check for parent_of edges pointing to source (inverse relationship)
+            let existing_parents =
+                storage.list_edges(Some(EdgeType::ParentOf), None, Some(source))?;
+            if !existing_parents.is_empty() {
+                let existing_parent = &existing_parents[0].source;
+                return Err(Error::Other(format!(
+                    "Entity {} already has a parent via parent_of edge ({}). Only one parent is allowed.",
+                    source, existing_parent
+                )));
             }
         }
         EdgeType::CausedBy => {
@@ -10254,5 +10294,193 @@ mod tests {
         // Invalid values should fail
         assert!(config_set(temp.path(), "require_commit_for_close", "invalid").is_err());
         assert!(config_set(temp.path(), "require_commit_for_close", "maybe").is_err());
+    }
+
+    #[test]
+    fn test_parent_of_rejects_multiple_parents() {
+        let temp = setup();
+
+        // Create three tasks (title, short_name, description, priority, tags, assignee)
+        let parent1 = task_create(
+            temp.path(),
+            "Parent 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let parent2 = task_create(
+            temp.path(),
+            "Parent 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let child = task_create(
+            temp.path(),
+            "Child".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // First parent_of edge should succeed
+        let result = link_add(temp.path(), &parent1.id, &child.id, "parent_of", None);
+        assert!(result.is_ok());
+
+        // Second parent_of edge should fail
+        let result = link_add(temp.path(), &parent2.id, &child.id, "parent_of", None);
+        assert!(result.is_err());
+        let err_msg = result.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(err_msg.contains("already has a parent"));
+        assert!(err_msg.contains(&parent1.id));
+    }
+
+    #[test]
+    fn test_child_of_rejects_multiple_parents() {
+        let temp = setup();
+
+        // Create three tasks
+        let parent1 = task_create(
+            temp.path(),
+            "Parent 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let parent2 = task_create(
+            temp.path(),
+            "Parent 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let child = task_create(
+            temp.path(),
+            "Child".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // First child_of edge should succeed
+        let result = link_add(temp.path(), &child.id, &parent1.id, "child_of", None);
+        assert!(result.is_ok());
+
+        // Second child_of edge should fail
+        let result = link_add(temp.path(), &child.id, &parent2.id, "child_of", None);
+        assert!(result.is_err());
+        let err_msg = result.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(err_msg.contains("already has a parent"));
+        assert!(err_msg.contains(&parent1.id));
+    }
+
+    #[test]
+    fn test_parent_of_blocks_child_of() {
+        let temp = setup();
+
+        // Create tasks
+        let parent1 = task_create(
+            temp.path(),
+            "Parent 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let parent2 = task_create(
+            temp.path(),
+            "Parent 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let child = task_create(
+            temp.path(),
+            "Child".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create parent_of edge
+        link_add(temp.path(), &parent1.id, &child.id, "parent_of", None).unwrap();
+
+        // child_of edge from the same child should fail
+        let result = link_add(temp.path(), &child.id, &parent2.id, "child_of", None);
+        assert!(result.is_err());
+        let err_msg = result.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(err_msg.contains("already has a parent"));
+    }
+
+    #[test]
+    fn test_child_of_blocks_parent_of() {
+        let temp = setup();
+
+        // Create tasks
+        let parent1 = task_create(
+            temp.path(),
+            "Parent 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let parent2 = task_create(
+            temp.path(),
+            "Parent 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let child = task_create(
+            temp.path(),
+            "Child".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create child_of edge
+        link_add(temp.path(), &child.id, &parent1.id, "child_of", None).unwrap();
+
+        // parent_of edge to the same child should fail
+        let result = link_add(temp.path(), &parent2.id, &child.id, "parent_of", None);
+        assert!(result.is_err());
+        let err_msg = result.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(err_msg.contains("already has a parent"));
     }
 }
