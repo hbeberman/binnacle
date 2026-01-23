@@ -1,5 +1,7 @@
 # PRD: Generic Edge Model
 
+**Status:** Implemented
+
 ## Overview
 
 Replace the current `depends_on: Vec<String>` field embedded in Task/Bug entities with a first-class `Edge` model stored separately in `edges.jsonl`. This enables richer relationship types between entities, bidirectional edge support, and cleaner graph semantics.
@@ -345,41 +347,41 @@ Other edge types (e.g., `related_to`, `caused_by`) do not affect readiness.
 ## Implementation Phases
 
 ### Phase 1: Edge Infrastructure
-- [ ] Add `Edge` model to `models/mod.rs`
-- [ ] Add `EdgeType` enum with all types
-- [ ] Add `edges.jsonl` to storage layer
-- [ ] Add edge validation logic
-- [ ] Add bidirectional edge hydration
+- [x] Add `Edge` model to `models/mod.rs`
+- [x] Add `EdgeType` enum with all types
+- [x] Add `edges.jsonl` to storage layer
+- [x] Add edge validation logic
+- [x] Add bidirectional edge hydration
 
 ### Phase 2: CLI Commands
-- [ ] Implement `bn link <source> <target> --type <type>`
-- [ ] Implement `bn link rm`
-- [ ] Implement `bn link list`
-- [ ] Remove `bn dep` commands
-- [ ] Update `bn task show` / `bn bug show` to display edges
+- [x] Implement `bn link <source> <target> --type <type>`
+- [x] Implement `bn link rm`
+- [x] Implement `bn link list`
+- [x] Remove `bn dep` commands
+- [x] Update `bn task show` / `bn bug show` to display edges
 
 ### Phase 3: Migration
-- [ ] Implement `bn doctor --migrate-edges`
-- [ ] Implement `bn doctor --clean-unused`
-- [ ] Update storage to prefer edges over `depends_on` field
+- [x] Implement `bn doctor --migrate-edges`
+- [x] Implement `bn doctor --clean-unused`
+- [x] Update storage to prefer edges over `depends_on` field
 
 ### Phase 4: Milestone Entity
-- [ ] Add `Milestone` model
-- [ ] Add `milestones.jsonl` storage
-- [ ] Implement `bn milestone` commands
-- [ ] Implement progress calculation
+- [x] Add `Milestone` model
+- [x] Add `milestones.jsonl` storage
+- [x] Implement `bn milestone` commands
+- [x] Implement progress calculation
 
 ### Phase 5: Ready/Blocked Updates
-- [ ] Update `bn ready` to use edge-based queries
-- [ ] Update `bn blocked` to use edge-based queries
-- [ ] Update cycle detection to use edges
+- [x] Update `bn ready` to use edge-based queries
+- [x] Update `bn blocked` to use edge-based queries
+- [x] Update cycle detection to use edges
 
 ### Phase 6: MCP & Documentation
-- [ ] Update MCP tools for edges
-- [ ] Add `bn_link_*` tools
-- [ ] Add `bn_milestone_*` tools
-- [ ] Update AGENTS.md
-- [ ] Update PRD.md
+- [x] Update MCP tools for edges
+- [x] Add `bn_link_*` tools
+- [x] Add `bn_milestone_*` tools
+- [x] Update AGENTS.md
+- [x] Update PRD.md
 
 ## Test Plan
 
