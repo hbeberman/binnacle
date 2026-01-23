@@ -1974,7 +1974,7 @@
                     <input class="graph-search" id="graph-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" />
                     <div class="chain-length-filter" id="chain-length-filter">
                         <span class="chain-length-label">Chain ≥</span>
-                        <input type="range" class="chain-length-slider" id="chain-length-slider" min="1" max="20" value="1" title="Filter nodes by minimum chain length" />
+                        <input type="range" class="chain-length-slider" id="chain-length-slider" min="1" max="5" value="1" title="Filter nodes by minimum chain length" />
                         <span class="chain-length-value" id="chain-length-value">1</span>
                     </div>
                     <div class="hide-completed-toggle">
@@ -3185,7 +3185,7 @@
             const saved = localStorage.getItem('binnacle_chain_length_filter');
             if (saved) {
                 const value = parseInt(saved, 10);
-                if (!isNaN(value) && value >= 1 && value <= 20) {
+                if (!isNaN(value) && value >= 1 && value <= 5) {
                     return value;
                 }
             }
@@ -3200,13 +3200,13 @@
         // Initialize chain length filter from saved state
         state.graph.minChainLength = loadChainLengthFilter();
         chainLengthSlider.value = state.graph.minChainLength;
-        chainLengthValue.textContent = state.graph.minChainLength;
+        chainLengthValue.textContent = state.graph.minChainLength >= 5 ? '5+' : state.graph.minChainLength;
         updateChainLengthDisplay();
 
         chainLengthSlider.addEventListener('input', () => {
             const value = parseInt(chainLengthSlider.value, 10);
             state.graph.minChainLength = value;
-            chainLengthValue.textContent = value;
+            chainLengthValue.textContent = value >= 5 ? '5+' : value;
             saveChainLengthFilter(value);
             updateChainLengthDisplay();
         });
@@ -3963,18 +3963,13 @@
 
         /**
          * Build adjacency list for chain length calculations.
-         * Only considers visible edge types to avoid hidden edges affecting chain length.
+         * Uses ALL edges regardless of visibility filters to correctly calculate
+         * actual dependency chain lengths.
          */
         function buildChainAdjacency(edges) {
             const adjacency = new Map();
-            const edgeFilters = loadEdgeFilters();
 
             edges.forEach(edge => {
-                // Skip edges that are hidden by the edge type filter
-                if (!edgeFilters[edge.type]) {
-                    return;
-                }
-
                 if (!adjacency.has(edge.from)) {
                     adjacency.set(edge.from, []);
                 }
