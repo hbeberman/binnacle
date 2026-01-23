@@ -126,9 +126,24 @@ jobs:
         uses: dtolnay/rust-toolchain@56f84321dbccf38fb67ce29ab63e4754056677e0 # stable
         with:
           toolchain: stable
+          components: clippy, rustfmt
 
       - name: Enable cargo cache
         uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+
+      # Preflight validation - same checks as CI
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --all-features
+
+      # Verify package is publishable
+      - name: Dry-run publish
+        run: cargo publish --dry-run
 
       - name: Publish to crates.io
         run: cargo publish
