@@ -340,7 +340,8 @@ impl McpServer {
                 let priority = get_optional_u8(args, "priority");
                 let tags = get_string_array(args, "tags");
                 let assignee = get_optional_string(args, "assignee");
-                let result = commands::task_create(
+                let queue = get_optional_bool(args, "queue").unwrap_or(false);
+                let result = commands::task_create_with_queue(
                     repo,
                     title,
                     short_name,
@@ -348,6 +349,7 @@ impl McpServer {
                     priority,
                     tags,
                     assignee,
+                    queue,
                 )?;
                 Ok(result.to_json())
             }
@@ -925,6 +927,10 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "assignee": {
                         "type": "string",
                         "description": "Assigned user or agent"
+                    },
+                    "queue": {
+                        "type": "boolean",
+                        "description": "Add to work queue immediately after creation"
                     }
                 },
                 "required": ["title"]

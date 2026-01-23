@@ -240,6 +240,10 @@ pub enum TaskCommands {
         /// Task description
         #[arg(short, long)]
         description: Option<String>,
+
+        /// Add to work queue immediately after creation
+        #[arg(short = 'q', long)]
+        queue: bool,
     },
 
     /// List tasks
@@ -367,6 +371,10 @@ pub enum BugCommands {
         /// Affected component or area
         #[arg(long)]
         affected_component: Option<String>,
+
+        /// Add to work queue immediately after creation
+        #[arg(short = 'q', long)]
+        queue: bool,
     },
 
     /// List bugs
