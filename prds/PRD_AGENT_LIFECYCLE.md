@@ -1,7 +1,7 @@
 # PRD: Agent Lifecycle Management (`bn goodbye`)
 
 **Idea:** bni-5666  
-**Status:** Ready for implementation  
+**Status:** Implemented  
 **Priority:** P1  
 **Tags:** agent, lifecycle, process-management
 
@@ -280,42 +280,42 @@ This information helps humans understand what agents are doing and detect stuck 
 
 ## Implementation Tasks
 
-### Phase 1: Core Agent Registry
-- [ ] Create `Agent` model struct
-- [ ] Create `agents.jsonl` storage (read/write/delete)
-- [ ] Implement stale PID detection and cleanup
-- [ ] Add `--name` flag to `bn orient`
-- [ ] Register agent on `bn orient`
-- [ ] Update `last_activity_at` on every `bn` command from registered agent
-- [ ] Increment `command_count` on every `bn` command
+### Phase 1: Core Agent Registry ✅
+- [x] Create `Agent` model struct
+- [x] Create `agents.jsonl` storage (read/write/delete)
+- [x] Implement stale PID detection and cleanup
+- [x] Add `--name` flag to `bn orient`
+- [x] Register agent on `bn orient`
+- [x] Update `last_activity_at` on every `bn` command from registered agent
+- [x] Increment `command_count` on every `bn` command
 
-### Phase 2: Goodbye Command
-- [ ] Implement `bn goodbye` command
-- [ ] Add optional reason argument
-- [ ] Implement SIGTERM + SIGKILL logic with 5s timeout
-- [ ] Log termination to `action_log`
-- [ ] Handle unregistered agent case (warning)
-- [ ] Remove agent from registry on goodbye
+### Phase 2: Goodbye Command ✅
+- [x] Implement `bn goodbye` command
+- [x] Add optional reason argument
+- [x] Implement SIGTERM + SIGKILL logic with 5s timeout
+- [x] Log termination to `action_log`
+- [x] Handle unregistered agent case (warning)
+- [x] Remove agent from registry on goodbye
 
-### Phase 3: Agent Management
-- [ ] Implement `bn agent list` command
-- [ ] Implement `bn agent kill` command
-- [ ] Add `bn agent kill` to blocked commands in `agent.sh`
-- [ ] Add `bn_agent_list` MCP tool (read-only)
+### Phase 3: Agent Management ✅
+- [x] Implement `bn agent list` command
+- [x] Implement `bn agent kill` command
+- [x] Add `bn agent kill` to blocked commands in `agent.sh`
+- [x] Add `bn_agent_list` MCP tool (read-only)
 
-### Phase 4: Task Association
-- [ ] Track task association on `bn task update --status in_progress`
-- [ ] Remove task association on task close/done
-- [ ] Add multi-task warning with `--force` override
-- [ ] Log multi-task force to `action_log`
+### Phase 4: Task Association ✅
+- [x] Track task association on `bn task update --status in_progress`
+- [x] Remove task association on task close/done
+- [x] Add multi-task warning with `--force` override
+- [x] Log multi-task force to `action_log`
 
-### Phase 5: GUI Agents Pane
-- [ ] Add "Agents" tab to GUI navigation
-- [ ] Implement agents list component
-- [ ] Add activity log component
-- [ ] Implement terminate button with confirmation modal
-- [ ] Add WebSocket updates for real-time agent status
-- [ ] Style idle/stale status indicators
+### Phase 5: GUI Agents Pane ✅
+- [x] Add "Agents" tab to GUI navigation
+- [x] Implement agents list component
+- [x] Add activity log component
+- [x] Implement terminate button with confirmation modal
+- [x] Add WebSocket updates for real-time agent status
+- [x] Style idle/stale status indicators
 
 ## Testing Strategy
 
