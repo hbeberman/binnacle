@@ -38,6 +38,10 @@ pub enum Commands {
         /// Agent name for registration (auto-generated if not provided)
         #[arg(long)]
         name: Option<String>,
+        /// Register agent's purpose (e.g., "Task Worker", "PRD Generator")
+        /// Agents without a purpose are labeled "UNREGISTERED"
+        #[arg(long)]
+        register: Option<String>,
     },
 
     /// Gracefully terminate this agent (signals parent process)

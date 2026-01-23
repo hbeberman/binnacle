@@ -348,6 +348,7 @@ impl Storage {
                 pid INTEGER PRIMARY KEY,
                 parent_pid INTEGER NOT NULL,
                 name TEXT NOT NULL,
+                purpose TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 started_at TEXT NOT NULL,
                 last_activity_at TEXT NOT NULL,
@@ -387,6 +388,19 @@ impl Storage {
 
         if !has_short_name {
             conn.execute("ALTER TABLE tasks ADD COLUMN short_name TEXT", [])?;
+        }
+
+        // Migration: Add purpose column to agents table if it doesn't exist
+        let has_purpose: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('agents') WHERE name = 'purpose'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_purpose {
+            conn.execute("ALTER TABLE agents ADD COLUMN purpose TEXT", [])?;
         }
 
         Ok(())
@@ -2596,12 +2610,13 @@ impl Storage {
     fn cache_agent(&self, agent: &Agent) -> Result<()> {
         // Insert or replace the agent
         self.conn.execute(
-            "INSERT OR REPLACE INTO agents (pid, parent_pid, name, status, started_at, last_activity_at, command_count)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT OR REPLACE INTO agents (pid, parent_pid, name, purpose, status, started_at, last_activity_at, command_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 agent.pid,
                 agent.parent_pid,
                 agent.name,
+                agent.purpose,
                 format!("{:?}", agent.status).to_lowercase(),
                 agent.started_at.to_rfc3339(),
                 agent.last_activity_at.to_rfc3339(),
@@ -2723,6 +2738,11 @@ impl Storage {
         agent.touch();
         self.register_agent(&agent)?;
         Ok(())
+    }
+
+    /// Update an agent's data (overwrites existing agent with same PID).
+    pub fn update_agent(&mut self, agent: &Agent) -> Result<()> {
+        self.register_agent(agent)
     }
 
     /// Update agent status.

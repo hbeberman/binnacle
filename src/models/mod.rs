@@ -512,6 +512,11 @@ pub struct Agent {
     /// Agent name (e.g., "claude", "copilot", or custom name)
     pub name: String,
 
+    /// Agent's purpose/role (e.g., "Task Worker", "PRD Generator")
+    /// Agents that don't register a purpose are labeled "UNREGISTERED"
+    #[serde(default)]
+    pub purpose: Option<String>,
+
     /// When the agent was registered
     pub started_at: DateTime<Utc>,
 
@@ -539,12 +544,39 @@ impl Agent {
             pid,
             parent_pid,
             name,
+            purpose: None,
             started_at: now,
             last_activity_at: now,
             tasks: Vec::new(),
             command_count: 0,
             status: AgentStatus::default(),
         }
+    }
+
+    /// Create a new agent with a purpose.
+    pub fn new_with_purpose(pid: u32, parent_pid: u32, name: String, purpose: String) -> Self {
+        let now = Utc::now();
+        Self {
+            pid,
+            parent_pid,
+            name,
+            purpose: Some(purpose),
+            started_at: now,
+            last_activity_at: now,
+            tasks: Vec::new(),
+            command_count: 0,
+            status: AgentStatus::default(),
+        }
+    }
+
+    /// Returns the display purpose - "UNREGISTERED" if no purpose was provided.
+    pub fn display_purpose(&self) -> &str {
+        self.purpose.as_deref().unwrap_or("UNREGISTERED")
+    }
+
+    /// Returns true if the agent has registered a purpose.
+    pub fn is_registered(&self) -> bool {
+        self.purpose.is_some()
     }
 
     /// Update the agent's last activity timestamp.

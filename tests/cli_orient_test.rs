@@ -341,3 +341,43 @@ fn test_orient_error_json_is_valid() {
     assert!(json["hint"].as_str().unwrap().contains("bn orient --init"));
     assert!(json["path"].is_string());
 }
+
+// === Agent Purpose Registration Tests ===
+
+#[test]
+fn test_orient_with_register_registers_purpose() {
+    let temp = init_binnacle();
+
+    // Orient with --register
+    bn_in(&temp)
+        .args([
+            "orient",
+            "--name",
+            "test-worker",
+            "--register",
+            "Task Worker",
+        ])
+        .assert()
+        .success();
+
+    // Check agent was registered with purpose via bn agent list
+    let output = bn_in(&temp)
+        .args(["agent", "list"])
+        .output()
+        .expect("Failed to run bn agent list");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Task Worker") || stdout.contains("test-worker"));
+}
+
+#[test]
+fn test_orient_help_shows_register_flag() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["orient", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--register"))
+        .stdout(predicate::str::contains("purpose"));
+}

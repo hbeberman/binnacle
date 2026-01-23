@@ -570,7 +570,12 @@ impl Output for OrientResult {
 /// Orient an AI agent to this project.
 /// If allow_init is true, auto-initializes binnacle if not already initialized.
 /// If allow_init is false and binnacle is not initialized, returns NotInitialized error.
-pub fn orient(repo_path: &Path, allow_init: bool, name: Option<String>) -> Result<OrientResult> {
+pub fn orient(
+    repo_path: &Path,
+    allow_init: bool,
+    name: Option<String>,
+    purpose: Option<String>,
+) -> Result<OrientResult> {
     // Check if initialized
     let initialized = if !Storage::exists(repo_path)? {
         if allow_init {
@@ -601,13 +606,21 @@ pub fn orient(repo_path: &Path, allow_init: bool, name: Option<String>) -> Resul
     // Use provided name or auto-generate (with parent PID for uniqueness)
     let agent_name = name.unwrap_or_else(|| format!("agent-{}", agent_pid));
 
-    // Check if already registered (update activity) or register new
-    if storage.get_agent(agent_pid).is_ok() {
-        // Already registered, just touch to update activity
+    // Check if already registered (update activity and potentially purpose) or register new
+    if let Ok(mut existing_agent) = storage.get_agent(agent_pid) {
+        // Update purpose if provided (allows re-registering with a purpose)
+        if purpose.is_some() {
+            existing_agent.purpose = purpose;
+            storage.update_agent(&existing_agent)?;
+        }
         let _ = storage.touch_agent(agent_pid);
     } else {
         // Register new agent with parent PID as primary identifier
-        let agent = Agent::new(agent_pid, bn_pid, agent_name);
+        let agent = if let Some(ref p) = purpose {
+            Agent::new_with_purpose(agent_pid, bn_pid, agent_name, p.clone())
+        } else {
+            Agent::new(agent_pid, bn_pid, agent_name)
+        };
         storage.register_agent(&agent)?;
     }
 
@@ -9126,7 +9139,7 @@ mod tests {
         assert!(!Storage::exists(temp.path()).unwrap());
 
         // Run orient without allow_init - should fail
-        let result = orient(temp.path(), false, None);
+        let result = orient(temp.path(), false, None, None);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::NotInitialized));
     }
@@ -9139,7 +9152,7 @@ mod tests {
         assert!(!Storage::exists(temp.path()).unwrap());
 
         // Run orient with allow_init=true
-        let result = orient(temp.path(), true, None).unwrap();
+        let result = orient(temp.path(), true, None, None).unwrap();
         assert!(result.initialized);
 
         // Verify now initialized
@@ -9176,7 +9189,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), false, None).unwrap();
+        let result = orient(temp.path(), false, None, None).unwrap();
         assert!(!result.initialized); // Already initialized in setup()
         assert_eq!(result.total_tasks, 2);
         assert_eq!(result.ready_count, 2); // Both pending tasks are ready
@@ -9210,7 +9223,7 @@ mod tests {
         // B depends on A (so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = orient(temp.path(), false, None).unwrap();
+        let result = orient(temp.path(), false, None, None).unwrap();
         assert_eq!(result.total_tasks, 2);
         assert_eq!(result.ready_count, 1);
         assert!(result.ready_ids.contains(&task_a.id));
@@ -9248,7 +9261,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), false, None).unwrap();
+        let result = orient(temp.path(), false, None, None).unwrap();
         assert_eq!(result.in_progress_count, 1);
     }
 
@@ -9266,13 +9279,89 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), false, None).unwrap();
+        let result = orient(temp.path(), false, None, None).unwrap();
         let human = result.to_human();
 
         assert!(human.contains("Binnacle - AI agent task tracker"));
         assert!(human.contains("Total tasks: 1"));
         assert!(human.contains("bn ready"));
         assert!(human.contains("bn task list"));
+    }
+
+    #[test]
+    fn test_orient_with_purpose_registers_agent() {
+        let temp = setup();
+
+        // Orient with a purpose
+        let _result = orient(
+            temp.path(),
+            false,
+            Some("test-agent".to_string()),
+            Some("Task Worker".to_string()),
+        )
+        .unwrap();
+
+        // Check the agent was registered with the purpose
+        let storage = Storage::open(temp.path()).unwrap();
+        let agents = storage.list_agents(None).unwrap();
+
+        // Find our agent
+        let agent = agents.iter().find(|a| a.name == "test-agent");
+        assert!(agent.is_some());
+        let agent = agent.unwrap();
+        assert_eq!(agent.purpose, Some("Task Worker".to_string()));
+        assert!(agent.is_registered());
+        assert_eq!(agent.display_purpose(), "Task Worker");
+    }
+
+    #[test]
+    fn test_orient_without_purpose_shows_unregistered() {
+        let temp = setup();
+
+        // Orient without a purpose
+        let _result = orient(temp.path(), false, Some("anon-agent".to_string()), None).unwrap();
+
+        // Check the agent was registered without purpose (UNREGISTERED)
+        let storage = Storage::open(temp.path()).unwrap();
+        let agents = storage.list_agents(None).unwrap();
+
+        let agent = agents.iter().find(|a| a.name == "anon-agent");
+        assert!(agent.is_some());
+        let agent = agent.unwrap();
+        assert_eq!(agent.purpose, None);
+        assert!(!agent.is_registered());
+        assert_eq!(agent.display_purpose(), "UNREGISTERED");
+    }
+
+    #[test]
+    fn test_orient_can_update_purpose() {
+        let temp = setup();
+
+        // First orient without purpose
+        let _result = orient(temp.path(), false, Some("update-agent".to_string()), None).unwrap();
+
+        // Verify UNREGISTERED
+        {
+            let storage = Storage::open(temp.path()).unwrap();
+            let agents = storage.list_agents(None).unwrap();
+            let agent = agents.iter().find(|a| a.name == "update-agent").unwrap();
+            assert_eq!(agent.display_purpose(), "UNREGISTERED");
+        }
+
+        // Orient again with purpose - should update the existing agent
+        let _result = orient(
+            temp.path(),
+            false,
+            Some("update-agent".to_string()),
+            Some("PRD Generator".to_string()),
+        )
+        .unwrap();
+
+        // Verify purpose was updated
+        let storage = Storage::open(temp.path()).unwrap();
+        let agents = storage.list_agents(None).unwrap();
+        let agent = agents.iter().find(|a| a.name == "update-agent").unwrap();
+        assert_eq!(agent.display_purpose(), "PRD Generator");
     }
 
     // === Blocker Analysis Tests ===

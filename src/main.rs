@@ -101,8 +101,12 @@ fn run_command(
     human: bool,
 ) -> Result<(), binnacle::Error> {
     match command {
-        Some(Commands::Orient { init, name }) => {
-            match commands::orient(repo_path, init, name) {
+        Some(Commands::Orient {
+            init,
+            name,
+            register,
+        }) => {
+            match commands::orient(repo_path, init, name, register) {
                 Ok(result) => output(&result, human),
                 Err(binnacle::Error::NotInitialized) => {
                     // Provide helpful error message for uninitialized database
@@ -1116,9 +1120,13 @@ fn not_implemented(command: &str, subcommand: &str, human: bool) {
 /// Serialize command to extract name and arguments for logging.
 fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) {
     match command {
-        Some(Commands::Orient { init, name }) => (
+        Some(Commands::Orient {
+            init,
+            name,
+            register,
+        }) => (
             "orient".to_string(),
-            serde_json::json!({ "init": init, "name": name }),
+            serde_json::json!({ "init": init, "name": name, "register": register }),
         ),
 
         Some(Commands::Goodbye { reason, dry_run }) => (
