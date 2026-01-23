@@ -26,6 +26,31 @@ bn task update bn-xxxx --status in_progress
 bn task close bn-xxxx --reason "Implemented JWT auth"
 ```
 
+## Agent Automation (agent.sh)
+
+Binnacle includes `agent.sh`, a launcher script for running AI agents with pre-configured tool permissions. This is the recommended way to run autonomous agents that work on binnacle-tracked projects.
+
+```bash
+# Auto-pick and work on the highest priority task
+./agent.sh auto
+
+# Work on a specific task description
+./agent.sh do "fix the login validation bug"
+
+# Loop mode - restart agent when it exits
+./agent.sh --loop auto
+
+# Other agent types
+./agent.sh prd      # Generate PRDs from ideas
+./agent.sh buddy    # Quick task/bug insertion helper
+./agent.sh free     # General purpose with binnacle access
+```
+
+The agents automatically:
+- Read `PRD.md` and orient themselves with `bn orient`
+- Claim tasks, work on them, and mark them complete
+- Commit their changes and terminate gracefully with `bn goodbye`
+
 ## Features
 
 - **JSON-first output** - Machine-readable by default, `-H` for human-readable
