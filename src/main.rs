@@ -641,6 +641,10 @@ fn run_command(
                         commands::system_store_import(repo_path, &input, &r#type, dry_run)?;
                     output(&result, human);
                 }
+                StoreCommands::Dump => {
+                    let result = commands::system_store_dump(repo_path)?;
+                    output(&result, human);
+                }
             },
         },
         Some(Commands::Agent { command }) => match command {
@@ -1617,6 +1621,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                         "dry_run": dry_run,
                     }),
                 ),
+                StoreCommands::Dump => ("system store dump".to_string(), serde_json::json!({})),
             },
         },
 

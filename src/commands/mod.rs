@@ -5685,6 +5685,73 @@ pub fn system_store_show(repo_path: &Path) -> Result<StoreShowResult> {
     })
 }
 
+// === Store Dump Command ===
+
+/// Result of the `bn system store dump` command.
+#[derive(Serialize)]
+pub struct StoreDumpResult {
+    pub files: Vec<StoreDumpFile>,
+}
+
+/// Information about a dumped file.
+#[derive(Serialize)]
+pub struct StoreDumpFile {
+    pub name: String,
+    pub line_count: usize,
+    pub content: String,
+}
+
+impl Output for StoreDumpResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        for file in &self.files {
+            lines.push(format!("=== {} ({} lines) ===", file.name, file.line_count));
+            lines.push(file.content.clone());
+            lines.push(String::new());
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Dump all JSONL files to console with headers.
+pub fn system_store_dump(repo_path: &Path) -> Result<StoreDumpResult> {
+    let storage = Storage::open(repo_path)?;
+
+    let file_names = [
+        "tasks.jsonl",
+        "bugs.jsonl",
+        "ideas.jsonl",
+        "milestones.jsonl",
+        "edges.jsonl",
+        "commits.jsonl",
+        "test-results.jsonl",
+        "agents.jsonl",
+    ];
+
+    let mut files = Vec::new();
+
+    for file_name in &file_names {
+        let file_path = storage.root().join(file_name);
+        if file_path.exists() {
+            let content = fs::read_to_string(&file_path).unwrap_or_default();
+            let line_count = content.lines().filter(|l| !l.trim().is_empty()).count();
+            files.push(StoreDumpFile {
+                name: file_name.to_string(),
+                line_count,
+                content,
+            });
+        }
+    }
+
+    Ok(StoreDumpResult { files })
+}
+
 // === Store Export Command ===
 
 /// Result of the `bn system store export` command.

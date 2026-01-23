@@ -899,6 +899,9 @@ pub enum StoreCommands {
         #[arg(long)]
         dry_run: bool,
     },
+
+    /// Dump all JSONL files to console with headers
+    Dump,
 }
 
 /// Agent lifecycle management subcommands
