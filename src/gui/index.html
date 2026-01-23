@@ -1160,6 +1160,35 @@
             cursor: not-allowed;
         }
 
+        .jump-queue-btn {
+            padding: 0.4rem 0.75rem;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s ease;
+            margin-left: 0.5rem;
+        }
+
+        .jump-queue-btn:hover {
+            border-color: var(--queue-color);
+            color: var(--text-primary);
+        }
+
+        .jump-queue-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .jump-queue-btn .queue-icon {
+            color: var(--queue-color);
+        }
+
         .graph-filters {
             position: absolute;
             top: 1rem;
@@ -1923,6 +1952,10 @@
                             <!-- Filter buttons will be populated dynamically -->
                         </div>
                     </div>
+                    <button class="jump-queue-btn" id="jump-queue-btn" title="Jump to work queue" disabled>
+                        <span class="queue-icon">⬡</span>
+                        <span>Queue</span>
+                    </button>
                 </div>
                 <div class="node-tooltip" id="node-tooltip">
                     <div class="tooltip-title" id="tooltip-title"></div>
@@ -2571,6 +2604,21 @@
             
             // Update active state for stat filters
             updateStatFilterHighlights();
+            
+            // Update jump-to-queue button state
+            updateJumpQueueButton();
+        }
+        
+        function updateJumpQueueButton() {
+            const queueNode = state.tasks.find(t => t.type === 'queue');
+            const btn = document.getElementById('jump-queue-btn');
+            if (queueNode) {
+                btn.disabled = false;
+                btn.title = `Jump to queue: ${queueNode.title || 'Work Queue'}`;
+            } else {
+                btn.disabled = true;
+                btn.title = 'No work queue exists';
+            }
         }
         
         function updateActiveTaskPane() {
@@ -5326,6 +5374,14 @@
                     edgeFilters.classList.remove('open');
                     e.preventDefault();
                 }
+            }
+        });
+
+        // Jump to queue button click handler
+        document.getElementById('jump-queue-btn').addEventListener('click', () => {
+            const queueNode = state.tasks.find(t => t.type === 'queue');
+            if (queueNode) {
+                panToNode(queueNode.id, true);  // Zoom to 100%
             }
         });
 
