@@ -19,6 +19,7 @@ TOOLS_FULL=(
     --allow-tool "shell(git commit)"
     --allow-tool "shell(git:*)"
     --allow-tool "shell(just:*)"
+    --allow-tool "shell(jq:*)"
 )
 
 TOOLS_PRD=(
@@ -28,6 +29,7 @@ TOOLS_PRD=(
     --allow-tool "shell(git add)"
     --allow-tool "shell(git commit)"
     --allow-tool "shell(git:*)"
+    --allow-tool "shell(jq:*)"
 )
 
 TOOLS_BUDDY=(
@@ -36,6 +38,7 @@ TOOLS_BUDDY=(
     --allow-tool "shell(git add)"
     --allow-tool "shell(git commit)"
     --allow-tool "shell(git:*)"
+    --allow-tool "shell(jq:*)"
 )
 
 usage() {
