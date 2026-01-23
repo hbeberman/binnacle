@@ -1001,6 +1001,51 @@
             padding-bottom: 0.5rem;
         }
 
+        .edge-filter-row {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            width: 100%;
+        }
+
+        .edge-filter-row .edge-filter-btn {
+            flex: 1;
+        }
+
+        .edge-spring-btn {
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            font-size: 0.85rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.5;
+        }
+
+        .edge-spring-btn:hover {
+            border-color: var(--accent-blue);
+            opacity: 0.8;
+        }
+
+        .edge-spring-btn.active {
+            background: var(--success);
+            border-color: var(--success);
+            color: white;
+            opacity: 1;
+        }
+
+        .edge-spring-btn[disabled] {
+            opacity: 0.2;
+            cursor: not-allowed;
+        }
+
         .graph-filters {
             position: absolute;
             top: 1rem;
@@ -2030,6 +2075,29 @@
             localStorage.setItem('binnacle_edge_filters', JSON.stringify(filters));
         }
 
+        // Load edge spring (physics) state from localStorage
+        function loadEdgeSpringFilters() {
+            const saved = localStorage.getItem('binnacle_edge_spring_filters');
+            if (saved) {
+                try {
+                    return JSON.parse(saved);
+                } catch (e) {
+                    // Fall back to defaults
+                }
+            }
+            // Default: all edge types have springiness enabled
+            const defaults = {};
+            for (const type of Object.keys(EDGE_TYPES)) {
+                defaults[type] = true;
+            }
+            return defaults;
+        }
+
+        // Save edge spring (physics) state to localStorage
+        function saveEdgeSpringFilters(filters) {
+            localStorage.setItem('binnacle_edge_spring_filters', JSON.stringify(filters));
+        }
+
         // State management
         const state = {
             currentView: 'graph',
@@ -2040,6 +2108,7 @@
             agents: [],
             edges: [], // Raw edges from API
             edgeFilters: loadEdgeFilters(), // Which edge types are visible
+            edgeSpringFilters: loadEdgeSpringFilters(), // Which edge types have spring physics
             ws: null,
             graph: {
                 nodes: [],
@@ -3894,6 +3963,10 @@
             const { springStrength, springRestingLength } = physics;
 
             edges.forEach(edge => {
+                // Skip edges with springiness disabled
+                const edgeType = edge.edge_type;
+                if (edgeType && !state.edgeSpringFilters[edgeType]) return;
+
                 const fromNode = nodes.find(n => n.id === edge.from);
                 const toNode = nodes.find(n => n.id === edge.to);
                 if (!fromNode || !toNode) return;
@@ -4810,6 +4883,19 @@
                 allBtn.classList.toggle('active', allActive);
             };
             
+            // Update spring button enabled state based on visibility
+            const updateSpringBtnState = (springBtn, type) => {
+                const isVisible = state.edgeFilters[type];
+                springBtn.disabled = !isVisible;
+                if (!isVisible) {
+                    springBtn.title = `Enable ${EDGE_TYPES[type].name} visibility first`;
+                } else {
+                    springBtn.title = state.edgeSpringFilters[type] 
+                        ? `Disable spring physics for ${EDGE_TYPES[type].name} edges`
+                        : `Enable spring physics for ${EDGE_TYPES[type].name} edges`;
+                }
+            };
+            
             allBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const allActive = Object.keys(EDGE_TYPES).every(type => state.edgeFilters[type]);
@@ -4823,6 +4909,11 @@
                 container.querySelectorAll('.edge-filter-btn[data-edge-type]').forEach(btn => {
                     btn.classList.toggle('active', newState);
                 });
+                // Update all spring button states
+                container.querySelectorAll('.edge-spring-btn').forEach(springBtn => {
+                    const type = springBtn.dataset.edgeType;
+                    if (type) updateSpringBtnState(springBtn, type);
+                });
                 updateAllBtnState();
                 saveEdgeFilters(state.edgeFilters);
             });
@@ -4830,6 +4921,10 @@
             container.appendChild(allBtn);
             
             for (const [type, info] of Object.entries(EDGE_TYPES)) {
+                // Create row container for filter and spring buttons
+                const row = document.createElement('div');
+                row.className = 'edge-filter-row';
+                
                 const btn = document.createElement('button');
                 btn.className = 'edge-filter-btn' + (state.edgeFilters[type] ? ' active' : '');
                 btn.dataset.edgeType = type;
@@ -4842,15 +4937,34 @@
                 btn.appendChild(dot);
                 btn.appendChild(document.createTextNode(info.name));
                 
+                // Create spring toggle button
+                const springBtn = document.createElement('button');
+                springBtn.className = 'edge-spring-btn' + (state.edgeSpringFilters[type] ? ' active' : '');
+                springBtn.dataset.edgeType = type;
+                springBtn.innerHTML = '🧲';  // Magnet emoji for springiness
+                updateSpringBtnState(springBtn, type);
+                
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     state.edgeFilters[type] = !state.edgeFilters[type];
                     btn.classList.toggle('active', state.edgeFilters[type]);
+                    updateSpringBtnState(springBtn, type);
                     updateAllBtnState();
                     saveEdgeFilters(state.edgeFilters);
                 });
                 
-                container.appendChild(btn);
+                springBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (!state.edgeFilters[type]) return; // Can't toggle spring if edge not visible
+                    state.edgeSpringFilters[type] = !state.edgeSpringFilters[type];
+                    springBtn.classList.toggle('active', state.edgeSpringFilters[type]);
+                    updateSpringBtnState(springBtn, type);
+                    saveEdgeSpringFilters(state.edgeSpringFilters);
+                });
+                
+                row.appendChild(btn);
+                row.appendChild(springBtn);
+                container.appendChild(row);
             }
             
             updateAllBtnState();
