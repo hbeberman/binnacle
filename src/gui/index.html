@@ -4367,32 +4367,31 @@
         // Draw a cloud/bubble path centered at (cx, cy) with the given radius
         // Uses overlapping circles to create a puffy cloud shape
         function drawCloudPath(ctx, cx, cy, radius) {
-            // Cloud made of overlapping arcs to create a bumpy outline
-            const r = radius * 0.55;  // Base lobe radius
+            // Classic cloud shape: a main body with overlapping circular bumps
+            // Draw using bezier curves for smooth transitions between bumps
+            const w = radius * 1.1;  // Width scale
+            const h = radius * 0.75;  // Height scale (slightly flattened)
             
-            // Top lobe (slightly larger)
-            ctx.arc(cx, cy - radius * 0.35, r * 1.1, Math.PI * 1.0, Math.PI * 2.0, false);
+            ctx.moveTo(cx - w, cy + h * 0.3);
             
-            // Top-right lobe
-            ctx.arc(cx + radius * 0.55, cy - radius * 0.2, r * 0.9, Math.PI * 1.4, Math.PI * 0.3, false);
+            // Bottom edge (flat-ish base)
+            ctx.quadraticCurveTo(cx - w * 0.5, cy + h * 0.5, cx, cy + h * 0.4);
+            ctx.quadraticCurveTo(cx + w * 0.5, cy + h * 0.5, cx + w, cy + h * 0.3);
             
-            // Right lobe
-            ctx.arc(cx + radius * 0.65, cy + radius * 0.25, r * 0.85, Math.PI * 1.7, Math.PI * 0.5, false);
+            // Right bump
+            ctx.quadraticCurveTo(cx + w * 1.2, cy, cx + w * 0.9, cy - h * 0.3);
             
-            // Bottom-right lobe
-            ctx.arc(cx + radius * 0.3, cy + radius * 0.55, r * 0.8, Math.PI * 1.9, Math.PI * 0.7, false);
+            // Top-right bump  
+            ctx.quadraticCurveTo(cx + w * 0.8, cy - h * 0.8, cx + w * 0.3, cy - h * 0.7);
             
-            // Bottom lobe
-            ctx.arc(cx - radius * 0.2, cy + radius * 0.55, r * 0.85, Math.PI * 0.0, Math.PI * 0.9, false);
+            // Top middle bump (main puffy top)
+            ctx.quadraticCurveTo(cx + w * 0.1, cy - h * 1.0, cx - w * 0.2, cy - h * 0.75);
             
-            // Bottom-left lobe
-            ctx.arc(cx - radius * 0.6, cy + radius * 0.25, r * 0.85, Math.PI * 0.3, Math.PI * 1.1, false);
+            // Top-left bump
+            ctx.quadraticCurveTo(cx - w * 0.6, cy - h * 0.9, cx - w * 0.8, cy - h * 0.4);
             
-            // Left lobe
-            ctx.arc(cx - radius * 0.65, cy - radius * 0.15, r * 0.9, Math.PI * 0.5, Math.PI * 1.3, false);
-            
-            // Top-left lobe (connects back to top)
-            ctx.arc(cx - radius * 0.45, cy - radius * 0.35, r * 0.9, Math.PI * 0.7, Math.PI * 1.1, false);
+            // Left bump (back to start)
+            ctx.quadraticCurveTo(cx - w * 1.2, cy, cx - w, cy + h * 0.3);
             
             ctx.closePath();
         }
