@@ -11,10 +11,62 @@ use serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{Mutex, broadcast};
 
 use crate::models::{Edge, EdgeType, Queue};
 use crate::storage::{Storage, generate_id};
+
+/// WebSocket performance metrics
+#[derive(Default)]
+pub struct WebSocketMetrics {
+    /// Number of currently connected WebSocket clients
+    pub connected_clients: AtomicU64,
+    /// Total number of messages sent to clients
+    pub messages_sent: AtomicU64,
+    /// Total number of WebSocket connections ever made
+    pub total_connections: AtomicU64,
+}
+
+impl WebSocketMetrics {
+    /// Create new metrics instance
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a new connection
+    pub fn connection_opened(&self) {
+        self.connected_clients.fetch_add(1, Ordering::Relaxed);
+        self.total_connections.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a closed connection
+    pub fn connection_closed(&self) {
+        self.connected_clients.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    /// Record a message sent
+    pub fn message_sent(&self) {
+        self.messages_sent.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Get current snapshot of metrics
+    pub fn snapshot(&self) -> WebSocketMetricsSnapshot {
+        WebSocketMetricsSnapshot {
+            connected_clients: self.connected_clients.load(Ordering::Relaxed),
+            messages_sent: self.messages_sent.load(Ordering::Relaxed),
+            total_connections: self.total_connections.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// Snapshot of WebSocket metrics (for JSON serialization)
+#[derive(serde::Serialize)]
+pub struct WebSocketMetricsSnapshot {
+    pub connected_clients: u64,
+    pub messages_sent: u64,
+    pub total_connections: u64,
+}
 
 /// Shared application state
 #[derive(Clone)]
@@ -25,6 +77,8 @@ pub struct AppState {
     pub update_tx: broadcast::Sender<String>,
     /// Name of the project folder (for display in GUI title)
     pub project_name: String,
+    /// WebSocket performance metrics
+    pub ws_metrics: Arc<WebSocketMetrics>,
 }
 
 /// Start the GUI web server
@@ -48,6 +102,7 @@ pub async fn start_server(
         storage: Arc::new(Mutex::new(storage)),
         update_tx,
         project_name,
+        ws_metrics: Arc::new(WebSocketMetrics::new()),
     };
 
     // Start file watcher in background
@@ -74,6 +129,7 @@ pub async fn start_server(
         .route("/api/log", get(get_log))
         .route("/api/agents", get(get_agents))
         .route("/api/agents/{pid}/kill", post(kill_agent))
+        .route("/api/metrics/ws", get(get_ws_metrics))
         .route("/ws", get(crate::gui::websocket::ws_handler))
         .with_state(state);
 
@@ -402,4 +458,10 @@ async fn toggle_queue_membership(
             "message": format!("{} added to queue", request.node_id)
         })))
     }
+}
+
+/// Get WebSocket performance metrics
+async fn get_ws_metrics(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let metrics = state.ws_metrics.snapshot();
+    Json(serde_json::json!({ "websocket": metrics }))
 }

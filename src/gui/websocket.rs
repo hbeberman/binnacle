@@ -19,9 +19,16 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> 
 /// Handle WebSocket connection
 async fn handle_socket(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
+    let metrics = state.ws_metrics.clone();
+
+    // Track connection opened
+    metrics.connection_opened();
 
     // Subscribe to updates
     let mut rx = state.update_tx.subscribe();
+
+    // Clone metrics for the send task
+    let send_metrics = metrics.clone();
 
     // Spawn a task to forward updates to the client
     let mut send_task = tokio::spawn(async move {
@@ -29,6 +36,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             if sender.send(Message::Text(msg)).await.is_err() {
                 break;
             }
+            send_metrics.message_sent();
         }
     });
 
@@ -48,4 +56,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         _ = (&mut send_task) => recv_task.abort(),
         _ = (&mut recv_task) => send_task.abort(),
     }
+
+    // Track connection closed
+    metrics.connection_closed();
 }
