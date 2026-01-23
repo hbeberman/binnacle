@@ -842,6 +842,73 @@
             transform: translateX(14px);
         }
 
+        /* Chain length filter */
+        .chain-length-filter {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-right: 0.25rem;
+            padding-right: 0.5rem;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .chain-length-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .chain-length-slider {
+            width: 60px;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .chain-length-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .chain-length-slider::-webkit-slider-thumb:hover {
+            background: var(--accent-light);
+        }
+
+        .chain-length-slider::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            cursor: pointer;
+            border: none;
+            transition: background 0.2s ease;
+        }
+
+        .chain-length-slider::-moz-range-thumb:hover {
+            background: var(--accent-light);
+        }
+
+        .chain-length-value {
+            font-size: 0.75rem;
+            font-family: monospace;
+            color: var(--text-primary);
+            min-width: 1.5rem;
+            text-align: center;
+        }
+
+        .chain-length-filter.active .chain-length-label {
+            color: var(--accent-light);
+        }
+
         /* Edge filter dropdown */
         .edge-filters {
             position: relative;
@@ -1619,11 +1686,16 @@
                 width: 100%;
             }
             .hide-completed-toggle,
-            .auto-follow-toggle {
+            .auto-follow-toggle,
+            .chain-length-filter {
                 border-right: none;
                 padding-right: 0;
                 margin-right: 0;
                 justify-content: space-between;
+            }
+            .chain-length-slider {
+                flex: 1;
+                min-width: 80px;
             }
             .zoom-buttons {
                 justify-content: center;
@@ -1706,6 +1778,11 @@
                 </div>
                 <div class="graph-controls">
                     <input class="graph-search" id="graph-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" />
+                    <div class="chain-length-filter" id="chain-length-filter">
+                        <span class="chain-length-label">Chain ≥</span>
+                        <input type="range" class="chain-length-slider" id="chain-length-slider" min="1" max="20" value="1" title="Filter nodes by minimum chain length" />
+                        <span class="chain-length-value" id="chain-length-value">1</span>
+                    </div>
                     <div class="hide-completed-toggle">
                         <span class="hide-completed-label">Hide completed</span>
                         <button class="hide-completed-switch" id="hide-completed-switch" title="Hide completed nodes (except in active chains)"></button>
@@ -2017,6 +2094,8 @@
                 highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
                 // Hide completed nodes filter
                 hideCompleted: false,  // When true, hide completed nodes except those in active chains
+                // Chain length filter (1 = no filter, 2+ = only show nodes in chains of at least that length)
+                minChainLength: 1,
                 // Search filter
                 searchQuery: '',
                 // Cached visibility for hit-testing (null until first frame)
@@ -2796,6 +2875,50 @@
             }
         }
 
+        // Chain length filter
+        const chainLengthSlider = document.getElementById('chain-length-slider');
+        const chainLengthValue = document.getElementById('chain-length-value');
+        const chainLengthFilter = document.getElementById('chain-length-filter');
+
+        // Load saved chain length filter from localStorage
+        function loadChainLengthFilter() {
+            const saved = localStorage.getItem('binnacle_chain_length_filter');
+            if (saved) {
+                const value = parseInt(saved, 10);
+                if (!isNaN(value) && value >= 1 && value <= 20) {
+                    return value;
+                }
+            }
+            return 1;
+        }
+
+        // Save chain length filter to localStorage
+        function saveChainLengthFilter(value) {
+            localStorage.setItem('binnacle_chain_length_filter', value.toString());
+        }
+
+        // Initialize chain length filter from saved state
+        state.graph.minChainLength = loadChainLengthFilter();
+        chainLengthSlider.value = state.graph.minChainLength;
+        chainLengthValue.textContent = state.graph.minChainLength;
+        updateChainLengthDisplay();
+
+        chainLengthSlider.addEventListener('input', () => {
+            const value = parseInt(chainLengthSlider.value, 10);
+            state.graph.minChainLength = value;
+            chainLengthValue.textContent = value;
+            saveChainLengthFilter(value);
+            updateChainLengthDisplay();
+        });
+
+        function updateChainLengthDisplay() {
+            if (state.graph.minChainLength > 1) {
+                chainLengthFilter.classList.add('active');
+            } else {
+                chainLengthFilter.classList.remove('active');
+            }
+        }
+
         function normalizeSearchQuery(query) {
             return (query || '').trim().toLowerCase();
         }
@@ -3515,6 +3638,58 @@
         }
 
         /**
+         * Calculate the length of the chain that contains a node.
+         * Chain length = total number of unique nodes reachable through edges from this node
+         * (including the node itself).
+         */
+        function getChainLength(nodeId, adjacency) {
+            const visited = new Set();
+            const queue = [nodeId];
+            visited.add(nodeId);
+
+            while (queue.length > 0) {
+                const current = queue.shift();
+                const neighbors = adjacency.get(current) || [];
+                for (const neighbor of neighbors) {
+                    if (!visited.has(neighbor)) {
+                        visited.add(neighbor);
+                        queue.push(neighbor);
+                    }
+                }
+            }
+
+            return visited.size;
+        }
+
+        /**
+         * Build adjacency list for chain length calculations.
+         * Only considers visible edge types to avoid hidden edges affecting chain length.
+         */
+        function buildChainAdjacency(edges) {
+            const adjacency = new Map();
+            const edgeFilters = loadEdgeFilters();
+
+            edges.forEach(edge => {
+                // Skip edges that are hidden by the edge type filter
+                if (!edgeFilters[edge.type]) {
+                    return;
+                }
+
+                if (!adjacency.has(edge.from)) {
+                    adjacency.set(edge.from, []);
+                }
+                if (!adjacency.has(edge.to)) {
+                    adjacency.set(edge.to, []);
+                }
+                // Add bidirectional edges for traversal
+                adjacency.get(edge.from).push(edge.to);
+                adjacency.get(edge.to).push(edge.from);
+            });
+
+            return adjacency;
+        }
+
+        /**
          * Filter nodes based on hideCompleted setting.
          * Returns array of nodes that should be visible.
          *
@@ -3542,6 +3717,17 @@
 
                     // If completed, only show if it's in an active chain
                     return isInActiveChain(node.id, activeNodes, edges);
+                });
+            }
+
+            // Apply chain length filter if enabled (minChainLength > 1)
+            if (state.graph.minChainLength > 1) {
+                const adjacency = buildChainAdjacency(state.graph.edges);
+
+                // Only keep nodes whose chain length meets the minimum
+                visible = visible.filter(node => {
+                    const chainLen = getChainLength(node.id, adjacency);
+                    return chainLen >= state.graph.minChainLength;
                 });
             }
 
