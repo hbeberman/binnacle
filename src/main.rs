@@ -132,10 +132,11 @@ fn run_command(
             let result = commands::goodbye(repo_path, reason)?;
             output(&result, human);
 
-            // Actually terminate the parent process after output (unless dry-run)
+            // Actually terminate the grandparent process after output (unless dry-run)
+            // We target grandparent because: agent → shell → bn goodbye
             if !dry_run {
                 // Use 5 second timeout before SIGKILL
-                commands::terminate_process(result.parent_pid, 5);
+                commands::terminate_process(result.grandparent_pid, 5);
             }
         }
 

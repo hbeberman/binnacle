@@ -673,6 +673,40 @@ fn get_parent_pid() -> Option<u32> {
     None
 }
 
+/// Get the parent PID of a given process by reading /proc/<pid>/stat.
+/// Returns None if the process doesn't exist or can't be read.
+#[cfg(unix)]
+fn get_ppid_of_pid(pid: u32) -> Option<u32> {
+    use std::fs;
+    let stat_path = format!("/proc/{}/stat", pid);
+    let stat = fs::read_to_string(stat_path).ok()?;
+    // Format: pid (comm) state ppid ...
+    // The ppid is the 4th field, but comm can contain spaces/parens
+    // So we find the last ')' and parse from there
+    let last_paren = stat.rfind(')')?;
+    let after_comm = &stat[last_paren + 2..]; // skip ") "
+    let fields: Vec<&str> = after_comm.split_whitespace().collect();
+    // fields[0] is state, fields[1] is ppid
+    fields.get(1)?.parse().ok()
+}
+
+#[cfg(not(unix))]
+fn get_ppid_of_pid(_pid: u32) -> Option<u32> {
+    None
+}
+
+/// Get the grandparent PID (parent of parent process).
+#[cfg(unix)]
+fn get_grandparent_pid() -> Option<u32> {
+    let parent_pid = get_parent_pid()?;
+    get_ppid_of_pid(parent_pid)
+}
+
+#[cfg(not(unix))]
+fn get_grandparent_pid() -> Option<u32> {
+    None
+}
+
 // === Generic Show Command ===
 
 /// Result for generic show command - contains entity type and data.
@@ -6979,6 +7013,9 @@ pub fn agent_kill(repo_path: &Path, target: &str, timeout_secs: u64) -> Result<A
 pub struct GoodbyeResult {
     pub agent_name: Option<String>,
     pub parent_pid: u32,
+    /// The grandparent PID - this is the actual target for termination
+    /// because process tree is: agent → shell → bn goodbye
+    pub grandparent_pid: u32,
     pub was_registered: bool,
     pub reason: Option<String>,
     pub terminated: bool,
@@ -7009,7 +7046,10 @@ impl Output for GoodbyeResult {
             lines.push(format!("Reason: {}", reason));
         }
 
-        lines.push(format!("Terminating agent (PID {})...", self.parent_pid));
+        lines.push(format!(
+            "Terminating agent session (grandparent PID {})...",
+            self.grandparent_pid
+        ));
 
         lines.join("\n")
     }
@@ -7022,13 +7062,25 @@ impl Output for GoodbyeResult {
 /// 2. If not registered: logs warning, proceeds anyway
 /// 3. Logs termination with optional reason
 /// 4. Removes own registration from agents.jsonl
-/// 5. Sends SIGTERM to parent PID (then SIGKILL after timeout if still running)
+/// 5. Sends SIGTERM to grandparent PID (then SIGKILL after timeout if still running)
+///
+/// Note: We target the grandparent PID because the process tree is typically:
+/// agent session → shell (running bn) → bn goodbye
+/// Killing the direct parent (shell) doesn't terminate the agent session.
 pub fn goodbye(repo_path: &Path, reason: Option<String>) -> Result<GoodbyeResult> {
     let bn_pid = std::process::id();
     let parent_pid = get_parent_pid().unwrap_or(0);
 
     if parent_pid == 0 {
         return Err(Error::Other("Could not determine parent PID".to_string()));
+    }
+
+    // Get grandparent PID - this is the actual agent session we want to terminate
+    let grandparent_pid = get_grandparent_pid().unwrap_or(0);
+    if grandparent_pid == 0 {
+        return Err(Error::Other(
+            "Could not determine grandparent PID".to_string(),
+        ));
     }
 
     let mut storage = Storage::open(repo_path)?;
@@ -7052,6 +7104,7 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>) -> Result<GoodbyeResult
     Ok(GoodbyeResult {
         agent_name,
         parent_pid,
+        grandparent_pid,
         was_registered,
         reason,
         terminated: true, // Actual termination happens in main.rs after output
@@ -11380,6 +11433,7 @@ mod tests {
         assert!(!goodbye_result.was_registered);
         assert!(goodbye_result.agent_name.is_none());
         assert!(goodbye_result.parent_pid > 0);
+        assert!(goodbye_result.grandparent_pid > 0);
     }
 
     #[test]
@@ -11402,13 +11456,15 @@ mod tests {
         // Test JSON output
         let json = result.to_json();
         assert!(json.contains("parent_pid"));
+        assert!(json.contains("grandparent_pid"));
         assert!(json.contains("was_registered"));
         assert!(json.contains("terminated"));
         assert!(json.contains("Done"));
 
         // Test human output
         let human = result.to_human();
-        assert!(human.contains("Terminating agent"));
+        assert!(human.contains("Terminating agent session"));
+        assert!(human.contains("grandparent PID"));
         assert!(human.contains("Reason: Done"));
     }
 
