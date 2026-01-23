@@ -6844,6 +6844,97 @@ pub fn track_agent_activity(repo_path: &Path) {
     }
 }
 
+// === Agent Kill Command ===
+
+/// Result of agent kill command.
+#[derive(Serialize)]
+pub struct AgentKillResult {
+    pub pid: u32,
+    pub name: String,
+    pub was_running: bool,
+    pub terminated: bool,
+    pub signal_sent: String,
+}
+
+impl Output for AgentKillResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if !self.was_running {
+            lines.push(format!(
+                "Agent {} (PID {}) was not running.",
+                self.name, self.pid
+            ));
+        } else if self.terminated {
+            lines.push(format!(
+                "Agent {} (PID {}) terminated ({}).",
+                self.name, self.pid, self.signal_sent
+            ));
+        } else {
+            lines.push(format!(
+                "Failed to terminate agent {} (PID {}).",
+                self.name, self.pid
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Terminate a specific agent by PID or name.
+///
+/// This command:
+/// 1. Looks up agent by PID (numeric) or name (string)
+/// 2. Sends SIGTERM to the agent's PID
+/// 3. Waits up to `timeout_secs` for graceful exit
+/// 4. Sends SIGKILL if still running after timeout
+/// 5. Removes agent from registry
+pub fn agent_kill(repo_path: &Path, target: &str, timeout_secs: u64) -> Result<AgentKillResult> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Clean up stale agents first
+    let _ = storage.cleanup_stale_agents();
+
+    // Try to find agent by PID or name
+    let agent = if let Ok(pid) = target.parse::<u32>() {
+        // Target is a PID
+        storage.get_agent(pid)?
+    } else {
+        // Target is a name
+        storage.get_agent_by_name(target)?
+    };
+
+    let pid = agent.pid;
+    let name = agent.name.clone();
+
+    // Check if process is still running
+    let was_running = agent.is_alive();
+
+    let (terminated, signal_sent) = if was_running {
+        // Terminate the process
+        let result = terminate_process(pid, timeout_secs);
+        let signal = if result { "SIGTERM/SIGKILL" } else { "failed" };
+        (result, signal.to_string())
+    } else {
+        (true, "already dead".to_string())
+    };
+
+    // Remove from registry regardless of termination result
+    let _ = storage.remove_agent(pid);
+
+    Ok(AgentKillResult {
+        pid,
+        name,
+        was_running,
+        terminated,
+        signal_sent,
+    })
+}
+
 // === Goodbye Command ===
 
 /// Result of goodbye command.
@@ -11019,5 +11110,79 @@ mod tests {
         let human = result.to_human();
         assert!(human.contains("Terminating agent"));
         assert!(human.contains("Reason: Done"));
+    }
+
+    // === Agent Kill Tests ===
+
+    #[test]
+    fn test_agent_kill_not_found() {
+        let temp = setup();
+
+        // Try to kill a non-existent agent
+        let result = agent_kill(temp.path(), "99999", 1);
+        assert!(result.is_err());
+
+        // Also test with name
+        let result = agent_kill(temp.path(), "nonexistent-agent", 1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_agent_kill_by_pid_dead_process() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Register an agent with a fake PID (won't be running)
+        let agent = Agent::new(99998, 1, "test-agent".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        // Kill by PID - agent gets cleaned up as stale during kill
+        // so we expect a NotFound error (cleanup removes dead agents)
+        let result = agent_kill(temp.path(), "99998", 1);
+        // The cleanup_stale_agents removes the agent before we can kill it
+        assert!(result.is_err());
+
+        // Verify agent was removed from registry (by cleanup)
+        let storage = Storage::open(temp.path()).unwrap();
+        assert!(storage.get_agent(99998).is_err());
+    }
+
+    #[test]
+    fn test_agent_kill_by_name_dead_process() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Register an agent with a fake PID
+        let agent = Agent::new(99997, 1, "named-agent".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        // Kill by name - agent gets cleaned up as stale during kill
+        let result = agent_kill(temp.path(), "named-agent", 1);
+        // The cleanup_stale_agents removes the agent before we can kill it
+        assert!(result.is_err());
+
+        // Verify agent was removed
+        let storage = Storage::open(temp.path()).unwrap();
+        assert!(storage.get_agent(99997).is_err());
+    }
+
+    #[test]
+    fn test_agent_kill_output_format() {
+        let result = AgentKillResult {
+            pid: 12345,
+            name: "my-agent".to_string(),
+            was_running: true,
+            terminated: true,
+            signal_sent: "SIGTERM/SIGKILL".to_string(),
+        };
+
+        let human = result.to_human();
+        assert!(human.contains("my-agent"));
+        assert!(human.contains("12345"));
+        assert!(human.contains("terminated"));
+
+        let json = result.to_json();
+        assert!(json.contains("my-agent"));
+        assert!(json.contains("12345"));
     }
 }

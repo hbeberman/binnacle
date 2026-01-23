@@ -910,6 +910,16 @@ pub enum AgentCommands {
         #[arg(long)]
         status: Option<String>,
     },
+
+    /// Terminate a specific agent by PID or name
+    Kill {
+        /// Agent identifier (PID or name)
+        target: String,
+
+        /// Seconds to wait after SIGTERM before sending SIGKILL
+        #[arg(long, default_value = "5")]
+        timeout: u64,
+    },
 }
 
 #[cfg(test)]
