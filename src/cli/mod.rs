@@ -177,8 +177,8 @@ pub enum Commands {
         #[arg(short, long, env = "BN_GUI_PORT", default_value = "3030")]
         port: u16,
 
-        /// Host address to bind to (default: 127.0.0.1, use 0.0.0.0 for network access)
-        #[arg(long, env = "BN_GUI_HOST", default_value = "127.0.0.1")]
+        /// Host address to bind to (default: 0.0.0.0 for network access, use 127.0.0.1 for local only)
+        #[arg(long, env = "BN_GUI_HOST", default_value = "0.0.0.0")]
         host: String,
 
         /// Show status of running GUI server and exit
