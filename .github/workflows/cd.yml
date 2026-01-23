@@ -93,6 +93,7 @@ jobs:
           checksum: sha256
           token: ${{ secrets.GITHUB_TOKEN }}
           include: LICENSE,README.md
+          features: gui
 
       - name: Generate artifact attestation
         if: github.event_name == 'release'
