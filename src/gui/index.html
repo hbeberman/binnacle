@@ -1439,13 +1439,13 @@
                             }
                         }
                         
-                        // Task completion detection: show persistent toast when task is closed
+                        // Task completion detection: show toast when task is closed (1 minute timeout)
                         if (state.tasks) {
                             for (const task of state.tasks) {
                                 const prevStatus = prevStatuses[task.id];
                                 if (task.status === 'done' && prevStatus && prevStatus !== 'done') {
-                                    // Task just transitioned to done - show persistent toast
-                                    showToast(`✅ Task closed: ${task.id} - ${task.title}`, 'success', 0);
+                                    // Task just transitioned to done - show toast with 1 minute timeout
+                                    showToast(`✅ Task closed: ${task.id} - ${task.title}`, 'success', 60000);
                                 }
                             }
                         }
