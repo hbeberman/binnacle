@@ -1061,6 +1061,8 @@ pub struct TaskCreated {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub short_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queued_to: Option<String>,
 }
 
 impl Output for TaskCreated {
@@ -1069,11 +1071,44 @@ impl Output for TaskCreated {
     }
 
     fn to_human(&self) -> String {
-        match &self.short_name {
+        let base = match &self.short_name {
             Some(sn) => format!("Created task {} [{}] \"{}\"", self.id, sn, self.title),
             None => format!("Created task {} \"{}\"", self.id, self.title),
+        };
+        match &self.queued_to {
+            Some(q) => format!("{} (added to queue {})", base, q),
+            None => base,
         }
     }
+}
+
+/// Internal helper to add an entity to the queue, auto-creating the queue if needed.
+fn add_entity_to_queue_internal(storage: &mut Storage, entity_id: &str) -> Result<String> {
+    // Get or create the queue
+    let queue = match storage.get_queue() {
+        Ok(q) => q,
+        Err(_) => {
+            // Create default queue if it doesn't exist
+            let title = "Work Queue".to_string();
+            let queue_id = generate_id("bnq", &title);
+            let new_queue = Queue::new(queue_id, title);
+            storage.create_queue(&new_queue)?;
+            new_queue
+        }
+    };
+    let queue_id = queue.id.clone();
+
+    // Create queued edge
+    let edge_id = generate_id("bne", &format!("{}-{}", entity_id, queue_id));
+    let edge = Edge::new(
+        edge_id,
+        entity_id.to_string(),
+        queue_id.clone(),
+        EdgeType::Queued,
+    );
+    storage.add_edge(&edge)?;
+
+    Ok(queue_id)
 }
 
 /// Create a new task.
@@ -1085,6 +1120,30 @@ pub fn task_create(
     priority: Option<u8>,
     tags: Vec<String>,
     assignee: Option<String>,
+) -> Result<TaskCreated> {
+    task_create_with_queue(
+        repo_path,
+        title,
+        short_name,
+        description,
+        priority,
+        tags,
+        assignee,
+        false,
+    )
+}
+
+/// Create a new task with optional immediate queuing.
+#[allow(clippy::too_many_arguments)]
+pub fn task_create_with_queue(
+    repo_path: &Path,
+    title: String,
+    short_name: Option<String>,
+    description: Option<String>,
+    priority: Option<u8>,
+    tags: Vec<String>,
+    assignee: Option<String>,
+    queue: bool,
 ) -> Result<TaskCreated> {
     let mut storage = Storage::open(repo_path)?;
 
@@ -1118,10 +1177,18 @@ pub fn task_create(
 
     storage.create_task(&task)?;
 
+    // Add to queue if requested
+    let queued_to = if queue {
+        Some(add_entity_to_queue_internal(&mut storage, &id)?)
+    } else {
+        None
+    };
+
     Ok(TaskCreated {
         id,
         title,
         short_name,
+        queued_to,
     })
 }
 
@@ -2226,6 +2293,8 @@ fn parse_severity(s: &str) -> Result<BugSeverity> {
 pub struct BugCreated {
     pub id: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queued_to: Option<String>,
 }
 
 impl Output for BugCreated {
@@ -2234,7 +2303,11 @@ impl Output for BugCreated {
     }
 
     fn to_human(&self) -> String {
-        format!("Created bug {} \"{}\"", self.id, self.title)
+        let base = format!("Created bug {} \"{}\"", self.id, self.title);
+        match &self.queued_to {
+            Some(q) => format!("{} (added to queue {})", base, q),
+            None => base,
+        }
     }
 }
 
@@ -2250,6 +2323,34 @@ pub fn bug_create(
     assignee: Option<String>,
     reproduction_steps: Option<String>,
     affected_component: Option<String>,
+) -> Result<BugCreated> {
+    bug_create_with_queue(
+        repo_path,
+        title,
+        description,
+        priority,
+        severity,
+        tags,
+        assignee,
+        reproduction_steps,
+        affected_component,
+        false,
+    )
+}
+
+/// Create a new bug with optional immediate queuing.
+#[allow(clippy::too_many_arguments)]
+pub fn bug_create_with_queue(
+    repo_path: &Path,
+    title: String,
+    description: Option<String>,
+    priority: Option<u8>,
+    severity: Option<String>,
+    tags: Vec<String>,
+    assignee: Option<String>,
+    reproduction_steps: Option<String>,
+    affected_component: Option<String>,
+    queue: bool,
 ) -> Result<BugCreated> {
     let mut storage = Storage::open(repo_path)?;
 
@@ -2275,7 +2376,18 @@ pub fn bug_create(
 
     storage.add_bug(&bug)?;
 
-    Ok(BugCreated { id, title })
+    // Add to queue if requested
+    let queued_to = if queue {
+        Some(add_entity_to_queue_internal(&mut storage, &id)?)
+    } else {
+        None
+    };
+
+    Ok(BugCreated {
+        id,
+        title,
+        queued_to,
+    })
 }
 
 impl Output for Bug {

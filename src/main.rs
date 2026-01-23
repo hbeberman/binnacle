@@ -158,10 +158,11 @@ fn run_command(
                 tag,
                 assignee,
                 description,
+                queue,
             } => {
                 // Convert empty or whitespace-only string to None
                 let short_name = short_name.filter(|s| !s.trim().is_empty());
-                let result = commands::task_create(
+                let result = commands::task_create_with_queue(
                     repo_path,
                     title,
                     short_name,
@@ -169,6 +170,7 @@ fn run_command(
                     priority,
                     tag,
                     assignee,
+                    queue,
                 )?;
                 output(&result, human);
             }
@@ -242,8 +244,9 @@ fn run_command(
                 description,
                 reproduction_steps,
                 affected_component,
+                queue,
             } => {
-                let result = commands::bug_create(
+                let result = commands::bug_create_with_queue(
                     repo_path,
                     title,
                     description,
@@ -253,6 +256,7 @@ fn run_command(
                     assignee,
                     reproduction_steps,
                     affected_component,
+                    queue,
                 )?;
                 output(&result, human);
             }
@@ -1193,6 +1197,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 tag,
                 assignee,
                 description,
+                queue,
             } => (
                 "task create".to_string(),
                 serde_json::json!({
@@ -1202,6 +1207,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "tag": tag,
                     "assignee": assignee,
                     "description": description,
+                    "queue": queue,
                 }),
             ),
             TaskCommands::List {
@@ -1269,6 +1275,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 description,
                 reproduction_steps,
                 affected_component,
+                queue,
             } => (
                 "bug create".to_string(),
                 serde_json::json!({
@@ -1280,6 +1287,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "description": description,
                     "reproduction_steps": reproduction_steps,
                     "affected_component": affected_component,
+                    "queue": queue,
                 }),
             ),
             BugCommands::List {
