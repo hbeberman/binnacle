@@ -72,3 +72,87 @@ fn test_invalid_command() {
         .failure()
         .stderr(predicate::str::contains("error"));
 }
+
+#[test]
+fn test_repo_flag_nonexistent_path() {
+    bn().args([
+        "-C",
+        "/nonexistent/path/that/does/not/exist",
+        "task",
+        "list",
+    ])
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("does not exist"));
+}
+
+#[test]
+fn test_repo_flag_in_help() {
+    bn().arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("-C, --repo"));
+}
+
+/// Test that explicit -C path bypasses git root detection.
+///
+/// When using `-C /path/to/subdir`, storage should be based on the subdir path
+/// literally, NOT resolved to the git root. This verifies the PRD requirement:
+/// "Bypasses git root detection - uses the path literally."
+#[test]
+fn test_explicit_repo_path_bypasses_git_root_detection() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    // Create a temp directory structure simulating a git repo with subdirs
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    // Create .git directory to make this a "git repo"
+    fs::create_dir(root.join(".git")).unwrap();
+
+    // Create a subdirectory
+    let subdir = root.join("src");
+    fs::create_dir(&subdir).unwrap();
+
+    // Initialize binnacle using explicit -C pointing to the SUBDIR
+    bn().args(["-C", subdir.to_str().unwrap(), "system", "init"])
+        .assert()
+        .success();
+
+    // Create a task in the subdir's binnacle
+    bn().args([
+        "-C",
+        subdir.to_str().unwrap(),
+        "task",
+        "create",
+        "Task in subdir",
+    ])
+    .assert()
+    .success();
+
+    // Now run from the git ROOT - should NOT see the task
+    // because explicit -C subdir should have created a separate storage
+    let output = bn()
+        .args(["-C", root.to_str().unwrap(), "system", "init"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let list_output = bn()
+        .args(["-C", root.to_str().unwrap(), "task", "list"])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&list_output.stdout);
+
+    // The root's binnacle should NOT contain "Task in subdir"
+    // because explicit -C paths should create separate storage
+    assert!(
+        !stdout.contains("Task in subdir"),
+        "Bug: explicit -C path is being resolved to git root! \
+         Task created with -C <subdir> should NOT appear when listing with -C <git_root>. \
+         Got output: {}",
+        stdout
+    );
+}

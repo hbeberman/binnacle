@@ -2470,10 +2470,102 @@ impl Storage {
     }
 }
 
+/// Resolve a git worktree's `.git` file to find the main repository root.
+///
+/// Git worktrees have a `.git` file (not directory) containing a pointer like:
+/// `gitdir: /path/to/main/repo/.git/worktrees/worktree-name`
+///
+/// This function reads that pointer and finds the main repo by:
+/// 1. Parsing the `gitdir:` line from the `.git` file
+/// 2. Looking for a `commondir` file that points to the main `.git` directory
+/// 3. Returning the parent of that main `.git` directory
+///
+/// Returns `None` if this isn't a worktree or if resolution fails.
+fn resolve_worktree_to_main_repo(git_file: &Path) -> Option<PathBuf> {
+    let content = fs::read_to_string(git_file).ok()?;
+
+    // Parse "gitdir: <path>" line
+    let gitdir_line = content.lines().find(|l| l.starts_with("gitdir:"))?;
+    let gitdir_path_str = gitdir_line.strip_prefix("gitdir:")?.trim();
+
+    // Resolve relative or absolute path
+    let gitdir_path = if Path::new(gitdir_path_str).is_absolute() {
+        PathBuf::from(gitdir_path_str)
+    } else {
+        git_file.parent()?.join(gitdir_path_str)
+    };
+
+    // Look for commondir file which points to the main .git directory
+    let commondir_file = gitdir_path.join("commondir");
+    if commondir_file.exists() {
+        let commondir_content = fs::read_to_string(&commondir_file).ok()?;
+        let common_path = gitdir_path.join(commondir_content.trim());
+        // common_path is the main .git dir, parent is repo root
+        return common_path
+            .canonicalize()
+            .ok()?
+            .parent()
+            .map(|p| p.to_path_buf());
+    }
+
+    // Fallback: try to find main repo by walking up from gitdir
+    // gitdir is typically at /main/repo/.git/worktrees/<name>
+    // So we go up 3 levels to find the main repo
+    let mut candidate = gitdir_path.canonicalize().ok()?;
+    for _ in 0..3 {
+        candidate = candidate.parent()?.to_path_buf();
+    }
+    if candidate.join(".git").is_dir() {
+        return Some(candidate);
+    }
+
+    None
+}
+
+/// Find the git root by walking up directories looking for .git.
+///
+/// Supports both regular git repositories (.git directory) and git worktrees
+/// (.git file pointing to the worktree's git directory). For worktrees, this
+/// resolves back to the main repository root so all worktrees share the same
+/// binnacle database.
+///
+/// Git submodules also have a `.git` file, but their format differs from worktrees
+/// (`gitdir: ../.git/modules/<name>` vs `gitdir: .../.git/worktrees/<name>`).
+/// Submodules are intentionally treated as their own repository root since they
+/// are logically independent git repositories that happen to be nested.
+///
+/// Returns `None` if no .git is found (not in a git repository).
+pub fn find_git_root(start: &Path) -> Option<PathBuf> {
+    // Start from canonicalized path to handle symlinks consistently
+    let mut current = start.canonicalize().ok()?;
+    loop {
+        let git_path = current.join(".git");
+        if git_path.is_dir() {
+            // Normal git repo - return this directory
+            return Some(current);
+        } else if git_path.is_file() {
+            // Git worktree: resolve to main repo for shared binnacle database.
+            // Git submodule: resolution will fail (different gitdir format),
+            // and we'll fall back to treating it as its own root (intentional).
+            if let Some(main_repo) = resolve_worktree_to_main_repo(&git_path) {
+                return Some(main_repo);
+            }
+            // Resolution failed - this is either a submodule (intentionally its
+            // own root) or a broken worktree (fallback to worktree root)
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
 /// Get the storage directory for a repository.
 ///
 /// Uses a hash of the repository path to create a unique directory
-/// under `~/.local/share/binnacle/`.
+/// under `~/.local/share/binnacle/`. The provided path is used directly;
+/// git root detection (if desired) should be done by the caller before
+/// invoking this function.
 pub fn get_storage_dir(repo_path: &Path) -> Result<PathBuf> {
     let data_dir = dirs::data_dir()
         .ok_or_else(|| Error::Other("Could not determine data directory".to_string()))?;
@@ -3504,5 +3596,127 @@ mod tests {
         assert!(storage.get_task("bn-aaaa").is_ok());
         assert!(storage.get_task("bn-bbbb").is_ok());
         assert!(storage.get_test("bnt-0001").is_ok());
+    }
+
+    #[test]
+    fn test_find_git_root_from_subdir() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create a .git directory to simulate a git repo
+        fs::create_dir(root.join(".git")).unwrap();
+
+        // Create nested subdirectories
+        let subdir = root.join("src").join("deeply").join("nested");
+        fs::create_dir_all(&subdir).unwrap();
+
+        // find_git_root should return the root from any depth
+        let found = super::find_git_root(&subdir).unwrap();
+        assert_eq!(found.canonicalize().unwrap(), root.canonicalize().unwrap());
+
+        // Also works from the root itself
+        let found_from_root = super::find_git_root(root).unwrap();
+        assert_eq!(
+            found_from_root.canonicalize().unwrap(),
+            root.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_find_git_root_no_git() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // No .git directory - should return None
+        let result = super::find_git_root(root);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_find_git_root_worktree_resolves_to_main() {
+        let temp_dir = TempDir::new().unwrap();
+        let base = temp_dir.path();
+
+        // Create main repo structure
+        let main_repo = base.join("main-repo");
+        fs::create_dir_all(main_repo.join(".git").join("worktrees").join("my-worktree")).unwrap();
+
+        // Create commondir file pointing to main .git
+        fs::write(
+            main_repo
+                .join(".git")
+                .join("worktrees")
+                .join("my-worktree")
+                .join("commondir"),
+            "../..",
+        )
+        .unwrap();
+
+        // Create worktree directory with .git file
+        let worktree = base.join("worktree-dir");
+        fs::create_dir_all(worktree.join("src")).unwrap();
+
+        // Write .git file pointing to worktree gitdir (use absolute path for test reliability)
+        let gitdir_path = main_repo.join(".git").join("worktrees").join("my-worktree");
+        fs::write(
+            worktree.join(".git"),
+            format!("gitdir: {}", gitdir_path.display()),
+        )
+        .unwrap();
+
+        // find_git_root from worktree subdir should resolve to main repo
+        let found = super::find_git_root(&worktree.join("src")).unwrap();
+        assert_eq!(
+            found.canonicalize().unwrap(),
+            main_repo.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_find_git_root_worktree_fallback() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create a .git file pointing to a non-existent location (simulates broken worktree)
+        let git_file = root.join(".git");
+        fs::write(
+            &git_file,
+            "gitdir: /nonexistent/path/to/.git/worktrees/broken",
+        )
+        .unwrap();
+
+        // Create nested subdirectory
+        let subdir = root.join("src");
+        fs::create_dir(&subdir).unwrap();
+
+        // find_git_root should fall back to worktree root when resolution fails
+        let found = super::find_git_root(&subdir).unwrap();
+        assert_eq!(found.canonicalize().unwrap(), root.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn test_get_storage_dir_uses_path_literally() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create a .git directory to simulate a git repo
+        fs::create_dir(root.join(".git")).unwrap();
+
+        // Create a subdirectory
+        let subdir = root.join("src");
+        fs::create_dir(&subdir).unwrap();
+
+        // get_storage_dir should use paths literally (no git root detection)
+        // The caller is responsible for resolving git root if desired
+        let storage_from_root = super::get_storage_dir(root).unwrap();
+        let storage_from_subdir = super::get_storage_dir(&subdir).unwrap();
+
+        // These should be DIFFERENT because get_storage_dir uses paths literally
+        assert_ne!(storage_from_root, storage_from_subdir);
+
+        // But if caller resolves git root first, they get the same storage
+        let git_root_from_subdir = super::find_git_root(&subdir).unwrap();
+        let storage_via_git_root = super::get_storage_dir(&git_root_from_subdir).unwrap();
+        assert_eq!(storage_from_root, storage_via_git_root);
     }
 }
