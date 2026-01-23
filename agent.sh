@@ -26,6 +26,8 @@ TOOLS_FULL=(
     --allow-tool "shell(git:*)"
     --allow-tool "shell(just:*)"
     --allow-tool "shell(jq:*)"
+    --allow-tool "shell(sed:*)"
+    --allow-tool "shell(cp:*)"
 )
 
 TOOLS_PRD=(
