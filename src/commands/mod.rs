@@ -1622,6 +1622,9 @@ pub fn task_update(
         // If setting status to done, also set closed_at
         if new_status == TaskStatus::Done {
             task.closed_at = Some(Utc::now());
+            // Remove task from agent's tasks list
+            let pid = std::process::id();
+            let _ = storage.agent_remove_task(pid, id);
         }
 
         // If setting status to in_progress, track task association for registered agents
@@ -1792,6 +1795,11 @@ pub fn task_close(
 
     storage.update_task(&task)?;
     promote_partial_tasks(&mut storage)?;
+
+    // Remove task from agent's tasks list if the current process is a registered agent
+    let pid = std::process::id();
+    // Silently ignore errors - agent tracking is optional
+    let _ = storage.agent_remove_task(pid, id);
 
     // Generate warning if force was used with incomplete deps
     let warning = if !incomplete_deps.is_empty() {
@@ -7523,6 +7531,69 @@ mod tests {
         // Should succeed without commit
         let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_task_close_removes_agent_association() {
+        let temp = setup();
+
+        // Register current process as an agent
+        let pid = std::process::id();
+        let parent_pid = 1;
+        let agent = Agent::new(pid, parent_pid, "test-agent".to_string());
+        {
+            let mut storage = Storage::open(temp.path()).unwrap();
+            storage.register_agent(&agent).unwrap();
+        }
+
+        // Create a task
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Set task to in_progress (adds to agent's tasks)
+        task_update(
+            temp.path(),
+            &task.id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            vec![],
+            vec![],
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Verify task is in agent's list
+        {
+            let storage = Storage::open(temp.path()).unwrap();
+            let agent = storage.get_agent(pid).unwrap();
+            assert!(
+                agent.tasks.contains(&task.id),
+                "Agent should have the task in its tasks list"
+            );
+        }
+
+        // Close the task
+        task_close(temp.path(), &task.id, Some("Done".to_string()), false).unwrap();
+
+        // Verify task is removed from agent's list
+        let storage = Storage::open(temp.path()).unwrap();
+        let agent = storage.get_agent(pid).unwrap();
+        assert!(
+            !agent.tasks.contains(&task.id),
+            "Agent should no longer have the closed task"
+        );
     }
 
     #[test]
