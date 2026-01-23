@@ -95,7 +95,7 @@ shift
 case "$AGENT_TYPE" in
     auto)
         echo "Launching Auto Worker Agent"
-        PROMPT='Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Look for newly created tasks and bugs first. Run `bn ready` to find available tasks and bugs, pick the highest priority one, claim it with `bn task update ID --status in_progress` or `bn bug update ID --status in_progress`, and start working immediately. Remember to mark it complete when you finish. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done.'
+        PROMPT='Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Run `bn ready` to find available tasks and bugs. IMPORTANT: Prioritize queued items first (items with "queued": true in the JSON output) - these have been explicitly marked as high priority by an operator. Among queued items, pick by priority (lower number = higher priority). If no queued items exist, pick the highest priority non-queued item. Claim your chosen item with `bn task update ID --status in_progress` or `bn bug update ID --status in_progress`, and start working immediately. Remember to mark it complete when you finish. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done.'
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     do)
