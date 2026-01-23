@@ -13,6 +13,7 @@ pub mod graph;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fmt;
 
 /// Task status in the workflow.
@@ -518,6 +519,16 @@ pub enum AgentType {
 /// An AI agent registered with Binnacle for lifecycle management.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
+    /// Unique identifier (e.g., "bna-a1b2")
+    /// Generated from PID and start time for uniqueness
+    /// For backward compatibility, defaults to a placeholder that gets replaced on registration
+    #[serde(default = "agent_placeholder_id")]
+    pub id: String,
+
+    /// Entity type marker
+    #[serde(rename = "type", default = "agent_entity_type")]
+    pub entity_type: String,
+
     /// Process ID of the agent
     pub pid: u32,
 
@@ -555,11 +566,34 @@ pub struct Agent {
     pub status: AgentStatus,
 }
 
+fn agent_entity_type() -> String {
+    "agent".to_string()
+}
+
+fn agent_placeholder_id() -> String {
+    // Placeholder ID for backward compatibility during deserialization
+    // Gets replaced with a proper bna-xxxx ID when calling ensure_id()
+    String::new()
+}
+
 impl Agent {
+    /// Generate a unique agent ID from PID and timestamp.
+    fn generate_id(pid: u32, started_at: &DateTime<Utc>) -> String {
+        let seed = format!("{}:{}", pid, started_at.timestamp_nanos_opt().unwrap_or(0));
+        let mut hasher = Sha256::new();
+        hasher.update(seed.as_bytes());
+        let hash = hasher.finalize();
+        let hash_hex = format!("{:x}", hash);
+        format!("bna-{}", &hash_hex[..4])
+    }
+
     /// Create a new agent with the given PID, name, and type.
     pub fn new(pid: u32, parent_pid: u32, name: String, agent_type: AgentType) -> Self {
         let now = Utc::now();
+        let id = Self::generate_id(pid, &now);
         Self {
+            id,
+            entity_type: "agent".to_string(),
             pid,
             parent_pid,
             name,
@@ -582,7 +616,10 @@ impl Agent {
         purpose: String,
     ) -> Self {
         let now = Utc::now();
+        let id = Self::generate_id(pid, &now);
         Self {
+            id,
+            entity_type: "agent".to_string(),
             pid,
             parent_pid,
             name,
@@ -604,6 +641,14 @@ impl Agent {
     /// Returns true if the agent has registered a purpose.
     pub fn is_registered(&self) -> bool {
         self.purpose.is_some()
+    }
+
+    /// Ensure the agent has a valid binnacle ID.
+    /// For backward compatibility with agents deserialized from old format.
+    pub fn ensure_id(&mut self) {
+        if self.id.is_empty() {
+            self.id = Self::generate_id(self.pid, &self.started_at);
+        }
     }
 
     /// Update the agent's last activity timestamp.
@@ -695,6 +740,8 @@ pub enum EdgeType {
     Queued,
     /// Bug impacts this entity (Bug → Task/PRD/Milestone)
     Impacts,
+    /// Agent is working on this task/bug (Agent → Task/Bug)
+    WorkingOn,
 }
 
 impl EdgeType {
@@ -723,6 +770,7 @@ impl EdgeType {
             EdgeType::Tests,
             EdgeType::Queued,
             EdgeType::Impacts,
+            EdgeType::WorkingOn,
         ]
     }
 }
@@ -742,6 +790,7 @@ impl fmt::Display for EdgeType {
             EdgeType::Tests => "tests",
             EdgeType::Queued => "queued",
             EdgeType::Impacts => "impacts",
+            EdgeType::WorkingOn => "working_on",
         };
         write!(f, "{}", s)
     }
@@ -764,6 +813,7 @@ impl std::str::FromStr for EdgeType {
             "tests" => Ok(EdgeType::Tests),
             "queued" => Ok(EdgeType::Queued),
             "impacts" => Ok(EdgeType::Impacts),
+            "working_on" => Ok(EdgeType::WorkingOn),
             _ => Err(format!("Unknown edge type: {}", s)),
         }
     }
@@ -1110,11 +1160,12 @@ mod tests {
     #[test]
     fn test_edge_type_all() {
         let all = EdgeType::all();
-        assert_eq!(all.len(), 12);
+        assert_eq!(all.len(), 13);
         assert!(all.contains(&EdgeType::DependsOn));
         assert!(all.contains(&EdgeType::Tests));
         assert!(all.contains(&EdgeType::Queued));
         assert!(all.contains(&EdgeType::Impacts));
+        assert!(all.contains(&EdgeType::WorkingOn));
     }
 
     #[test]
@@ -1212,9 +1263,14 @@ mod tests {
     #[test]
     fn test_agent_default_values() {
         let json = r#"{"pid":1234,"parent_pid":1000,"name":"test","started_at":"2026-01-01T00:00:00Z","last_activity_at":"2026-01-01T00:00:00Z"}"#;
-        let agent: Agent = serde_json::from_str(json).unwrap();
+        let mut agent: Agent = serde_json::from_str(json).unwrap();
         assert!(agent.tasks.is_empty());
         assert_eq!(agent.command_count, 0);
         assert_eq!(agent.status, AgentStatus::Active);
+        // ID should be empty before ensure_id
+        assert!(agent.id.is_empty());
+        // After ensure_id, it should have a proper bna-xxxx ID
+        agent.ensure_id();
+        assert!(agent.id.starts_with("bna-"));
     }
 }

@@ -413,6 +413,20 @@ impl Storage {
             conn.execute("ALTER TABLE agents ADD COLUMN purpose TEXT", [])?;
         }
 
+        // Migration: Add id column to agents table if it doesn't exist
+        let has_agent_id: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('agents') WHERE name = 'id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_agent_id {
+            conn.execute("ALTER TABLE agents ADD COLUMN id TEXT", [])?;
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_agents_id ON agents(id)", [])?;
+        }
+
         Ok(())
     }
 
@@ -545,7 +559,9 @@ impl Storage {
                 if line.trim().is_empty() {
                     continue;
                 }
-                if let Ok(agent) = serde_json::from_str::<Agent>(&line) {
+                if let Ok(mut agent) = serde_json::from_str::<Agent>(&line) {
+                    // Ensure backward compatibility: generate ID if missing
+                    agent.ensure_id();
                     self.cache_agent(&agent)?;
                 }
             }
@@ -2878,8 +2894,8 @@ impl Storage {
     fn cache_agent(&self, agent: &Agent) -> Result<()> {
         // Insert or replace the agent
         self.conn.execute(
-            "INSERT OR REPLACE INTO agents (pid, parent_pid, name, purpose, status, started_at, last_activity_at, command_count)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT OR REPLACE INTO agents (pid, parent_pid, name, purpose, status, started_at, last_activity_at, command_count, id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 agent.pid,
                 agent.parent_pid,
@@ -2889,6 +2905,7 @@ impl Storage {
                 agent.started_at.to_rfc3339(),
                 agent.last_activity_at.to_rfc3339(),
                 agent.command_count,
+                agent.id,
             ],
         )?;
 
@@ -2933,9 +2950,11 @@ impl Storage {
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(agent) = serde_json::from_str::<Agent>(&line)
+            if let Ok(mut agent) = serde_json::from_str::<Agent>(&line)
                 && agent.pid == pid
             {
+                // Ensure backward compatibility: generate ID if missing
+                agent.ensure_id();
                 latest = Some(agent);
             }
         }
@@ -3021,22 +3040,54 @@ impl Storage {
         Ok(())
     }
 
-    /// Add a task to an agent's working set.
+    /// Add a task to an agent's working set and create a working_on edge.
     pub fn agent_add_task(&mut self, pid: u32, task_id: &str) -> Result<()> {
         let mut agent = self.get_agent(pid)?;
         if !agent.tasks.contains(&task_id.to_string()) {
             agent.tasks.push(task_id.to_string());
             self.register_agent(&agent)?;
+
+            // Create a working_on edge from agent to task
+            let edge_id = self.generate_edge_id(&agent.id, task_id, EdgeType::WorkingOn);
+            let edge = Edge::new(
+                edge_id,
+                agent.id.clone(),
+                task_id.to_string(),
+                EdgeType::WorkingOn,
+            );
+            self.add_edge(&edge)?;
         }
         Ok(())
     }
 
-    /// Remove a task from an agent's working set.
+    /// Remove a task from an agent's working set and delete the working_on edge.
     pub fn agent_remove_task(&mut self, pid: u32, task_id: &str) -> Result<()> {
         let mut agent = self.get_agent(pid)?;
-        agent.tasks.retain(|t| t != task_id);
-        self.register_agent(&agent)?;
+        if agent.tasks.contains(&task_id.to_string()) {
+            agent.tasks.retain(|t| t != task_id);
+            self.register_agent(&agent)?;
+
+            // Remove the working_on edge
+            let _ = self.remove_edge(&agent.id, task_id, EdgeType::WorkingOn); // Ignore error if edge doesn't exist
+        }
         Ok(())
+    }
+
+    /// Get agent by binnacle ID (bna-xxxx).
+    pub fn get_agent_by_id(&self, id: &str) -> Result<Agent> {
+        use rusqlite::OptionalExtension;
+        // First try to find in cache
+        let pid: Option<u32> = self
+            .conn
+            .query_row("SELECT pid FROM agents WHERE id = ?1", params![id], |row| {
+                row.get(0)
+            })
+            .optional()?;
+
+        match pid {
+            Some(p) => self.get_agent(p),
+            None => Err(Error::NotFound(format!("Agent not found: {}", id))),
+        }
     }
 
     /// Get agent by name.

@@ -2553,7 +2553,8 @@
             // Only show worker agents in the graph (filter out planner and buddy agents)
             const workerAgents = (agentsData.agents || []).filter(agent => agent.agent_type === 'worker');
             const normalizedAgents = workerAgents.map(agent => ({
-                id: `agent-${agent.pid}`,
+                // Use proper binnacle ID (bna-xxxx) if available, fall back to PID-based ID for backwards compat
+                id: agent.id || `agent-${agent.pid}`,
                 title: agent.name,
                 short_name: agent.purpose || agent.name,
                 type: 'agent',
@@ -2571,13 +2572,17 @@
             
             // Build agent-to-task edges ("working_on" edge type)
             // Only include edges from worker agents (same filter as node rendering)
-            const agentEdges = workerAgents.flatMap(agent => 
-                (agent.tasks || []).map(taskId => ({
-                    source: `agent-${agent.pid}`,
-                    target: taskId,
-                    edge_type: 'working_on'
-                }))
-            );
+            // Note: These edges should also exist in the main edges data now that working_on is a proper edge type
+            // but we still build them here for backwards compatibility with agents without proper binnacle IDs
+            const agentEdges = workerAgents
+                .filter(agent => !agent.id)  // Only for agents without binnacle IDs
+                .flatMap(agent => 
+                    (agent.tasks || []).map(taskId => ({
+                        source: `agent-${agent.pid}`,
+                        target: taskId,
+                        edge_type: 'working_on'
+                    }))
+                );
             state.edges = [...(edgesData.edges || []), ...agentEdges];
             state.agents = agentsData.agents || [];
             

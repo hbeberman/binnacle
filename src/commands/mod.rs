@@ -4492,6 +4492,8 @@ fn get_entity_type(storage: &Storage, id: &str) -> Option<&'static str> {
         Some("test")
     } else if storage.get_queue_by_id(id).is_ok() {
         Some("queue")
+    } else if storage.get_agent_by_id(id).is_ok() {
+        Some("agent")
     } else {
         None
     }
@@ -4646,6 +4648,21 @@ fn validate_edge_type_constraints(
             if target_type != "task" && target_type != "milestone" {
                 return Err(Error::Other(format!(
                     "impacts edge requires target to be a task or milestone, got: {}",
+                    target_type
+                )));
+            }
+        }
+        EdgeType::WorkingOn => {
+            // Agent → Task/Bug (agent is working on this item)
+            if source_type != "agent" {
+                return Err(Error::Other(format!(
+                    "working_on edge requires source to be an agent, got: {}",
+                    source_type
+                )));
+            }
+            if target_type != "task" && target_type != "bug" {
+                return Err(Error::Other(format!(
+                    "working_on edge requires target to be a task or bug, got: {}",
                     target_type
                 )));
             }
