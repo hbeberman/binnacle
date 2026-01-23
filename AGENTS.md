@@ -36,6 +36,8 @@ Before committing ANY code changes:
 
 **Pre-commit hook**: Run `git config core.hooksPath hooks` to enable the pre-commit hook that automatically validates formatting and linting before allowing commits.
 
+**Pre-push hook**: The hooks directory also contains a pre-push hook that validates git tag versions don't exceed Cargo.toml version. This prevents accidentally pushing a tag that doesn't match the crate version.
+
 **NEVER commit code that fails these checks.** CI will reject it and waste time.
 
 ## Build and Test

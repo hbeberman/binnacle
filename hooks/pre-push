@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Binnacle pre-push hook
+# Validates that git tags don't exceed Cargo.toml version
+
+set -e
+
+# Read stdin for refs being pushed
+# Format: <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # Check if we're pushing a tag
+    if [[ "$local_ref" =~ ^refs/tags/v?(.+)$ ]]; then
+        tag_version="${BASH_REMATCH[1]}"
+        
+        # Extract version from Cargo.toml
+        repo_root=$(git rev-parse --show-toplevel)
+        cargo_version=$(grep -m1 '^version' "$repo_root/Cargo.toml" | sed 's/version = "\(.*\)"/\1/')
+        
+        if [ -z "$cargo_version" ]; then
+            echo "❌ Could not extract version from Cargo.toml"
+            exit 1
+        fi
+        
+        echo "  → Validating tag version..."
+        echo "    Tag version:       $tag_version"
+        echo "    Cargo.toml version: $cargo_version"
+        
+        # Compare versions - tag should match or be less than Cargo.toml version
+        # We'll use a simple string comparison that works for semver
+        # For proper comparison, we normalize and compare
+        
+        # Function to convert version to comparable format
+        # Handles: 0.0.1, 0.0.1-alpha.1, etc.
+        version_to_comparable() {
+            local ver="$1"
+            # Split into base and prerelease
+            local base="${ver%%-*}"
+            local prerelease=""
+            if [[ "$ver" == *-* ]]; then
+                prerelease="${ver#*-}"
+            fi
+            
+            # Pad base version parts to 6 digits each
+            IFS='.' read -ra parts <<< "$base"
+            printf "%06d%06d%06d" "${parts[0]:-0}" "${parts[1]:-0}" "${parts[2]:-0}"
+            
+            # Add prerelease suffix (if exists, it's "less than" release)
+            # Releases sort after prereleases
+            if [ -n "$prerelease" ]; then
+                echo "0$prerelease"
+            else
+                echo "1"  # Release versions sort after prereleases
+            fi
+        }
+        
+        tag_comparable=$(version_to_comparable "$tag_version")
+        cargo_comparable=$(version_to_comparable "$cargo_version")
+        
+        # If tag version > Cargo.toml version, block the push
+        if [[ "$tag_comparable" > "$cargo_comparable" ]]; then
+            echo ""
+            echo "❌ Tag version ($tag_version) exceeds Cargo.toml version ($cargo_version)!"
+            echo "   Update Cargo.toml version before pushing this tag."
+            echo "   To skip this check: git push --no-verify"
+            exit 1
+        fi
+        
+        # Warn if they don't match exactly
+        if [[ "$tag_version" != "$cargo_version" ]]; then
+            echo "  ⚠ Warning: Tag version ($tag_version) differs from Cargo.toml version ($cargo_version)"
+        fi
+        
+        echo "  ✅ Tag version validated"
+    fi
+done
+
+exit 0
