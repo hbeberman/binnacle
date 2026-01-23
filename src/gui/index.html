@@ -342,7 +342,7 @@
             display: block;
         }
 
-        .zoom-controls {
+        .graph-controls {
             position: absolute;
             top: 1rem;
             right: 1rem;
@@ -358,7 +358,15 @@
             border-radius: 6px;
             padding: 0.5rem;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-            max-width: calc(100vw - 650px);
+            max-width: calc(100vw - 250px);
+        }
+
+        .zoom-buttons {
+            display: flex;
+            flex-direction: row;
+            gap: 0.5rem;
+            align-items: center;
+            flex-shrink: 0;
         }
 
         .graph-search {
@@ -480,55 +488,62 @@
             transform: translateX(14px);
         }
 
-        /* Edge filter controls */
+        /* Edge filter dropdown */
         .edge-filters {
+            position: relative;
+        }
+
+        .edge-filters-btn {
+            padding: 0.4rem 0.75rem;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s ease;
+        }
+
+        .edge-filters-btn:hover {
+            border-color: var(--accent-blue);
+            color: var(--text-primary);
+        }
+
+        .edge-filters-btn .arrow {
+            font-size: 0.6rem;
+            transition: transform 0.2s ease;
+        }
+
+        .edge-filters.open .edge-filters-btn .arrow {
+            transform: rotate(180deg);
+        }
+
+        .edge-filters-dropdown {
             position: absolute;
-            top: 1rem;
-            left: 1rem;
+            top: 100%;
+            left: 0;
+            margin-top: 0.25rem;
             background: var(--overlay-bg);
             border: 1px solid var(--border-color);
             border-radius: 6px;
             padding: 0.5rem;
-            z-index: 100;
-            display: flex;
+            z-index: 200;
+            display: none;
             flex-direction: column;
             gap: 0.25rem;
-            max-width: 200px;
+            min-width: 140px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         }
 
-        .edge-filters-header {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            padding: 0.25rem 0.5rem;
-            border-bottom: 1px solid var(--border-color);
-            margin-bottom: 0.25rem;
+        .edge-filters.open .edge-filters-dropdown {
             display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .edge-filters-toggle {
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 0.7rem;
-            padding: 0;
-        }
-
-        .edge-filters-toggle:hover {
-            color: var(--text-primary);
-        }
-
-        .edge-filter-group {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.25rem;
         }
 
         .edge-filter-btn {
-            padding: 0.25rem 0.5rem;
+            padding: 0.35rem 0.5rem;
             font-size: 0.75rem;
             border-radius: 4px;
             border: 1px solid var(--border-color);
@@ -539,6 +554,7 @@
             display: flex;
             align-items: center;
             gap: 0.3rem;
+            width: 100%;
         }
 
         .edge-filter-btn:hover {
@@ -557,26 +573,35 @@
             border-radius: 50%;
         }
 
-        .edge-filters.collapsed .edge-filter-group {
-            display: none;
+        .edge-filter-all {
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 0.25rem;
+            padding-bottom: 0.5rem;
         }
 
-        .edge-filters.collapsed {
-            max-width: none;
-        }
-
-        .stats-overlay {
+        .graph-filters {
             position: absolute;
             top: 1rem;
-            left: 220px;
+            left: 1rem;
             background: var(--overlay-bg);
             border: 1px solid var(--border-color);
             border-radius: 6px;
-            padding: 0.5rem 0.75rem;
+            padding: 0.5rem;
             z-index: 100;
             display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .stats-overlay {
+            display: flex;
             align-items: center;
-            gap: 0.75rem;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 0.5rem;
             font-size: 0.85rem;
             color: var(--text-secondary);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -1005,18 +1030,14 @@
 
         /* Responsive layout for graph overlays */
         @media (max-width: 1200px) {
-            .zoom-controls {
-                max-width: calc(100vw - 500px);
-            }
-            .stats-overlay {
-                left: 1rem;
-                top: 4.5rem;
+            .graph-controls {
+                max-width: calc(100vw - 300px);
             }
         }
 
         @media (max-width: 900px) {
-            .zoom-controls {
-                max-width: calc(100vw - 250px);
+            .graph-controls {
+                max-width: calc(100vw - 200px);
             }
             .graph-search {
                 width: 140px;
@@ -1024,10 +1045,16 @@
         }
 
         @media (max-width: 700px) {
-            .zoom-controls {
+            .graph-controls {
                 max-width: calc(100vw - 2rem);
                 flex-direction: column;
                 align-items: stretch;
+            }
+            .graph-filters {
+                left: 1rem;
+                right: 1rem;
+                top: auto;
+                bottom: 1rem;
             }
             .graph-search {
                 width: 100%;
@@ -1039,16 +1066,8 @@
                 margin-right: 0;
                 justify-content: space-between;
             }
-            .stats-overlay {
-                left: 1rem;
-                right: 1rem;
-                top: auto;
-                bottom: 1rem;
-                flex-wrap: wrap;
+            .zoom-buttons {
                 justify-content: center;
-            }
-            .edge-filters {
-                max-width: calc(100vw - 2rem);
             }
         }
 
@@ -1084,25 +1103,27 @@
         <main>
             <div id="graph-view" class="view active">
                 <canvas id="graph-canvas"></canvas>
-                <div class="edge-filters" id="edge-filters">
-                    <div class="edge-filters-header">
-                        <span>Edge Types</span>
-                        <button class="edge-filters-toggle" id="edge-filters-toggle" title="Toggle filters">▼</button>
+                <div class="graph-filters">
+                    <div class="stats-overlay" id="stats-overlay">
+                        <span class="stat-group" id="stat-bugs">🐛 0 bugs</span>
+                        <span class="stat-separator">|</span>
+                        <span class="stat-group" id="stat-blocked">❌ 0 blocked</span>
+                        <span class="stat-separator">|</span>
+                        <span class="stat-group" id="stat-ready">✅ 0 ready</span>
+                        <span class="stat-separator">|</span>
+                        <span class="stat-group" id="stat-ideas">💭 0 ideas</span>
+                        <span class="stat-separator">|</span>
+                        <span class="stat-group" id="stat-milestones">🏁 0 milestones</span>
                     </div>
-                    <div class="edge-filter-group" id="edge-filter-group">
-                        <!-- Filter buttons will be populated dynamically -->
+                    <div class="edge-filters" id="edge-filters">
+                        <button class="edge-filters-btn" id="edge-filters-btn">
+                            <span>Edge Types</span>
+                            <span class="arrow">▼</span>
+                        </button>
+                        <div class="edge-filters-dropdown" id="edge-filter-group">
+                            <!-- Filter buttons will be populated dynamically -->
+                        </div>
                     </div>
-                </div>
-                <div class="stats-overlay" id="stats-overlay">
-                    <span class="stat-group" id="stat-bugs">🐛 0 bugs</span>
-                    <span class="stat-separator">|</span>
-                    <span class="stat-group" id="stat-blocked">❌ 0 blocked</span>
-                    <span class="stat-separator">|</span>
-                    <span class="stat-group" id="stat-ready">✅ 0 ready</span>
-                    <span class="stat-separator">|</span>
-                    <span class="stat-group" id="stat-ideas">💭 0 ideas</span>
-                    <span class="stat-separator">|</span>
-                    <span class="stat-group" id="stat-milestones">🏁 0 milestones</span>
                 </div>
                 <div class="node-tooltip" id="node-tooltip">
                     <div class="tooltip-title" id="tooltip-title"></div>
@@ -1115,7 +1136,7 @@
                     <div class="edge-tooltip-reason" id="edge-tooltip-reason"></div>
                     <div class="edge-tooltip-date" id="edge-tooltip-date"></div>
                 </div>
-                <div class="zoom-controls">
+                <div class="graph-controls">
                     <input class="graph-search" id="graph-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" />
                     <div class="hide-completed-toggle">
                         <span class="hide-completed-label">Hide completed</span>
@@ -1125,10 +1146,12 @@
                         <span class="auto-follow-label">Follow active</span>
                         <button class="auto-follow-switch" id="auto-follow-switch" title="Follow active task"></button>
                     </div>
-                    <button class="zoom-btn" id="zoom-in" title="Zoom In">+</button>
-                    <div class="zoom-level" id="zoom-level">100%</div>
-                    <button class="zoom-btn" id="zoom-out" title="Zoom Out">−</button>
-                    <button class="zoom-btn" id="zoom-reset" title="Reset Zoom">⟲</button>
+                    <div class="zoom-buttons">
+                        <button class="zoom-btn" id="zoom-in" title="Zoom In">+</button>
+                        <div class="zoom-level" id="zoom-level">100%</div>
+                        <button class="zoom-btn" id="zoom-out" title="Zoom Out">−</button>
+                        <button class="zoom-btn" id="zoom-reset" title="Reset Zoom">⟲</button>
+                    </div>
                 </div>
                 <div class="info-panel" id="info-panel">
                     <div class="info-panel-header">
@@ -3291,11 +3314,42 @@
 
         function initializeEdgeFilters() {
             const container = document.getElementById('edge-filter-group');
-            const toggleBtn = document.getElementById('edge-filters-toggle');
+            const dropdownBtn = document.getElementById('edge-filters-btn');
             const filtersPanel = document.getElementById('edge-filters');
             
             // Create filter buttons for each edge type
             container.innerHTML = '';
+            
+            // Add "All" toggle button first
+            const allBtn = document.createElement('button');
+            allBtn.className = 'edge-filter-btn edge-filter-all';
+            allBtn.textContent = 'All';
+            allBtn.title = 'Toggle all edge types';
+            
+            const updateAllBtnState = () => {
+                const allActive = Object.keys(EDGE_TYPES).every(type => state.edgeFilters[type]);
+                allBtn.classList.toggle('active', allActive);
+            };
+            
+            allBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const allActive = Object.keys(EDGE_TYPES).every(type => state.edgeFilters[type]);
+                const newState = !allActive;
+                
+                for (const type of Object.keys(EDGE_TYPES)) {
+                    state.edgeFilters[type] = newState;
+                }
+                
+                // Update all button states
+                container.querySelectorAll('.edge-filter-btn[data-edge-type]').forEach(btn => {
+                    btn.classList.toggle('active', newState);
+                });
+                updateAllBtnState();
+                saveEdgeFilters(state.edgeFilters);
+            });
+            
+            container.appendChild(allBtn);
+            
             for (const [type, info] of Object.entries(EDGE_TYPES)) {
                 const btn = document.createElement('button');
                 btn.className = 'edge-filter-btn' + (state.edgeFilters[type] ? ' active' : '');
@@ -3309,19 +3363,30 @@
                 btn.appendChild(dot);
                 btn.appendChild(document.createTextNode(info.name));
                 
-                btn.addEventListener('click', () => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
                     state.edgeFilters[type] = !state.edgeFilters[type];
                     btn.classList.toggle('active', state.edgeFilters[type]);
+                    updateAllBtnState();
                     saveEdgeFilters(state.edgeFilters);
                 });
                 
                 container.appendChild(btn);
             }
             
-            // Toggle collapse/expand
-            toggleBtn.addEventListener('click', () => {
-                filtersPanel.classList.toggle('collapsed');
-                toggleBtn.textContent = filtersPanel.classList.contains('collapsed') ? '▶' : '▼';
+            updateAllBtnState();
+            
+            // Toggle dropdown open/close
+            dropdownBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                filtersPanel.classList.toggle('open');
+            });
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!filtersPanel.contains(e.target)) {
+                    filtersPanel.classList.remove('open');
+                }
             });
         }
 
