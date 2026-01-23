@@ -1961,6 +1961,24 @@ impl Storage {
         Ok(edges.into_iter().map(|e| e.source).collect())
     }
 
+    /// Update all edges that reference an old entity ID to use a new entity ID.
+    /// This is used during migrations (e.g., bni- to bn- prefix migration).
+    pub fn update_edge_entity_id(&mut self, old_id: &str, new_id: &str) -> Result<()> {
+        // Update edges where old_id is the source
+        self.conn.execute(
+            "UPDATE edges SET source = ?1 WHERE source = ?2",
+            params![new_id, old_id],
+        )?;
+
+        // Update edges where old_id is the target
+        self.conn.execute(
+            "UPDATE edges SET target = ?1 WHERE target = ?2",
+            params![new_id, old_id],
+        )?;
+
+        Ok(())
+    }
+
     // === Entity Type Detection ===
 
     /// Detect the type of an entity by its ID.
