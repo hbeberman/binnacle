@@ -7,11 +7,13 @@ use axum::{
     response::{Html, IntoResponse},
     routing::{get, post},
 };
+use serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast};
 
+use crate::models::{Edge, EdgeType};
 use crate::storage::Storage;
 
 /// Shared application state
@@ -67,6 +69,7 @@ pub async fn start_server(
         .route("/api/tests", get(get_tests))
         .route("/api/queue", get(get_queue))
         .route("/api/edges", get(get_edges))
+        .route("/api/edges", post(add_edge))
         .route("/api/log", get(get_log))
         .route("/api/agents", get(get_agents))
         .route("/api/agents/{pid}/kill", post(kill_agent))
@@ -255,4 +258,59 @@ async fn get_log(State(state): State<AppState>) -> Result<Json<serde_json::Value
     };
 
     Ok(Json(serde_json::json!({ "log": log_entries })))
+}
+
+/// Request body for adding an edge
+#[derive(Deserialize)]
+struct AddEdgeRequest {
+    source: String,
+    target: String,
+    edge_type: String,
+}
+
+/// Add a new edge (link) between nodes
+async fn add_edge(
+    State(state): State<AppState>,
+    Json(request): Json<AddEdgeRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let mut storage = state.storage.lock().await;
+
+    // Parse edge type
+    let edge_type: EdgeType = request.edge_type.parse().map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Invalid edge type: {}", request.edge_type)
+            })),
+        )
+    })?;
+
+    // Generate ID and create edge
+    let id = storage.generate_edge_id(&request.source, &request.target, edge_type);
+    let edge = Edge::new(
+        id.clone(),
+        request.source.clone(),
+        request.target.clone(),
+        edge_type,
+    );
+
+    // Add edge to storage
+    storage.add_edge(&edge).map_err(|e| {
+        (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "edge": {
+            "id": id,
+            "source": request.source,
+            "target": request.target,
+            "edge_type": request.edge_type
+        }
+    })))
 }

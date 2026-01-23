@@ -2216,6 +2216,47 @@
                     const rect = finalCanvas.getBoundingClientRect();
                     const mouseX = e.clientX - rect.left;
                     const mouseY = e.clientY - rect.top;
+                    const worldPos = screenToWorld(mouseX, mouseY, finalCanvas);
+
+                    // Check if dropped on a queue node (drag-to-queue)
+                    const draggedNode = state.graph.draggedNode;
+                    const nodesForHitTest = state.graph.visibleNodes ?? state.graph.nodes;
+                    const dropTarget = nodesForHitTest.find(n => {
+                        if (n.id === draggedNode.id) return false;  // Skip self
+                        const dx = worldPos.x - n.x;
+                        const dy = worldPos.y - n.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        return distance <= n.radius;
+                    });
+
+                    // If dropped on a queue and the dragged node is task/bug, add to queue
+                    if (dropTarget && dropTarget.type === 'queue') {
+                        const canBeQueued = ['task', 'bug'].includes(draggedNode.type);
+                        const alreadyQueued = isNodeQueued(draggedNode.id);
+                        
+                        if (canBeQueued && !alreadyQueued) {
+                            // Add queued link via API
+                            fetch('/api/edges', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    source: draggedNode.id,
+                                    target: dropTarget.id,
+                                    edge_type: 'queued'
+                                })
+                            })
+                            .then(r => r.json())
+                            .then(result => {
+                                if (result.success) {
+                                    console.log(`Added ${draggedNode.id} to queue`);
+                                    // The WebSocket will notify us of the change
+                                } else {
+                                    console.error('Failed to add to queue:', result.error);
+                                }
+                            })
+                            .catch(err => console.error('Failed to add to queue:', err));
+                        }
+                    }
 
                     // Calculate momentum from recent drag motion in screen space
                     // Velocity is in world units per frame, so scale by zoom
@@ -2232,8 +2273,6 @@
                     finalCanvas.classList.remove('dragging');
 
                     // Update hover state (mouse may still be over a node)
-                    const worldPos = screenToWorld(mouseX, mouseY, finalCanvas);
-                    const nodesForHitTest = state.graph.visibleNodes ?? state.graph.nodes;
                     const hoveredNode = nodesForHitTest.find(n => {
                         const dx = worldPos.x - n.x;
                         const dy = worldPos.y - n.y;
