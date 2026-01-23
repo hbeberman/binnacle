@@ -260,6 +260,13 @@
             margin-top: 0.75rem;
         }
 
+        .card-description {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+            line-height: 1.4;
+        }
+
         /* Card header with queue toggle */
         .card-header {
             display: flex;
@@ -1918,6 +1925,7 @@
                 <nav>
                     <button class="nav-btn active" data-view="graph">Graph</button>
                     <button class="nav-btn" data-view="ready">Ready Tasks</button>
+                    <button class="nav-btn" data-view="ideas">Ideas</button>
                     <button class="nav-btn" data-view="tests">Tests</button>
                     <button class="nav-btn" data-view="agents">Agents</button>
                     <button class="nav-btn" data-view="log">Activity Log</button>
@@ -2057,6 +2065,10 @@
 
             <div id="ready-view" class="view">
                 <div class="task-list" id="ready-list"></div>
+            </div>
+
+            <div id="ideas-view" class="view">
+                <div class="task-list" id="ideas-list"></div>
             </div>
 
             <div id="tests-view" class="view">
@@ -2309,6 +2321,7 @@
             currentView: 'graph',
             tasks: [],
             ready: [],
+            ideas: [],
             tests: [],
             log: [],
             agents: [],
@@ -2573,6 +2586,7 @@
             
             state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas, ...normalizedQueue, ...normalizedAgents];
             state.ready = readyData.tasks || [];
+            state.ideas = ideasData.ideas || [];
             state.tests = testsData.tests || [];
             state.log = logData.log || [];
             
@@ -2775,6 +2789,9 @@
                     break;
                 case 'ready':
                     renderReady();
+                    break;
+                case 'ideas':
+                    renderIdeas();
                     break;
                 case 'tests':
                     renderTests();
@@ -4844,6 +4861,43 @@
                         <span class="badge badge-priority-${task.priority}">P${task.priority}</span>
                         <span class="badge" style="background: var(--bg-tertiary)">${task.id}</span>
                         ${task.tags.map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+                    </div>
+                </div>
+            `}).join('');
+            
+            // Attach event handlers to queue toggle buttons
+            list.querySelectorAll('.card-queue-toggle').forEach(btn => {
+                btn.addEventListener('click', handleCardQueueToggle);
+            });
+        }
+
+        function renderIdeas() {
+            const list = document.getElementById('ideas-list');
+            // Filter to show only open ideas (seed or germinating)
+            const openIdeas = state.ideas.filter(idea => 
+                idea.status === 'seed' || idea.status === 'germinating'
+            );
+            if (openIdeas.length === 0) {
+                list.innerHTML = '<div class="empty-state">No open ideas</div>';
+                return;
+            }
+            list.innerHTML = openIdeas.map(idea => {
+                const isQueued = isNodeQueued(idea.id);
+                const statusLabel = idea.status === 'seed' ? '🌱 Seed' : '🌿 Germinating';
+                return `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">${escapeHtml(idea.title)}</div>
+                        <button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
+                                data-task-id="${idea.id}" 
+                                title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
+                        </button>
+                    </div>
+                    ${idea.description ? `<div class="card-description">${escapeHtml(idea.description)}</div>` : ''}
+                    <div class="card-meta">
+                        <span class="badge" style="background: var(--idea-${idea.status})">${statusLabel}</span>
+                        <span class="badge" style="background: var(--bg-tertiary)">${idea.id}</span>
+                        ${(idea.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
                     </div>
                 </div>
             `}).join('');
