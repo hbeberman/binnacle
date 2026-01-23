@@ -4132,6 +4132,15 @@
             ctx.closePath();
         }
 
+        // Draw a square path centered at (cx, cy) with the given radius (half-side length)
+        function drawSquarePath(ctx, cx, cy, radius) {
+            ctx.moveTo(cx - radius, cy - radius);  // Top-left
+            ctx.lineTo(cx + radius, cy - radius);  // Top-right
+            ctx.lineTo(cx + radius, cy + radius);  // Bottom-right
+            ctx.lineTo(cx - radius, cy + radius);  // Bottom-left
+            ctx.closePath();
+        }
+
         // Check if a node is in the queue (has a 'queued' edge to a queue node)
         function isNodeQueued(nodeId) {
             // Check state.edges (API data) directly, not state.graph.edges
@@ -4225,6 +4234,8 @@
                     drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
                 } else if (node.type === 'agent') {
                     drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
+                } else if (node.type === 'bug') {
+                    drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 10 * zoom, 0, Math.PI * 2);
                 }
@@ -4242,6 +4253,8 @@
                     drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'agent') {
                     drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                } else if (node.type === 'bug') {
+                    drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
                 }
@@ -4258,6 +4271,8 @@
                     drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'agent') {
                     drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                } else if (node.type === 'bug') {
+                    drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
                 }
@@ -4272,13 +4287,21 @@
             const isQueued = node.type !== 'queue' && node.type !== 'agent' && isNodeQueued(node.id);
             if (isQueued) {
                 ctx.beginPath();
-                ctx.arc(screenPos.x, screenPos.y, radius + 6 * zoom, 0, Math.PI * 2);
+                if (node.type === 'bug') {
+                    drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 6 * zoom);
+                } else {
+                    ctx.arc(screenPos.x, screenPos.y, radius + 6 * zoom, 0, Math.PI * 2);
+                }
                 ctx.strokeStyle = '#20b2aa';  // --queue-color
                 ctx.lineWidth = 3;
                 ctx.stroke();
                 // Add subtle glow effect
                 ctx.beginPath();
-                ctx.arc(screenPos.x, screenPos.y, radius + 4 * zoom, 0, Math.PI * 2);
+                if (node.type === 'bug') {
+                    drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 4 * zoom);
+                } else {
+                    ctx.arc(screenPos.x, screenPos.y, radius + 4 * zoom, 0, Math.PI * 2);
+                }
                 ctx.fillStyle = 'rgba(32, 178, 170, 0.15)';  // --queue-color with transparency
                 ctx.fill();
             }
@@ -4325,12 +4348,14 @@
                 ctx.restore();
             }
 
-            // Draw node shape (hexagon for queue, diamond for agent, circle for others)
+            // Draw node shape (hexagon for queue, diamond for agent, square for bug, circle for others)
             ctx.beginPath();
             if (node.type === 'queue') {
                 drawHexagonPath(ctx, screenPos.x, screenPos.y, radius);
             } else if (node.type === 'agent') {
                 drawDiamondPath(ctx, screenPos.x, screenPos.y, radius);
+            } else if (node.type === 'bug') {
+                drawSquarePath(ctx, screenPos.x, screenPos.y, radius);
             } else {
                 ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
             }
