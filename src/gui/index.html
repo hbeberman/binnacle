@@ -254,6 +254,64 @@
             margin-top: 0.75rem;
         }
 
+        /* Card header with queue toggle */
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+
+        .card-header .card-title {
+            flex: 1;
+            min-width: 0;
+        }
+
+        /* Compact queue toggle for task cards */
+        .card-queue-toggle {
+            width: 32px;
+            height: 18px;
+            border-radius: 9px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            position: relative;
+            transition: background 0.2s ease, border-color 0.2s ease;
+            padding: 0;
+            flex-shrink: 0;
+        }
+
+        .card-queue-toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+        .card-queue-toggle.active {
+            background: #22c55e;
+            border-color: #22c55e;
+        }
+
+        .card-queue-toggle.active::after {
+            transform: translateX(14px);
+            background: white;
+        }
+
+        .card-queue-toggle:hover {
+            border-color: #22c55e;
+        }
+
+        .card-queue-toggle:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .badge {
             padding: 0.25rem 0.75rem;
             border-radius: 4px;
@@ -1194,8 +1252,8 @@
         }
 
         .queue-toggle-switch.active {
-            background: var(--accent);
-            border-color: var(--accent);
+            background: #22c55e;
+            border-color: #22c55e;
         }
 
         .queue-toggle-switch.active::after {
@@ -3762,16 +3820,62 @@
                 list.innerHTML = '<div class="empty-state">No ready tasks</div>';
                 return;
             }
-            list.innerHTML = state.ready.map(task => `
+            list.innerHTML = state.ready.map(task => {
+                const isQueued = isNodeQueued(task.id);
+                return `
                 <div class="card">
-                    <div class="card-title">${escapeHtml(task.title)}</div>
+                    <div class="card-header">
+                        <div class="card-title">${escapeHtml(task.title)}</div>
+                        <button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
+                                data-task-id="${task.id}" 
+                                title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
+                        </button>
+                    </div>
                     <div class="card-meta">
                         <span class="badge badge-priority-${task.priority}">P${task.priority}</span>
                         <span class="badge" style="background: var(--bg-tertiary)">${task.id}</span>
                         ${task.tags.map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
+            
+            // Attach event handlers to queue toggle buttons
+            list.querySelectorAll('.card-queue-toggle').forEach(btn => {
+                btn.addEventListener('click', handleCardQueueToggle);
+            });
+        }
+
+        async function handleCardQueueToggle(event) {
+            event.stopPropagation();
+            const btn = event.currentTarget;
+            const taskId = btn.dataset.taskId;
+            
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/queue/toggle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ node_id: taskId })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    const isQueued = result.queued;
+                    btn.classList.toggle('active', isQueued);
+                    btn.title = isQueued ? 'Remove from queue' : 'Add to queue';
+                    showToast(result.message, 'success');
+                    // Refresh data to update edges and visual state
+                    await loadData();
+                } else {
+                    showToast(result.error || 'Failed to toggle queue', 'error');
+                }
+            } catch (err) {
+                showToast('Failed to toggle queue: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+            }
         }
 
         function renderTests() {
