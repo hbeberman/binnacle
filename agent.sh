@@ -125,10 +125,38 @@ esac
 # Run the agent (with optional loop)
 if [[ "$LOOP_MODE" == "true" ]]; then
     echo "Loop mode enabled - agent will restart on exit"
+    # Track consecutive Ctrl+C presses for clean exit
+    SIGINT_COUNT=0
+    LAST_SIGINT=0
+    
+    handle_sigint() {
+        local now
+        now=$(date +%s)
+        # If Ctrl+C pressed twice within 2 seconds, exit
+        if [[ $((now - LAST_SIGINT)) -le 2 ]]; then
+            SIGINT_COUNT=$((SIGINT_COUNT + 1))
+        else
+            SIGINT_COUNT=1
+        fi
+        LAST_SIGINT=$now
+        
+        if [[ $SIGINT_COUNT -ge 2 ]]; then
+            echo ""
+            echo "Ctrl+C pressed twice - exiting loop mode"
+            exit 0
+        fi
+        echo ""
+        echo "(Press Ctrl+C again within 2 seconds to exit loop mode)"
+    }
+    
+    trap handle_sigint INT
+    
     while true; do
+        # Reset SIGINT count at start of each iteration
+        SIGINT_COUNT=0
         copilot "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT" || true
         echo ""
-        echo "Agent exited. Restarting in 3 seconds... (Ctrl+C to stop)"
+        echo "Agent exited. Restarting in 3 seconds... (Ctrl+C twice to stop)"
         sleep 3
     done
 else
