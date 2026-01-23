@@ -620,15 +620,49 @@ fn output<T: Output>(result: &T, human: bool) {
 /// Run the GUI web server
 #[cfg(feature = "gui")]
 fn run_gui(repo_path: &Path, port: u16, host: &str) -> Result<(), binnacle::Error> {
-    use binnacle::storage::Storage;
+    use binnacle::gui::{GuiPidFile, GuiPidInfo, ProcessStatus};
+    use binnacle::storage::{Storage, get_storage_dir};
 
     // Ensure storage is initialized
     if !Storage::exists(repo_path)? {
         return Err(binnacle::Error::NotInitialized);
     }
 
+    let storage_dir = get_storage_dir(repo_path)?;
+    let pid_file = GuiPidFile::new(&storage_dir);
+
+    // Check if another GUI is already running
+    if let Some((status, info)) = pid_file
+        .check_running()
+        .map_err(|e| binnacle::Error::Other(format!("Failed to check PID file: {}", e)))?
+    {
+        match status {
+            ProcessStatus::Running => {
+                return Err(binnacle::Error::Other(format!(
+                    "GUI already running (pid: {}, port: {}). Use --stop to stop it first, or --replace to restart.",
+                    info.pid, info.port
+                )));
+            }
+            ProcessStatus::Stale | ProcessStatus::NotRunning => {
+                // Clean up stale PID file
+                pid_file.delete().ok();
+            }
+        }
+    }
+
+    // Write PID file before starting server
+    let current_pid = std::process::id();
+    let pid_info = GuiPidInfo {
+        pid: current_pid,
+        port,
+        host: host.to_string(),
+    };
+    pid_file
+        .write(&pid_info)
+        .map_err(|e| binnacle::Error::Other(format!("Failed to write PID file: {}", e)))?;
+
     // Create tokio runtime and run the server
-    tokio::runtime::Builder::new_multi_thread()
+    let result = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?
@@ -636,7 +670,12 @@ fn run_gui(repo_path: &Path, port: u16, host: &str) -> Result<(), binnacle::Erro
             binnacle::gui::start_server(repo_path, port, host)
                 .await
                 .map_err(|e| binnacle::Error::Other(format!("GUI server error: {}", e)))
-        })
+        });
+
+    // Clean up PID file on shutdown (whether success or error)
+    pid_file.delete().ok();
+
+    result
 }
 
 /// Print a not-implemented message for a command.
