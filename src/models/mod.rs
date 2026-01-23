@@ -7,6 +7,7 @@
 //! - `TestNode` - Test definitions linked to tasks
 //! - `CommitLink` - Associations between commits and tasks
 //! - `Edge` - Relationships between entities (dependencies, blocks, related, etc.)
+//! - `Agent` - AI agent registration for lifecycle management
 
 pub mod graph;
 
@@ -486,6 +487,87 @@ pub struct CommitLink {
     pub linked_at: DateTime<Utc>,
 }
 
+/// Agent status for lifecycle management.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentStatus {
+    /// Agent is actively running commands
+    #[default]
+    Active,
+    /// Agent hasn't run commands recently
+    Idle,
+    /// Agent process appears to have exited or is unresponsive
+    Stale,
+}
+
+/// An AI agent registered with Binnacle for lifecycle management.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Agent {
+    /// Process ID of the agent
+    pub pid: u32,
+
+    /// Parent process ID (e.g., the shell or terminal running the agent)
+    pub parent_pid: u32,
+
+    /// Agent name (e.g., "claude", "copilot", or custom name)
+    pub name: String,
+
+    /// When the agent was registered
+    pub started_at: DateTime<Utc>,
+
+    /// When the agent last ran a binnacle command
+    pub last_activity_at: DateTime<Utc>,
+
+    /// Task IDs the agent is currently working on
+    #[serde(default)]
+    pub tasks: Vec<String>,
+
+    /// Number of binnacle commands the agent has run
+    #[serde(default)]
+    pub command_count: u64,
+
+    /// Current status of the agent
+    #[serde(default)]
+    pub status: AgentStatus,
+}
+
+impl Agent {
+    /// Create a new agent with the given PID and name.
+    pub fn new(pid: u32, parent_pid: u32, name: String) -> Self {
+        let now = Utc::now();
+        Self {
+            pid,
+            parent_pid,
+            name,
+            started_at: now,
+            last_activity_at: now,
+            tasks: Vec::new(),
+            command_count: 0,
+            status: AgentStatus::default(),
+        }
+    }
+
+    /// Update the agent's last activity timestamp.
+    pub fn touch(&mut self) {
+        self.last_activity_at = Utc::now();
+        self.command_count += 1;
+    }
+
+    /// Check if the agent process is still alive.
+    #[cfg(unix)]
+    pub fn is_alive(&self) -> bool {
+        use std::path::Path;
+        // On Linux/Unix, check if /proc/<pid> exists
+        Path::new(&format!("/proc/{}", self.pid)).exists()
+    }
+
+    #[cfg(not(unix))]
+    pub fn is_alive(&self) -> bool {
+        // On non-Unix systems, assume alive (conservative)
+        true
+    }
+}
+
 /// Type of relationship between entities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -922,5 +1004,65 @@ mod tests {
         assert_eq!(all.len(), 10);
         assert!(all.contains(&EdgeType::DependsOn));
         assert!(all.contains(&EdgeType::Tests));
+    }
+
+    #[test]
+    fn test_agent_new() {
+        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        assert_eq!(agent.pid, 1234);
+        assert_eq!(agent.parent_pid, 1000);
+        assert_eq!(agent.name, "test-agent");
+        assert!(agent.tasks.is_empty());
+        assert_eq!(agent.command_count, 0);
+        assert_eq!(agent.status, AgentStatus::Active);
+    }
+
+    #[test]
+    fn test_agent_serialization_roundtrip() {
+        let agent = Agent::new(1234, 1000, "test-agent".to_string());
+        let json = serde_json::to_string(&agent).unwrap();
+        let deserialized: Agent = serde_json::from_str(&json).unwrap();
+        assert_eq!(agent.pid, deserialized.pid);
+        assert_eq!(agent.parent_pid, deserialized.parent_pid);
+        assert_eq!(agent.name, deserialized.name);
+        assert_eq!(agent.status, deserialized.status);
+    }
+
+    #[test]
+    fn test_agent_status_serialization() {
+        let status = AgentStatus::Active;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, r#""active""#);
+
+        let status = AgentStatus::Idle;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, r#""idle""#);
+
+        let status = AgentStatus::Stale;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, r#""stale""#);
+    }
+
+    #[test]
+    fn test_agent_touch() {
+        let mut agent = Agent::new(1234, 1000, "test-agent".to_string());
+        let initial_time = agent.last_activity_at;
+        assert_eq!(agent.command_count, 0);
+
+        // Small delay to ensure time changes
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        agent.touch();
+
+        assert_eq!(agent.command_count, 1);
+        assert!(agent.last_activity_at >= initial_time);
+    }
+
+    #[test]
+    fn test_agent_default_values() {
+        let json = r#"{"pid":1234,"parent_pid":1000,"name":"test","started_at":"2026-01-01T00:00:00Z","last_activity_at":"2026-01-01T00:00:00Z"}"#;
+        let agent: Agent = serde_json::from_str(json).unwrap();
+        assert!(agent.tasks.is_empty());
+        assert_eq!(agent.command_count, 0);
+        assert_eq!(agent.status, AgentStatus::Active);
     }
 }

@@ -27,7 +27,11 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Get project overview and current state (start here!)
-    Orient,
+    Orient {
+        /// Agent name for registration (auto-generated if not provided)
+        #[arg(long)]
+        name: Option<String>,
+    },
 
     /// Show any entity by ID (auto-detects type)
     Show {
@@ -141,6 +145,12 @@ pub enum Commands {
     System {
         #[command(subcommand)]
         command: SystemCommands,
+    },
+
+    /// Agent lifecycle management
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommands,
     },
 
     /// Start the web GUI (requires 'gui' feature)
@@ -871,6 +881,17 @@ pub enum StoreCommands {
         /// Preview import without making changes (shows ID remappings)
         #[arg(long)]
         dry_run: bool,
+    },
+}
+
+/// Agent lifecycle management subcommands
+#[derive(Subcommand, Debug)]
+pub enum AgentCommands {
+    /// List active agents
+    List {
+        /// Filter by status (active, idle, stale)
+        #[arg(long)]
+        status: Option<String>,
     },
 }
 
