@@ -1231,6 +1231,26 @@ impl Storage {
         Ok(tasks)
     }
 
+    /// Get bugs that are in the queue.
+    pub fn get_queued_bugs(&self) -> Result<Vec<Bug>> {
+        let queue = match self.get_queue() {
+            Ok(q) => q,
+            Err(_) => return Ok(Vec::new()),
+        };
+
+        let edges = self.list_edges(Some(EdgeType::Queued), None, Some(&queue.id))?;
+        let mut bugs = Vec::new();
+        for edge in edges {
+            if let Ok(bug) = self.get_bug(&edge.source) {
+                bugs.push(bug);
+            }
+        }
+
+        // Sort by priority
+        bugs.sort_by_key(|b| b.priority);
+        Ok(bugs)
+    }
+
     /// Cache a queue in the SQLite database.
     fn cache_queue(&self, queue: &Queue) -> Result<()> {
         self.conn.execute(

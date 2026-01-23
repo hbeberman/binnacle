@@ -519,6 +519,19 @@ pub struct OrientResult {
     pub ready_ids: Vec<String>,
     pub blocked_count: usize,
     pub in_progress_count: usize,
+    /// Queue info: (title, queued_task_count) if a queue exists
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue: Option<OrientQueueInfo>,
+    /// Number of ready tasks that are in the queue
+    pub queued_ready_count: usize,
+}
+
+/// Queue info for orient output.
+#[derive(Debug, Serialize)]
+pub struct OrientQueueInfo {
+    pub id: String,
+    pub title: String,
+    pub task_count: usize,
 }
 
 impl Output for OrientResult {
@@ -535,6 +548,15 @@ impl Output for OrientResult {
         lines.push(String::new());
         lines.push("Current State:".to_string());
         lines.push(format!("  Total tasks: {}", self.total_tasks));
+
+        // Show queue info if exists
+        if let Some(ref queue_info) = self.queue {
+            lines.push(format!(
+                "  Queue: \"{}\" ({} tasks)",
+                queue_info.title, queue_info.task_count
+            ));
+        }
+
         if !self.ready_ids.is_empty() {
             let ids = if self.ready_ids.len() <= 5 {
                 self.ready_ids.join(", ")
@@ -545,7 +567,18 @@ impl Output for OrientResult {
                     self.ready_ids.len() - 5
                 )
             };
-            lines.push(format!("  Ready: {} ({})", self.ready_count, ids));
+            // Include queued count in ready line if there's a queue
+            if self.queue.is_some() && self.queued_ready_count > 0 {
+                lines.push(format!(
+                    "  Ready: {} ({} queued, {} other) ({})",
+                    self.ready_count,
+                    self.queued_ready_count,
+                    self.ready_count - self.queued_ready_count,
+                    ids
+                ));
+            } else {
+                lines.push(format!("  Ready: {} ({})", self.ready_count, ids));
+            }
         } else {
             lines.push(format!("  Ready: {}", self.ready_count));
         }
@@ -670,6 +703,30 @@ pub fn orient(
 
     let ready_count = ready_ids.len();
 
+    // Get queue info if exists
+    let (queue_info, queued_ready_count) = if let Ok(queue) = storage.get_queue() {
+        let queued_tasks = storage.get_queued_tasks().unwrap_or_default();
+        let queued_task_ids: std::collections::HashSet<_> =
+            queued_tasks.iter().map(|t| t.id.as_str()).collect();
+
+        // Count how many ready tasks are queued
+        let queued_ready = ready_ids
+            .iter()
+            .filter(|id| queued_task_ids.contains(id.as_str()))
+            .count();
+
+        (
+            Some(OrientQueueInfo {
+                id: queue.id,
+                title: queue.title,
+                task_count: queued_tasks.len(),
+            }),
+            queued_ready,
+        )
+    } else {
+        (None, 0)
+    };
+
     Ok(OrientResult {
         initialized,
         total_tasks: tasks.len(),
@@ -677,6 +734,8 @@ pub fn orient(
         ready_ids,
         blocked_count,
         in_progress_count,
+        queue: queue_info,
+        queued_ready_count,
     })
 }
 
@@ -4076,7 +4135,7 @@ pub fn link_add(
     })
 }
 
-/// Validate that an entity exists (task, bug, milestone, or test).
+/// Validate that an entity exists (task, bug, milestone, test, or queue).
 fn validate_entity_exists(storage: &Storage, id: &str) -> Result<()> {
     // Try task first
     if storage.get_task(id).is_ok() {
@@ -4092,6 +4151,10 @@ fn validate_entity_exists(storage: &Storage, id: &str) -> Result<()> {
     }
     // Try test
     if storage.get_test(id).is_ok() {
+        return Ok(());
+    }
+    // Try queue
+    if storage.get_queue_by_id(id).is_ok() {
         return Ok(());
     }
     Err(Error::NotFound(format!("Entity not found: {}", id)))
@@ -4647,12 +4710,30 @@ pub fn search_link(
 
 // === Query Commands ===
 
+/// A ready task item with queue membership status.
+#[derive(Serialize)]
+pub struct ReadyTaskItem {
+    #[serde(flatten)]
+    pub task: Task,
+    pub queued: bool,
+}
+
+/// A ready bug item with queue membership status.
+#[derive(Serialize)]
+pub struct ReadyBugItem {
+    #[serde(flatten)]
+    pub bug: Bug,
+    pub queued: bool,
+}
+
 #[derive(Serialize)]
 pub struct ReadyTasks {
-    pub tasks: Vec<Task>,
-    pub bugs: Vec<Bug>,
+    pub tasks: Vec<ReadyTaskItem>,
+    pub bugs: Vec<ReadyBugItem>,
     pub count: usize,
     pub bug_count: usize,
+    pub queued_count: usize,
+    pub queued_bug_count: usize,
 }
 
 impl Output for ReadyTasks {
@@ -4665,22 +4746,60 @@ impl Output for ReadyTasks {
 
         // Show bugs first (higher priority typically)
         if !self.bugs.is_empty() {
+            let queued_bugs: Vec<_> = self.bugs.iter().filter(|b| b.queued).collect();
+            let other_bugs: Vec<_> = self.bugs.iter().filter(|b| !b.queued).collect();
+
             lines.push(format!("{} ready bug(s):\n", self.bug_count));
-            for bug in &self.bugs {
-                let tags = if bug.tags.is_empty() {
-                    String::new()
-                } else {
-                    format!(" [{}]", bug.tags.join(", "))
-                };
-                lines.push(format!(
-                    "  {} P{} {} ({}){}",
-                    bug.id,
-                    bug.priority,
-                    bug.title,
-                    format!("{:?}", bug.severity).to_lowercase(),
-                    tags
-                ));
+
+            // Show queued bugs first
+            if !queued_bugs.is_empty() {
+                lines.push("  [QUEUED]".to_string());
+                for item in &queued_bugs {
+                    let bug = &item.bug;
+                    let tags = if bug.tags.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [{}]", bug.tags.join(", "))
+                    };
+                    lines.push(format!(
+                        "    {} P{} {} ({}){}",
+                        bug.id,
+                        bug.priority,
+                        bug.title,
+                        format!("{:?}", bug.severity).to_lowercase(),
+                        tags
+                    ));
+                }
+                if !other_bugs.is_empty() {
+                    lines.push(String::new());
+                }
             }
+
+            // Show non-queued bugs
+            if !other_bugs.is_empty() {
+                if !queued_bugs.is_empty() {
+                    lines.push("  [OTHER]".to_string());
+                }
+                for item in &other_bugs {
+                    let bug = &item.bug;
+                    let tags = if bug.tags.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [{}]", bug.tags.join(", "))
+                    };
+                    let indent = if queued_bugs.is_empty() { "  " } else { "    " };
+                    lines.push(format!(
+                        "{}{} P{} {} ({}){}",
+                        indent,
+                        bug.id,
+                        bug.priority,
+                        bug.title,
+                        format!("{:?}", bug.severity).to_lowercase(),
+                        tags
+                    ));
+                }
+            }
+
             if !self.tasks.is_empty() {
                 lines.push(String::new()); // blank line between sections
             }
@@ -4688,17 +4807,53 @@ impl Output for ReadyTasks {
 
         // Show tasks
         if !self.tasks.is_empty() {
+            let queued_tasks: Vec<_> = self.tasks.iter().filter(|t| t.queued).collect();
+            let other_tasks: Vec<_> = self.tasks.iter().filter(|t| !t.queued).collect();
+
             lines.push(format!("{} ready task(s):\n", self.count));
-            for task in &self.tasks {
-                let tags = if task.tags.is_empty() {
-                    String::new()
-                } else {
-                    format!(" [{}]", task.tags.join(", "))
-                };
-                lines.push(format!(
-                    "  {} P{} {}{}",
-                    task.id, task.priority, task.title, tags
-                ));
+
+            // Show queued tasks first
+            if !queued_tasks.is_empty() {
+                lines.push("  [QUEUED]".to_string());
+                for item in &queued_tasks {
+                    let task = &item.task;
+                    let tags = if task.tags.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [{}]", task.tags.join(", "))
+                    };
+                    lines.push(format!(
+                        "    {} P{} {}{}",
+                        task.id, task.priority, task.title, tags
+                    ));
+                }
+                if !other_tasks.is_empty() {
+                    lines.push(String::new());
+                }
+            }
+
+            // Show non-queued tasks
+            if !other_tasks.is_empty() {
+                if !queued_tasks.is_empty() {
+                    lines.push("  [OTHER]".to_string());
+                }
+                for item in &other_tasks {
+                    let task = &item.task;
+                    let tags = if task.tags.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [{}]", task.tags.join(", "))
+                    };
+                    let indent = if queued_tasks.is_empty() {
+                        "  "
+                    } else {
+                        "    "
+                    };
+                    lines.push(format!(
+                        "{}{} P{} {}{}",
+                        indent, task.id, task.priority, task.title, tags
+                    ));
+                }
             }
         }
 
@@ -4711,17 +4866,78 @@ impl Output for ReadyTasks {
 }
 
 /// Get tasks and bugs that are ready (no open blockers).
+/// Queued tasks/bugs are sorted first, then by priority.
 pub fn ready(repo_path: &Path) -> Result<ReadyTasks> {
     let storage = Storage::open(repo_path)?;
     let tasks = storage.get_ready_tasks()?;
     let bugs = storage.get_ready_bugs()?;
-    let count = tasks.len();
-    let bug_count = bugs.len();
+
+    // Get queued task IDs for membership check
+    let queued_tasks = storage.get_queued_tasks().unwrap_or_default();
+    let queued_task_ids: std::collections::HashSet<_> =
+        queued_tasks.iter().map(|t| t.id.as_str()).collect();
+
+    // Get queued bug IDs (bugs can also be queued)
+    let queued_bugs = storage.get_queued_bugs().unwrap_or_default();
+    let queued_bug_ids: std::collections::HashSet<_> =
+        queued_bugs.iter().map(|b| b.id.as_str()).collect();
+
+    // Wrap tasks with queue membership status
+    let mut task_items: Vec<ReadyTaskItem> = tasks
+        .into_iter()
+        .map(|task| {
+            let queued = queued_task_ids.contains(task.id.as_str());
+            ReadyTaskItem { task, queued }
+        })
+        .collect();
+
+    // Sort: queued first, then by priority, then by creation date
+    task_items.sort_by(|a, b| {
+        match (a.queued, b.queued) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => {
+                // Same queue status: sort by priority (lower = higher priority)
+                a.task.priority.cmp(&b.task.priority).then_with(|| {
+                    // Then by creation date (older first)
+                    a.task.created_at.cmp(&b.task.created_at)
+                })
+            }
+        }
+    });
+
+    // Wrap bugs with queue membership status
+    let mut bug_items: Vec<ReadyBugItem> = bugs
+        .into_iter()
+        .map(|bug| {
+            let queued = queued_bug_ids.contains(bug.id.as_str());
+            ReadyBugItem { bug, queued }
+        })
+        .collect();
+
+    // Sort bugs: queued first, then by priority
+    bug_items.sort_by(|a, b| match (a.queued, b.queued) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a
+            .bug
+            .priority
+            .cmp(&b.bug.priority)
+            .then_with(|| a.bug.created_at.cmp(&b.bug.created_at)),
+    });
+
+    let count = task_items.len();
+    let bug_count = bug_items.len();
+    let queued_count = task_items.iter().filter(|t| t.queued).count();
+    let queued_bug_count = bug_items.iter().filter(|b| b.queued).count();
+
     Ok(ReadyTasks {
-        tasks,
-        bugs,
+        tasks: task_items,
+        bugs: bug_items,
         count,
         bug_count,
+        queued_count,
+        queued_bug_count,
     })
 }
 
@@ -8652,7 +8868,7 @@ mod tests {
 
         let result = ready(temp.path()).unwrap();
         assert_eq!(result.count, 1);
-        assert_eq!(result.tasks[0].id, task_a.id);
+        assert_eq!(result.tasks[0].task.id, task_a.id);
     }
 
     #[test]
@@ -8724,7 +8940,7 @@ mod tests {
         // Now B should be ready
         let ready_result = ready(temp.path()).unwrap();
         assert_eq!(ready_result.count, 1);
-        assert_eq!(ready_result.tasks[0].id, task_b.id);
+        assert_eq!(ready_result.tasks[0].task.id, task_b.id);
 
         // And B should not be blocked anymore
         let blocked_result = blocked(temp.path()).unwrap();
