@@ -31,8 +31,20 @@ gui:
     # Copy to temp location so builds can replace the original while GUI runs
     CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/binnacle"
     mkdir -p "$CACHE_DIR"
-    cp ~/.local/bin/bn "$CACHE_DIR/bn-gui"
-    "$CACHE_DIR/bn-gui" gui --host 0.0.0.0 --replace
+    GUI_BIN="$CACHE_DIR/bn-gui"
+    # Kill any process using the cached binary (could be from any repo)
+    if [ -f "$GUI_BIN" ]; then
+        PIDS=$(fuser "$GUI_BIN" 2>/dev/null | tr -s ' ') || true
+        if [ -n "$PIDS" ]; then
+            echo "Stopping existing GUI process(es): $PIDS"
+            for pid in $PIDS; do
+                kill "$pid" 2>/dev/null || true
+            done
+            sleep 1
+        fi
+    fi
+    cp ~/.local/bin/bn "$GUI_BIN"
+    "$GUI_BIN" gui --host 0.0.0.0 --replace
 
 # Run clippy with strict warnings
 clippy:
