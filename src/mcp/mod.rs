@@ -1085,7 +1085,7 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "edge_type": {
                         "type": "string",
                         "description": "Type of relationship",
-                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"]
+                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "impacts"]
                     },
                     "reason": {
                         "type": "string",
@@ -1112,7 +1112,7 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "edge_type": {
                         "type": "string",
                         "description": "Type of relationship (required to identify which edge to remove)",
-                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"]
+                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "impacts"]
                     }
                 },
                 "required": ["source", "target", "edge_type"]
@@ -1135,7 +1135,7 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "edge_type": {
                         "type": "string",
                         "description": "Filter by edge type",
-                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"]
+                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "impacts"]
                     }
                 },
                 "required": []
@@ -1610,7 +1610,7 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "edge_type": {
                         "type": "string",
                         "description": "Filter by edge type",
-                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"]
+                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "impacts"]
                     },
                     "source": {
                         "type": "string",

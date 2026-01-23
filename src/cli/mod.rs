@@ -705,7 +705,7 @@ pub enum LinkCommands {
         /// Target entity ID (e.g., bn-5678)
         target: String,
         /// Type of relationship
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts"])]
         edge_type: String,
         /// Reason for creating this relationship (required for depends_on)
         #[arg(long)]
@@ -719,7 +719,7 @@ pub enum LinkCommands {
         /// Target entity ID
         target: String,
         /// Type of relationship (required)
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts"])]
         edge_type: Option<String>,
     },
 
@@ -731,7 +731,7 @@ pub enum LinkCommands {
         #[arg(long)]
         all: bool,
         /// Filter by edge type
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts"])]
         edge_type: Option<String>,
     },
 }
@@ -875,7 +875,7 @@ pub enum SearchCommands {
     /// Search for links/edges by type, source, or target
     Link {
         /// Filter by edge type
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts"])]
         edge_type: Option<String>,
 
         /// Filter by source entity ID
