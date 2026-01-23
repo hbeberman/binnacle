@@ -5833,6 +5833,147 @@ impl Output for StoreImportResult {
     }
 }
 
+/// Parse JSON with detailed error context.
+///
+/// When parsing fails, includes the file name, error position, and a snippet
+/// of the content near the error to help with debugging.
+fn parse_json_with_context<T: serde::de::DeserializeOwned>(
+    data: &[u8],
+    file_name: &str,
+) -> Result<T> {
+    let content = String::from_utf8_lossy(data);
+    serde_json::from_str(&content).map_err(|e| {
+        let line = e.line();
+        let column = e.column();
+        let context = get_json_error_context(&content, line, column);
+        Error::InvalidInput(format!(
+            "Failed to parse {}: {} at line {}, column {}\n{}",
+            file_name, e, line, column, context
+        ))
+    })
+}
+
+/// Parse a single JSONL line with detailed error context.
+///
+/// Returns a detailed error message including file name, line number,
+/// and a snippet of the problematic content.
+fn parse_jsonl_line_with_context<T: serde::de::DeserializeOwned>(
+    line: &str,
+    file_name: &str,
+    line_number: usize,
+) -> Result<Vec<T>> {
+    let stream = serde_json::Deserializer::from_str(line).into_iter::<T>();
+    let mut results = Vec::new();
+
+    for (obj_index, result) in stream.enumerate() {
+        match result {
+            Ok(item) => results.push(item),
+            Err(e) => {
+                let column = e.column();
+                let context = get_line_error_context(line, column);
+                return Err(Error::InvalidInput(format!(
+                    "Failed to parse {} at line {}{}: {}\n{}",
+                    file_name,
+                    line_number,
+                    if obj_index > 0 {
+                        format!(" (object #{})", obj_index + 1)
+                    } else {
+                        String::new()
+                    },
+                    e,
+                    context
+                )));
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+/// Get context around a JSON error position.
+fn get_json_error_context(content: &str, error_line: usize, error_column: usize) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+
+    if lines.is_empty() {
+        return "  (empty content)".to_string();
+    }
+
+    let mut context_lines = Vec::new();
+
+    // Show up to 2 lines before and after the error line
+    let start_line = error_line.saturating_sub(2).max(1);
+    let end_line = (error_line + 2).min(lines.len());
+
+    for (i, line) in lines.iter().enumerate() {
+        let line_num = i + 1; // 1-indexed
+        if line_num >= start_line && line_num <= end_line {
+            let marker = if line_num == error_line { ">" } else { " " };
+            // Truncate very long lines for readability
+            let display_line = if line.len() > 120 {
+                format!("{}...", &line[..117])
+            } else {
+                line.to_string()
+            };
+            context_lines.push(format!("{} {:4} | {}", marker, line_num, display_line));
+
+            // Add column indicator for the error line
+            if line_num == error_line && error_column > 0 {
+                let padding = " ".repeat(error_column + 7); // Account for line number formatting
+                context_lines.push(format!("{}^", padding));
+            }
+        }
+    }
+
+    if context_lines.is_empty() {
+        format!(
+            "  (error at line {} which is beyond content length {})",
+            error_line,
+            lines.len()
+        )
+    } else {
+        context_lines.join("\n")
+    }
+}
+
+/// Get context around an error position within a single line.
+fn get_line_error_context(line: &str, error_column: usize) -> String {
+    // For very long lines, show a window around the error
+    const WINDOW_SIZE: usize = 60;
+
+    if line.len() <= 120 {
+        // Short enough to show entirely
+        let mut result = format!("  Content: {}\n", line);
+        if error_column > 0 && error_column <= line.len() {
+            let padding = " ".repeat(error_column + 10); // "  Content: " is 11 chars
+            result.push_str(&format!("{}^", padding));
+        }
+        result
+    } else {
+        // Show a window around the error
+        let start = error_column.saturating_sub(WINDOW_SIZE / 2);
+        let end = (start + WINDOW_SIZE).min(line.len());
+        let start = if end == line.len() {
+            end.saturating_sub(WINDOW_SIZE)
+        } else {
+            start
+        };
+
+        let prefix = if start > 0 { "..." } else { "" };
+        let suffix = if end < line.len() { "..." } else { "" };
+        let snippet = &line[start..end];
+
+        let mut result = format!("  Content: {}{}{}\n", prefix, snippet, suffix);
+
+        // Position indicator
+        let indicator_pos = error_column.saturating_sub(start) + 11 + prefix.len();
+        if indicator_pos < 120 {
+            let padding = " ".repeat(indicator_pos);
+            result.push_str(&format!("{}^", padding));
+        }
+        result
+    }
+}
+
 /// Import store from archive.
 pub fn system_store_import(
     repo_path: &Path,
@@ -5879,7 +6020,7 @@ pub fn system_store_import(
         entry.read_to_end(&mut data)?;
 
         if path_str.ends_with("manifest.json") {
-            manifest = Some(serde_json::from_slice(&data)?);
+            manifest = Some(parse_json_with_context(&data, "manifest.json")?);
         } else if path_str.ends_with("tasks.jsonl") {
             tasks_jsonl = Some(data);
         } else if path_str.ends_with("bugs.jsonl") {
@@ -5934,16 +6075,13 @@ pub fn system_store_import(
     let mut imported_tasks: Vec<Task> = Vec::new();
     if let Some(tasks_data) = tasks_jsonl {
         let tasks_str = String::from_utf8_lossy(&tasks_data);
-        for line in tasks_str.lines() {
+        for (line_index, line) in tasks_str.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
-            // Use StreamDeserializer to handle multiple JSON objects on same line
-            let stream = serde_json::Deserializer::from_str(line).into_iter::<Task>();
-            for result in stream {
-                let task = result?;
-                imported_tasks.push(task);
-            }
+            // Use helper with detailed error context
+            let tasks = parse_jsonl_line_with_context::<Task>(line, "tasks.jsonl", line_index + 1)?;
+            imported_tasks.extend(tasks);
         }
     }
 
@@ -6210,16 +6348,13 @@ fn system_store_import_from_folder(
     let mut imported_tasks: Vec<Task> = Vec::new();
     if let Some(tasks_data) = tasks_jsonl {
         let tasks_str = String::from_utf8_lossy(&tasks_data);
-        for line in tasks_str.lines() {
+        for (line_index, line) in tasks_str.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
-            // Use StreamDeserializer to handle multiple JSON objects on same line
-            let stream = serde_json::Deserializer::from_str(line).into_iter::<Task>();
-            for result in stream {
-                let task = result?;
-                imported_tasks.push(task);
-            }
+            // Use helper with detailed error context
+            let tasks = parse_jsonl_line_with_context::<Task>(line, "tasks.jsonl", line_index + 1)?;
+            imported_tasks.extend(tasks);
         }
     }
 
