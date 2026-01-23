@@ -1584,7 +1584,7 @@
                 </div>
                 <div class="info-panel" id="info-panel">
                     <div class="info-panel-header">
-                        <span class="info-panel-title">Task Details</span>
+                        <span class="info-panel-title" id="info-panel-type-title">Task Details</span>
                         <button class="info-panel-close" id="info-panel-close" title="Close">&times;</button>
                     </div>
                     <div id="info-panel-id" class="info-panel-id"></div>
@@ -1664,14 +1664,35 @@
             info: 'ℹ'
         };
 
+        // Track recent toasts to prevent duplicates
+        const recentToasts = new Map();  // message -> timestamp
+        const TOAST_DEDUP_MS = 2000;  // Ignore duplicate messages within 2 seconds
+
         /**
          * Show a toast notification
          * @param {string} message - The message to display
          * @param {string} type - Toast type: 'success', 'error', 'warning', 'info' (default: 'info')
          * @param {number} duration - Auto-dismiss duration in ms (default: 5000, use 0 for no auto-dismiss)
-         * @returns {HTMLElement} The toast element (can be used to dismiss manually)
+         * @returns {HTMLElement|null} The toast element (can be used to dismiss manually), or null if deduplicated
          */
         function showToast(message, type = 'info', duration = 5000) {
+            // Deduplicate: skip if same message shown recently
+            const now = Date.now();
+            const lastShown = recentToasts.get(message);
+            if (lastShown && (now - lastShown) < TOAST_DEDUP_MS) {
+                return null;  // Skip duplicate
+            }
+            recentToasts.set(message, now);
+            
+            // Clean up old entries periodically (keep map from growing)
+            if (recentToasts.size > 50) {
+                for (const [msg, timestamp] of recentToasts) {
+                    if (now - timestamp > TOAST_DEDUP_MS * 2) {
+                        recentToasts.delete(msg);
+                    }
+                }
+            }
+
             const container = document.getElementById('toast-container');
             
             const toast = document.createElement('div');
@@ -3030,6 +3051,7 @@
             const depsList = document.getElementById('info-panel-deps');
             const closedSection = document.getElementById('info-panel-closed-section');
             const closedReason = document.getElementById('info-panel-closed-reason');
+            const typeTitleEl = document.getElementById('info-panel-type-title');
 
             if (!node) {
                 panel.classList.remove('visible');
@@ -3039,6 +3061,17 @@
             // Find full task data
             const task = state.tasks.find(t => t.id === node.id);
             if (!task) return;
+
+            // Update header title based on node type
+            const typeLabels = {
+                'task': 'Task Details',
+                'bug': 'Bug Details',
+                'idea': 'Idea Details',
+                'milestone': 'Milestone Details',
+                'queue': 'Queue Details',
+                'agent': 'Agent Details'
+            };
+            typeTitleEl.textContent = typeLabels[task.type] || 'Task Details';
 
             // Update panel content
             idEl.textContent = task.id;
