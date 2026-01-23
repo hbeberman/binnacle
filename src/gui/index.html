@@ -2847,10 +2847,23 @@
             const targetPanX = -node.x;
             const targetPanY = -node.y;
             
+            // Calculate distance to target
+            const dx = targetPanX - state.graph.viewport.panX;
+            const dy = targetPanY - state.graph.viewport.panY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Snap to exact center if very close (prevents perpetual drift)
+            if (distance < 0.5) {
+                state.graph.viewport.panX = targetPanX;
+                state.graph.viewport.panY = targetPanY;
+                return;
+            }
+            
             // Smoothly interpolate toward target (soft follow)
-            const smoothing = 0.08; // Lower = smoother but slower to catch up
-            state.graph.viewport.panX += (targetPanX - state.graph.viewport.panX) * smoothing;
-            state.graph.viewport.panY += (targetPanY - state.graph.viewport.panY) * smoothing;
+            // Use higher smoothing (0.15) for responsive tracking while still being smooth
+            const smoothing = 0.15;
+            state.graph.viewport.panX += dx * smoothing;
+            state.graph.viewport.panY += dy * smoothing;
         }
 
         function updateTooltip(node, mouseX, mouseY) {
