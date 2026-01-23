@@ -24,7 +24,7 @@ pub use orphan_branch::OrphanBranchBackend;
 
 use crate::models::{
     Agent, AgentStatus, Bug, CommitLink, Edge, EdgeDirection, EdgeType, HydratedEdge, Idea,
-    IdeaStatus, Milestone, MilestoneProgress, Task, TaskStatus, TestNode, TestResult,
+    IdeaStatus, Milestone, MilestoneProgress, Queue, Task, TaskStatus, TestNode, TestResult,
 };
 use crate::{Error, Result};
 use chrono::Utc;
@@ -45,6 +45,7 @@ pub enum EntityType {
     Test,
     Milestone,
     Edge,
+    Queue,
 }
 
 impl std::fmt::Display for EntityType {
@@ -56,6 +57,7 @@ impl std::fmt::Display for EntityType {
             EntityType::Test => write!(f, "test"),
             EntityType::Milestone => write!(f, "milestone"),
             EntityType::Edge => write!(f, "edge"),
+            EntityType::Queue => write!(f, "queue"),
         }
     }
 }
@@ -364,6 +366,15 @@ impl Storage {
 
             CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
             CREATE INDEX IF NOT EXISTS idx_agent_tasks_pid ON agent_tasks(pid);
+
+            -- Queue table (single global queue per repository)
+            CREATE TABLE IF NOT EXISTS queues (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             "#,
         )?;
 
@@ -1084,6 +1095,159 @@ impl Storage {
         Ok(())
     }
 
+    // === Queue Operations ===
+
+    /// Create a new queue. Only one queue can exist per repository.
+    pub fn create_queue(&mut self, queue: &Queue) -> Result<()> {
+        // Check if a queue already exists
+        if self.get_queue().is_ok() {
+            return Err(Error::QueueAlreadyExists);
+        }
+
+        // Append to JSONL
+        let queues_path = self.root.join("queues.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&queues_path)?;
+
+        let json = serde_json::to_string(queue)?;
+        writeln!(file, "{}", json)?;
+
+        // Update cache
+        self.cache_queue(queue)?;
+
+        Ok(())
+    }
+
+    /// Get the queue (single queue per repo).
+    pub fn get_queue(&self) -> Result<Queue> {
+        let queues_path = self.root.join("queues.jsonl");
+        if !queues_path.exists() {
+            return Err(Error::NotFound("No queue exists".to_string()));
+        }
+
+        // First check if queue exists in cache (handles deletions)
+        let exists: bool = self
+            .conn
+            .query_row("SELECT EXISTS(SELECT 1 FROM queues LIMIT 1)", [], |row| {
+                row.get(0)
+            })
+            .unwrap_or(false);
+
+        if !exists {
+            return Err(Error::NotFound("No queue exists".to_string()));
+        }
+
+        let file = File::open(&queues_path)?;
+        let reader = BufReader::new(file);
+
+        let mut latest: Option<Queue> = None;
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(queue) = serde_json::from_str::<Queue>(&line) {
+                // Check if this queue still exists in cache
+                let still_exists: bool = self
+                    .conn
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM queues WHERE id = ?)",
+                        [&queue.id],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(false);
+                if still_exists {
+                    latest = Some(queue);
+                }
+            }
+        }
+
+        latest.ok_or_else(|| Error::NotFound("No queue exists".to_string()))
+    }
+
+    /// Get the queue by ID (for entity lookup).
+    pub fn get_queue_by_id(&self, id: &str) -> Result<Queue> {
+        let queue = self.get_queue()?;
+        if queue.id == id {
+            Ok(queue)
+        } else {
+            Err(Error::NotFound(format!("Queue not found: {}", id)))
+        }
+    }
+
+    /// Update the queue.
+    pub fn update_queue(&mut self, queue: &Queue) -> Result<()> {
+        self.get_queue()?;
+
+        let queues_path = self.root.join("queues.jsonl");
+        let mut file = OpenOptions::new().append(true).open(&queues_path)?;
+
+        let json = serde_json::to_string(queue)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_queue(queue)?;
+
+        Ok(())
+    }
+
+    /// Delete the queue by ID.
+    pub fn delete_queue(&mut self, id: &str) -> Result<()> {
+        let queue = self.get_queue()?;
+        if queue.id != id {
+            return Err(Error::NotFound(format!("Queue not found: {}", id)));
+        }
+
+        // Remove all queued edges targeting this queue
+        let edges = self.list_edges(Some(EdgeType::Queued), None, Some(id))?;
+        for edge in edges {
+            self.remove_edge(&edge.source, &edge.target, EdgeType::Queued)?;
+        }
+
+        // Remove from cache
+        self.conn.execute("DELETE FROM queues WHERE id = ?", [id])?;
+
+        Ok(())
+    }
+
+    /// Get tasks that are in the queue.
+    pub fn get_queued_tasks(&self) -> Result<Vec<Task>> {
+        let queue = match self.get_queue() {
+            Ok(q) => q,
+            Err(_) => return Ok(Vec::new()),
+        };
+
+        let edges = self.list_edges(Some(EdgeType::Queued), None, Some(&queue.id))?;
+        let mut tasks = Vec::new();
+        for edge in edges {
+            if let Ok(task) = self.get_task(&edge.source) {
+                tasks.push(task);
+            }
+        }
+
+        // Sort by priority
+        tasks.sort_by_key(|t| t.priority);
+        Ok(tasks)
+    }
+
+    /// Cache a queue in the SQLite database.
+    fn cache_queue(&self, queue: &Queue) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO queues (id, title, description, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?)",
+            params![
+                &queue.id,
+                &queue.title,
+                &queue.description,
+                queue.created_at.to_rfc3339(),
+                queue.updated_at.to_rfc3339(),
+            ],
+        )?;
+
+        Ok(())
+    }
+
     // === Milestone Operations ===
 
     /// Add a new milestone.
@@ -1780,7 +1944,7 @@ impl Storage {
     // === Entity Type Detection ===
 
     /// Detect the type of an entity by its ID.
-    /// Tries each entity type (task, bug, test, milestone, edge) and returns the first match.
+    /// Tries each entity type (task, bug, test, milestone, edge, queue) and returns the first match.
     pub fn get_entity_type(&self, id: &str) -> Result<EntityType> {
         // Try task
         if self.get_task(id).is_ok() {
@@ -1810,6 +1974,11 @@ impl Storage {
         // Try edge
         if self.get_edge(id).is_ok() {
             return Ok(EntityType::Edge);
+        }
+
+        // Try queue
+        if self.get_queue_by_id(id).is_ok() {
+            return Ok(EntityType::Queue);
         }
 
         Err(Error::NotFound(id.to_string()))

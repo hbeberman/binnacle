@@ -600,6 +600,46 @@ impl Agent {
     }
 }
 
+/// A work pool for agent task prioritization.
+/// Only one queue can exist per repository.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Queue {
+    /// Unique identifier (e.g., "bnq-a1b2")
+    pub id: String,
+
+    /// Entity type marker
+    #[serde(rename = "type")]
+    pub entity_type: String,
+
+    /// Queue title (e.g., "Sprint 1", "Urgent")
+    pub title: String,
+
+    /// Optional description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// Creation timestamp
+    pub created_at: DateTime<Utc>,
+
+    /// Last update timestamp
+    pub updated_at: DateTime<Utc>,
+}
+
+impl Queue {
+    /// Create a new queue with the given ID and title.
+    pub fn new(id: String, title: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            entity_type: "queue".to_string(),
+            title,
+            description: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
 /// Type of relationship between entities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -624,6 +664,8 @@ pub enum EdgeType {
     ChildOf,
     /// Test verifies this work (Test → Task/Bug)
     Tests,
+    /// Task is in the queue for prioritized work (Task → Queue)
+    Queued,
 }
 
 impl EdgeType {
@@ -650,6 +692,7 @@ impl EdgeType {
             EdgeType::ParentOf,
             EdgeType::ChildOf,
             EdgeType::Tests,
+            EdgeType::Queued,
         ]
     }
 }
@@ -667,6 +710,7 @@ impl fmt::Display for EdgeType {
             EdgeType::ParentOf => "parent_of",
             EdgeType::ChildOf => "child_of",
             EdgeType::Tests => "tests",
+            EdgeType::Queued => "queued",
         };
         write!(f, "{}", s)
     }
@@ -687,6 +731,7 @@ impl std::str::FromStr for EdgeType {
             "parent_of" => Ok(EdgeType::ParentOf),
             "child_of" => Ok(EdgeType::ChildOf),
             "tests" => Ok(EdgeType::Tests),
+            "queued" => Ok(EdgeType::Queued),
             _ => Err(format!("Unknown edge type: {}", s)),
         }
     }
@@ -1033,9 +1078,49 @@ mod tests {
     #[test]
     fn test_edge_type_all() {
         let all = EdgeType::all();
-        assert_eq!(all.len(), 10);
+        assert_eq!(all.len(), 11);
         assert!(all.contains(&EdgeType::DependsOn));
         assert!(all.contains(&EdgeType::Tests));
+        assert!(all.contains(&EdgeType::Queued));
+    }
+
+    #[test]
+    fn test_queue_serialization_roundtrip() {
+        let queue = Queue::new("bnq-test".to_string(), "Sprint 1".to_string());
+        let json = serde_json::to_string(&queue).unwrap();
+        let deserialized: Queue = serde_json::from_str(&json).unwrap();
+        assert_eq!(queue.id, deserialized.id);
+        assert_eq!(queue.title, deserialized.title);
+        assert_eq!(queue.entity_type, "queue");
+    }
+
+    #[test]
+    fn test_queue_new() {
+        let queue = Queue::new("bnq-a1b2".to_string(), "Urgent Work".to_string());
+        assert_eq!(queue.id, "bnq-a1b2");
+        assert_eq!(queue.title, "Urgent Work");
+        assert_eq!(queue.entity_type, "queue");
+        assert!(queue.description.is_none());
+    }
+
+    #[test]
+    fn test_queue_default_values() {
+        let json = r#"{"id":"bnq-test","type":"queue","title":"Q1","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#;
+        let queue: Queue = serde_json::from_str(json).unwrap();
+        assert_eq!(queue.id, "bnq-test");
+        assert_eq!(queue.title, "Q1");
+        assert!(queue.description.is_none());
+    }
+
+    #[test]
+    fn test_queued_edge_type() {
+        let edge_type = EdgeType::Queued;
+        assert!(!edge_type.is_bidirectional());
+        assert!(!edge_type.is_blocking());
+        assert_eq!(edge_type.to_string(), "queued");
+
+        let parsed: EdgeType = "queued".parse().unwrap();
+        assert_eq!(parsed, EdgeType::Queued);
     }
 
     #[test]

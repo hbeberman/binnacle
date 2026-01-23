@@ -3,8 +3,8 @@
 use binnacle::action_log;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, GraphCommands,
-    IdeaCommands, LinkCommands, McpCommands, MilestoneCommands, SearchCommands, StoreCommands,
-    SystemCommands, TaskCommands, TestCommands,
+    IdeaCommands, LinkCommands, McpCommands, MilestoneCommands, QueueCommands, SearchCommands,
+    StoreCommands, SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -439,6 +439,29 @@ fn run_command(
             }
             MilestoneCommands::Progress { id } => {
                 let result = commands::milestone_progress(repo_path, &id)?;
+                output(&result, human);
+            }
+        },
+
+        Some(Commands::Queue { command }) => match command {
+            QueueCommands::Create { title, description } => {
+                let result = commands::queue_create(repo_path, title, description)?;
+                output(&result, human);
+            }
+            QueueCommands::Show => {
+                let result = commands::queue_show(repo_path)?;
+                output(&result, human);
+            }
+            QueueCommands::Delete => {
+                let result = commands::queue_delete(repo_path)?;
+                output(&result, human);
+            }
+            QueueCommands::Add { task_id } => {
+                let result = commands::queue_add(repo_path, &task_id)?;
+                output(&result, human);
+            }
+            QueueCommands::Rm { task_id } => {
+                let result = commands::queue_rm(repo_path, &task_id)?;
                 output(&result, human);
             }
         },
@@ -1421,6 +1444,26 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             MilestoneCommands::Progress { id } => (
                 "milestone progress".to_string(),
                 serde_json::json!({ "id": id }),
+            ),
+        },
+
+        Some(Commands::Queue { command }) => match command {
+            QueueCommands::Create { title, description } => (
+                "queue create".to_string(),
+                serde_json::json!({
+                    "title": title,
+                    "description": description,
+                }),
+            ),
+            QueueCommands::Show => ("queue show".to_string(), serde_json::json!({})),
+            QueueCommands::Delete => ("queue delete".to_string(), serde_json::json!({})),
+            QueueCommands::Add { task_id } => (
+                "queue add".to_string(),
+                serde_json::json!({ "task_id": task_id }),
+            ),
+            QueueCommands::Rm { task_id } => (
+                "queue rm".to_string(),
+                serde_json::json!({ "task_id": task_id }),
             ),
         },
 

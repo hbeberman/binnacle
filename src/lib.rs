@@ -147,6 +147,9 @@ pub enum Error {
     #[error("Cycle detected in dependencies")]
     CycleDetected,
 
+    #[error("A queue already exists for this repository")]
+    QueueAlreadyExists,
+
     #[error("{0}")]
     Other(String),
 }

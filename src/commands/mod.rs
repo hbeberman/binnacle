@@ -9,8 +9,8 @@
 //! - `commit` - Commit tracking
 
 use crate::models::{
-    Agent, Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone, Task,
-    TaskStatus, TestNode, TestResult,
+    Agent, Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone, Queue,
+    Task, TaskStatus, TestNode, TestResult,
 };
 use crate::storage::{EntityType, Storage, generate_id, parse_status};
 use crate::{Error, Result};
@@ -745,6 +745,8 @@ pub struct GenericShowResult {
     pub milestone: Option<MilestoneShowResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edge: Option<Edge>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue: Option<Queue>,
 }
 
 impl Output for GenericShowResult {
@@ -799,6 +801,13 @@ impl Output for GenericShowResult {
                     "Edge data not available".to_string()
                 }
             }
+            EntityType::Queue => {
+                if let Some(ref queue) = self.queue {
+                    queue.to_human()
+                } else {
+                    "Queue data not available".to_string()
+                }
+            }
         }
     }
 }
@@ -816,6 +825,7 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
         test: None,
         milestone: None,
         edge: None,
+        queue: None,
     };
 
     match entity_type {
@@ -842,6 +852,9 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
         }
         EntityType::Edge => {
             result.edge = Some(storage.get_edge(id)?);
+        }
+        EntityType::Queue => {
+            result.queue = Some(storage.get_queue_by_id(id)?);
         }
     }
 
@@ -3530,6 +3543,234 @@ pub fn milestone_progress(repo_path: &Path, id: &str) -> Result<MilestoneProgres
     storage.get_milestone_progress(id)
 }
 
+// === Queue Commands ===
+
+#[derive(Serialize)]
+pub struct QueueCreated {
+    pub id: String,
+    pub title: String,
+}
+
+impl Output for QueueCreated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Created queue {} \"{}\"", self.id, self.title)
+    }
+}
+
+/// Create a new queue (only one per repository).
+pub fn queue_create(
+    repo_path: &Path,
+    title: String,
+    description: Option<String>,
+) -> Result<QueueCreated> {
+    let mut storage = Storage::open(repo_path)?;
+
+    let id = generate_id("bnq", &title);
+    let mut queue = Queue::new(id.clone(), title.clone());
+    queue.description = description;
+
+    storage.create_queue(&queue)?;
+
+    Ok(QueueCreated { id, title })
+}
+
+#[derive(Serialize)]
+pub struct QueueShowResult {
+    pub queue: Queue,
+    pub tasks: Vec<Task>,
+}
+
+impl Output for QueueShowResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("Queue: {} ({})", self.queue.title, self.queue.id));
+        lines.push(format!(
+            "  Created: {}",
+            self.queue.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        if let Some(ref desc) = self.queue.description {
+            lines.push(format!("  Description: {}", desc));
+        }
+        lines.push(String::new());
+
+        if self.tasks.is_empty() {
+            lines.push("  No tasks in queue".to_string());
+        } else {
+            lines.push(format!("  Queued tasks ({}):", self.tasks.len()));
+            for task in &self.tasks {
+                lines.push(format!(
+                    "    [P{}] {}: {}",
+                    task.priority, task.id, task.title
+                ));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Show the queue and its tasks.
+pub fn queue_show(repo_path: &Path) -> Result<QueueShowResult> {
+    let storage = Storage::open(repo_path)?;
+
+    let queue = storage.get_queue()?;
+    let tasks = storage.get_queued_tasks()?;
+
+    Ok(QueueShowResult { queue, tasks })
+}
+
+#[derive(Serialize)]
+pub struct QueueDeleted {
+    pub id: String,
+}
+
+impl Output for QueueDeleted {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Deleted queue {}", self.id)
+    }
+}
+
+/// Delete the queue.
+pub fn queue_delete(repo_path: &Path) -> Result<QueueDeleted> {
+    let mut storage = Storage::open(repo_path)?;
+
+    let queue = storage.get_queue()?;
+    let id = queue.id.clone();
+
+    storage.delete_queue(&id)?;
+
+    Ok(QueueDeleted { id })
+}
+
+#[derive(Serialize)]
+pub struct QueueTaskAdded {
+    pub queue_id: String,
+    pub task_id: String,
+}
+
+impl Output for QueueTaskAdded {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Added {} to queue {}", self.task_id, self.queue_id)
+    }
+}
+
+/// Add a task to the queue.
+pub fn queue_add(repo_path: &Path, task_id: &str) -> Result<QueueTaskAdded> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Verify task exists
+    storage.get_task(task_id)?;
+
+    // Get queue
+    let queue = storage.get_queue()?;
+    let queue_id = queue.id.clone();
+
+    // Check if already queued
+    let edges = storage.list_edges(Some(EdgeType::Queued), Some(task_id), Some(&queue_id))?;
+    if !edges.is_empty() {
+        return Err(Error::Other(format!(
+            "Task {} is already in the queue",
+            task_id
+        )));
+    }
+
+    // Create queued edge
+    let edge_id = generate_id("bne", &format!("{}-{}", task_id, queue_id));
+    let edge = Edge::new(
+        edge_id,
+        task_id.to_string(),
+        queue_id.clone(),
+        EdgeType::Queued,
+    );
+    storage.add_edge(&edge)?;
+
+    Ok(QueueTaskAdded {
+        queue_id,
+        task_id: task_id.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct QueueTaskRemoved {
+    pub queue_id: String,
+    pub task_id: String,
+}
+
+impl Output for QueueTaskRemoved {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Removed {} from queue {}", self.task_id, self.queue_id)
+    }
+}
+
+/// Remove a task from the queue.
+pub fn queue_rm(repo_path: &Path, task_id: &str) -> Result<QueueTaskRemoved> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Get queue
+    let queue = storage.get_queue()?;
+    let queue_id = queue.id.clone();
+
+    // Find and remove the queued edge
+    let edges = storage.list_edges(Some(EdgeType::Queued), Some(task_id), Some(&queue_id))?;
+    if edges.is_empty() {
+        return Err(Error::Other(format!(
+            "Task {} is not in the queue",
+            task_id
+        )));
+    }
+
+    // Remove edge using source, target, edge_type
+    storage.remove_edge(task_id, &queue_id, EdgeType::Queued)?;
+
+    Ok(QueueTaskRemoved {
+        queue_id,
+        task_id: task_id.to_string(),
+    })
+}
+
+impl Output for Queue {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("Queue: {} ({})", self.title, self.id));
+        if let Some(ref desc) = self.description {
+            lines.push(format!("  Description: {}", desc));
+        }
+        lines.push(format!(
+            "  Created: {}",
+            self.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.push(format!(
+            "  Updated: {}",
+            self.updated_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.join("\n")
+    }
+}
+
 // === Status Summary ===
 
 #[derive(Serialize)]
@@ -3866,6 +4107,8 @@ fn get_entity_type(storage: &Storage, id: &str) -> Option<&'static str> {
         Some("milestone")
     } else if storage.get_test(id).is_ok() {
         Some("test")
+    } else if storage.get_queue_by_id(id).is_ok() {
+        Some("queue")
     } else {
         None
     }
@@ -3990,6 +4233,21 @@ fn validate_edge_type_constraints(
                 return Err(Error::Other(format!(
                     "caused_by edge requires source to be a bug, got: {}",
                     source_type
+                )));
+            }
+        }
+        EdgeType::Queued => {
+            // Task/Bug → Queue
+            if source_type != "task" && source_type != "bug" {
+                return Err(Error::Other(format!(
+                    "queued edge requires source to be a task or bug, got: {}",
+                    source_type
+                )));
+            }
+            if target_type != "queue" {
+                return Err(Error::Other(format!(
+                    "queued edge requires target to be a queue, got: {}",
+                    target_type
                 )));
             }
         }

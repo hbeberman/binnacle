@@ -84,6 +84,12 @@ pub enum Commands {
         command: MilestoneCommands,
     },
 
+    /// Queue management commands (work prioritization)
+    Queue {
+        #[command(subcommand)]
+        command: QueueCommands,
+    },
+
     /// Link management commands (relationships between entities)
     Link {
         #[command(subcommand)]
@@ -651,6 +657,38 @@ pub enum MilestoneCommands {
     },
 }
 
+/// Queue subcommands (work prioritization)
+#[derive(Subcommand, Debug)]
+pub enum QueueCommands {
+    /// Create a new queue (only one per repository)
+    Create {
+        /// Queue title (e.g., "Sprint 1", "Urgent")
+        title: String,
+
+        /// Optional description
+        #[arg(short, long)]
+        description: Option<String>,
+    },
+
+    /// Show the queue and its tasks
+    Show,
+
+    /// Delete the queue
+    Delete,
+
+    /// Add a task to the queue
+    Add {
+        /// Task ID to add to queue
+        task_id: String,
+    },
+
+    /// Remove a task from the queue
+    Rm {
+        /// Task ID to remove from queue
+        task_id: String,
+    },
+}
+
 /// Link subcommands (relationship management)
 #[derive(Subcommand, Debug)]
 pub enum LinkCommands {
@@ -662,7 +700,7 @@ pub enum LinkCommands {
         /// Target entity ID (e.g., bn-5678)
         target: String,
         /// Type of relationship
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued"])]
         edge_type: String,
         /// Reason for creating this relationship
         #[arg(long)]
@@ -676,7 +714,7 @@ pub enum LinkCommands {
         /// Target entity ID
         target: String,
         /// Type of relationship (required)
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued"])]
         edge_type: Option<String>,
     },
 
@@ -688,7 +726,7 @@ pub enum LinkCommands {
         #[arg(long)]
         all: bool,
         /// Filter by edge type
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued"])]
         edge_type: Option<String>,
     },
 }
@@ -832,7 +870,7 @@ pub enum SearchCommands {
     /// Search for links/edges by type, source, or target
     Link {
         /// Filter by edge type
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued"])]
         edge_type: Option<String>,
 
         /// Filter by source entity ID
