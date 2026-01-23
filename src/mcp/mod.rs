@@ -650,6 +650,21 @@ impl McpServer {
                 )?;
                 Ok(result.to_json())
             }
+            // Queue tools
+            "bn_queue_create" => {
+                let title = get_string_arg(args, "title")?;
+                let description = get_optional_string(args, "description");
+                let result = commands::queue_create(repo, title, description)?;
+                Ok(result.to_json())
+            }
+            "bn_queue_show" => {
+                let result = commands::queue_show(repo)?;
+                Ok(result.to_json())
+            }
+            "bn_queue_delete" => {
+                let result = commands::queue_delete(repo)?;
+                Ok(result.to_json())
+            }
             // Agent tools (read-only)
             "bn_agent_list" => {
                 let status = get_optional_string(args, "status");
@@ -679,6 +694,10 @@ impl McpServer {
             }
             "binnacle://status" => {
                 let result = commands::status(repo)?;
+                Ok(result.to_json())
+            }
+            "binnacle://queue" => {
+                let result = commands::queue_show(repo)?;
                 Ok(result.to_json())
             }
             _ => Err(Error::Other(format!("Unknown resource: {}", uri))),
@@ -786,6 +805,23 @@ impl McpServer {
                             3. Listing blocked tasks with `bn blocked`\n\
                             4. Running `bn doctor` to check for issues\n\
                             Provide a human-readable summary of the project state."
+                    }
+                })];
+                Ok((description.to_string(), messages))
+            }
+            "prioritize_work" => {
+                let description = "Help decide what tasks to add to the work queue";
+                let messages = vec![json!({
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": "Please help me prioritize work by:\n\
+                            1. Running `bn ready` to see available tasks\n\
+                            2. Running `bn queue show` to see current queue state\n\
+                            3. Analyzing task priorities, dependencies, and tags\n\
+                            4. Suggesting which tasks should be added to the queue with `bn queue add <task-id>`\n\
+                            Consider: urgency, dependencies, blocking relationships, and effort level.\n\
+                            Explain your reasoning for each suggestion."
                     }
                 })];
                 Ok((description.to_string(), messages))
@@ -1573,6 +1609,43 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                 "required": []
             }),
         },
+        // Queue tools
+        ToolDef {
+            name: "bn_queue_create".to_string(),
+            description: "Create the work queue for prioritizing tasks".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Queue title (e.g., 'Sprint 1', 'Urgent')"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional description"
+                    }
+                },
+                "required": ["title"]
+            }),
+        },
+        ToolDef {
+            name: "bn_queue_show".to_string(),
+            description: "Show the queue and its prioritized tasks".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
+        ToolDef {
+            name: "bn_queue_delete".to_string(),
+            description: "Delete the queue and remove all queue links".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
         // Agent tools (read-only - do NOT expose goodbye or kill via MCP)
         ToolDef {
             name: "bn_agent_list".to_string(),
@@ -1620,6 +1693,12 @@ pub fn get_resource_definitions() -> Vec<ResourceDef> {
             description: "Overall project status summary".to_string(),
             mime_type: Some("application/json".to_string()),
         },
+        ResourceDef {
+            uri: "binnacle://queue".to_string(),
+            name: "Work Queue".to_string(),
+            description: "The prioritized work queue and its tasks".to_string(),
+            mime_type: Some("application/json".to_string()),
+        },
     ]
 }
 
@@ -1665,6 +1744,11 @@ pub fn get_prompt_definitions() -> Vec<PromptDef> {
         PromptDef {
             name: "status_report".to_string(),
             description: "Generate summary of current state".to_string(),
+            arguments: None,
+        },
+        PromptDef {
+            name: "prioritize_work".to_string(),
+            description: "Help decide what tasks to add to the work queue".to_string(),
             arguments: None,
         },
     ]

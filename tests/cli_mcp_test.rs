@@ -399,3 +399,104 @@ fn test_status_tool_no_required_args() {
     let required = status["inputSchema"]["required"].as_array().unwrap();
     assert!(required.is_empty());
 }
+
+// === Queue Tool Tests ===
+
+#[test]
+fn test_mcp_manifest_contains_queue_tools() {
+    let env = setup();
+
+    env.bn()
+        .args(["mcp", "manifest"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bn_queue_create"))
+        .stdout(predicate::str::contains("bn_queue_show"))
+        .stdout(predicate::str::contains("bn_queue_delete"));
+}
+
+#[test]
+fn test_mcp_manifest_contains_queue_resource() {
+    let env = setup();
+
+    env.bn()
+        .args(["mcp", "manifest"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("binnacle://queue"));
+}
+
+#[test]
+fn test_mcp_manifest_contains_prioritize_work_prompt() {
+    let env = setup();
+
+    env.bn()
+        .args(["mcp", "manifest"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("prioritize_work"));
+}
+
+#[test]
+fn test_queue_create_schema_requires_title() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let queue_create = tools
+        .iter()
+        .find(|t| t["name"] == "bn_queue_create")
+        .expect("bn_queue_create tool not found");
+
+    let schema = &queue_create["inputSchema"];
+    assert_eq!(schema["type"], "object");
+
+    let required = schema["required"].as_array().unwrap();
+    assert!(required.iter().any(|r| r == "title"));
+
+    // Verify description is optional
+    let properties = schema["properties"].as_object().unwrap();
+    assert!(properties.contains_key("description"));
+}
+
+#[test]
+fn test_queue_show_schema_no_required_args() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let queue_show = tools
+        .iter()
+        .find(|t| t["name"] == "bn_queue_show")
+        .expect("bn_queue_show tool not found");
+
+    let required = queue_show["inputSchema"]["required"].as_array().unwrap();
+    assert!(required.is_empty());
+}
+
+#[test]
+fn test_queue_delete_schema_no_required_args() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let queue_delete = tools
+        .iter()
+        .find(|t| t["name"] == "bn_queue_delete")
+        .expect("bn_queue_delete tool not found");
+
+    let required = queue_delete["inputSchema"]["required"].as_array().unwrap();
+    assert!(required.is_empty());
+}
