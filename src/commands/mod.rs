@@ -1624,6 +1624,13 @@ pub fn task_update(
             task.closed_at = Some(Utc::now());
         }
 
+        // If setting status to in_progress, track task association for registered agents
+        if new_status == TaskStatus::InProgress {
+            let pid = std::process::id();
+            // Silently ignore errors - agent tracking is optional
+            let _ = storage.agent_add_task(pid, id);
+        }
+
         task.status = new_status;
         updated_fields.push("status".to_string());
     }
@@ -7662,6 +7669,56 @@ mod tests {
             false,
         );
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_task_update_in_progress_tracks_agent_association() {
+        let temp = setup();
+
+        // Register current process as an agent
+        let pid = std::process::id();
+        let parent_pid = 1;
+        let agent = Agent::new(pid, parent_pid, "test-agent".to_string());
+        {
+            let mut storage = Storage::open(temp.path()).unwrap();
+            storage.register_agent(&agent).unwrap();
+        }
+
+        // Create a task
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Update task to in_progress
+        let result = task_update(
+            temp.path(),
+            &task.id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            vec![],
+            vec![],
+            None,
+            false,
+        );
+        assert!(result.is_ok());
+
+        // Verify agent has the task in its tasks list
+        let storage = Storage::open(temp.path()).unwrap();
+        let updated_agent = storage.get_agent(pid).unwrap();
+        assert!(
+            updated_agent.tasks.contains(&task.id),
+            "Agent should have the task in its tasks list"
+        );
     }
 
     #[test]
