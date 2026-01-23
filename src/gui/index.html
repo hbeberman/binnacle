@@ -1322,6 +1322,145 @@
             cursor: not-allowed;
         }
 
+        /* Edge Info Panel */
+        .edge-info-panel {
+            position: absolute;
+            top: 4rem;
+            right: 1rem;
+            width: 320px;
+            max-height: calc(100% - 5rem);
+            background: var(--overlay-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-y: auto;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s ease, visibility 0.2s ease;
+            z-index: 99;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .edge-info-panel.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .edge-info-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .edge-info-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .edge-info-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            transition: color 0.2s ease;
+        }
+
+        .edge-info-close:hover {
+            color: var(--text-primary);
+        }
+
+        .edge-info-type {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+        }
+
+        .edge-info-type .edge-color-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .edge-info-connection {
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: var(--accent-light);
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+        }
+
+        .edge-info-node {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .edge-info-node-id {
+            color: var(--accent-light);
+            font-weight: 500;
+        }
+
+        .edge-info-node-title {
+            font-family: inherit;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .edge-info-arrow {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 1.2rem;
+            margin: 0.5rem 0;
+        }
+
+        .edge-info-section {
+            margin-top: 1rem;
+        }
+
+        .edge-info-section-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .edge-info-reason {
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            font-style: italic;
+        }
+
+        .edge-info-date {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 0.75rem;
+        }
+
         /* Toast Notification System */
         .toast-container {
             position: fixed;
@@ -1611,6 +1750,32 @@
                         <div id="info-panel-closed-reason" class="info-panel-closed-reason"></div>
                     </div>
                 </div>
+                <div class="edge-info-panel" id="edge-info-panel">
+                    <div class="edge-info-header">
+                        <span class="edge-info-title">Edge Details</span>
+                        <button class="edge-info-close" id="edge-info-close" title="Close">&times;</button>
+                    </div>
+                    <div class="edge-info-type" id="edge-info-type">
+                        <span class="edge-color-indicator" id="edge-info-color"></span>
+                        <span id="edge-info-type-name"></span>
+                    </div>
+                    <div class="edge-info-connection">
+                        <div class="edge-info-node">
+                            <span class="edge-info-node-id" id="edge-info-source-id"></span>
+                            <span class="edge-info-node-title" id="edge-info-source-title"></span>
+                        </div>
+                        <div class="edge-info-arrow">↓</div>
+                        <div class="edge-info-node">
+                            <span class="edge-info-node-id" id="edge-info-target-id"></span>
+                            <span class="edge-info-node-title" id="edge-info-target-title"></span>
+                        </div>
+                    </div>
+                    <div id="edge-info-reason-section" class="edge-info-section" style="display: none;">
+                        <div class="edge-info-section-title">Reason</div>
+                        <div id="edge-info-reason" class="edge-info-reason"></div>
+                    </div>
+                    <div class="edge-info-date" id="edge-info-date"></div>
+                </div>
             </div>
 
             <div id="ready-view" class="view">
@@ -1842,6 +2007,7 @@
                 panStartOffsetY: 0,
                 // Selection state
                 selectedNode: null,
+                selectedEdge: null,
                 // Camera pan animation state
                 followAnimation: null,  // { startPanX, startPanY, targetPanX, targetPanY, startZoom, targetZoom, startTime, duration }
                 // Auto-follow state
@@ -2541,13 +2707,25 @@
                     } else {
                         state.graph.selectedNode = node;
                     }
+                    // Hide edge info panel when selecting a node
+                    state.graph.selectedEdge = null;
+                    updateEdgeInfoPanel(null);
+                    // Update info panel with current selection
+                    updateInfoPanel(state.graph.selectedNode);
                 } else {
-                    // Click on empty space deselects
-                    state.graph.selectedNode = null;
+                    // Check for edge under mouse
+                    const edge = findHoveredEdge(worldPos.x, worldPos.y);
+                    if (edge) {
+                        // Show edge info panel
+                        updateEdgeInfoPanel(edge);
+                    } else {
+                        // Click on empty space deselects everything
+                        state.graph.selectedNode = null;
+                        state.graph.selectedEdge = null;
+                        updateInfoPanel(null);
+                        updateEdgeInfoPanel(null);
+                    }
                 }
-
-                // Update info panel with current selection
-                updateInfoPanel(state.graph.selectedNode);
 
                 e.preventDefault();
             });
@@ -3133,6 +3311,74 @@
         document.getElementById('info-panel-close').addEventListener('click', () => {
             state.graph.selectedNode = null;
             updateInfoPanel(null);
+        });
+
+        // Edge info panel functions
+        function updateEdgeInfoPanel(edge) {
+            const panel = document.getElementById('edge-info-panel');
+            
+            if (!edge) {
+                panel.classList.remove('visible');
+                return;
+            }
+
+            // Hide node info panel when showing edge info
+            document.getElementById('info-panel').classList.remove('visible');
+            state.graph.selectedNode = null;
+
+            // Get full edge data from state.edges
+            const fullEdge = state.edges.find(e => 
+                e.source === edge.from && e.target === edge.to && e.edge_type === edge.edge_type
+            );
+
+            // Get edge style for color
+            const style = getEdgeStyle(edge.edge_type);
+            
+            // Update type with color indicator
+            document.getElementById('edge-info-color').style.backgroundColor = style.color;
+            document.getElementById('edge-info-type-name').textContent = getEdgeTypeName(edge.edge_type);
+
+            // Find source and target task info
+            const sourceTask = state.tasks.find(t => t.id === edge.from);
+            const targetTask = state.tasks.find(t => t.id === edge.to);
+
+            // Update connection info
+            document.getElementById('edge-info-source-id').textContent = edge.from;
+            document.getElementById('edge-info-source-title').textContent = sourceTask?.title || 'Unknown';
+            document.getElementById('edge-info-target-id').textContent = edge.to;
+            document.getElementById('edge-info-target-title').textContent = targetTask?.title || 'Unknown';
+
+            // Show/hide reason section
+            const reasonSection = document.getElementById('edge-info-reason-section');
+            const reasonEl = document.getElementById('edge-info-reason');
+            if (edge.reason || fullEdge?.reason) {
+                reasonEl.textContent = edge.reason || fullEdge.reason;
+                reasonSection.style.display = 'block';
+            } else {
+                reasonSection.style.display = 'none';
+            }
+
+            // Show created date if available
+            const dateEl = document.getElementById('edge-info-date');
+            if (fullEdge && fullEdge.created_at) {
+                const date = new Date(fullEdge.created_at);
+                dateEl.textContent = `Created: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+                dateEl.style.display = 'block';
+            } else {
+                dateEl.style.display = 'none';
+            }
+
+            // Show panel
+            panel.classList.add('visible');
+            
+            // Store selected edge
+            state.graph.selectedEdge = edge;
+        }
+
+        // Edge info panel close button
+        document.getElementById('edge-info-close').addEventListener('click', () => {
+            state.graph.selectedEdge = null;
+            updateEdgeInfoPanel(null);
         });
 
         // Queue toggle button click handler
@@ -4444,6 +4690,14 @@
                 const terminateModal = document.getElementById('terminate-modal');
                 if (terminateModal && terminateModal.style.display !== 'none') {
                     closeTerminateModal();
+                    e.preventDefault();
+                    return;
+                }
+                // Close edge info panel if open
+                const edgeInfoPanel = document.getElementById('edge-info-panel');
+                if (edgeInfoPanel && edgeInfoPanel.classList.contains('visible')) {
+                    state.graph.selectedEdge = null;
+                    updateEdgeInfoPanel(null);
                     e.preventDefault();
                     return;
                 }
