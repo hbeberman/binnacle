@@ -83,7 +83,7 @@ jobs:
         uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
 
       - name: Build and upload binary
-        uses: taiki-e/upload-rust-binary-action@0528add44a7eb76e0378e2d5712669829c31c2d5 # v1.24.0
+        uses: taiki-e/upload-rust-binary-action@e7953b6078194a4ae5f5619632e3715db6275561 # v1.24.0
         id: upload-release
         with:
           dry-run: ${{ github.event_name != 'release' }}
