@@ -4440,6 +4440,22 @@ fn validate_edge_type_constraints(
                 )));
             }
         }
+        EdgeType::Impacts => {
+            // Bug → Task/Milestone/PRD (informational: bug affects this work)
+            if source_type != "bug" {
+                return Err(Error::Other(format!(
+                    "impacts edge requires source to be a bug, got: {}",
+                    source_type
+                )));
+            }
+            // Allow targets: task, milestone (PRD not an entity type yet)
+            if target_type != "task" && target_type != "milestone" {
+                return Err(Error::Other(format!(
+                    "impacts edge requires target to be a task or milestone, got: {}",
+                    target_type
+                )));
+            }
+        }
         // Other types are permissive
         EdgeType::DependsOn | EdgeType::Blocks | EdgeType::RelatedTo => {}
     }

@@ -666,6 +666,8 @@ pub enum EdgeType {
     Tests,
     /// Task is in the queue for prioritized work (Task → Queue)
     Queued,
+    /// Bug impacts this entity (Bug → Task/PRD/Milestone)
+    Impacts,
 }
 
 impl EdgeType {
@@ -693,6 +695,7 @@ impl EdgeType {
             EdgeType::ChildOf,
             EdgeType::Tests,
             EdgeType::Queued,
+            EdgeType::Impacts,
         ]
     }
 }
@@ -711,6 +714,7 @@ impl fmt::Display for EdgeType {
             EdgeType::ChildOf => "child_of",
             EdgeType::Tests => "tests",
             EdgeType::Queued => "queued",
+            EdgeType::Impacts => "impacts",
         };
         write!(f, "{}", s)
     }
@@ -732,6 +736,7 @@ impl std::str::FromStr for EdgeType {
             "child_of" => Ok(EdgeType::ChildOf),
             "tests" => Ok(EdgeType::Tests),
             "queued" => Ok(EdgeType::Queued),
+            "impacts" => Ok(EdgeType::Impacts),
             _ => Err(format!("Unknown edge type: {}", s)),
         }
     }
@@ -1078,10 +1083,11 @@ mod tests {
     #[test]
     fn test_edge_type_all() {
         let all = EdgeType::all();
-        assert_eq!(all.len(), 11);
+        assert_eq!(all.len(), 12);
         assert!(all.contains(&EdgeType::DependsOn));
         assert!(all.contains(&EdgeType::Tests));
         assert!(all.contains(&EdgeType::Queued));
+        assert!(all.contains(&EdgeType::Impacts));
     }
 
     #[test]
