@@ -52,14 +52,16 @@ usage() {
 Usage: ./agent.sh <agent-type> [args]
 
 Agent Types:
-  auto              Pick a task from 'bn ready' and work on it immediately
-  do "desc"         Work on custom task described in the argument
-  prd               Find open ideas and render them into PRDs
-  buddy             Ask what bn operation to perform (insert bugs/tasks/ideas)
-  free              General purpose with binnacle orientation
+  auto [--loop]       Pick a task from 'bn ready' and work on it immediately
+                      --loop: Restart the agent when it exits
+  do "desc"           Work on custom task described in the argument
+  prd                 Find open ideas and render them into PRDs
+  buddy               Ask what bn operation to perform (insert bugs/tasks/ideas)
+  free                General purpose with binnacle orientation
 
 Examples:
   ./agent.sh auto
+  ./agent.sh auto --loop
   ./agent.sh do "find work related to gui alignment"
   ./agent.sh prd
   ./agent.sh buddy
@@ -76,9 +78,29 @@ shift
 
 case "$AGENT_TYPE" in
     auto)
+        # Check for --loop flag
+        LOOP_MODE=false
+        for arg in "$@"; do
+            if [[ "$arg" == "--loop" ]]; then
+                LOOP_MODE=true
+                break
+            fi
+        done
+
         echo "Launching Auto Worker Agent"
         PROMPT='Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Look for newly created tasks first. Run `bn ready` to find available tasks, pick the highest priority one, claim it with `bn task update ID --status in_progress`, and start working immediately. Remember to mark it complete when you finish.'
-        copilot "${BLOCKED_TOOLS[@]}" "${TOOLS_FULL[@]}" -i "$PROMPT"
+        
+        if [[ "$LOOP_MODE" == "true" ]]; then
+            echo "Loop mode enabled - agent will restart on exit"
+            while true; do
+                copilot "${BLOCKED_TOOLS[@]}" "${TOOLS_FULL[@]}" -i "$PROMPT" || true
+                echo ""
+                echo "Agent exited. Restarting in 3 seconds... (Ctrl+C to stop)"
+                sleep 3
+            done
+        else
+            copilot "${BLOCKED_TOOLS[@]}" "${TOOLS_FULL[@]}" -i "$PROMPT"
+        fi
         ;;
     do)
         [[ $# -lt 1 ]] && { echo "Error: 'do' requires a description argument"; usage; }
