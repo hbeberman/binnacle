@@ -2,8 +2,11 @@
 //!
 //! These tests verify the GUI command line interface and basic functionality.
 
+mod common;
+
 #[cfg(feature = "gui")]
 mod gui_enabled {
+    use super::common::TestEnv;
     use assert_cmd::Command;
 
     #[test]
@@ -17,11 +20,10 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_requires_init() {
-        let temp = tempfile::tempdir().unwrap();
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
-        cmd.current_dir(&temp);
-        cmd.arg("gui");
-        cmd.assert()
+        let env = TestEnv::new();
+        env.bn()
+            .arg("gui")
+            .assert()
             .failure()
             .stderr(predicates::str::contains("Not initialized"));
     }

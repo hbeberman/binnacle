@@ -5,28 +5,26 @@
 //! - `bn orient` - Auto-initializes and shows project state
 //! - `bn system init` - Creates/updates AGENTS.md with binnacle reference
 
+mod common;
+
 use assert_cmd::Command;
+use common::TestEnv;
 use predicates::prelude::*;
 use std::fs;
-use tempfile::TempDir;
 
-/// Get a Command for the bn binary, running in a temp directory.
-fn bn_in(dir: &TempDir) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
-    cmd.current_dir(dir.path());
-    cmd
+/// Get a Command for the bn binary in a TestEnv.
+fn bn_in(env: &TestEnv) -> Command {
+    env.bn()
 }
 
-/// Initialize binnacle in a temp directory and return the temp dir.
-fn init_binnacle() -> TempDir {
-    let temp = TempDir::new().unwrap();
-    bn_in(&temp).args(["system", "init"]).assert().success();
-    temp
+/// Initialize binnacle in a temp directory and return the TestEnv.
+fn init_binnacle() -> TestEnv {
+    TestEnv::init()
 }
 
 /// Create a task and return its ID.
-fn create_task(dir: &TempDir, title: &str) -> String {
-    let output = bn_in(dir)
+fn create_task(env: &TestEnv, title: &str) -> String {
+    let output = bn_in(env)
         .args(["task", "create", title])
         .output()
         .expect("Failed to run bn task create");
@@ -45,7 +43,7 @@ fn create_task(dir: &TempDir, title: &str) -> String {
 
 #[test]
 fn test_init_creates_agents_md() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
     let agents_path = temp.path().join("AGENTS.md");
 
     // Verify AGENTS.md doesn't exist yet
@@ -67,7 +65,7 @@ fn test_init_creates_agents_md() {
 
 #[test]
 fn test_init_appends_to_existing_agents_md() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
     let agents_path = temp.path().join("AGENTS.md");
 
     // Create existing AGENTS.md
@@ -88,7 +86,7 @@ fn test_init_appends_to_existing_agents_md() {
 
 #[test]
 fn test_init_appends_markers_if_legacy_bn_orient() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
     let agents_path = temp.path().join("AGENTS.md");
 
     // Create existing AGENTS.md that references bn orient but lacks markers
@@ -114,7 +112,7 @@ fn test_init_appends_markers_if_legacy_bn_orient() {
 
 #[test]
 fn test_init_idempotent_agents_md() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     // Run init twice
     bn_in(&temp).args(["system", "init"]).assert().success();
@@ -129,7 +127,7 @@ fn test_init_idempotent_agents_md() {
 
 #[test]
 fn test_init_human_shows_agents_md_update() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .args(["-H", "system", "init"])
@@ -143,7 +141,7 @@ fn test_init_human_shows_agents_md_update() {
 
 #[test]
 fn test_orient_auto_initializes() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
     let agents_path = temp.path().join("AGENTS.md");
 
     // Verify not initialized
@@ -272,7 +270,7 @@ fn test_orient_json_includes_ready_ids() {
 
 #[test]
 fn test_orient_empty_project() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .arg("orient")
@@ -284,7 +282,7 @@ fn test_orient_empty_project() {
 
 #[test]
 fn test_orient_human_empty_project() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .args(["-H", "orient"])

@@ -5,8 +5,12 @@
 //! - `bn --help` outputs help text
 //! - `bn` (no args) outputs valid JSON
 
+mod common;
+
 use assert_cmd::Command;
 use predicates::prelude::*;
+
+use common::TestEnv;
 
 /// Get a Command for the bn binary.
 fn bn() -> Command {
@@ -102,11 +106,12 @@ fn test_repo_flag_in_help() {
 #[test]
 fn test_explicit_repo_path_bypasses_git_root_detection() {
     use std::fs;
-    use tempfile::TempDir;
 
-    // Create a temp directory structure simulating a git repo with subdirs
-    let temp = TempDir::new().unwrap();
-    let root = temp.path();
+    // Create two separate test environments for root and subdir
+    let root_env = TestEnv::new();
+    let subdir_env = TestEnv::new();
+
+    let root = root_env.repo_path();
 
     // Create .git directory to make this a "git repo"
     fs::create_dir(root.join(".git")).unwrap();
@@ -116,12 +121,17 @@ fn test_explicit_repo_path_bypasses_git_root_detection() {
     fs::create_dir(&subdir).unwrap();
 
     // Initialize binnacle using explicit -C pointing to the SUBDIR
-    bn().args(["-C", subdir.to_str().unwrap(), "system", "init"])
+    // Use subdir_env's data_dir for isolation
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.env("BN_DATA_DIR", subdir_env.data_path());
+    cmd.args(["-C", subdir.to_str().unwrap(), "system", "init"])
         .assert()
         .success();
 
     // Create a task in the subdir's binnacle
-    bn().args([
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.env("BN_DATA_DIR", subdir_env.data_path());
+    cmd.args([
         "-C",
         subdir.to_str().unwrap(),
         "task",
@@ -131,15 +141,18 @@ fn test_explicit_repo_path_bypasses_git_root_detection() {
     .assert()
     .success();
 
-    // Now run from the git ROOT - should NOT see the task
-    // because explicit -C subdir should have created a separate storage
-    let output = bn()
+    // Now run from the git ROOT with root_env's data_dir
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.env("BN_DATA_DIR", root_env.data_path());
+    let output = cmd
         .args(["-C", root.to_str().unwrap(), "system", "init"])
         .output()
         .unwrap();
     assert!(output.status.success());
 
-    let list_output = bn()
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.env("BN_DATA_DIR", root_env.data_path());
+    let list_output = cmd
         .args(["-C", root.to_str().unwrap(), "task", "list"])
         .output()
         .unwrap();

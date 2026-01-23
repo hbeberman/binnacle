@@ -6,35 +6,27 @@
 
 #![allow(dead_code)] // McpServerHandle::send_request is for future use
 
+mod common;
+
 use assert_cmd::Command;
+use common::TestEnv;
 use predicates::prelude::*;
 use std::io::Write;
 use std::process::{Child, Stdio};
-use tempfile::TempDir;
 
-/// Get a Command for the bn binary.
-fn bn() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_bn"))
-}
-
-/// Setup a temp directory and initialize binnacle.
-fn setup() -> TempDir {
-    let temp = TempDir::new().unwrap();
-    bn().args(["system", "init"])
-        .current_dir(temp.path())
-        .assert()
-        .success();
-    temp
+/// Setup a TestEnv and initialize binnacle.
+fn setup() -> TestEnv {
+    TestEnv::init()
 }
 
 // === Manifest Tests ===
 
 #[test]
 fn test_mcp_manifest_outputs_json() {
-    let temp = setup();
+    let env = setup();
 
-    bn().args(["mcp", "manifest"])
-        .current_dir(temp.path())
+    env.bn()
+        .args(["mcp", "manifest"])
         .assert()
         .success()
         .stdout(predicate::str::contains("tools"))
@@ -44,10 +36,10 @@ fn test_mcp_manifest_outputs_json() {
 
 #[test]
 fn test_mcp_manifest_contains_task_tools() {
-    let temp = setup();
+    let env = setup();
 
-    bn().args(["mcp", "manifest"])
-        .current_dir(temp.path())
+    env.bn()
+        .args(["mcp", "manifest"])
         .assert()
         .success()
         .stdout(predicate::str::contains("bn_task_create"))
@@ -59,10 +51,10 @@ fn test_mcp_manifest_contains_task_tools() {
 
 #[test]
 fn test_mcp_manifest_contains_link_tools() {
-    let temp = setup();
+    let env = setup();
 
-    bn().args(["mcp", "manifest"])
-        .current_dir(temp.path())
+    env.bn()
+        .args(["mcp", "manifest"])
         .assert()
         .success()
         .stdout(predicate::str::contains("bn_link_add"))
@@ -72,10 +64,10 @@ fn test_mcp_manifest_contains_link_tools() {
 
 #[test]
 fn test_mcp_manifest_contains_test_tools() {
-    let temp = setup();
+    let env = setup();
 
-    bn().args(["mcp", "manifest"])
-        .current_dir(temp.path())
+    env.bn()
+        .args(["mcp", "manifest"])
         .assert()
         .success()
         .stdout(predicate::str::contains("bn_test_create"))
@@ -85,10 +77,10 @@ fn test_mcp_manifest_contains_test_tools() {
 
 #[test]
 fn test_mcp_manifest_contains_query_tools() {
-    let temp = setup();
+    let env = setup();
 
-    bn().args(["mcp", "manifest"])
-        .current_dir(temp.path())
+    env.bn()
+        .args(["mcp", "manifest"])
         .assert()
         .success()
         .stdout(predicate::str::contains("bn_ready"))
@@ -97,10 +89,10 @@ fn test_mcp_manifest_contains_query_tools() {
 
 #[test]
 fn test_mcp_manifest_contains_milestone_tools() {
-    let temp = setup();
+    let env = setup();
 
-    bn().args(["mcp", "manifest"])
-        .current_dir(temp.path())
+    env.bn()
+        .args(["mcp", "manifest"])
         .assert()
         .success()
         .stdout(predicate::str::contains("bn_milestone_create"))
@@ -115,10 +107,10 @@ fn test_mcp_manifest_contains_milestone_tools() {
 
 #[test]
 fn test_mcp_manifest_contains_search_tools() {
-    let temp = setup();
+    let env = setup();
 
-    bn().args(["mcp", "manifest"])
-        .current_dir(temp.path())
+    env.bn()
+        .args(["mcp", "manifest"])
         .assert()
         .success()
         .stdout(predicate::str::contains("bn_search_link"));
@@ -126,10 +118,10 @@ fn test_mcp_manifest_contains_search_tools() {
 
 #[test]
 fn test_mcp_manifest_contains_maintenance_tools() {
-    let temp = setup();
+    let env = setup();
 
-    bn().args(["mcp", "manifest"])
-        .current_dir(temp.path())
+    env.bn()
+        .args(["mcp", "manifest"])
         .assert()
         .success()
         .stdout(predicate::str::contains("bn_doctor"))
@@ -139,10 +131,10 @@ fn test_mcp_manifest_contains_maintenance_tools() {
 
 #[test]
 fn test_mcp_manifest_contains_resources() {
-    let temp = setup();
+    let env = setup();
 
-    bn().args(["mcp", "manifest"])
-        .current_dir(temp.path())
+    env.bn()
+        .args(["mcp", "manifest"])
         .assert()
         .success()
         .stdout(predicate::str::contains("binnacle://tasks"))
@@ -153,10 +145,10 @@ fn test_mcp_manifest_contains_resources() {
 
 #[test]
 fn test_mcp_manifest_contains_prompts() {
-    let temp = setup();
+    let env = setup();
 
-    bn().args(["mcp", "manifest"])
-        .current_dir(temp.path())
+    env.bn()
+        .args(["mcp", "manifest"])
         .assert()
         .success()
         .stdout(predicate::str::contains("start_work"))
@@ -168,13 +160,9 @@ fn test_mcp_manifest_contains_prompts() {
 
 #[test]
 fn test_mcp_manifest_tool_has_schema() {
-    let temp = setup();
+    let env = setup();
 
-    let output = bn()
-        .args(["mcp", "manifest"])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -192,13 +180,9 @@ fn test_mcp_manifest_tool_has_schema() {
 
 #[test]
 fn test_mcp_manifest_resource_has_uri() {
-    let temp = setup();
+    let env = setup();
 
-    let output = bn()
-        .args(["mcp", "manifest"])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -216,13 +200,9 @@ fn test_mcp_manifest_resource_has_uri() {
 
 #[test]
 fn test_mcp_manifest_prompt_has_arguments() {
-    let temp = setup();
+    let env = setup();
 
-    let output = bn()
-        .args(["mcp", "manifest"])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -245,13 +225,9 @@ fn test_mcp_manifest_prompt_has_arguments() {
 
 #[test]
 fn test_mcp_manifest_task_tools_have_short_name() {
-    let temp = setup();
+    let env = setup();
 
-    let output = bn()
-        .args(["mcp", "manifest"])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -297,10 +273,11 @@ struct McpServerHandle {
 }
 
 impl McpServerHandle {
-    fn spawn(temp_dir: &TempDir) -> Self {
+    fn spawn(env: &TestEnv) -> Self {
         let child = std::process::Command::new(env!("CARGO_BIN_EXE_bn"))
             .args(["mcp", "serve"])
-            .current_dir(temp_dir.path())
+            .current_dir(env.repo_path())
+            .env("BN_DATA_DIR", env.data_path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -333,11 +310,11 @@ impl Drop for McpServerHandle {
 
 #[test]
 fn test_mcp_serve_starts() {
-    let temp = setup();
+    let env = setup();
 
     // Just verify the server can start (it will block waiting for input)
     // We use a short timeout to verify it doesn't immediately crash
-    let mut handle = McpServerHandle::spawn(&temp);
+    let mut handle = McpServerHandle::spawn(&env);
 
     // Give it a moment to initialize
     std::thread::sleep(std::time::Duration::from_millis(50));
@@ -358,7 +335,8 @@ fn test_mcp_serve_starts() {
 
 #[test]
 fn test_mcp_help() {
-    bn().args(["mcp", "--help"])
+    Command::new(env!("CARGO_BIN_EXE_bn"))
+        .args(["mcp", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("serve"))
@@ -369,13 +347,9 @@ fn test_mcp_help() {
 
 #[test]
 fn test_task_create_schema_has_required_title() {
-    let temp = setup();
+    let env = setup();
 
-    let output = bn()
-        .args(["mcp", "manifest"])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -395,13 +369,9 @@ fn test_task_create_schema_has_required_title() {
 
 #[test]
 fn test_link_add_schema_requires_source_and_target() {
-    let temp = setup();
+    let env = setup();
 
-    let output = bn()
-        .args(["mcp", "manifest"])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -416,13 +386,9 @@ fn test_link_add_schema_requires_source_and_target() {
 
 #[test]
 fn test_status_tool_no_required_args() {
-    let temp = setup();
+    let env = setup();
 
-    let output = bn()
-        .args(["mcp", "manifest"])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();

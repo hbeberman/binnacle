@@ -57,6 +57,7 @@ Use `bn --help` or `bn <command> --help` for full details.
 Binnacle includes an optional web-based GUI for visualizing tasks, dependencies, tests, and activity logs. The GUI provides a real-time, interactive view of your project state with a modern dark blue interface.
 
 **Features:**
+
 - **Interactive task graph** - Spring-physics based visualization of task dependencies
 - **Ready tasks view** - Quick access to tasks ready to work on
 - **Test dashboard** - Monitor test status and history
@@ -64,6 +65,7 @@ Binnacle includes an optional web-based GUI for visualizing tasks, dependencies,
 - **Live updates** - WebSocket-based real-time synchronization
 
 **Building with GUI:**
+
 ```bash
 # Build with GUI feature
 cargo build --release --features gui
@@ -76,6 +78,7 @@ cargo install --path . --features gui
 ```
 
 **Running the GUI:**
+
 ```bash
 # Start on default port (3030)
 bn gui
@@ -106,6 +109,7 @@ bn config list
 ### Action Logging
 
 All binnacle commands are automatically logged to a JSONL file with:
+
 - Timestamp
 - Command name and arguments
 - Success/failure status
@@ -113,21 +117,28 @@ All binnacle commands are automatically logged to a JSONL file with:
 - Current user
 
 **Config keys:**
+
 - `action_log_enabled` - Enable/disable logging (default: `true`)
 - `action_log_path` - Log file path (default: `~/.local/share/binnacle/action.log`)
 - `action_log_sanitize` - Sanitize sensitive data and paths (default: `true`)
 
 Sanitization automatically:
+
 - Converts file paths to basenames
 - Redacts passwords, tokens, and secrets
 - Truncates long strings
 - Summarizes large arrays
+
+### Environment Variables
+
+- `BN_DATA_DIR` - Override the base directory for binnacle data storage. By default, data is stored in `~/.local/share/binnacle/`. When set, binnacle stores data in `$BN_DATA_DIR/<repo-hash>/` instead. Useful for testing or isolating data between environments.
 
 ## Status
 
 Core functionality is complete (Phases 0-7). The project tracks its own development with binnacle.
 
 What works:
+
 - Task CRUD with priorities, tags, assignees
 - Dependency graph with cycle detection
 - Test nodes with regression detection
@@ -138,6 +149,7 @@ What works:
 - CI/CD via GitHub Actions
 
 In progress:
+
 - Alternative storage backends (orphan branch done, git notes planned)
 - Sync for shared mode
 

@@ -6,33 +6,33 @@
 //! - `bn system store export` - Export store to archive
 //! - `bn system store import` - Import store from archive
 
+mod common;
+
 use assert_cmd::Command;
+use common::TestEnv;
 use predicates::prelude::*;
 use serde_json::Value;
 use std::fs;
-use tempfile::TempDir;
 
-/// Get a Command for the bn binary, running in a temp directory.
-fn bn_in(dir: &TempDir) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
-    cmd.current_dir(dir.path());
-    cmd
+/// Get a Command for the bn binary in a TestEnv.
+fn bn_in(env: &TestEnv) -> Command {
+    env.bn()
 }
 
-/// Initialize binnacle in a temp directory and return the temp dir.
-fn init_binnacle() -> TempDir {
-    let temp = TempDir::new().unwrap();
-    bn_in(&temp)
+/// Initialize binnacle in a temp directory and return the TestEnv.
+fn init_binnacle() -> TestEnv {
+    let env = TestEnv::new();
+    env.bn()
         .args(["system", "init"])
         .write_stdin("n\nn\nn\n")
         .assert()
         .success();
-    temp
+    env
 }
 
 /// Create a task and return its ID.
-fn create_task(dir: &TempDir, title: &str) -> String {
-    let output = bn_in(dir)
+fn create_task(env: &TestEnv, title: &str) -> String {
+    let output = bn_in(env)
         .args(["task", "create", title])
         .output()
         .expect("Failed to run bn task create");
@@ -73,7 +73,7 @@ fn parse_json_from_mixed_output(output: &[u8]) -> Value {
 
 #[test]
 fn test_system_init_new_repo() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     // Provide "n\n" responses to all interactive prompts
     let output = bn_in(&temp)
@@ -87,7 +87,14 @@ fn test_system_init_new_repo() {
 
     let json = parse_json_from_mixed_output(&output);
     assert_eq!(json["initialized"], true);
-    assert!(json["storage_path"].as_str().unwrap().contains("binnacle"));
+    // Storage path should be in the test data directory (via BN_DATA_DIR)
+    let storage_path = json["storage_path"].as_str().unwrap();
+    assert!(
+        storage_path.starts_with(temp.data_path().to_str().unwrap()),
+        "storage_path '{}' should be under data_path '{}'",
+        storage_path,
+        temp.data_path().display()
+    );
 }
 
 #[test]
@@ -111,7 +118,7 @@ fn test_system_init_existing_repo() {
 
 #[test]
 fn test_system_init_human_format() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .args(["-H", "system", "init"])
@@ -138,7 +145,14 @@ fn test_store_show_empty_repo() {
         .clone();
 
     let json = parse_json(&output);
-    assert!(json["storage_path"].as_str().unwrap().contains("binnacle"));
+    // Storage path should be in the test data directory (via BN_DATA_DIR)
+    let storage_path = json["storage_path"].as_str().unwrap();
+    assert!(
+        storage_path.starts_with(temp.data_path().to_str().unwrap()),
+        "storage_path '{}' should be under data_path '{}'",
+        storage_path,
+        temp.data_path().display()
+    );
     assert!(json["repo_path"].is_string());
     assert_eq!(json["tasks"]["total"], 0);
     assert_eq!(json["tests"]["total"], 0);
@@ -210,7 +224,7 @@ fn test_store_show_files_section() {
 
 #[test]
 fn test_store_show_not_initialized() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .args(["system", "store", "show"])
@@ -295,7 +309,7 @@ fn test_store_export_human_format() {
 
 #[test]
 fn test_store_export_not_initialized() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
     let export_path = temp.path().join("backup.tar.gz");
 
     bn_in(&temp)
@@ -342,7 +356,7 @@ fn test_store_import_replace_mode_clean() {
         .success();
 
     // Import to fresh repo
-    let temp2 = TempDir::new().unwrap();
+    let temp2 = TestEnv::new();
     let output = bn_in(&temp2)
         .args(["system", "store", "import", export_path.to_str().unwrap()])
         .assert()
@@ -404,7 +418,7 @@ fn test_store_import_stdin() {
         .clone();
 
     // Import from stdin
-    let temp2 = TempDir::new().unwrap();
+    let temp2 = TestEnv::new();
     let mut cmd = bn_in(&temp2);
     cmd.args(["system", "store", "import", "-"])
         .write_stdin(export_output);
@@ -484,7 +498,7 @@ fn test_store_import_merge_with_collisions() {
         .success();
 
     // Create second repo and import once (creates task with same ID)
-    let temp2 = TempDir::new().unwrap();
+    let temp2 = TestEnv::new();
     bn_in(&temp2)
         .args(["system", "store", "import", export_path.to_str().unwrap()])
         .assert()
@@ -532,7 +546,7 @@ fn test_store_import_dry_run() {
         .success();
 
     // Dry run import
-    let temp2 = TempDir::new().unwrap();
+    let temp2 = TestEnv::new();
     let output = bn_in(&temp2)
         .args([
             "system",
@@ -577,7 +591,7 @@ fn test_store_import_dry_run_shows_collisions() {
         .success();
 
     // Import to second repo
-    let temp2 = TempDir::new().unwrap();
+    let temp2 = TestEnv::new();
     bn_in(&temp2)
         .args(["system", "store", "import", export_path.to_str().unwrap()])
         .assert()
@@ -632,7 +646,7 @@ fn test_store_import_human_format() {
         .assert()
         .success();
 
-    let temp2 = TempDir::new().unwrap();
+    let temp2 = TestEnv::new();
     bn_in(&temp2)
         .args([
             "-H",
@@ -649,7 +663,7 @@ fn test_store_import_human_format() {
 
 #[test]
 fn test_store_import_invalid_archive() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
     let bad_file = temp.path().join("bad.tar.gz");
     fs::write(&bad_file, b"not a real archive").unwrap();
 
@@ -697,7 +711,7 @@ fn test_export_import_roundtrip() {
         .success();
 
     // Import to new repo
-    let temp2 = TempDir::new().unwrap();
+    let temp2 = TestEnv::new();
     bn_in(&temp2)
         .args(["system", "store", "import", export_path.to_str().unwrap()])
         .assert()
@@ -756,7 +770,7 @@ fn test_export_import_via_stdout_stdin_piping() {
         .clone();
 
     // Import from stdin to new repo
-    let temp2 = TempDir::new().unwrap();
+    let temp2 = TestEnv::new();
     let mut cmd = bn_in(&temp2);
     cmd.args(["system", "store", "import", "-"])
         .write_stdin(archive_data);
@@ -780,8 +794,8 @@ fn test_export_import_via_stdout_stdin_piping() {
 // ============================================================================
 
 /// Helper to create a folder with binnacle data files for import testing.
-fn create_import_folder(dir: &TempDir) -> std::path::PathBuf {
-    let folder = dir.path().join("import_source");
+fn create_import_folder(env: &TestEnv) -> std::path::PathBuf {
+    let folder = env.path().join("import_source");
     fs::create_dir_all(&folder).unwrap();
     folder
 }
@@ -821,12 +835,12 @@ fn write_commits_jsonl(folder: &std::path::Path, commits: &[&str]) {
 #[test]
 fn test_folder_import_replace_mode_clean() {
     // Create a folder with tasks.jsonl
-    let source_temp = TempDir::new().unwrap();
+    let source_temp = TestEnv::new();
     let import_folder = create_import_folder(&source_temp);
     write_tasks_jsonl(&import_folder, &[("bn-test1", "Folder Import Task")]);
 
     // Import to fresh repo (replace mode - default)
-    let dest_temp = TempDir::new().unwrap();
+    let dest_temp = TestEnv::new();
     let output = bn_in(&dest_temp)
         .args(["system", "store", "import", import_folder.to_str().unwrap()])
         .assert()
@@ -857,7 +871,7 @@ fn test_folder_import_replace_mode_clean() {
 #[test]
 fn test_folder_import_replace_mode_already_initialized() {
     // Create source folder
-    let source_temp = TempDir::new().unwrap();
+    let source_temp = TestEnv::new();
     let import_folder = create_import_folder(&source_temp);
     write_tasks_jsonl(&import_folder, &[("bn-test1", "Folder Task")]);
 
@@ -874,7 +888,7 @@ fn test_folder_import_replace_mode_already_initialized() {
 #[test]
 fn test_folder_import_merge_no_collisions() {
     // Create source folder with task
-    let source_temp = TempDir::new().unwrap();
+    let source_temp = TestEnv::new();
     let import_folder = create_import_folder(&source_temp);
     write_tasks_jsonl(&import_folder, &[("bn-import1", "Imported Task")]);
 
@@ -921,7 +935,7 @@ fn test_folder_import_merge_no_collisions() {
 #[test]
 fn test_folder_import_merge_with_id_collision() {
     // Create source folder with specific task ID
-    let source_temp = TempDir::new().unwrap();
+    let source_temp = TestEnv::new();
     let import_folder = create_import_folder(&source_temp);
     write_tasks_jsonl(
         &import_folder,
@@ -932,7 +946,7 @@ fn test_folder_import_merge_with_id_collision() {
     let dest_temp = init_binnacle();
 
     // First do a clean import of same folder to create the task ID
-    let temp_import = TempDir::new().unwrap();
+    let temp_import = TestEnv::new();
     let temp_folder = create_import_folder(&temp_import);
     write_tasks_jsonl(&temp_folder, &[("bn-collision", "First Version")]);
     bn_in(&dest_temp)
@@ -986,12 +1000,12 @@ fn test_folder_import_merge_with_id_collision() {
 #[test]
 fn test_folder_import_dry_run() {
     // Create source folder
-    let source_temp = TempDir::new().unwrap();
+    let source_temp = TestEnv::new();
     let import_folder = create_import_folder(&source_temp);
     write_tasks_jsonl(&import_folder, &[("bn-dry1", "Dry Run Task")]);
 
     // Dry run import
-    let dest_temp = TempDir::new().unwrap();
+    let dest_temp = TestEnv::new();
     let output = bn_in(&dest_temp)
         .args([
             "system",
@@ -1025,7 +1039,7 @@ fn test_folder_import_dry_run() {
 #[test]
 fn test_folder_import_missing_tasks_jsonl() {
     // Create folder WITHOUT tasks.jsonl
-    let source_temp = TempDir::new().unwrap();
+    let source_temp = TestEnv::new();
     let import_folder = source_temp.path().join("empty_folder");
     fs::create_dir_all(&import_folder).unwrap();
 
@@ -1033,7 +1047,7 @@ fn test_folder_import_missing_tasks_jsonl() {
     write_commits_jsonl(&import_folder, &["abc123"]);
 
     // Import should fail
-    let dest_temp = TempDir::new().unwrap();
+    let dest_temp = TestEnv::new();
     bn_in(&dest_temp)
         .args(["system", "store", "import", import_folder.to_str().unwrap()])
         .assert()
@@ -1044,7 +1058,7 @@ fn test_folder_import_missing_tasks_jsonl() {
 #[test]
 fn test_folder_import_with_optional_files() {
     // Create folder with all optional files
-    let source_temp = TempDir::new().unwrap();
+    let source_temp = TestEnv::new();
     let import_folder = create_import_folder(&source_temp);
     write_tasks_jsonl(&import_folder, &[("bn-full1", "Full Import Task")]);
     write_commits_jsonl(&import_folder, &["commit123", "commit456"]);
@@ -1058,7 +1072,7 @@ fn test_folder_import_with_optional_files() {
     .unwrap();
 
     // Import
-    let dest_temp = TempDir::new().unwrap();
+    let dest_temp = TestEnv::new();
     let output = bn_in(&dest_temp)
         .args(["system", "store", "import", import_folder.to_str().unwrap()])
         .assert()
@@ -1077,12 +1091,12 @@ fn test_folder_import_with_optional_files() {
 #[test]
 fn test_folder_import_empty_tasks_jsonl() {
     // Create folder with empty tasks.jsonl (valid but no tasks)
-    let source_temp = TempDir::new().unwrap();
+    let source_temp = TestEnv::new();
     let import_folder = create_import_folder(&source_temp);
     fs::write(import_folder.join("tasks.jsonl"), "").unwrap();
 
     // Import should succeed with 0 tasks
-    let dest_temp = TempDir::new().unwrap();
+    let dest_temp = TestEnv::new();
     let output = bn_in(&dest_temp)
         .args(["system", "store", "import", import_folder.to_str().unwrap()])
         .assert()
@@ -1098,11 +1112,11 @@ fn test_folder_import_empty_tasks_jsonl() {
 
 #[test]
 fn test_folder_import_human_format() {
-    let source_temp = TempDir::new().unwrap();
+    let source_temp = TestEnv::new();
     let import_folder = create_import_folder(&source_temp);
     write_tasks_jsonl(&import_folder, &[("bn-human1", "Human Format Task")]);
 
-    let dest_temp = TempDir::new().unwrap();
+    let dest_temp = TestEnv::new();
     bn_in(&dest_temp)
         .args([
             "-H",
@@ -1143,7 +1157,7 @@ fn test_folder_import_roundtrip_via_store_path() {
     let storage_path = show_json["storage_path"].as_str().unwrap();
 
     // Import from the storage folder directly (simulating legacy import)
-    let temp2 = TempDir::new().unwrap();
+    let temp2 = TestEnv::new();
     let output = bn_in(&temp2)
         .args(["system", "store", "import", storage_path])
         .assert()
