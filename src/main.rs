@@ -461,12 +461,12 @@ fn run_command(
                 let result = commands::queue_delete(repo_path)?;
                 output(&result, human);
             }
-            QueueCommands::Add { task_id } => {
-                let result = commands::queue_add(repo_path, &task_id)?;
+            QueueCommands::Add { item_id } => {
+                let result = commands::queue_add(repo_path, &item_id)?;
                 output(&result, human);
             }
-            QueueCommands::Rm { task_id } => {
-                let result = commands::queue_rm(repo_path, &task_id)?;
+            QueueCommands::Rm { item_id } => {
+                let result = commands::queue_rm(repo_path, &item_id)?;
                 output(&result, human);
             }
         },
@@ -1491,13 +1491,13 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             ),
             QueueCommands::Show => ("queue show".to_string(), serde_json::json!({})),
             QueueCommands::Delete => ("queue delete".to_string(), serde_json::json!({})),
-            QueueCommands::Add { task_id } => (
+            QueueCommands::Add { item_id } => (
                 "queue add".to_string(),
-                serde_json::json!({ "task_id": task_id }),
+                serde_json::json!({ "item_id": item_id }),
             ),
-            QueueCommands::Rm { task_id } => (
+            QueueCommands::Rm { item_id } => (
                 "queue rm".to_string(),
-                serde_json::json!({ "task_id": task_id }),
+                serde_json::json!({ "item_id": item_id }),
             ),
         },
 

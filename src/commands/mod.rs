@@ -3944,6 +3944,7 @@ pub fn queue_create(
 pub struct QueueShowResult {
     pub queue: Queue,
     pub tasks: Vec<Task>,
+    pub bugs: Vec<Bug>,
 }
 
 impl Output for QueueShowResult {
@@ -3963,14 +3964,21 @@ impl Output for QueueShowResult {
         }
         lines.push(String::new());
 
-        if self.tasks.is_empty() {
-            lines.push("  No tasks in queue".to_string());
+        let total_items = self.tasks.len() + self.bugs.len();
+        if total_items == 0 {
+            lines.push("  No items in queue".to_string());
         } else {
-            lines.push(format!("  Queued tasks ({}):", self.tasks.len()));
+            lines.push(format!("  Queued items ({}):", total_items));
             for task in &self.tasks {
                 lines.push(format!(
                     "    [P{}] {}: {}",
                     task.priority, task.id, task.title
+                ));
+            }
+            for bug in &self.bugs {
+                lines.push(format!(
+                    "    [P{}] {}: {} (bug)",
+                    bug.priority, bug.id, bug.title
                 ));
             }
         }
@@ -3979,14 +3987,15 @@ impl Output for QueueShowResult {
     }
 }
 
-/// Show the queue and its tasks.
+/// Show the queue and its items (tasks and bugs).
 pub fn queue_show(repo_path: &Path) -> Result<QueueShowResult> {
     let storage = Storage::open(repo_path)?;
 
     let queue = storage.get_queue()?;
     let tasks = storage.get_queued_tasks()?;
+    let bugs = storage.get_queued_bugs()?;
 
-    Ok(QueueShowResult { queue, tasks })
+    Ok(QueueShowResult { queue, tasks, bugs })
 }
 
 #[derive(Serialize)]
@@ -4017,75 +4026,79 @@ pub fn queue_delete(repo_path: &Path) -> Result<QueueDeleted> {
 }
 
 #[derive(Serialize)]
-pub struct QueueTaskAdded {
+pub struct QueueItemAdded {
     pub queue_id: String,
-    pub task_id: String,
+    pub item_id: String,
 }
 
-impl Output for QueueTaskAdded {
+impl Output for QueueItemAdded {
     fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }
 
     fn to_human(&self) -> String {
-        format!("Added {} to queue {}", self.task_id, self.queue_id)
+        format!("Added {} to queue {}", self.item_id, self.queue_id)
     }
 }
 
-/// Add a task to the queue.
-pub fn queue_add(repo_path: &Path, task_id: &str) -> Result<QueueTaskAdded> {
+/// Add a task or bug to the queue.
+pub fn queue_add(repo_path: &Path, item_id: &str) -> Result<QueueItemAdded> {
     let mut storage = Storage::open(repo_path)?;
 
-    // Verify task exists
-    storage.get_task(task_id)?;
+    // Verify item exists (must be a task or bug)
+    let is_task = storage.get_task(item_id).is_ok();
+    let is_bug = storage.get_bug(item_id).is_ok();
+    if !is_task && !is_bug {
+        return Err(Error::Other(format!(
+            "Item {} is not a task or bug",
+            item_id
+        )));
+    }
 
     // Get queue
     let queue = storage.get_queue()?;
     let queue_id = queue.id.clone();
 
     // Check if already queued
-    let edges = storage.list_edges(Some(EdgeType::Queued), Some(task_id), Some(&queue_id))?;
+    let edges = storage.list_edges(Some(EdgeType::Queued), Some(item_id), Some(&queue_id))?;
     if !edges.is_empty() {
-        return Err(Error::Other(format!(
-            "Task {} is already in the queue",
-            task_id
-        )));
+        return Err(Error::Other(format!("{} is already in the queue", item_id)));
     }
 
     // Create queued edge
-    let edge_id = generate_id("bne", &format!("{}-{}", task_id, queue_id));
+    let edge_id = generate_id("bne", &format!("{}-{}", item_id, queue_id));
     let edge = Edge::new(
         edge_id,
-        task_id.to_string(),
+        item_id.to_string(),
         queue_id.clone(),
         EdgeType::Queued,
     );
     storage.add_edge(&edge)?;
 
-    Ok(QueueTaskAdded {
+    Ok(QueueItemAdded {
         queue_id,
-        task_id: task_id.to_string(),
+        item_id: item_id.to_string(),
     })
 }
 
 #[derive(Serialize)]
-pub struct QueueTaskRemoved {
+pub struct QueueItemRemoved {
     pub queue_id: String,
-    pub task_id: String,
+    pub item_id: String,
 }
 
-impl Output for QueueTaskRemoved {
+impl Output for QueueItemRemoved {
     fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }
 
     fn to_human(&self) -> String {
-        format!("Removed {} from queue {}", self.task_id, self.queue_id)
+        format!("Removed {} from queue {}", self.item_id, self.queue_id)
     }
 }
 
-/// Remove a task from the queue.
-pub fn queue_rm(repo_path: &Path, task_id: &str) -> Result<QueueTaskRemoved> {
+/// Remove a task or bug from the queue.
+pub fn queue_rm(repo_path: &Path, item_id: &str) -> Result<QueueItemRemoved> {
     let mut storage = Storage::open(repo_path)?;
 
     // Get queue
@@ -4093,20 +4106,17 @@ pub fn queue_rm(repo_path: &Path, task_id: &str) -> Result<QueueTaskRemoved> {
     let queue_id = queue.id.clone();
 
     // Find and remove the queued edge
-    let edges = storage.list_edges(Some(EdgeType::Queued), Some(task_id), Some(&queue_id))?;
+    let edges = storage.list_edges(Some(EdgeType::Queued), Some(item_id), Some(&queue_id))?;
     if edges.is_empty() {
-        return Err(Error::Other(format!(
-            "Task {} is not in the queue",
-            task_id
-        )));
+        return Err(Error::Other(format!("{} is not in the queue", item_id)));
     }
 
     // Remove edge using source, target, edge_type
-    storage.remove_edge(task_id, &queue_id, EdgeType::Queued)?;
+    storage.remove_edge(item_id, &queue_id, EdgeType::Queued)?;
 
-    Ok(QueueTaskRemoved {
+    Ok(QueueItemRemoved {
         queue_id,
-        task_id: task_id.to_string(),
+        item_id: item_id.to_string(),
     })
 }
 

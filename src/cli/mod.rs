@@ -692,16 +692,16 @@ pub enum QueueCommands {
     /// Delete the queue
     Delete,
 
-    /// Add a task to the queue
+    /// Add a task or bug to the queue
     Add {
-        /// Task ID to add to queue
-        task_id: String,
+        /// Task or bug ID to add to queue (e.g., bn-xxxx)
+        item_id: String,
     },
 
-    /// Remove a task from the queue
+    /// Remove a task or bug from the queue
     Rm {
-        /// Task ID to remove from queue
-        task_id: String,
+        /// Task or bug ID to remove from queue (e.g., bn-xxxx)
+        item_id: String,
     },
 }
 
