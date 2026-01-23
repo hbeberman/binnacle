@@ -37,6 +37,26 @@ Before committing ANY code changes:
 
 ## Build and Test
 
+### IMPORTANT: System bn vs Development Build
+
+This project has TWO different `bn` binaries you need to distinguish:
+
+1. **System bn** (`~/.local/bin/bn`) - The installed version used to track tasks
+   - Use plain `bn` commands for task management: `bn orient`, `bn task list`, etc.
+   - This is what you use to manage YOUR work on this project
+
+2. **Development build** (`./target/debug/bn` or `./target/release/bn`) - What you're building/testing
+   - Use `cargo run --` to test the code you're developing
+   - Use `just test` or `cargo test` to run the test suite
+   - Use `just install` to install your changes to the system bn
+
+**Quick reference:**
+- Task tracking: `bn orient`, `bn task list`, `bn ready` (uses system bn)
+- Testing code changes: `cargo run -- --help`, `cargo test` (uses dev build)
+- Install your changes: `just install` (copies dev build → system bn)
+
+### GUI Testing
+
 1. When testing gui use "just gui" to launch it
 
 ## GUI Testing Best Practices

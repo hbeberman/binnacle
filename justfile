@@ -56,3 +56,8 @@ check:
 # Run all tests
 test:
     cargo test --all-features
+
+# Run the development build (explicitly uses ./target, not system bn)
+# Usage: just dev orient, just dev task list, just dev --help
+dev *args:
+    cargo run -- {{args}}
