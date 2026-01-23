@@ -423,10 +423,39 @@
             padding: 1rem;
             border-left: 3px solid var(--accent-blue);
         }
+        
+        .log-entry.log-error {
+            border-left-color: var(--status-bug);
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
 
         .log-time {
             font-size: 0.85rem;
             color: var(--text-secondary);
+        }
+        
+        .log-user {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        .log-details {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+            font-style: italic;
+        }
+        
+        .log-error-msg {
+            font-size: 0.85rem;
+            color: var(--status-bug);
+            margin-top: 0.5rem;
         }
 
         /* Modal Styles */
@@ -568,14 +597,24 @@
             border-radius: 6px;
             padding: 0.75rem 1rem;
             display: flex;
-            gap: 1rem;
+            gap: 0.75rem;
             align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .activity-entry.activity-error {
+            border-color: var(--status-bug);
         }
 
         .activity-entry .activity-time {
             font-size: 0.8rem;
             color: var(--text-secondary);
             white-space: nowrap;
+        }
+        
+        .activity-entry .activity-status {
+            font-size: 0.8rem;
+            opacity: 0.7;
         }
 
         .activity-entry .activity-agent {
@@ -585,9 +624,16 @@
         }
 
         .activity-entry .activity-action {
-            flex: 1;
             font-size: 0.9rem;
             color: var(--text-primary);
+        }
+        
+        .activity-entry .activity-details {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-style: italic;
+            flex-basis: 100%;
+            padding-left: 3.5rem;
         }
 
         .connection-status {
@@ -4019,13 +4065,16 @@
             const agentNames = new Set(state.agents.map(a => a.name));
             const agentActivity = (state.log || [])
                 .filter(entry => {
-                    // Filter for agent-related entries
-                    const action = entry.action || entry.message || '';
-                    return action.includes('agent') || 
-                           action.includes('hello') || 
-                           action.includes('goodbye') ||
-                           action.includes('task update') ||
-                           action.includes('task close');
+                    // Filter for agent-related entries based on command field
+                    const command = entry.command || entry.action || entry.message || '';
+                    return command.includes('agent') || 
+                           command === 'hello' || 
+                           command === 'goodbye' ||
+                           command === 'orient' ||
+                           command === 'task update' ||
+                           command === 'task close' ||
+                           command === 'bug update' ||
+                           command === 'bug close';
                 })
                 .slice(0, 20);
             
@@ -4034,11 +4083,14 @@
             } else {
                 activityLog.innerHTML = agentActivity.map(entry => {
                     const time = new Date(entry.timestamp).toLocaleTimeString();
-                    const action = entry.action || entry.message || 'Unknown action';
+                    const formatted = formatLogEntry(entry);
+                    const statusIcon = entry.success === false ? '❌' : '✓';
                     return `
-                        <div class="activity-entry">
+                        <div class="activity-entry ${entry.success === false ? 'activity-error' : ''}">
                             <span class="activity-time">${time}</span>
-                            <span class="activity-action">${escapeHtml(action)}</span>
+                            <span class="activity-status">${statusIcon}</span>
+                            <span class="activity-action">${escapeHtml(formatted.action)}</span>
+                            ${formatted.details ? `<span class="activity-details">${escapeHtml(formatted.details)}</span>` : ''}
                         </div>
                     `;
                 }).join('');
@@ -4091,12 +4143,121 @@
                 list.innerHTML = '<div class="empty-state">No activity yet</div>';
                 return;
             }
-            list.innerHTML = state.log.slice(0, 50).map(entry => `
-                <div class="card log-entry">
-                    <div class="log-time">${new Date(entry.timestamp).toLocaleString()}</div>
-                    <div class="card-title">${escapeHtml(entry.action || entry.message)}</div>
-                </div>
-            `).join('');
+            list.innerHTML = state.log.slice(0, 50).map(entry => {
+                const formatted = formatLogEntry(entry);
+                const statusClass = entry.success === false ? 'log-error' : '';
+                return `
+                    <div class="card log-entry ${statusClass}">
+                        <div class="log-header">
+                            <div class="log-time">${new Date(entry.timestamp).toLocaleString()}</div>
+                            ${entry.user ? `<div class="log-user">👤 ${escapeHtml(entry.user)}</div>` : ''}
+                        </div>
+                        <div class="card-title">${escapeHtml(formatted.action)}</div>
+                        ${formatted.details ? `<div class="log-details">${escapeHtml(formatted.details)}</div>` : ''}
+                        ${entry.success === false && entry.error ? `<div class="log-error-msg">❌ ${escapeHtml(entry.error)}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Format a log entry into a human-readable action and details
+        function formatLogEntry(entry) {
+            const command = entry.command || entry.action || entry.message || 'unknown';
+            const args = entry.args || {};
+            
+            // Build a human-readable action description
+            let action = command;
+            let details = '';
+            
+            switch (command) {
+                case 'task create':
+                    action = `Created task`;
+                    details = args.title || '';
+                    break;
+                case 'task update':
+                    action = `Updated task ${args.id || ''}`;
+                    const updates = [];
+                    if (args.status) updates.push(`status → ${args.status}`);
+                    if (args.priority !== null && args.priority !== undefined) updates.push(`priority → ${args.priority}`);
+                    if (args.title) updates.push(`title changed`);
+                    details = updates.join(', ');
+                    break;
+                case 'task close':
+                    action = `Closed task ${args.id || ''}`;
+                    details = args.reason || '';
+                    break;
+                case 'task delete':
+                    action = `Deleted task ${args.id || ''}`;
+                    break;
+                case 'bug create':
+                    action = `Created bug`;
+                    details = args.title || '';
+                    break;
+                case 'bug update':
+                    action = `Updated bug ${args.id || ''}`;
+                    const bugUpdates = [];
+                    if (args.status) bugUpdates.push(`status → ${args.status}`);
+                    if (args.severity) bugUpdates.push(`severity → ${args.severity}`);
+                    details = bugUpdates.join(', ');
+                    break;
+                case 'bug close':
+                    action = `Closed bug ${args.id || ''}`;
+                    details = args.reason || '';
+                    break;
+                case 'idea create':
+                    action = `Created idea`;
+                    details = args.title || '';
+                    break;
+                case 'link add':
+                    action = `Linked ${args.source || ''} → ${args.target || ''}`;
+                    details = args.edge_type ? `(${args.edge_type})` : '';
+                    break;
+                case 'link rm':
+                    action = `Unlinked ${args.source || ''} from ${args.target || ''}`;
+                    break;
+                case 'orient':
+                    action = `Agent oriented`;
+                    break;
+                case 'ready':
+                    action = `Checked ready tasks`;
+                    break;
+                case 'hello':
+                    action = `Agent started`;
+                    details = args.purpose || '';
+                    break;
+                case 'goodbye':
+                    action = `Agent finished`;
+                    details = args.reason || args.summary || '';
+                    break;
+                case 'test run':
+                    action = `Ran tests`;
+                    details = args.id || (args.all ? 'all tests' : '');
+                    break;
+                default:
+                    // For other commands, just show command with first meaningful arg
+                    if (args.id) {
+                        action = `${command} ${args.id}`;
+                    }
+                    break;
+            }
+            
+            // Look up entity titles if we have an ID reference
+            const entityId = args.id || args.task_id;
+            if (entityId && !details) {
+                const entity = findEntityById(entityId);
+                if (entity && entity.title) {
+                    details = entity.title;
+                }
+            }
+            
+            return { action, details };
+        }
+        
+        // Find an entity (task, bug, idea) by ID
+        function findEntityById(id) {
+            if (!id) return null;
+            const allEntities = [...(state.tasks || []), ...(state.bugs || []), ...(state.ideas || [])];
+            return allEntities.find(e => e.id === id);
         }
 
         function renderEmptyState(ctx, message) {
