@@ -3191,7 +3191,7 @@ pub fn idea_create(
 ) -> Result<IdeaCreated> {
     let mut storage = Storage::open(repo_path)?;
 
-    let id = generate_id("bni", &title);
+    let id = generate_id("bn", &title);
     let mut idea = Idea::new(id.clone(), title.clone());
     idea.description = description;
     idea.tags = tags;

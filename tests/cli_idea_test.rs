@@ -31,7 +31,7 @@ fn test_idea_create_json() {
         .args(["idea", "create", "Use SQLite FTS for search"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\":\"bni-"))
+        .stdout(predicate::str::contains("\"id\":\"bn-"))
         .stdout(predicate::str::contains(
             "\"title\":\"Use SQLite FTS for search\"",
         ));
@@ -45,7 +45,7 @@ fn test_idea_create_human() {
         .args(["idea", "create", "Test idea", "-H"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Created idea bni-"))
+        .stdout(predicate::str::contains("Created idea bn-"))
         .stdout(predicate::str::contains("\"Test idea\""));
 }
 
@@ -65,7 +65,7 @@ fn test_idea_create_with_tags() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\":\"bni-"));
+        .stdout(predicate::str::contains("\"id\":\"bn-"));
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn test_idea_create_with_description() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\":\"bni-"));
+        .stdout(predicate::str::contains("\"id\":\"bn-"));
 }
 
 // === Idea List Tests ===

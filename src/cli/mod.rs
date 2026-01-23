@@ -505,7 +505,7 @@ pub enum IdeaCommands {
 
     /// Show idea details
     Show {
-        /// Idea ID (e.g., bni-a1b2)
+        /// Idea ID (e.g., bn-a1b2)
         id: String,
     },
 
