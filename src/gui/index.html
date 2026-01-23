@@ -215,7 +215,7 @@
             border: 1px solid var(--border-color);
         }
 
-        .task-list, .test-list, .log-list {
+        .task-list, .test-list, .log-list, .agents-list {
             display: grid;
             gap: 1rem;
             grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
@@ -266,10 +266,75 @@
         .badge-status-blocked { background: var(--danger); color: white; }
         .badge-status-done { background: var(--success); color: white; }
 
+        /* Agent status badges */
+        .badge-agent-Active { 
+            background: var(--success); 
+            color: white;
+            animation: agent-pulse 2s ease-in-out infinite;
+        }
+        .badge-agent-Idle { background: var(--warning); color: white; }
+        .badge-agent-Stale { 
+            background: var(--danger); 
+            color: white;
+            opacity: 0.7;
+        }
+
+        @keyframes agent-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(92, 184, 92, 0.5); }
+            50% { box-shadow: 0 0 8px 4px rgba(92, 184, 92, 0.3); }
+        }
+
         .badge-tag {
             background: var(--bg-tertiary);
             color: var(--text-secondary);
             border: 1px solid var(--border-color);
+        }
+
+        /* Agent card styles */
+        .agent-card {
+            position: relative;
+        }
+
+        .agent-card .agent-pid {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .agent-card .agent-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--accent-light);
+        }
+
+        .agent-card .agent-tasks {
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .agent-card .agent-tasks .task-id {
+            font-family: monospace;
+            color: var(--accent-blue);
+            cursor: pointer;
+        }
+
+        .agent-card .agent-tasks .task-id:hover {
+            text-decoration: underline;
+        }
+
+        .agent-card .agent-stats {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.75rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .agent-card .agent-stats span {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
         }
 
         .log-entry {
@@ -280,6 +345,167 @@
         .log-time {
             font-size: 0.85rem;
             color: var(--text-secondary);
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content h3 {
+            margin: 0 0 1rem 0;
+            color: var(--danger);
+        }
+
+        .modal-body {
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-body p {
+            margin: 0 0 1rem 0;
+            color: var(--text-secondary);
+        }
+
+        .modal-agent-info {
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            padding: 1rem;
+        }
+
+        .modal-agent-info .agent-name {
+            font-weight: 600;
+            color: var(--accent-light);
+        }
+
+        .modal-agent-info .agent-detail {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+        }
+
+        .modal-btn {
+            padding: 0.5rem 1.5rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
+        }
+
+        .modal-btn-cancel {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .modal-btn-cancel:hover {
+            background: var(--bg-primary);
+        }
+
+        .modal-btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .modal-btn-danger:hover {
+            background: #c9302c;
+        }
+
+        /* Terminate button in agent card */
+        .agent-card .terminate-btn {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            background: transparent;
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            opacity: 0.7;
+        }
+
+        .agent-card .terminate-btn:hover {
+            background: var(--danger);
+            color: white;
+            opacity: 1;
+        }
+
+        /* Agent Activity Section */
+        .agents-activity-section {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .agents-activity-section h3 {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .agents-activity-log {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .activity-entry {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .activity-entry .activity-time {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .activity-entry .activity-agent {
+            font-size: 0.85rem;
+            color: var(--accent-light);
+            font-weight: 500;
+        }
+
+        .activity-entry .activity-action {
+            flex: 1;
+            font-size: 0.9rem;
+            color: var(--text-primary);
         }
 
         .connection-status {
@@ -1086,6 +1312,7 @@
                     <button class="nav-btn active" data-view="graph">Graph</button>
                     <button class="nav-btn" data-view="ready">Ready Tasks</button>
                     <button class="nav-btn" data-view="tests">Tests</button>
+                    <button class="nav-btn" data-view="agents">Agents</button>
                     <button class="nav-btn" data-view="log">Activity Log</button>
                 </nav>
             </div>
@@ -1188,6 +1415,14 @@
                 <div class="test-list" id="test-list"></div>
             </div>
 
+            <div id="agents-view" class="view">
+                <div class="agents-list" id="agents-list"></div>
+                <div class="agents-activity-section">
+                    <h3>Recent Agent Activity</h3>
+                    <div class="agents-activity-log" id="agents-activity-log"></div>
+                </div>
+            </div>
+
             <div id="log-view" class="view">
                 <div class="log-list" id="log-list"></div>
             </div>
@@ -1196,6 +1431,21 @@
         <div class="connection-status">
             <div class="status-dot status-disconnected" id="status-dot"></div>
             <span id="status-text">Connecting...</span>
+        </div>
+
+        <!-- Agent Termination Confirmation Modal -->
+        <div id="terminate-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content">
+                <h3>Terminate Agent?</h3>
+                <div class="modal-body">
+                    <p>Are you sure you want to terminate this agent?</p>
+                    <div class="modal-agent-info" id="modal-agent-info"></div>
+                </div>
+                <div class="modal-actions">
+                    <button class="modal-btn modal-btn-cancel" onclick="closeTerminateModal()">Cancel</button>
+                    <button class="modal-btn modal-btn-danger" id="confirm-terminate-btn">Terminate</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1316,6 +1566,7 @@
             ready: [],
             tests: [],
             log: [],
+            agents: [],
             edges: [], // Raw edges from API
             edgeFilters: loadEdgeFilters(), // Which edge types are visible
             ws: null,
@@ -1503,7 +1754,7 @@
         // Data loading
         async function loadData() {
             // Load all data in parallel
-            const [configData, tasksData, bugsData, ideasData, readyData, testsData, logData, edgesData] = await Promise.all([
+            const [configData, tasksData, bugsData, ideasData, readyData, testsData, logData, edgesData, agentsData] = await Promise.all([
                 fetch('/api/config').then(r => r.json()),
                 fetch('/api/tasks').then(r => r.json()),
                 fetch('/api/bugs').then(r => r.json()),
@@ -1511,7 +1762,8 @@
                 fetch('/api/ready').then(r => r.json()),
                 fetch('/api/tests').then(r => r.json()),
                 fetch('/api/log').then(r => r.json()),
-                fetch('/api/edges').then(r => r.json())
+                fetch('/api/edges').then(r => r.json()),
+                fetch('/api/agents').then(r => r.json())
             ]);
             
             // Update the document title with project name
@@ -1540,6 +1792,7 @@
             state.tests = testsData.tests || [];
             state.log = logData.log || [];
             state.edges = edgesData.edges || [];
+            state.agents = agentsData.agents || [];
             
             updateStatsOverlay();
             updateActiveTaskPane();
@@ -1706,6 +1959,9 @@
                     break;
                 case 'tests':
                     renderTests();
+                    break;
+                case 'agents':
+                    renderAgents();
                     break;
                 case 'log':
                     renderLog();
@@ -3270,6 +3526,110 @@
                     </div>
                 </div>
             `).join('');
+        }
+
+        function renderAgents() {
+            const list = document.getElementById('agents-list');
+            const activityLog = document.getElementById('agents-activity-log');
+            
+            if (!state.agents || state.agents.length === 0) {
+                list.innerHTML = '<div class="empty-state">No agents registered</div>';
+                activityLog.innerHTML = '<div class="empty-state">No agent activity</div>';
+                return;
+            }
+            list.innerHTML = state.agents.map(agent => {
+                const startedAt = new Date(agent.started_at).toLocaleString();
+                const lastActivity = new Date(agent.last_activity_at).toLocaleString();
+                const tasksHtml = agent.tasks && agent.tasks.length > 0 
+                    ? agent.tasks.map(t => `<span class="task-id">${escapeHtml(t)}</span>`).join(', ')
+                    : 'None';
+                return `
+                <div class="card agent-card">
+                    <button class="terminate-btn" onclick="showTerminateModal(${agent.pid}, '${escapeHtml(agent.name).replace(/'/g, "\\'")}', '${tasksHtml.replace(/'/g, "\\'")}')">✕ Terminate</button>
+                    <div class="agent-name">${escapeHtml(agent.name)}</div>
+                    <div class="agent-pid">PID: ${agent.pid}</div>
+                    <div class="card-meta">
+                        <span class="badge badge-agent-${agent.status}">${agent.status}</span>
+                    </div>
+                    <div class="agent-tasks">Tasks: ${tasksHtml}</div>
+                    <div class="agent-stats">
+                        <span>📊 ${agent.command_count} commands</span>
+                        <span>🕐 Started: ${startedAt}</span>
+                    </div>
+                    <div class="agent-stats">
+                        <span>⏱️ Last active: ${lastActivity}</span>
+                    </div>
+                </div>
+            `}).join('');
+            
+            // Render recent agent-related activity from the log
+            const agentNames = new Set(state.agents.map(a => a.name));
+            const agentActivity = (state.log || [])
+                .filter(entry => {
+                    // Filter for agent-related entries
+                    const action = entry.action || entry.message || '';
+                    return action.includes('agent') || 
+                           action.includes('hello') || 
+                           action.includes('goodbye') ||
+                           action.includes('task update') ||
+                           action.includes('task close');
+                })
+                .slice(0, 20);
+            
+            if (agentActivity.length === 0) {
+                activityLog.innerHTML = '<div class="empty-state">No recent agent activity</div>';
+            } else {
+                activityLog.innerHTML = agentActivity.map(entry => {
+                    const time = new Date(entry.timestamp).toLocaleTimeString();
+                    const action = entry.action || entry.message || 'Unknown action';
+                    return `
+                        <div class="activity-entry">
+                            <span class="activity-time">${time}</span>
+                            <span class="activity-action">${escapeHtml(action)}</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        // Agent termination modal functions
+        let terminatingPid = null;
+
+        function showTerminateModal(pid, name, tasks) {
+            terminatingPid = pid;
+            const modal = document.getElementById('terminate-modal');
+            const info = document.getElementById('modal-agent-info');
+            info.innerHTML = `
+                <div class="agent-name">${escapeHtml(name)}</div>
+                <div class="agent-detail">PID: ${pid}</div>
+                <div class="agent-detail">Tasks: ${tasks}</div>
+            `;
+            modal.style.display = 'flex';
+            document.getElementById('confirm-terminate-btn').onclick = confirmTerminate;
+        }
+
+        function closeTerminateModal() {
+            terminatingPid = null;
+            document.getElementById('terminate-modal').style.display = 'none';
+        }
+
+        async function confirmTerminate() {
+            if (!terminatingPid) return;
+            const pid = terminatingPid;
+            closeTerminateModal();
+            
+            try {
+                const response = await fetch(`/api/agents/${pid}/kill`, { method: 'POST' });
+                const result = await response.json();
+                if (response.ok) {
+                    showToast(result.message, 'success');
+                    await loadData(); // Refresh the agents list
+                } else {
+                    showToast(`Failed to terminate agent: ${result.message || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                showToast(`Failed to terminate agent: ${error}`, 'error');
+            }
         }
 
         function renderLog() {

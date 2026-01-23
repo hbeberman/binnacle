@@ -2,10 +2,10 @@
 
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path as AxumPath, State},
     http::StatusCode,
     response::{Html, IntoResponse},
-    routing::get,
+    routing::{get, post},
 };
 use std::net::SocketAddr;
 use std::path::Path;
@@ -67,6 +67,8 @@ pub async fn start_server(
         .route("/api/tests", get(get_tests))
         .route("/api/edges", get(get_edges))
         .route("/api/log", get(get_log))
+        .route("/api/agents", get(get_agents))
+        .route("/api/agents/{pid}/kill", post(kill_agent))
         .route("/ws", get(crate::gui::websocket::ws_handler))
         .with_state(state);
 
@@ -149,6 +151,46 @@ async fn get_tests(State(state): State<AppState>) -> Result<Json<serde_json::Val
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "tests": tests })))
+}
+
+/// Get all agents
+async fn get_agents(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    let mut storage = state.storage.lock().await;
+    // Clean up stale agents before returning
+    let _ = storage.cleanup_stale_agents();
+    let agents = storage
+        .list_agents(None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({ "agents": agents })))
+}
+
+/// Kill an agent by PID
+async fn kill_agent(
+    State(state): State<AppState>,
+    AxumPath(pid): AxumPath<u32>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let mut storage = state.storage.lock().await;
+
+    // Verify the agent exists
+    let agent = storage.get_agent(pid).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    // Send SIGTERM to the process
+    #[cfg(unix)]
+    {
+        use std::process::Command;
+        let _ = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+    }
+
+    // Remove the agent from the registry
+    let _ = storage.remove_agent(pid);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Terminated agent {} (PID: {})", agent.name, pid)
+    })))
 }
 
 /// Get all edges
