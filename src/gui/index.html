@@ -383,16 +383,22 @@
             font-style: italic;
         }
 
-        .agent-card .agent-purpose.agent-unregistered {
-            color: var(--warning);
+        .agent-card .agent-purpose.agent-type-label {
+            color: var(--text-secondary);
             font-style: normal;
-            font-size: 0.8rem;
+            font-size: 0.85rem;
+            text-transform: capitalize;
         }
 
         .agent-card .agent-tasks {
             margin-top: 0.5rem;
             font-size: 0.9rem;
             color: var(--text-secondary);
+        }
+
+        .agent-card .agent-tasks .no-tasks {
+            color: var(--text-muted);
+            font-style: italic;
         }
 
         .agent-card .agent-tasks .task-id {
@@ -4914,10 +4920,10 @@
                 const lastActivity = new Date(agent.last_activity_at).toLocaleString();
                 const tasksHtml = agent.tasks && agent.tasks.length > 0 
                     ? agent.tasks.map(t => `<span class="task-id">${escapeHtml(t)}</span>`).join(', ')
-                    : 'None';
+                    : '<span class="no-tasks">No active tasks</span>';
                 const purposeHtml = agent.purpose 
                     ? `<div class="agent-purpose">${escapeHtml(agent.purpose)}</div>` 
-                    : '<div class="agent-purpose agent-unregistered">UNREGISTERED - use bn orient --register &quot;purpose&quot;</div>';
+                    : `<div class="agent-purpose agent-type-label">${escapeHtml(agent.agent_type || 'worker')} agent</div>`;
                 return `
                 <div class="card agent-card">
                     <button class="terminate-btn" onclick="showTerminateModal(${agent.pid}, '${escapeHtml(agent.name).replace(/'/g, "\\'")}', '${tasksHtml.replace(/'/g, "\\'")}')">✕ Terminate</button>
