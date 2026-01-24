@@ -33,6 +33,7 @@ TOOLS_FULL=(
     --allow-tool "shell(lsof:*)"
     --allow-tool "shell(rm:*)"
     --allow-tool "shell(mkdir:*)"
+    --allow-tool "shell(xargs:*)"
 )
 
 TOOLS_PRD=(
