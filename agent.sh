@@ -108,7 +108,14 @@ case "$AGENT_TYPE" in
         ;;
     prd)
         echo "Launching PRD Writer Agent"
-        PROMPT='Read PRD.md and use your binnacle skill to orient yourself. Your job is to help render ideas into proper PRDs. First, ask the user: "Do you have a specific idea or topic in mind, or would you like me to pick one from the open ideas?" If the user provides a topic, work on that. Otherwise, check `bn idea list` for candidates and pick the most promising one. Then STOP and ask clarifying questions before writing the PRD. Ask about: scope boundaries (what is in/out), target users, success criteria, implementation constraints, dependencies on other work, and priority relative to other features. Only after getting answers should you write the PRD. Save PRDs to prds/ directory. Run `bn goodbye "summary of PRDs created"` to gracefully terminate your agent session when all work is done.'
+        PROMPT='Read PRD.md and use your binnacle skill to orient yourself. Your job is to help render ideas into proper PRDs. First, ask the user: "Do you have a specific idea or topic in mind, or would you like me to pick one from the open ideas?" 
+
+CRITICAL: Before writing ANY PRD, ALWAYS run `bn idea list -H` to search for existing ideas related to the topic. This ensures you build upon existing thoughts and do not duplicate work. If you find related ideas:
+1. Reference them in the PRD (e.g., "Related ideas: bni-xxxx, bni-yyyy")
+2. Incorporate their insights into the PRD content
+3. Consider whether the PRD should supersede/combine multiple related ideas
+
+If the user provides a topic, search ideas for that topic first, then work on it. If no topic provided, check `bn idea list` for candidates and pick the most promising one. Then STOP and ask clarifying questions before writing the PRD. Ask about: scope boundaries (what is in/out), target users, success criteria, implementation constraints, dependencies on other work, and priority relative to other features. Only after getting answers should you write the PRD. Save PRDs to prds/ directory. Run `bn goodbye "summary of PRDs created"` to gracefully terminate your agent session when all work is done.'
         TOOLS=("${TOOLS_PRD[@]}")
         ;;
     buddy)
