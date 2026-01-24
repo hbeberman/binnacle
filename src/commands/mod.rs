@@ -300,6 +300,8 @@ pub const AGENTS_MD_BLURB: &str = r#"<!-- BEGIN BINNACLE SECTION -->
 
 This project uses **bn** (binnacle) for long-horizon task/test status tracking. Run `bn orient` to get started!
 
+**After running `bn orient`**, report your assigned `agent_id` (e.g., `bna-486c`) to the user. This ID identifies your session in binnacle's tracking system.
+
 For new projects, the human should run `bn system init` which provides helpful prompts for setup.
 If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
 
@@ -474,7 +476,7 @@ Links connect entities in the task graph to model dependencies, relationships, a
 ## Task Workflow
 
 1. **ONE TASK AT A TIME**: Focus on a single task or bug. Complete one fully before moving to the next.
-2. **Start of session**: Run `bn orient` to understand project state
+2. **Start of session**: Run `bn orient` to understand project state, then **report your assigned `agent_id`** (e.g., `bna-486c`) to the user
 3. **CLAIM before working**:
    - Run `bn ready` to see available tasks
    - **Claim your task**: `bn task update <id> --status in_progress` (required before starting!)
@@ -517,6 +519,7 @@ Links connect entities in the task graph to model dependencies, relationships, a
 ```bash
 # Start of session
 bn orient
+# Output includes agent_id (e.g., "bna-486c") - report this to the user!
 
 # See what's ready
 bn ready

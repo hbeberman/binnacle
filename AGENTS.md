@@ -3,6 +3,8 @@
 
 This project uses **bn** (binnacle) for long-horizon task/test status tracking. Run `bn orient` to get started!
 
+**After running `bn orient`**, report your assigned `agent_id` (e.g., `bna-486c`) to the user. This ID identifies your session in binnacle's tracking system.
+
 For new projects, the human should run `bn system init` which provides helpful prompts for setup.
 If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
 
