@@ -17,4 +17,4 @@
 - [x] Add PRD as a first-class object in binnacle, programmatically linked to tasks so each task can trace back to its owning PRD (instead of separate .md files) → See `prds/PRD_PRD_NODES.md`
 - [ ] using git notes to send small sub-graphs of bn to agents so they can just focus on their problem domain and not get sidetracked, then when they PR it back they send back their updated graph and we merge it into the main graph, which shouldnt have conflicts because we know what nodes its touched and have locked them, plus we can canonicalize any bn-1234
    notation they have to avoid conflicts on the merge
-- [ ] Add a visual highlight for end goal tasks in the web UI (tasks with no dependants)
+- [x] Add a visual highlight for end goal tasks in the web UI (tasks with no dependants)

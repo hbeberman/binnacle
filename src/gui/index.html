@@ -60,6 +60,8 @@
             --doc-handoff: #e87d4a;      /* Orange for Handoffs */
             /* Edge type colors - pinned (solid green, important connections) */
             --edge-pinned: #5cb85c;
+            /* End goal highlight (tasks with no dependants) */
+            --end-goal: #ffd700;
             /* Overlay backgrounds */
             --overlay-bg: rgba(0, 0, 0, 0.85);
         }
@@ -6386,6 +6388,25 @@
             );
         }
 
+        // Check if a node is an "end goal" (a top-level outcome with no dependants)
+        // End goals are tasks that nothing else depends on AND are not subtasks themselves
+        function isEndGoalTask(nodeId) {
+            // Not an end goal if something depends on us completing
+            const hasDependants = (state.edges || []).some(edge => 
+                edge.target === nodeId && 
+                (edge.edge_type === 'depends_on' || edge.edge_type === 'blocks')
+            );
+            
+            // Not an end goal if we are a subtask (child) of another task
+            // The parent task is the real end goal, not the subtasks
+            const isSubtask = (state.edges || []).some(edge => 
+                edge.source === nodeId && 
+                edge.edge_type === 'child_of'
+            );
+            
+            return !hasDependants && !isSubtask;
+        }
+
         // Get the reason(s) why a node is blocked
         // Returns an array of reasons from depends_on edges pointing to unclosed tasks
         function getBlockingReasons(nodeId) {
@@ -6612,6 +6633,33 @@
                 ctx.setLineDash([4 * zoom, 4 * zoom]);  // Dotted pattern
                 ctx.stroke();
                 ctx.setLineDash([]);  // Reset line dash
+            }
+
+            // Draw end goal indicator (star burst) for tasks/bugs/ideas with no dependants
+            // These are top-level outcomes - completing them is a final goal
+            const isEndGoal = (node.type === 'task' || node.type === 'bug' || node.type === 'idea') && 
+                              node.status !== 'done' && node.status !== 'cancelled' &&
+                              isEndGoalTask(node.id);
+            if (isEndGoal) {
+                const starRadius = radius + 12 * zoom;
+                const points = 8;
+                const innerRadius = radius + 6 * zoom;
+                
+                ctx.beginPath();
+                for (let i = 0; i < points * 2; i++) {
+                    const r = i % 2 === 0 ? starRadius : innerRadius;
+                    const angle = (i * Math.PI) / points - Math.PI / 2;
+                    const x = screenPos.x + r * Math.cos(angle);
+                    const y = screenPos.y + r * Math.sin(angle);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';  // --end-goal with transparency
+                ctx.lineWidth = 2 * zoom;
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(255, 215, 0, 0.1)';
+                ctx.fill();
             }
 
             // Draw active task indicator: counter-rotating hatched rings (Ghost in the Shell style)
