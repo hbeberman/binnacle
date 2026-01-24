@@ -1164,6 +1164,88 @@ impl McpServer {
                 })];
                 Ok((description.to_string(), messages))
             }
+            "document_decision" => {
+                let entity_id = args.get("entity_id").cloned().unwrap_or_default();
+                let decision = args.get("decision").cloned().unwrap_or_default();
+                let description = "Create a note documenting a decision and its rationale";
+                let messages = vec![json!({
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "Please document the following decision for entity {}:\n\n\
+                            Decision: {}\n\n\
+                            Create a documentation note by:\n\
+                            1. Writing a markdown document with:\n\
+                               - `# Summary` section explaining the decision briefly\n\
+                               - `# Context` section explaining why this decision was needed\n\
+                               - `# Decision` section with the chosen approach\n\
+                               - `# Alternatives Considered` section listing other options\n\
+                               - `# Consequences` section describing implications\n\
+                            2. Create the doc with `bn doc create {} \"Decision: [title]\" --type note --stdin`\n\
+                            3. Confirm the doc was created with `bn doc show <new-doc-id>`",
+                            entity_id, decision, entity_id
+                        )
+                    }
+                })];
+                Ok((description.to_string(), messages))
+            }
+            "create_handoff" => {
+                let task_id = args.get("task_id").cloned().unwrap_or_default();
+                let description = "Create handoff context for session end with partial progress";
+                let messages = vec![json!({
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "I'm ending my session with partial progress on task {}. Please create a handoff document:\n\n\
+                            1. First, review the task with `bn task show {}`\n\
+                            2. Write a markdown handoff document with:\n\
+                               - `# Summary` - Brief status (what percentage done, what's left)\n\
+                               - `# Completed Work` - What was accomplished this session\n\
+                               - `# Current State` - Where things stand right now\n\
+                               - `# Next Steps` - Concrete actions for the next agent\n\
+                               - `# Blockers/Issues` - Any problems encountered\n\
+                               - `# Important Context` - Things the next agent needs to know\n\
+                            3. Create the doc with `bn doc create {} \"Handoff: [brief description]\" --type handoff --stdin`\n\
+                            4. Update task status if needed with `bn task update {} --status blocked` or leave as in_progress\n\
+                            5. Confirm with `bn doc show <new-doc-id>`",
+                            task_id, task_id, task_id, task_id
+                        )
+                    }
+                })];
+                Ok((description.to_string(), messages))
+            }
+            "review_prd" => {
+                let doc_id = args.get("doc_id").cloned().unwrap_or_default();
+                let description = "Review and annotate a PRD document";
+                let messages = vec![json!({
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "Please review the PRD document {}:\n\n\
+                            1. Show the full PRD content with `bn doc show {} --full`\n\
+                            2. Analyze the PRD for:\n\
+                               - Clarity and completeness\n\
+                               - Technical feasibility\n\
+                               - Missing edge cases or requirements\n\
+                               - Ambiguous specifications\n\
+                               - Dependencies that should be explicit\n\
+                            3. Create a review note linked to the PRD:\n\
+                               - `# Summary` - Overall assessment (ready/needs-work/blocked)\n\
+                               - `# Strengths` - What's good about this PRD\n\
+                               - `# Concerns` - Issues that need addressing\n\
+                               - `# Questions` - Clarifications needed from stakeholders\n\
+                               - `# Suggestions` - Recommended improvements\n\
+                            4. Create the review doc with `bn doc create {} \"Review: [prd-title]\" --type note --stdin`\n\
+                            5. Show the linked docs with `bn link list {}`",
+                            doc_id, doc_id, doc_id, doc_id
+                        )
+                    }
+                })];
+                Ok((description.to_string(), messages))
+            }
             _ => Err(Error::Other(format!("Unknown prompt: {}", name))),
         }
     }
@@ -2716,6 +2798,40 @@ pub fn get_prompt_definitions() -> Vec<PromptDef> {
             name: "prioritize_work".to_string(),
             description: "Help decide what tasks or bugs to add to the work queue".to_string(),
             arguments: None,
+        },
+        PromptDef {
+            name: "document_decision".to_string(),
+            description: "Create a note documenting a decision and its rationale".to_string(),
+            arguments: Some(vec![
+                PromptArgument {
+                    name: "entity_id".to_string(),
+                    description: "Entity ID to attach the decision note to".to_string(),
+                    required: true,
+                },
+                PromptArgument {
+                    name: "decision".to_string(),
+                    description: "Brief description of the decision to document".to_string(),
+                    required: true,
+                },
+            ]),
+        },
+        PromptDef {
+            name: "create_handoff".to_string(),
+            description: "Create handoff context for session end with partial progress".to_string(),
+            arguments: Some(vec![PromptArgument {
+                name: "task_id".to_string(),
+                description: "Task ID to create handoff for".to_string(),
+                required: true,
+            }]),
+        },
+        PromptDef {
+            name: "review_prd".to_string(),
+            description: "Review and annotate a PRD document".to_string(),
+            arguments: Some(vec![PromptArgument {
+                name: "doc_id".to_string(),
+                description: "Doc ID of the PRD to review".to_string(),
+                required: true,
+            }]),
         },
     ]
 }
