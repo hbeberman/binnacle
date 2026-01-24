@@ -477,15 +477,15 @@ Run 'bn --help' for full command reference.
 
 ---
 
-## Phase 8: Alternative Storage Backends (v1.1+)
+## Phase 8: Alternative Storage Backends ✅
 
 **Goal:** Orphan branch and git notes support
 
 ### Deliverables
 - [x] Orphan branch backend (`binnacle-data` branch)
-- [ ] Git notes backend
-- [ ] `bn sync` for shared mode
-- [ ] Migration between backends
+- [x] Git notes backend
+- [x] `bn sync` for shared mode
+- [x] Migration between backends
 
 ### Implemented: Orphan Branch Backend
 
@@ -506,8 +506,41 @@ This keeps all data within the repository without polluting the main branch or w
 **Test Summary (Phase 8 - Orphan Branch):**
 - 8 unit tests (backend initialization, read/write, branch management)
 - 9 integration tests (data persistence, commit history, no working tree pollution)
-- **Total new tests: 17**
-- **Grand total: 287 tests**
+
+### Implemented: Git Notes Backend
+
+The git notes backend stores binnacle data in git notes at `refs/notes/binnacle`.
+Each JSONL file is stored as a separate note attached to a deterministic blob object.
+
+**Key Features:**
+- Uses `git notes` commands for storage
+- Each file stored as a separate note with `binnacle:` prefix
+- Data persists across clones when notes are pushed
+- Supports the same operations as other backends
+
+### Implemented: Sync Command
+
+The `bn sync` command enables pushing/pulling binnacle data with remotes.
+
+**Key Features:**
+- Works with orphan-branch backend
+- Supports `--push` only or `--pull` only modes
+- Configurable remote name (default: origin)
+
+### Implemented: Storage Migration
+
+The `bn system migrate` command enables switching between backends.
+
+**Key Features:**
+- Migrates data from current (file) backend to orphan-branch or git-notes
+- Supports `--dry-run` to preview changes
+- Validates target backend type
+
+**Test Summary (Phase 8 - Complete):**
+- 8 unit tests for orphan branch backend
+- 9 integration tests for orphan branch
+- 5 integration tests for migration (file→orphan, file→git-notes)
+- Sync command tested via manual verification
 
 ---
 
