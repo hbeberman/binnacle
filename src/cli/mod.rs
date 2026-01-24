@@ -1055,6 +1055,17 @@ pub enum StoreCommands {
 
     /// Dump all JSONL files to console with headers
     Dump,
+
+    /// Clear all data from the current repository's store
+    Clear {
+        /// Skip confirmation prompt (REQUIRED for non-interactive use)
+        #[arg(long)]
+        force: bool,
+
+        /// Skip creating backup before clearing
+        #[arg(long)]
+        no_backup: bool,
+    },
 }
 
 /// Agent lifecycle management subcommands

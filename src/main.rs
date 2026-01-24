@@ -709,6 +709,10 @@ fn run_command(
                     let result = commands::system_store_dump(repo_path)?;
                     output(&result, human);
                 }
+                StoreCommands::Clear { force, no_backup } => {
+                    let result = commands::system_store_clear(repo_path, force, no_backup, human)?;
+                    output(&result, human);
+                }
             },
             SystemCommands::Emit { template } => {
                 let content = match template {
@@ -1756,6 +1760,13 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     }),
                 ),
                 StoreCommands::Dump => ("system store dump".to_string(), serde_json::json!({})),
+                StoreCommands::Clear { force, no_backup } => (
+                    "system store clear".to_string(),
+                    serde_json::json!({
+                        "force": force,
+                        "no_backup": no_backup,
+                    }),
+                ),
             },
             SystemCommands::Emit { template } => {
                 let template_name = match template {

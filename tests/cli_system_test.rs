@@ -1420,3 +1420,153 @@ fn test_system_emit_plan_agent_json_format() {
     assert!(content.contains("name: Binnacle Plan"));
     assert!(content.contains("PLANNING AGENT"));
 }
+
+// ============================================================================
+// bn system store clear Tests
+// ============================================================================
+
+#[test]
+fn test_store_clear_requires_force() {
+    let env = init_binnacle();
+
+    // Create a task first
+    create_task(&env, "Test task");
+
+    // Try to clear without --force - should abort
+    let output = bn_in(&env)
+        .args(["system", "store", "clear"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["cleared"], false);
+    assert_eq!(json["aborted"], true);
+    assert!(json["abort_reason"].as_str().unwrap().contains("--force"));
+}
+
+#[test]
+fn test_store_clear_with_force_clears_data() {
+    let env = init_binnacle();
+
+    // Create some data
+    create_task(&env, "Task 1");
+    create_task(&env, "Task 2");
+
+    // Clear with --force
+    let output = bn_in(&env)
+        .args(["system", "store", "clear", "--force"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["cleared"], true);
+    assert_eq!(json["aborted"], false);
+    assert_eq!(json["tasks_cleared"], 2);
+
+    // Verify tasks are gone
+    let list_output = bn_in(&env)
+        .args(["task", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let list_json = parse_json(&list_output);
+    assert_eq!(list_json["tasks"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn test_store_clear_creates_backup_by_default() {
+    let env = init_binnacle();
+
+    // Create some data
+    create_task(&env, "Important task");
+
+    // Clear with --force (backup created by default)
+    let output = bn_in(&env)
+        .args(["system", "store", "clear", "--force"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["cleared"], true);
+    assert!(json["backup_path"].as_str().is_some());
+
+    // Verify backup file exists
+    let backup_path = json["backup_path"].as_str().unwrap();
+    assert!(
+        std::path::Path::new(backup_path).exists(),
+        "Backup file should exist at {}",
+        backup_path
+    );
+
+    // Clean up backup file
+    let _ = fs::remove_file(backup_path);
+}
+
+#[test]
+fn test_store_clear_no_backup_skips_backup() {
+    let env = init_binnacle();
+
+    // Create some data
+    create_task(&env, "Task to clear");
+
+    // Clear with --force --no-backup
+    let output = bn_in(&env)
+        .args(["system", "store", "clear", "--force", "--no-backup"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["cleared"], true);
+    assert!(json["backup_path"].is_null());
+}
+
+#[test]
+fn test_store_clear_empty_store_succeeds() {
+    let env = init_binnacle();
+
+    // Clear empty store - should succeed immediately
+    let output = bn_in(&env)
+        .args(["system", "store", "clear", "--force"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["cleared"], true);
+    assert_eq!(json["tasks_cleared"], 0);
+    assert_eq!(json["aborted"], false);
+}
+
+#[test]
+fn test_store_clear_human_readable_warning() {
+    let env = init_binnacle();
+
+    // Create a task first
+    create_task(&env, "Test task");
+
+    // Try to clear without --force in human mode - should show warning
+    bn_in(&env)
+        .args(["-H", "system", "store", "clear"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("WARNING"))
+        .stderr(predicate::str::contains("permanently delete"))
+        .stderr(predicate::str::contains("--force"));
+}

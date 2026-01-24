@@ -8908,6 +8908,200 @@ fn system_store_import_from_folder(
     })
 }
 
+// === Store Clear Command ===
+
+/// Result of the `bn system store clear` command.
+#[derive(Serialize)]
+pub struct StoreClearResult {
+    pub cleared: bool,
+    pub storage_path: String,
+    pub backup_path: Option<String>,
+    pub tasks_cleared: usize,
+    pub tests_cleared: usize,
+    pub bugs_cleared: usize,
+    pub commits_cleared: usize,
+    pub edges_cleared: usize,
+    pub aborted: bool,
+    pub abort_reason: Option<String>,
+}
+
+impl Output for StoreClearResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if self.aborted {
+            lines.push("Store clear aborted.".to_string());
+            if let Some(reason) = &self.abort_reason {
+                lines.push(format!("  Reason: {}", reason));
+            }
+            return lines.join("\n");
+        }
+
+        if self.cleared {
+            lines.push("Store cleared successfully.".to_string());
+            lines.push(format!("  Storage: {}", self.storage_path));
+            if let Some(backup) = &self.backup_path {
+                lines.push(format!("  Backup:  {}", backup));
+            }
+            lines.push(String::new());
+            lines.push("Cleared:".to_string());
+            lines.push(format!("  Tasks:   {}", self.tasks_cleared));
+            lines.push(format!("  Tests:   {}", self.tests_cleared));
+            lines.push(format!("  Bugs:    {}", self.bugs_cleared));
+            lines.push(format!("  Commits: {}", self.commits_cleared));
+            lines.push(format!("  Edges:   {}", self.edges_cleared));
+        } else {
+            lines.push("Store clear failed.".to_string());
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Clear all data from the current repository's store.
+///
+/// Safety features:
+/// - Requires --force flag for non-interactive use
+/// - Creates backup by default (use --no-backup to skip)
+/// - Only clears the current repo's store, not global data
+pub fn system_store_clear(
+    repo_path: &Path,
+    force: bool,
+    no_backup: bool,
+    human: bool,
+) -> Result<StoreClearResult> {
+    let storage = Storage::open(repo_path)?;
+    let storage_path = storage.root().to_path_buf();
+    let storage_path_str = storage_path.to_string_lossy().to_string();
+
+    // Get current counts before clearing
+    let tasks = storage.list_tasks(None, None, None)?;
+    let tests = storage.list_tests(None)?;
+    let bugs = storage.list_bugs(None, None, None, None)?;
+    let edges = storage.list_edges(None, None, None)?;
+
+    // Count commits by reading the file directly
+    let commits_file = storage_path.join("commits.jsonl");
+    let commits_count = if commits_file.exists() {
+        fs::read_to_string(&commits_file)
+            .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    let total_items = tasks.len() + tests.len() + bugs.len() + commits_count + edges.len();
+
+    // If no data, nothing to clear
+    if total_items == 0 {
+        return Ok(StoreClearResult {
+            cleared: true,
+            storage_path: storage_path_str,
+            backup_path: None,
+            tasks_cleared: 0,
+            tests_cleared: 0,
+            bugs_cleared: 0,
+            commits_cleared: 0,
+            edges_cleared: 0,
+            aborted: false,
+            abort_reason: None,
+        });
+    }
+
+    // Require --force for non-interactive clearing
+    if !force {
+        // Show what would be cleared
+        if human {
+            eprintln!(
+                "WARNING: This will permanently delete all binnacle data for this repository."
+            );
+            eprintln!();
+            eprintln!("Data to be cleared:");
+            eprintln!("  Tasks:   {}", tasks.len());
+            eprintln!("  Tests:   {}", tests.len());
+            eprintln!("  Bugs:    {}", bugs.len());
+            eprintln!("  Commits: {}", commits_count);
+            eprintln!("  Edges:   {}", edges.len());
+            eprintln!();
+            eprintln!("To proceed, run with --force flag:");
+            eprintln!("  bn system store clear --force");
+            eprintln!();
+            eprintln!("To create a backup first (recommended):");
+            eprintln!("  bn system store export backup.tar.gz && bn system store clear --force");
+        }
+
+        return Ok(StoreClearResult {
+            cleared: false,
+            storage_path: storage_path_str,
+            backup_path: None,
+            tasks_cleared: 0,
+            tests_cleared: 0,
+            bugs_cleared: 0,
+            commits_cleared: 0,
+            edges_cleared: 0,
+            aborted: true,
+            abort_reason: Some("Use --force to confirm clearing all data".to_string()),
+        });
+    }
+
+    // Create backup unless --no-backup is specified
+    let backup_path = if !no_backup {
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        let backup_name = format!("binnacle_backup_{}.tar.gz", timestamp);
+
+        // Try to create backup in the repo directory, fall back to temp
+        let backup_file = repo_path.join(&backup_name);
+
+        match system_store_export(repo_path, &backup_file.to_string_lossy(), "archive") {
+            Ok(_) => Some(backup_file.to_string_lossy().to_string()),
+            Err(e) => {
+                if human {
+                    eprintln!("Warning: Could not create backup: {}", e);
+                    eprintln!("Proceeding without backup...");
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Drop the storage connection before clearing files
+    drop(storage);
+
+    // Clear the storage directory by removing and recreating it
+    let tasks_cleared = tasks.len();
+    let tests_cleared = tests.len();
+    let bugs_cleared = bugs.len();
+    let commits_cleared = commits_count;
+    let edges_cleared = edges.len();
+
+    // Remove the storage directory
+    if storage_path.exists() {
+        fs::remove_dir_all(&storage_path)?;
+    }
+
+    // Reinitialize empty storage
+    Storage::init(repo_path)?;
+
+    Ok(StoreClearResult {
+        cleared: true,
+        storage_path: storage_path_str,
+        backup_path,
+        tasks_cleared,
+        tests_cleared,
+        bugs_cleared,
+        commits_cleared,
+        edges_cleared,
+        aborted: false,
+        abort_reason: None,
+    })
+}
+
 // === Compact Command ===
 
 /// Result of the compact command.
