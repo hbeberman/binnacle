@@ -2183,6 +2183,7 @@
                 <nav>
                     <button class="nav-btn active" data-view="graph">Graph</button>
                     <button class="nav-btn" data-view="ready">Tasks</button>
+                    <button class="nav-btn" data-view="bugs">Bugs</button>
                     <button class="nav-btn" data-view="ideas">Ideas</button>
                     <button class="nav-btn" data-view="tests">Tests</button>
                     <button class="nav-btn" data-view="agents">Agents</button>
@@ -2339,6 +2340,10 @@
 
             <div id="ready-view" class="view">
                 <div class="task-list" id="ready-list"></div>
+            </div>
+
+            <div id="bugs-view" class="view">
+                <div class="task-list" id="bugs-list"></div>
             </div>
 
             <div id="ideas-view" class="view">
@@ -3108,6 +3113,9 @@
                     break;
                 case 'ready':
                     renderReady();
+                    break;
+                case 'bugs':
+                    renderBugs();
                     break;
                 case 'ideas':
                     renderIdeas();
@@ -5562,6 +5570,81 @@
                         <span class="badge badge-priority-${task.priority}">P${task.priority}</span>
                         <span class="badge" style="background: var(--bg-tertiary)">${task.id}</span>
                         ${(task.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+                    </div>
+                </div>
+            `}).join('');
+            
+            // Attach event handlers to queue toggle buttons
+            list.querySelectorAll('.card-queue-toggle').forEach(btn => {
+                btn.addEventListener('click', handleCardQueueToggle);
+            });
+            
+            // Attach event handlers to jump buttons
+            list.querySelectorAll('.card-jump-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const taskId = e.currentTarget.getAttribute('data-task-id');
+                    // Switch to graph view and pan to the node
+                    switchView('graph');
+                    panToNode(taskId, true);
+                    // Select the node
+                    const node = state.graph.nodes.find(n => n.id === taskId);
+                    if (node) {
+                        state.graph.selectedNode = node;
+                        showInfoPanel(node);
+                    }
+                });
+            });
+        }
+
+        function renderBugs() {
+            const list = document.getElementById('bugs-list');
+            // Get all open bugs (not done, not cancelled)
+            const openBugs = (state.tasks || []).filter(t => 
+                t.type === 'bug' && 
+                t.status !== 'done' && 
+                t.status !== 'cancelled'
+            );
+            
+            // Check which bugs are ready (no blockers)
+            const readyIds = new Set((state.ready || []).filter(t => t.type === 'bug').map(t => t.id));
+            
+            // Sort: ready bugs first, then by priority, then by ID
+            openBugs.sort((a, b) => {
+                const aReady = readyIds.has(a.id);
+                const bReady = readyIds.has(b.id);
+                if (aReady !== bReady) return bReady - aReady;  // Ready first
+                if (a.priority !== b.priority) return a.priority - b.priority;  // Lower priority number first
+                return a.id.localeCompare(b.id);
+            });
+            
+            if (openBugs.length === 0) {
+                list.innerHTML = '<div class="empty-state">No open bugs 🎉</div>';
+                return;
+            }
+            list.innerHTML = openBugs.map(bug => {
+                const isQueued = isNodeQueued(bug.id);
+                const isReady = readyIds.has(bug.id);
+                const isBlocked = bug.status === 'blocked' || !isReady;
+                return `
+                <div class="card ${isBlocked ? 'card-blocked' : ''}">
+                    ${isBlocked ? '<div class="blocked-banner">🚫 Blocked</div>' : ''}
+                    <div class="card-header">
+                        <div class="card-title">🐛 ${escapeHtml(bug.title)}</div>
+                        <div class="card-actions">
+                            <button class="card-jump-btn" data-task-id="${bug.id}" title="Jump to node on graph">
+                                📍
+                            </button>
+                            <button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
+                                    data-task-id="${bug.id}" 
+                                    title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
+                            </button>
+                        </div>
+                    </div>
+                    ${bug.description ? `<div class="card-description">${escapeHtml(bug.description)}</div>` : ''}
+                    <div class="card-meta">
+                        <span class="badge badge-priority-${bug.priority}">P${bug.priority}</span>
+                        <span class="badge" style="background: var(--bg-tertiary)">${bug.id}</span>
+                        ${(bug.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
                     </div>
                 </div>
             `}).join('');
