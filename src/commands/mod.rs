@@ -2311,14 +2311,24 @@ pub struct TaskShowResult {
 pub struct LinkedDocInfo {
     pub id: String,
     pub title: String,
+    pub doc_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub short_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 
 /// Helper to get linked docs for an entity.
-fn get_linked_docs_for_entity(storage: &Storage, entity_id: &str) -> Vec<LinkedDocInfo> {
+/// If `include_content` is true, also fetches and includes full doc content.
+fn get_linked_docs_for_entity(
+    storage: &Storage,
+    entity_id: &str,
+    include_content: bool,
+) -> Vec<LinkedDocInfo> {
     // Find all 'documents' edges where this entity is the target
     let edges = storage
         .list_edges(Some(EdgeType::Documents), None, Some(entity_id))
@@ -2328,11 +2338,34 @@ fn get_linked_docs_for_entity(storage: &Storage, entity_id: &str) -> Vec<LinkedD
         .iter()
         .filter_map(|edge| {
             // The source of a 'documents' edge is the doc
-            storage.get_doc(&edge.source).ok().map(|doc| LinkedDocInfo {
-                id: doc.core.id.clone(),
-                title: doc.core.title.clone(),
-                short_name: doc.core.short_name.clone(),
-                description: doc.core.description.clone(),
+            storage.get_doc(&edge.source).ok().map(|doc| {
+                // Extract summary from content (first line of # Summary section, trimmed)
+                let summary = doc.get_summary().ok().and_then(|s| {
+                    let trimmed = s.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        // Get just the first line of the summary for brief display
+                        Some(trimmed.lines().next().unwrap_or("").to_string())
+                    }
+                });
+
+                // Get full content if requested
+                let content = if include_content {
+                    doc.get_content().ok()
+                } else {
+                    None
+                };
+
+                LinkedDocInfo {
+                    id: doc.core.id.clone(),
+                    title: doc.core.title.clone(),
+                    doc_type: doc.doc_type.to_string(),
+                    short_name: doc.core.short_name.clone(),
+                    description: doc.core.description.clone(),
+                    summary,
+                    content,
+                }
             })
         })
         .collect()
@@ -2457,12 +2490,22 @@ impl Output for TaskShowResult {
         // Show linked docs
         if !self.linked_docs.is_empty() {
             lines.push(String::new());
-            lines.push("Documentation:".to_string());
+            lines.push(format!("📄 Related Docs ({}):", self.linked_docs.len()));
             for doc in &self.linked_docs {
                 let name = doc.short_name.as_deref().unwrap_or(&doc.title);
-                lines.push(format!("  📄 {} \"{}\"", doc.id, name));
-                if let Some(ref desc) = doc.description {
-                    lines.push(format!("     {}", desc));
+                // Format: bnd-xxxx [type] "Title" - summary
+                let mut doc_line = format!("  {} [{}] \"{}\"", doc.id, doc.doc_type, name);
+                if let Some(ref summary) = doc.summary {
+                    doc_line.push_str(&format!(" - {}", summary));
+                }
+                lines.push(doc_line);
+                // Show full content if available
+                if let Some(ref content) = doc.content {
+                    lines.push("  ---".to_string());
+                    for line in content.lines() {
+                        lines.push(format!("  {}", line));
+                    }
+                    lines.push("  ---".to_string());
                 }
             }
         }
@@ -2762,7 +2805,7 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResponse> {
                 .collect();
 
             // Get linked docs for this task
-            let linked_docs = get_linked_docs_for_entity(&storage, id);
+            let linked_docs = get_linked_docs_for_entity(&storage, id, false);
 
             Ok(TaskShowResponse::Found(Box::new(TaskShowResult {
                 task,
@@ -2784,7 +2827,7 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResponse> {
                     };
                     let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
                     let edges = build_edges_info(&storage, hydrated_edges);
-                    let linked_docs = get_linked_docs_for_entity(&storage, id);
+                    let linked_docs = get_linked_docs_for_entity(&storage, id, false);
 
                     Ok(TaskShowResponse::TypeMismatch(Box::new(
                         EntityMismatchResult {
@@ -3816,12 +3859,22 @@ impl Output for BugShowResult {
         // Show linked docs
         if !self.linked_docs.is_empty() {
             lines.push(String::new());
-            lines.push("Documentation:".to_string());
+            lines.push(format!("📄 Related Docs ({}):", self.linked_docs.len()));
             for doc in &self.linked_docs {
                 let name = doc.short_name.as_deref().unwrap_or(&doc.title);
-                lines.push(format!("  📄 {} \"{}\"", doc.id, name));
-                if let Some(ref desc) = doc.description {
-                    lines.push(format!("     {}", desc));
+                // Format: bnd-xxxx [type] "Title" - summary
+                let mut doc_line = format!("  {} [{}] \"{}\"", doc.id, doc.doc_type, name);
+                if let Some(ref summary) = doc.summary {
+                    doc_line.push_str(&format!(" - {}", summary));
+                }
+                lines.push(doc_line);
+                // Show full content if available
+                if let Some(ref content) = doc.content {
+                    lines.push("  ---".to_string());
+                    for line in content.lines() {
+                        lines.push(format!("  {}", line));
+                    }
+                    lines.push("  ---".to_string());
                 }
             }
         }
@@ -3901,7 +3954,7 @@ pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResponse> {
             let edges = build_edges_info(&storage, hydrated_edges);
 
             // Get linked docs for this bug
-            let linked_docs = get_linked_docs_for_entity(&storage, id);
+            let linked_docs = get_linked_docs_for_entity(&storage, id, false);
 
             Ok(BugShowResponse::Found(Box::new(BugShowResult {
                 bug,
@@ -3923,7 +3976,7 @@ pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResponse> {
                     };
                     let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
                     let edges = build_edges_info(&storage, hydrated_edges);
-                    let linked_docs = get_linked_docs_for_entity(&storage, id);
+                    let linked_docs = get_linked_docs_for_entity(&storage, id, false);
 
                     Ok(BugShowResponse::TypeMismatch(Box::new(
                         EntityMismatchResult {

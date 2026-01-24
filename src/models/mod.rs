@@ -666,6 +666,15 @@ impl Doc {
             self.editors.push(editor);
         }
     }
+
+    /// Get the summary section from the doc content.
+    ///
+    /// Extracts the text between `# Summary` and the next top-level heading.
+    /// Returns an empty string if no summary section exists or content is empty.
+    pub fn get_summary(&self) -> Result<String, DocCompressionError> {
+        let content = self.get_content()?;
+        Ok(extract_summary_section(&content))
+    }
 }
 
 impl Entity for Doc {
@@ -778,7 +787,7 @@ fn remove_summary_section(content: &str) -> String {
 }
 
 /// Extract just the # Summary section from content.
-fn extract_summary_section(content: &str) -> String {
+pub fn extract_summary_section(content: &str) -> String {
     let mut result = String::new();
     let mut in_summary = false;
 
@@ -2495,6 +2504,35 @@ mod tests {
 
         // Nothing changed -> not dirty
         assert!(!super::Doc::is_summary_dirty(old_content, old_content));
+    }
+
+    #[test]
+    fn test_doc_get_summary() {
+        let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        doc.set_content("# Summary\nThis is the summary text.\n\n# Content\nMain content here.")
+            .unwrap();
+
+        let summary = doc.get_summary().unwrap();
+        assert!(summary.contains("This is the summary text."));
+        // Summary should not include the Content section
+        assert!(!summary.contains("Main content"));
+    }
+
+    #[test]
+    fn test_doc_get_summary_empty() {
+        let doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        let summary = doc.get_summary().unwrap();
+        assert!(summary.is_empty());
+    }
+
+    #[test]
+    fn test_doc_get_summary_no_summary_section() {
+        let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        doc.set_content("# Title\nSome content without a summary section.")
+            .unwrap();
+
+        let summary = doc.get_summary().unwrap();
+        assert!(summary.is_empty());
     }
 
     #[test]
