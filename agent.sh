@@ -36,6 +36,7 @@ TOOLS_FULL=(
     --allow-tool "shell(xargs:*)"
     --allow-tool "shell(find:*)"
     --allow-tool "shell(printf:*)"
+    --allow-tool "shell(curl:*)"
 )
 
 TOOLS_PRD=(
