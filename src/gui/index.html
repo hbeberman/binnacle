@@ -4306,6 +4306,9 @@
             if (link) {
                 const nodeId = link.dataset.nodeId;
                 if (nodeId) {
+                    // Disable auto-follow when user explicitly navigates to a specific node
+                    state.graph.autoFollow = false;
+                    updateAutoFollowDisplay();
                     // Find and select the node
                     const targetNode = state.graph.nodes.find(n => n.id === nodeId);
                     if (targetNode) {
@@ -5616,6 +5619,9 @@
             list.querySelectorAll('.card-jump-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const taskId = e.currentTarget.getAttribute('data-task-id');
+                    // Disable auto-follow when user explicitly navigates to a specific node
+                    state.graph.autoFollow = false;
+                    updateAutoFollowDisplay();
                     // Switch to graph view and pan to the node
                     switchView('graph');
                     panToNode(taskId, true);
@@ -5693,6 +5699,9 @@
             list.querySelectorAll('.card-jump-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const taskId = e.currentTarget.getAttribute('data-task-id');
+                    // Disable auto-follow when user explicitly navigates to a specific node
+                    state.graph.autoFollow = false;
+                    updateAutoFollowDisplay();
                     // Switch to graph view and pan to the node
                     switchView('graph');
                     panToNode(taskId, true);
@@ -5905,6 +5914,9 @@
             list.querySelectorAll('.agents-sidebar-item').forEach(item => {
                 item.addEventListener('click', () => {
                     const agentId = item.dataset.agentId;
+                    // Disable auto-follow when user explicitly navigates to a specific node
+                    state.graph.autoFollow = false;
+                    updateAutoFollowDisplay();
                     panToNode(agentId, true);
                     const node = state.graph.nodes.find(n => n.id === agentId);
                     if (node) {
@@ -5960,6 +5972,10 @@
 
         // Navigate to graph view and focus on a specific node
         function navigateToNodeOnGraph(nodeId) {
+            // Disable auto-follow when user explicitly navigates to a specific node
+            // This indicates they want to look at that specific node, not have it auto-switch
+            state.graph.autoFollow = false;
+            updateAutoFollowDisplay();
             // Switch to graph view
             switchView('graph');
             // Wait for graph to render, then pan to node
