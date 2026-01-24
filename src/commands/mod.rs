@@ -8811,6 +8811,7 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
     let milestones = storage.list_milestones(None, None, None)?;
     let ideas = storage.list_ideas(None, None)?;
     let agents = storage.list_agents(None)?;
+    let docs = storage.list_docs(None, None, None, None)?;
     let queue = storage.get_queue().ok();
 
     let mut valid_entity_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -8831,6 +8832,9 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
     }
     for agent in &agents {
         valid_entity_ids.insert(agent.id.clone());
+    }
+    for doc in &docs {
+        valid_entity_ids.insert(doc.core.id.clone());
     }
     if let Some(q) = &queue {
         valid_entity_ids.insert(q.id.clone());
@@ -9037,6 +9041,24 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
             ),
             entity_id: None,
         });
+    }
+
+    // Check for orphan docs (docs with no linked entities)
+    for doc in &docs {
+        let edges = storage.get_edges_for_entity(&doc.core.id)?;
+        // Filter out supersedes edges - those don't count as meaningful links
+        let meaningful_edges: Vec<_> = edges
+            .iter()
+            .filter(|e| e.edge.edge_type != EdgeType::Supersedes)
+            .collect();
+        if meaningful_edges.is_empty() {
+            issues.push(DoctorIssue {
+                severity: "warning".to_string(),
+                category: "orphan".to_string(),
+                message: format!("Doc \"{}\" has no linked entities", doc.core.title),
+                entity_id: Some(doc.core.id.clone()),
+            });
+        }
     }
 
     // Check for disconnected components in the task graph
@@ -15122,6 +15144,76 @@ mod tests {
         assert!(!result.healthy);
         assert!(result.issues.iter().any(|i| {
             i.category == "orphan" && i.message.contains("source") && i.message.contains(&task_a.id)
+        }));
+    }
+
+    #[test]
+    fn test_doctor_detects_orphan_docs() {
+        let temp = setup();
+
+        // Create a queue so we don't get that warning
+        let mut storage = Storage::open(temp.path()).unwrap();
+        let queue = Queue::new("bnq-test".to_string(), "Test Queue".to_string());
+        storage.create_queue(&queue).unwrap();
+        drop(storage);
+
+        // Create a task
+        let task = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create a doc linked to the task (should NOT be an orphan)
+        let linked_doc = doc_create(
+            temp.path(),
+            "Linked Doc".to_string(),
+            DocType::Prd,
+            None,
+            Some("# Summary\nLinked doc content".to_string()),
+            None,
+            vec![],
+            vec![task.id.clone()],
+        )
+        .unwrap();
+
+        // Run doctor - should be healthy (doc is linked)
+        let result = doctor(temp.path()).unwrap();
+        // Check there are no orphan doc warnings for the linked doc
+        assert!(!result.issues.iter().any(|i| {
+            i.category == "orphan"
+                && i.entity_id.as_ref() == Some(&linked_doc.id)
+                && i.message.contains("has no linked entities")
+        }));
+
+        // Now create an orphan doc (create doc, then remove its link)
+        let orphan_doc = doc_create(
+            temp.path(),
+            "Orphan Doc".to_string(),
+            DocType::Note,
+            None,
+            Some("# Summary\nOrphan doc content".to_string()),
+            None,
+            vec![],
+            vec![task.id.clone()],
+        )
+        .unwrap();
+
+        // Remove the link to make it an orphan
+        // Note: doc_create creates edges with EdgeType::Documents (doc -> entity)
+        link_rm(temp.path(), &orphan_doc.id, &task.id, Some("documents")).unwrap();
+
+        // Run doctor again - should detect the orphan doc
+        let result = doctor(temp.path()).unwrap();
+        assert!(result.issues.iter().any(|i| {
+            i.category == "orphan"
+                && i.entity_id.as_ref() == Some(&orphan_doc.id)
+                && i.message.contains("has no linked entities")
         }));
     }
 
