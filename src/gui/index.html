@@ -1729,6 +1729,56 @@
             justify-content: center;
         }
 
+        /* Fullscreen/maximize mode for graph */
+        #graph-view.fullscreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 9999;
+            background: var(--bg-primary);
+        }
+
+        #graph-view.fullscreen #graph-canvas {
+            height: 100vh;
+            border-radius: 0;
+            border: none;
+        }
+
+        #graph-view.fullscreen .agents-sidebar {
+            top: 0;
+            height: 100vh;
+        }
+
+        #graph-view.fullscreen .graph-controls {
+            top: 1rem;
+        }
+
+        #graph-view.fullscreen .graph-filters {
+            bottom: 1rem;
+        }
+
+        .maximize-btn {
+            width: 32px;
+            height: 32px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: 0.5rem;
+        }
+
+        .maximize-btn:hover {
+            background: var(--accent-blue);
+        }
+
         .tooltip-title {
             font-weight: 600;
             font-size: 1rem;
@@ -2518,6 +2568,7 @@
                         <div class="zoom-level" id="zoom-level">100%</div>
                         <button class="zoom-btn" id="zoom-out" title="Zoom Out">−</button>
                         <button class="zoom-btn" id="zoom-reset" title="Reset Zoom">⟲</button>
+                        <button class="maximize-btn" id="maximize-btn" title="Fullscreen (Esc to exit)">⛶</button>
                     </div>
                 </div>
                 <div class="info-panel" id="info-panel">
@@ -3860,6 +3911,38 @@
             state.graph.viewport.panY = 0;
             updateZoomDisplay();
             startAnimation();  // Restart animation to redraw
+        });
+
+        // Maximize/fullscreen toggle
+        document.getElementById('maximize-btn').addEventListener('click', () => {
+            toggleGraphFullscreen();
+        });
+
+        function toggleGraphFullscreen() {
+            const graphView = document.getElementById('graph-view');
+            const maximizeBtn = document.getElementById('maximize-btn');
+            const isFullscreen = graphView.classList.toggle('fullscreen');
+            
+            // Update button icon and title
+            maximizeBtn.textContent = isFullscreen ? '⛶' : '⛶';
+            maximizeBtn.title = isFullscreen ? 'Exit Fullscreen (Esc)' : 'Fullscreen (Esc to exit)';
+            
+            // Resize canvas to fit new dimensions
+            const canvas = document.getElementById('graph-canvas');
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+            
+            startAnimation();  // Restart animation to redraw
+        }
+
+        // Escape key to exit fullscreen
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const graphView = document.getElementById('graph-view');
+                if (graphView.classList.contains('fullscreen')) {
+                    toggleGraphFullscreen();
+                }
+            }
         });
 
         // Auto-follow toggle and agent selector
