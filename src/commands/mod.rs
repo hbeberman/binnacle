@@ -10662,8 +10662,19 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
     }
 
     eprintln!("📥 Importing image to containerd...");
+    // Use --base-name to ensure the image is stored with the correct reference
+    // that matches what container_run looks for (localhost/binnacle-worker:tag)
     let import_output = Command::new("sudo")
-        .args(["ctr", "-n", "binnacle", "images", "import", temp_archive])
+        .args([
+            "ctr",
+            "-n",
+            "binnacle",
+            "images",
+            "import",
+            "--base-name",
+            "localhost/binnacle-worker",
+            temp_archive,
+        ])
         .output()?;
 
     // Clean up temp file
