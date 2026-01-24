@@ -1680,4 +1680,282 @@ mod tests {
         assert!(json.contains("\"orient_called\":true"));
         assert!(json.contains("\"started_at\""));
     }
+
+    // ==========================================================================
+    // SCHEMA FINGERPRINT TEST
+    //
+    // This test catches accidental schema changes in serialized data models.
+    // When fields are added/removed/renamed, this test WILL FAIL.
+    //
+    // If this test fails after you modified a model:
+    // 1. VERIFY the change is intentional
+    // 2. CONSIDER backwards compatibility (can old data still be read?)
+    // 3. UPDATE the expected fingerprint below
+    // 4. DOCUMENT the schema change in your commit message
+    //
+    // The fingerprint is a sorted list of all JSON keys that appear when
+    // serializing each model with all optional fields populated.
+    // ==========================================================================
+
+    /// Extract all JSON keys from a serialized value, sorted alphabetically.
+    fn extract_json_keys(json: &str) -> Vec<String> {
+        let value: serde_json::Value = serde_json::from_str(json).unwrap();
+        let mut keys = Vec::new();
+        collect_keys(&value, "", &mut keys);
+        keys.sort();
+        keys
+    }
+
+    fn collect_keys(value: &serde_json::Value, prefix: &str, keys: &mut Vec<String>) {
+        if let serde_json::Value::Object(map) = value {
+            for (k, v) in map {
+                let full_key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{}.{}", prefix, k)
+                };
+                keys.push(full_key.clone());
+                collect_keys(v, &full_key, keys);
+            }
+        }
+    }
+
+    /// Create a fingerprint string from a list of keys.
+    fn fingerprint(keys: &[String]) -> String {
+        keys.join("|")
+    }
+
+    #[test]
+    fn test_schema_fingerprint_task() {
+        // Create a Task with ALL optional fields populated
+        let mut task = super::Task::new("bn-test".to_string(), "Test Task".to_string());
+        task.core.short_name = Some("short".to_string());
+        task.core.description = Some("desc".to_string());
+        task.core.tags = vec!["tag1".to_string()];
+        task.parent = Some("bn-parent".to_string());
+        task.assignee = Some("user".to_string());
+        task.depends_on = vec!["bn-dep".to_string()];
+        task.closed_at = Some(chrono::Utc::now());
+        task.closed_reason = Some("done".to_string());
+        task.imported_on = Some(chrono::Utc::now());
+
+        let json = serde_json::to_string(&task).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        // Expected schema fingerprint for Task
+        // If this fails, you've changed the Task schema - see comment above!
+        let expected = "assignee|closed_at|closed_reason|created_at|depends_on|description|id|imported_on|parent|priority|short_name|status|tags|title|type|updated_at";
+        assert_eq!(
+            fp, expected,
+            "Task schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_bug() {
+        let mut bug = super::Bug::new("bn-bug".to_string(), "Test Bug".to_string());
+        bug.core.short_name = Some("short".to_string());
+        bug.core.description = Some("desc".to_string());
+        bug.core.tags = vec!["tag1".to_string()];
+        bug.reproduction_steps = Some("steps".to_string());
+        bug.affected_component = Some("component".to_string());
+        bug.assignee = Some("user".to_string());
+        bug.depends_on = vec!["bn-dep".to_string()];
+        bug.closed_at = Some(chrono::Utc::now());
+        bug.closed_reason = Some("fixed".to_string());
+
+        let json = serde_json::to_string(&bug).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected = "affected_component|assignee|closed_at|closed_reason|created_at|depends_on|description|id|priority|reproduction_steps|severity|short_name|status|tags|title|type|updated_at";
+        assert_eq!(
+            fp, expected,
+            "Bug schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_idea() {
+        let mut idea = super::Idea::new("bn-idea".to_string(), "Test Idea".to_string());
+        idea.core.short_name = Some("short".to_string());
+        idea.core.description = Some("desc".to_string());
+        idea.core.tags = vec!["tag1".to_string()];
+        idea.promoted_to = Some("bn-task".to_string());
+
+        let json = serde_json::to_string(&idea).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected =
+            "created_at|description|id|promoted_to|short_name|status|tags|title|type|updated_at";
+        assert_eq!(
+            fp, expected,
+            "Idea schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_milestone() {
+        let mut milestone =
+            super::Milestone::new("bn-ms".to_string(), "Test Milestone".to_string());
+        milestone.core.short_name = Some("short".to_string());
+        milestone.core.description = Some("desc".to_string());
+        milestone.core.tags = vec!["tag1".to_string()];
+        milestone.due_date = Some(chrono::Utc::now());
+        milestone.assignee = Some("user".to_string());
+        milestone.closed_at = Some(chrono::Utc::now());
+        milestone.closed_reason = Some("completed".to_string());
+
+        let json = serde_json::to_string(&milestone).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected = "assignee|closed_at|closed_reason|created_at|description|due_date|id|priority|short_name|status|tags|title|type|updated_at";
+        assert_eq!(
+            fp, expected,
+            "Milestone schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_test_node() {
+        let mut test_node = super::TestNode::new(
+            "bnt-test".to_string(),
+            "Test Node".to_string(),
+            "cargo test".to_string(),
+        );
+        test_node.pattern = Some("test_*".to_string());
+        test_node.linked_tasks = vec!["bn-task".to_string()];
+        test_node.linked_bugs = vec!["bn-bug".to_string()];
+
+        let json = serde_json::to_string(&test_node).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected =
+            "command|created_at|id|linked_bugs|linked_tasks|name|pattern|type|working_dir";
+        assert_eq!(
+            fp, expected,
+            "TestNode schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_test_result() {
+        let test_result = super::TestResult {
+            test_id: "bnt-test".to_string(),
+            passed: true,
+            exit_code: 0,
+            stdout: Some("output".to_string()),
+            stderr: Some("errors".to_string()),
+            duration_ms: 100,
+            executed_at: chrono::Utc::now(),
+        };
+
+        let json = serde_json::to_string(&test_result).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected = "duration_ms|executed_at|exit_code|passed|stderr|stdout|test_id";
+        assert_eq!(
+            fp, expected,
+            "TestResult schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_agent() {
+        let mut agent = super::Agent::new_with_purpose(
+            1234,
+            1000,
+            "test-agent".to_string(),
+            super::AgentType::Worker,
+            "Testing".to_string(),
+        );
+        agent.tasks = vec!["bn-task".to_string()];
+
+        let json = serde_json::to_string(&agent).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected = "agent_type|command_count|id|last_activity_at|name|parent_pid|pid|purpose|started_at|status|tasks|type";
+        assert_eq!(
+            fp, expected,
+            "Agent schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_queue() {
+        let mut queue = super::Queue::new("bnq-test".to_string(), "Test Queue".to_string());
+        queue.description = Some("desc".to_string());
+
+        let json = serde_json::to_string(&queue).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected = "created_at|description|id|title|type|updated_at";
+        assert_eq!(
+            fp, expected,
+            "Queue schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_edge() {
+        let mut edge = super::Edge::new(
+            "bne-test".to_string(),
+            "bn-source".to_string(),
+            "bn-target".to_string(),
+            super::EdgeType::DependsOn,
+        );
+        edge.reason = Some("because".to_string());
+        edge.created_by = Some("user".to_string());
+
+        let json = serde_json::to_string(&edge).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected = "created_at|created_by|edge_type|id|reason|source|target|type|weight";
+        assert_eq!(
+            fp, expected,
+            "Edge schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_commit_link() {
+        let commit_link = super::CommitLink {
+            sha: "abc123".to_string(),
+            task_id: "bn-task".to_string(),
+            linked_at: chrono::Utc::now(),
+        };
+
+        let json = serde_json::to_string(&commit_link).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected = "linked_at|sha|task_id";
+        assert_eq!(
+            fp, expected,
+            "CommitLink schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_session_state() {
+        let session = super::SessionState::new(1234, super::AgentType::Worker);
+
+        let json = serde_json::to_string(&session).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected = "agent_pid|agent_type|orient_called|started_at";
+        assert_eq!(
+            fp, expected,
+            "SessionState schema changed! Update expected fingerprint if intentional."
+        );
+    }
 }
