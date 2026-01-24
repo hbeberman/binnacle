@@ -4,7 +4,7 @@ FROM docker.io/library/fedora:43
 
 LABEL org.opencontainers.image.title="binnacle-worker"
 LABEL org.opencontainers.image.description="AI agent worker with binnacle task tracking"
-LABEL org.opencontainers.image.source="https://github.com/henry/binnacle"
+LABEL org.opencontainers.image.source="https://github.com/hbeberman/binnacle"
 
 # Install system dependencies (no Rust needed - we copy pre-built binary)
 RUN dnf install -y \
