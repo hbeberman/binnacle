@@ -1501,6 +1501,35 @@
             cursor: not-allowed;
         }
 
+        .edge-visibility-btn {
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            font-size: 0.85rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.5;
+        }
+
+        .edge-visibility-btn:hover {
+            border-color: var(--accent-blue);
+            opacity: 0.8;
+        }
+
+        .edge-visibility-btn.active {
+            background: var(--info);
+            border-color: var(--info);
+            color: white;
+            opacity: 1;
+        }
+
         .graph-filters {
             position: absolute;
             top: 1rem;
@@ -6477,9 +6506,20 @@
                     state.edgeFilters[type] = newState;
                 }
                 
-                // Update all button states
+                // Update all visibility button states
+                container.querySelectorAll('.edge-visibility-btn').forEach(visBtn => {
+                    const type = visBtn.dataset.edgeType;
+                    if (type) {
+                        visBtn.classList.toggle('active', newState);
+                        visBtn.title = newState 
+                            ? `Hide ${EDGE_TYPES[type].name} edges`
+                            : `Show ${EDGE_TYPES[type].name} edges`;
+                    }
+                });
+                // Update all label button states (active when BOTH visible AND spring)
                 container.querySelectorAll('.edge-filter-btn[data-edge-type]').forEach(btn => {
-                    btn.classList.toggle('active', newState);
+                    const type = btn.dataset.edgeType;
+                    btn.classList.toggle('active', newState && state.edgeSpringFilters[type]);
                 });
                 // Update all spring button states
                 container.querySelectorAll('.edge-spring-btn').forEach(springBtn => {
@@ -6494,14 +6534,24 @@
             container.appendChild(allBtn);
             
             for (const [type, info] of Object.entries(EDGE_TYPES)) {
-                // Create row container for filter and spring buttons
+                // Create row container: [eye visibility] [color label] [magnet spring]
                 const row = document.createElement('div');
                 row.className = 'edge-filter-row';
                 
+                // Create eye visibility button (toggles visibility only)
+                const visBtn = document.createElement('button');
+                visBtn.className = 'edge-visibility-btn' + (state.edgeFilters[type] ? ' active' : '');
+                visBtn.dataset.edgeType = type;
+                visBtn.innerHTML = '👁';
+                visBtn.title = state.edgeFilters[type] 
+                    ? `Hide ${info.name} edges`
+                    : `Show ${info.name} edges`;
+                
+                // Create color label button (toggles BOTH visibility AND magnet)
                 const btn = document.createElement('button');
-                btn.className = 'edge-filter-btn' + (state.edgeFilters[type] ? ' active' : '');
+                btn.className = 'edge-filter-btn' + (state.edgeFilters[type] && state.edgeSpringFilters[type] ? ' active' : '');
                 btn.dataset.edgeType = type;
-                btn.title = `Toggle ${info.name} edges`;
+                btn.title = `Toggle ${info.name} visibility and physics`;
                 
                 const dot = document.createElement('span');
                 dot.className = 'edge-filter-dot';
@@ -6510,33 +6560,69 @@
                 btn.appendChild(dot);
                 btn.appendChild(document.createTextNode(info.name));
                 
-                // Create spring toggle button
+                // Create spring toggle button (toggles magnet/physics only)
                 const springBtn = document.createElement('button');
                 springBtn.className = 'edge-spring-btn' + (state.edgeSpringFilters[type] ? ' active' : '');
                 springBtn.dataset.edgeType = type;
                 springBtn.innerHTML = '🧲';  // Magnet emoji for springiness
                 updateSpringBtnState(springBtn, type);
                 
-                btn.addEventListener('click', (e) => {
+                // Helper to update visibility button state
+                const updateVisBtnState = () => {
+                    visBtn.classList.toggle('active', state.edgeFilters[type]);
+                    visBtn.title = state.edgeFilters[type] 
+                        ? `Hide ${info.name} edges`
+                        : `Show ${info.name} edges`;
+                };
+                
+                // Helper to update label button state (active when BOTH visible AND spring are on)
+                const updateLabelBtnState = () => {
+                    btn.classList.toggle('active', state.edgeFilters[type] && state.edgeSpringFilters[type]);
+                };
+                
+                // Eye button: toggle visibility only
+                visBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     state.edgeFilters[type] = !state.edgeFilters[type];
-                    btn.classList.toggle('active', state.edgeFilters[type]);
+                    updateVisBtnState();
+                    updateLabelBtnState();
                     updateSpringBtnState(springBtn, type);
                     updateAllBtnState();
                     saveEdgeFilters(state.edgeFilters);
-                    startAnimation();  // Restart animation to apply edge filter
+                    startAnimation();
                 });
                 
+                // Label button: toggle BOTH visibility AND magnet together
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // If both are on, turn both off; otherwise turn both on
+                    const bothActive = state.edgeFilters[type] && state.edgeSpringFilters[type];
+                    const newState = !bothActive;
+                    state.edgeFilters[type] = newState;
+                    state.edgeSpringFilters[type] = newState;
+                    updateVisBtnState();
+                    updateLabelBtnState();
+                    springBtn.classList.toggle('active', newState);
+                    updateSpringBtnState(springBtn, type);
+                    updateAllBtnState();
+                    saveEdgeFilters(state.edgeFilters);
+                    saveEdgeSpringFilters(state.edgeSpringFilters);
+                    startAnimation();
+                });
+                
+                // Magnet button: toggle spring physics only (when visible)
                 springBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     if (!state.edgeFilters[type]) return; // Can't toggle spring if edge not visible
                     state.edgeSpringFilters[type] = !state.edgeSpringFilters[type];
                     springBtn.classList.toggle('active', state.edgeSpringFilters[type]);
+                    updateLabelBtnState();
                     updateSpringBtnState(springBtn, type);
                     saveEdgeSpringFilters(state.edgeSpringFilters);
-                    startAnimation();  // Restart animation to apply spring filter
+                    startAnimation();
                 });
                 
+                row.appendChild(visBtn);
                 row.appendChild(btn);
                 row.appendChild(springBtn);
                 container.appendChild(row);
