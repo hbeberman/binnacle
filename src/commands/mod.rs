@@ -975,6 +975,29 @@ fi
 ### BINNACLE HOOK END ###
 "#;
 
+/// The post-commit hook script content for archive generation
+const POST_COMMIT_HOOK_CONTENT: &str = r#"
+### BINNACLE HOOK START ###
+# Binnacle post-commit hook
+# Generates archive snapshots when archive.directory is configured
+
+# Exit early if bn is not available
+if ! command -v bn &> /dev/null; then
+    exit 0
+fi
+
+# Check if archive.directory is configured
+archive_dir=$(bn config get archive.directory 2>/dev/null | jq -r '.value // empty' 2>/dev/null || true)
+if [[ -n "$archive_dir" ]] && [[ "$archive_dir" != "null" ]]; then
+    commit_sha=$(git rev-parse HEAD 2>/dev/null)
+    if [[ -n "$commit_sha" ]]; then
+        # Generate archive in the background to not slow down commits
+        (bn system store archive "$commit_sha" > /dev/null 2>&1 &)
+    fi
+fi
+### BINNACLE HOOK END ###
+"#;
+
 /// Replace the binnacle section in the given content with the new blurb.
 /// Returns the new content with the section replaced.
 /// Assumes the content contains both BEGIN and END markers.
@@ -1125,6 +1148,57 @@ pub fn install_commit_msg_hook(repo_path: &Path) -> Result<bool> {
     Ok(true)
 }
 
+/// Install the post-commit hook for archive generation.
+/// - If hook doesn't exist: create it with shebang + binnacle section
+/// - If hook exists with markers: do nothing (already installed)
+/// - If hook exists without markers: append binnacle section
+///
+/// Returns true if the hook was installed/updated.
+pub fn install_post_commit_hook(repo_path: &Path) -> Result<bool> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let hooks_dir = repo_path.join(".git").join("hooks");
+    let hook_path = hooks_dir.join("post-commit");
+
+    // Ensure hooks directory exists
+    if !hooks_dir.exists() {
+        fs::create_dir_all(&hooks_dir)
+            .map_err(|e| Error::Other(format!("Failed to create hooks directory: {}", e)))?;
+    }
+
+    if hook_path.exists() {
+        let contents = fs::read_to_string(&hook_path)
+            .map_err(|e| Error::Other(format!("Failed to read post-commit hook: {}", e)))?;
+
+        // Check if binnacle section already exists
+        if contents.contains(HOOK_SECTION_START) {
+            // Already installed, nothing to do
+            return Ok(false);
+        }
+
+        // Append binnacle section to existing hook
+        let new_contents = format!("{}{}", contents, POST_COMMIT_HOOK_CONTENT);
+        fs::write(&hook_path, new_contents)
+            .map_err(|e| Error::Other(format!("Failed to update post-commit hook: {}", e)))?;
+    } else {
+        // Create new hook with shebang + binnacle section
+        let contents = format!("#!/usr/bin/env bash{}", POST_COMMIT_HOOK_CONTENT);
+        fs::write(&hook_path, contents)
+            .map_err(|e| Error::Other(format!("Failed to create post-commit hook: {}", e)))?;
+    }
+
+    // Ensure hook is executable
+    let mut perms = fs::metadata(&hook_path)
+        .map_err(|e| Error::Other(format!("Failed to get hook permissions: {}", e)))?
+        .permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&hook_path, perms)
+        .map_err(|e| Error::Other(format!("Failed to set hook permissions: {}", e)))?;
+
+    Ok(true)
+}
+
 /// Uninstall the commit-msg hook (remove binnacle section).
 /// - If hook doesn't exist: do nothing
 /// - If hook exists without markers: do nothing
@@ -1204,10 +1278,67 @@ pub fn uninstall_commit_msg_hook(repo_path: &Path) -> Result<bool> {
     Ok(true)
 }
 
+/// Uninstall the post-commit hook (remove binnacle section).
+/// - If hook doesn't exist: do nothing
+/// - If hook exists without markers: do nothing
+/// - If hook exists with only binnacle section: remove the file
+/// - If hook exists with binnacle section and other content: remove only binnacle section
+///
+/// Returns true if something was changed.
+pub fn uninstall_post_commit_hook(repo_path: &Path) -> Result<bool> {
+    use std::fs;
+
+    let hook_path = repo_path.join(".git").join("hooks").join("post-commit");
+
+    if !hook_path.exists() {
+        return Ok(false);
+    }
+
+    let contents = fs::read_to_string(&hook_path)
+        .map_err(|e| Error::Other(format!("Failed to read post-commit hook: {}", e)))?;
+
+    // Check for binnacle markers
+    let has_start = contents.contains(HOOK_SECTION_START);
+    let has_end = contents.contains(HOOK_SECTION_END);
+
+    if !has_start || !has_end {
+        // No binnacle section found
+        return Ok(false);
+    }
+
+    // Find and remove the binnacle section
+    let start_idx = contents
+        .find(HOOK_SECTION_START)
+        .ok_or_else(|| Error::Other("Hook start marker not found".to_string()))?;
+    let search_start = start_idx + HOOK_SECTION_START.len();
+    let end_relative = contents[search_start..]
+        .find(HOOK_SECTION_END)
+        .ok_or_else(|| Error::Other("Hook end marker not found".to_string()))?;
+    let end_idx = search_start + end_relative + HOOK_SECTION_END.len();
+
+    // Build new content without the binnacle section
+    let before = &contents[..start_idx];
+    let after = &contents[end_idx..];
+    let new_contents = format!("{}{}", before.trim_end(), after.trim_start());
+
+    // If the hook is now empty (or just shebang), remove it entirely
+    let trimmed = new_contents.trim();
+    if trimmed.is_empty() || trimmed == "#!/usr/bin/env bash" || trimmed == "#!/bin/bash" {
+        fs::remove_file(&hook_path)
+            .map_err(|e| Error::Other(format!("Failed to remove post-commit hook: {}", e)))?;
+    } else {
+        fs::write(&hook_path, new_contents)
+            .map_err(|e| Error::Other(format!("Failed to update post-commit hook: {}", e)))?;
+    }
+
+    Ok(true)
+}
+
 /// Result of hooks uninstall command
 #[derive(Debug, Serialize)]
 pub struct HooksUninstallResult {
     pub commit_msg_removed: bool,
+    pub post_commit_removed: bool,
 }
 
 impl Output for HooksUninstallResult {
@@ -1216,10 +1347,21 @@ impl Output for HooksUninstallResult {
     }
 
     fn to_human(&self) -> String {
+        let mut removed = Vec::new();
         if self.commit_msg_removed {
-            "Removed binnacle section from commit-msg hook.".to_string()
-        } else {
+            removed.push("commit-msg");
+        }
+        if self.post_commit_removed {
+            removed.push("post-commit");
+        }
+
+        if removed.is_empty() {
             "No binnacle hooks found to uninstall.".to_string()
+        } else {
+            format!(
+                "Removed binnacle section from {} hook(s).",
+                removed.join(", ")
+            )
         }
     }
 }
@@ -1227,7 +1369,11 @@ impl Output for HooksUninstallResult {
 /// Uninstall binnacle hooks from the repository.
 pub fn hooks_uninstall(repo_path: &Path) -> Result<HooksUninstallResult> {
     let commit_msg_removed = uninstall_commit_msg_hook(repo_path)?;
-    Ok(HooksUninstallResult { commit_msg_removed })
+    let post_commit_removed = uninstall_post_commit_hook(repo_path)?;
+    Ok(HooksUninstallResult {
+        commit_msg_removed,
+        post_commit_removed,
+    })
 }
 
 // === Orient Command ===
