@@ -550,12 +550,18 @@ fn run_command(
                 output(&result, human);
             }
         },
-        Some(Commands::Ready) => {
-            let result = commands::ready(repo_path)?;
+        Some(Commands::Ready {
+            bugs_only,
+            tasks_only,
+        }) => {
+            let result = commands::ready(repo_path, bugs_only, tasks_only)?;
             output(&result, human);
         }
-        Some(Commands::Blocked) => {
-            let result = commands::blocked(repo_path)?;
+        Some(Commands::Blocked {
+            bugs_only,
+            tasks_only,
+        }) => {
+            let result = commands::blocked(repo_path, bugs_only, tasks_only)?;
             output(&result, human);
         }
         Some(Commands::Doctor {
@@ -1619,9 +1625,27 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             ),
         },
 
-        Some(Commands::Ready) => ("ready".to_string(), serde_json::json!({})),
+        Some(Commands::Ready {
+            bugs_only,
+            tasks_only,
+        }) => (
+            "ready".to_string(),
+            serde_json::json!({
+                "bugs_only": bugs_only,
+                "tasks_only": tasks_only,
+            }),
+        ),
 
-        Some(Commands::Blocked) => ("blocked".to_string(), serde_json::json!({})),
+        Some(Commands::Blocked {
+            bugs_only,
+            tasks_only,
+        }) => (
+            "blocked".to_string(),
+            serde_json::json!({
+                "bugs_only": bugs_only,
+                "tasks_only": tasks_only,
+            }),
+        ),
 
         Some(Commands::Doctor {
             migrate_edges,

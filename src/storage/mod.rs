@@ -1768,6 +1768,42 @@ impl Storage {
         Ok(blocked)
     }
 
+    /// Get bugs that are blocked (have open dependencies).
+    /// Checks both the legacy depends_on field and edge-based dependencies.
+    pub fn get_blocked_bugs(&self) -> Result<Vec<Bug>> {
+        let bugs = self.list_bugs(None, None, None, None)?;
+        let mut blocked = Vec::new();
+
+        for bug in bugs {
+            match bug.status {
+                TaskStatus::Pending | TaskStatus::Reopened => {
+                    // Check legacy depends_on field
+                    let has_open_legacy_deps = !bug.depends_on.is_empty()
+                        && bug
+                            .depends_on
+                            .iter()
+                            .any(|dep_id| !self.is_entity_done(dep_id));
+
+                    // Check edge-based dependencies
+                    let edge_deps = self.get_edge_dependencies(&bug.id).unwrap_or_default();
+                    let has_open_edge_deps = !edge_deps.is_empty()
+                        && edge_deps.iter().any(|dep_id| !self.is_entity_done(dep_id));
+
+                    if has_open_legacy_deps || has_open_edge_deps {
+                        blocked.push(bug);
+                    }
+                }
+                TaskStatus::Blocked => {
+                    // Explicitly blocked bugs are always included
+                    blocked.push(bug);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(blocked)
+    }
+
     /// Get the storage root path.
     pub fn root(&self) -> &Path {
         &self.root

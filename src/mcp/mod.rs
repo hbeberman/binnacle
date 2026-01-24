@@ -433,11 +433,15 @@ impl McpServer {
                 Ok(result.to_json())
             }
             "bn_ready" => {
-                let result = commands::ready(repo)?;
+                let bugs_only = get_optional_bool(args, "bugs_only").unwrap_or(false);
+                let tasks_only = get_optional_bool(args, "tasks_only").unwrap_or(false);
+                let result = commands::ready(repo, bugs_only, tasks_only)?;
                 Ok(result.to_json())
             }
             "bn_blocked" => {
-                let result = commands::blocked(repo)?;
+                let bugs_only = get_optional_bool(args, "bugs_only").unwrap_or(false);
+                let tasks_only = get_optional_bool(args, "tasks_only").unwrap_or(false);
+                let result = commands::blocked(repo, bugs_only, tasks_only)?;
                 Ok(result.to_json())
             }
             "bn_test_create" => {
@@ -692,11 +696,11 @@ impl McpServer {
                 Ok(result.to_json())
             }
             "binnacle://ready" => {
-                let result = commands::ready(repo)?;
+                let result = commands::ready(repo, false, false)?;
                 Ok(result.to_json())
             }
             "binnacle://blocked" => {
-                let result = commands::blocked(repo)?;
+                let result = commands::blocked(repo, false, false)?;
                 Ok(result.to_json())
             }
             "binnacle://status" => {
@@ -1149,19 +1153,37 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "bn_ready".to_string(),
-            description: "List tasks with no open blockers (ready to work on)".to_string(),
+            description: "List tasks and bugs with no open blockers (ready to work on)".to_string(),
             input_schema: json!({
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "bugs_only": {
+                        "type": "boolean",
+                        "description": "Show only bugs (exclude tasks)"
+                    },
+                    "tasks_only": {
+                        "type": "boolean",
+                        "description": "Show only tasks (exclude bugs)"
+                    }
+                },
                 "required": []
             }),
         },
         ToolDef {
             name: "bn_blocked".to_string(),
-            description: "List tasks waiting on dependencies".to_string(),
+            description: "List tasks and bugs waiting on dependencies".to_string(),
             input_schema: json!({
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "bugs_only": {
+                        "type": "boolean",
+                        "description": "Show only bugs (exclude tasks)"
+                    },
+                    "tasks_only": {
+                        "type": "boolean",
+                        "description": "Show only tasks (exclude bugs)"
+                    }
+                },
                 "required": []
             }),
         },

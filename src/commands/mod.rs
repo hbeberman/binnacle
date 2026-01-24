@@ -6178,10 +6178,22 @@ impl Output for ReadyTasks {
 
 /// Get tasks and bugs that are ready (no open blockers).
 /// Queued tasks/bugs are sorted first, then by priority.
-pub fn ready(repo_path: &Path) -> Result<ReadyTasks> {
+pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<ReadyTasks> {
     let storage = Storage::open(repo_path)?;
-    let tasks = storage.get_ready_tasks()?;
-    let bugs = storage.get_ready_bugs()?;
+
+    // Fetch tasks unless bugs_only is set
+    let tasks = if bugs_only {
+        Vec::new()
+    } else {
+        storage.get_ready_tasks()?
+    };
+
+    // Fetch bugs unless tasks_only is set
+    let bugs = if tasks_only {
+        Vec::new()
+    } else {
+        storage.get_ready_bugs()?
+    };
 
     // Get queued task IDs for membership check
     let queued_tasks = storage.get_queued_tasks().unwrap_or_default();
@@ -6255,7 +6267,9 @@ pub fn ready(repo_path: &Path) -> Result<ReadyTasks> {
 #[derive(Serialize)]
 pub struct BlockedTasks {
     pub tasks: Vec<BlockedTask>,
+    pub bugs: Vec<BlockedBug>,
     pub count: usize,
+    pub bug_count: usize,
 }
 
 #[derive(Serialize)]
@@ -6265,70 +6279,142 @@ pub struct BlockedTask {
     pub blocking_tasks: Vec<String>,
 }
 
+#[derive(Serialize)]
+pub struct BlockedBug {
+    #[serde(flatten)]
+    pub bug: Bug,
+    pub blocking_entities: Vec<String>,
+}
+
 impl Output for BlockedTasks {
     fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }
 
     fn to_human(&self) -> String {
-        if self.tasks.is_empty() {
-            return "No blocked tasks.".to_string();
+        let mut lines = Vec::new();
+
+        // Show blocked bugs first
+        if !self.bugs.is_empty() {
+            lines.push(format!("{} blocked bug(s):\n", self.bug_count));
+
+            for bb in &self.bugs {
+                let bug = &bb.bug;
+                let blockers = if bb.blocking_entities.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (blocked by: {})", bb.blocking_entities.join(", "))
+                };
+                lines.push(format!(
+                    "  {} P{} {} ({}){}",
+                    bug.id,
+                    bug.priority,
+                    bug.title,
+                    format!("{:?}", bug.severity).to_lowercase(),
+                    blockers
+                ));
+            }
+
+            if !self.tasks.is_empty() {
+                lines.push(String::new()); // blank line between sections
+            }
         }
 
-        let mut lines = Vec::new();
-        lines.push(format!("{} blocked task(s):\n", self.count));
+        // Show blocked tasks
+        if !self.tasks.is_empty() {
+            lines.push(format!("{} blocked task(s):\n", self.count));
 
-        for bt in &self.tasks {
-            let task = &bt.task;
-            let blockers = if bt.blocking_tasks.is_empty() {
-                String::new()
-            } else {
-                format!(" (blocked by: {})", bt.blocking_tasks.join(", "))
-            };
-            lines.push(format!(
-                "  {} P{} {}{}",
-                task.id, task.priority, task.title, blockers
-            ));
+            for bt in &self.tasks {
+                let task = &bt.task;
+                let blockers = if bt.blocking_tasks.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (blocked by: {})", bt.blocking_tasks.join(", "))
+                };
+                lines.push(format!(
+                    "  {} P{} {}{}",
+                    task.id, task.priority, task.title, blockers
+                ));
+            }
+        }
+
+        if lines.is_empty() {
+            return "No blocked tasks or bugs.".to_string();
         }
 
         lines.join("\n")
     }
 }
 
-/// Get tasks that are blocked (waiting on dependencies).
-pub fn blocked(repo_path: &Path) -> Result<BlockedTasks> {
+/// Get tasks and bugs that are blocked (waiting on dependencies).
+pub fn blocked(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<BlockedTasks> {
     let storage = Storage::open(repo_path)?;
-    let tasks = storage.get_blocked_tasks()?;
 
+    // Fetch tasks unless bugs_only is set
     let mut blocked_tasks = Vec::new();
-    for task in tasks {
-        // Find which legacy dependencies are blocking
-        let mut blocking: Vec<String> = task
-            .depends_on
-            .iter()
-            .filter(|dep_id| !storage.is_entity_done(dep_id))
-            .cloned()
-            .collect();
+    if !bugs_only {
+        let tasks = storage.get_blocked_tasks()?;
+        for task in tasks {
+            // Find which legacy dependencies are blocking
+            let mut blocking: Vec<String> = task
+                .depends_on
+                .iter()
+                .filter(|dep_id| !storage.is_entity_done(dep_id))
+                .cloned()
+                .collect();
 
-        // Also include edge-based dependencies that are blocking
-        if let Ok(edge_deps) = storage.get_edge_dependencies(&task.id) {
-            for dep_id in edge_deps {
-                if !storage.is_entity_done(&dep_id) && !blocking.contains(&dep_id) {
-                    blocking.push(dep_id);
+            // Also include edge-based dependencies that are blocking
+            if let Ok(edge_deps) = storage.get_edge_dependencies(&task.id) {
+                for dep_id in edge_deps {
+                    if !storage.is_entity_done(&dep_id) && !blocking.contains(&dep_id) {
+                        blocking.push(dep_id);
+                    }
                 }
             }
-        }
 
-        blocked_tasks.push(BlockedTask {
-            task,
-            blocking_tasks: blocking,
-        });
+            blocked_tasks.push(BlockedTask {
+                task,
+                blocking_tasks: blocking,
+            });
+        }
+    }
+
+    // Fetch bugs unless tasks_only is set
+    let mut blocked_bugs = Vec::new();
+    if !tasks_only {
+        let bugs = storage.get_blocked_bugs()?;
+        for bug in bugs {
+            // Find which legacy dependencies are blocking
+            let mut blocking: Vec<String> = bug
+                .depends_on
+                .iter()
+                .filter(|dep_id| !storage.is_entity_done(dep_id))
+                .cloned()
+                .collect();
+
+            // Also include edge-based dependencies that are blocking
+            if let Ok(edge_deps) = storage.get_edge_dependencies(&bug.id) {
+                for dep_id in edge_deps {
+                    if !storage.is_entity_done(&dep_id) && !blocking.contains(&dep_id) {
+                        blocking.push(dep_id);
+                    }
+                }
+            }
+
+            blocked_bugs.push(BlockedBug {
+                bug,
+                blocking_entities: blocking,
+            });
+        }
     }
 
     let count = blocked_tasks.len();
+    let bug_count = blocked_bugs.len();
     Ok(BlockedTasks {
         tasks: blocked_tasks,
+        bugs: blocked_bugs,
         count,
+        bug_count,
     })
 }
 
@@ -11065,7 +11151,7 @@ mod tests {
         // B depends on A (which is pending, so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = ready(temp.path()).unwrap();
+        let result = ready(temp.path(), false, false).unwrap();
         assert_eq!(result.count, 1);
         assert_eq!(result.tasks[0].task.id, task_a.id);
     }
@@ -11097,7 +11183,7 @@ mod tests {
         // B depends on A (which is pending, so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = blocked(temp.path()).unwrap();
+        let result = blocked(temp.path(), false, false).unwrap();
         assert_eq!(result.count, 1);
         assert_eq!(result.tasks[0].task.id, task_b.id);
         assert!(result.tasks[0].blocking_tasks.contains(&task_a.id));
@@ -11130,19 +11216,19 @@ mod tests {
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         // Initially B is blocked
-        let blocked_result = blocked(temp.path()).unwrap();
+        let blocked_result = blocked(temp.path(), false, false).unwrap();
         assert_eq!(blocked_result.count, 1);
 
         // Close task A
         task_close(temp.path(), &task_a.id, None, false).unwrap();
 
         // Now B should be ready
-        let ready_result = ready(temp.path()).unwrap();
+        let ready_result = ready(temp.path(), false, false).unwrap();
         assert_eq!(ready_result.count, 1);
         assert_eq!(ready_result.tasks[0].task.id, task_b.id);
 
         // And B should not be blocked anymore
-        let blocked_result = blocked(temp.path()).unwrap();
+        let blocked_result = blocked(temp.path(), false, false).unwrap();
         assert_eq!(blocked_result.count, 0);
     }
 

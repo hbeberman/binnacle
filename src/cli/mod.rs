@@ -120,10 +120,26 @@ pub enum Commands {
     },
 
     /// Show tasks ready to work on (no incomplete dependencies)
-    Ready,
+    Ready {
+        /// Show only bugs (exclude tasks)
+        #[arg(long)]
+        bugs_only: bool,
+
+        /// Show only tasks (exclude bugs)
+        #[arg(long)]
+        tasks_only: bool,
+    },
 
     /// Show tasks waiting on dependencies
-    Blocked,
+    Blocked {
+        /// Show only bugs (exclude tasks)
+        #[arg(long)]
+        bugs_only: bool,
+
+        /// Show only tasks (exclude bugs)
+        #[arg(long)]
+        tasks_only: bool,
+    },
 
     /// Health check and issue detection
     Doctor {
