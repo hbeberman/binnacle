@@ -5916,16 +5916,11 @@
                 return;
             }
             list.innerHTML = openIdeas.map(idea => {
-                const isQueued = isNodeQueued(idea.id);
                 const statusLabel = idea.status === 'seed' ? '🌱 Seed' : '🌿 Germinating';
                 return `
                 <div class="card">
                     <div class="card-header">
                         <div class="card-title">${escapeHtml(idea.title)}</div>
-                        <button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
-                                data-task-id="${idea.id}" 
-                                title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
-                        </button>
                     </div>
                     ${idea.description ? `<div class="card-description">${escapeHtml(idea.description)}</div>` : ''}
                     <div class="card-meta">
@@ -5935,11 +5930,6 @@
                     </div>
                 </div>
             `}).join('');
-            
-            // Attach event handlers to queue toggle buttons
-            list.querySelectorAll('.card-queue-toggle').forEach(btn => {
-                btn.addEventListener('click', handleCardQueueToggle);
-            });
         }
 
         async function handleCardQueueToggle(event) {
