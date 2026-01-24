@@ -848,6 +848,11 @@ impl McpServer {
                 let result = commands::bug_delete(repo, &id)?;
                 Ok(result.to_json())
             }
+            // Graph tools
+            "bn_graph_components" => {
+                let result = commands::graph_components(repo)?;
+                Ok(result.to_json())
+            }
             _ => Err(Error::Other(format!("Unknown tool: {}", name))),
         }
     }
@@ -2284,6 +2289,16 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     }
                 },
                 "required": ["id"]
+            }),
+        },
+        // Graph tools
+        ToolDef {
+            name: "bn_graph_components".to_string(),
+            description: "Find disconnected components in the task graph".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+                "required": []
             }),
         },
     ]
