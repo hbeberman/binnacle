@@ -8,11 +8,37 @@ use axum::{
     routing::{get, post},
 };
 use serde::Deserialize;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{Mutex, broadcast};
+
+/// Default starting port for the GUI server
+pub const DEFAULT_PORT: u16 = 3030;
+
+/// Maximum number of ports to try when auto-selecting
+const MAX_PORT_ATTEMPTS: u16 = 100;
+
+/// Find an available port starting from the given base port.
+/// Tries ports sequentially until one is available or max attempts reached.
+pub fn find_available_port(host: &str, start_port: u16) -> Option<u16> {
+    let host_addr: std::net::IpAddr = match host.parse() {
+        Ok(addr) => addr,
+        Err(_) => return None,
+    };
+
+    for offset in 0..MAX_PORT_ATTEMPTS {
+        let port = start_port.saturating_add(offset);
+        let addr = SocketAddr::from((host_addr, port));
+
+        // Try to bind to check if port is available
+        if TcpListener::bind(addr).is_ok() {
+            return Some(port);
+        }
+    }
+    None
+}
 
 use crate::models::{Edge, EdgeType, Queue, TaskStatus};
 use crate::storage::{Storage, generate_id};

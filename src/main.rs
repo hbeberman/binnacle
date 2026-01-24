@@ -932,8 +932,8 @@ fn output<T: Output>(result: &T, human: bool) {
 
 /// Run the GUI web server
 #[cfg(feature = "gui")]
-fn run_gui(repo_path: &Path, port: u16, host: &str) -> Result<(), binnacle::Error> {
-    use binnacle::gui::{GuiPidFile, GuiPidInfo, ProcessStatus};
+fn run_gui(repo_path: &Path, port: Option<u16>, host: &str) -> Result<(), binnacle::Error> {
+    use binnacle::gui::{DEFAULT_PORT, GuiPidFile, GuiPidInfo, ProcessStatus, find_available_port};
     use binnacle::storage::{Storage, get_storage_dir};
 
     // Ensure storage is initialized
@@ -963,11 +963,22 @@ fn run_gui(repo_path: &Path, port: u16, host: &str) -> Result<(), binnacle::Erro
         }
     }
 
+    // Determine port: use specified port or find an available one
+    let actual_port = match port {
+        Some(p) => p,
+        None => find_available_port(host, DEFAULT_PORT).ok_or_else(|| {
+            binnacle::Error::Other(format!(
+                "Could not find an available port starting from {}",
+                DEFAULT_PORT
+            ))
+        })?,
+    };
+
     // Write PID file before starting server
     let current_pid = std::process::id();
     let pid_info = GuiPidInfo {
         pid: current_pid,
-        port,
+        port: actual_port,
         host: host.to_string(),
     };
     pid_file
@@ -980,7 +991,7 @@ fn run_gui(repo_path: &Path, port: u16, host: &str) -> Result<(), binnacle::Erro
         .build()
         .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?
         .block_on(async {
-            binnacle::gui::start_server(repo_path, port, host)
+            binnacle::gui::start_server(repo_path, actual_port, host)
                 .await
                 .map_err(|e| binnacle::Error::Other(format!("GUI server error: {}", e)))
         });
@@ -995,11 +1006,11 @@ fn run_gui(repo_path: &Path, port: u16, host: &str) -> Result<(), binnacle::Erro
 #[cfg(feature = "gui")]
 fn replace_gui(
     repo_path: &Path,
-    port: u16,
+    port: Option<u16>,
     host: &str,
     human: bool,
 ) -> Result<(), binnacle::Error> {
-    use binnacle::gui::{GuiPidFile, GuiPidInfo, ProcessStatus};
+    use binnacle::gui::{DEFAULT_PORT, GuiPidFile, GuiPidInfo, ProcessStatus, find_available_port};
     use binnacle::storage::{Storage, get_storage_dir};
     use std::thread;
     use std::time::Duration;
@@ -1070,16 +1081,27 @@ fn replace_gui(
         }
     }
 
+    // Determine port: use specified port or find an available one
+    let actual_port = match port {
+        Some(p) => p,
+        None => find_available_port(host, DEFAULT_PORT).ok_or_else(|| {
+            binnacle::Error::Other(format!(
+                "Could not find an available port starting from {}",
+                DEFAULT_PORT
+            ))
+        })?,
+    };
+
     // Now start the new server
     if human {
-        println!("Starting GUI server on http://{}:{}...", host, port);
+        println!("Starting GUI server on http://{}:{}...", host, actual_port);
     }
 
     // Write PID file before starting server
     let current_pid = std::process::id();
     let pid_info = GuiPidInfo {
         pid: current_pid,
-        port,
+        port: actual_port,
         host: host.to_string(),
     };
     pid_file
@@ -1092,7 +1114,7 @@ fn replace_gui(
         .build()
         .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?
         .block_on(async {
-            binnacle::gui::start_server(repo_path, port, host)
+            binnacle::gui::start_server(repo_path, actual_port, host)
                 .await
                 .map_err(|e| binnacle::Error::Other(format!("GUI server error: {}", e)))
         });

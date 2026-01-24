@@ -238,9 +238,9 @@ pub enum Commands {
     /// Start the web GUI (requires 'gui' feature)
     #[cfg(feature = "gui")]
     Gui {
-        /// Port to listen on (default: 3030, or BN_GUI_PORT env var)
-        #[arg(short, long, env = "BN_GUI_PORT", default_value = "3030")]
-        port: u16,
+        /// Port to listen on (default: auto-select starting from 3030, or BN_GUI_PORT env var)
+        #[arg(short, long, env = "BN_GUI_PORT")]
+        port: Option<u16>,
 
         /// Host address to bind to (default: 0.0.0.0 for network access, use 127.0.0.1 for local only)
         #[arg(long, env = "BN_GUI_HOST", default_value = "0.0.0.0")]

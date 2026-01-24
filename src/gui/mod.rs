@@ -15,4 +15,4 @@ mod websocket;
 #[cfg(feature = "gui")]
 pub use pid_file::{GuiPidFile, GuiPidInfo, ProcessStatus, verify_process};
 #[cfg(feature = "gui")]
-pub use server::start_server;
+pub use server::{DEFAULT_PORT, find_available_port, start_server};
