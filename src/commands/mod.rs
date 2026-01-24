@@ -1595,6 +1595,12 @@ fn get_grandparent_pid() -> Option<u32> {
 /// Find a registered agent that is an ancestor of the current process.
 /// This traverses the process tree upwards to find any agent that was
 /// registered by a parent shell (since each bn command runs in a new subprocess).
+///
+/// If no ancestor agent is found, falls back to checking the session state file,
+/// which records which agent was registered during `bn orient`. This handles the
+/// case where multiple shells are spawned under the same parent (siblings), and
+/// the registered agent is not a direct ancestor of the current process.
+///
 /// Returns the agent's PID if found, None otherwise.
 #[cfg(unix)]
 fn find_ancestor_agent(storage: &Storage) -> Option<u32> {
@@ -1625,7 +1631,23 @@ fn find_ancestor_agent(storage: &Storage) -> Option<u32> {
         current_pid = get_ppid_of_pid(current_pid)?;
     }
 
+    // Fallback: Check session state for the registered agent PID
+    // This handles the case where multiple shells are spawned under the same parent,
+    // and the registered agent is a sibling rather than an ancestor of this process.
+    if let Ok(session_state) = storage.read_session_state()
+        && agent_pids.contains(&session_state.agent_pid)
+        && is_process_alive(session_state.agent_pid)
+    {
+        return Some(session_state.agent_pid);
+    }
+
     None
+}
+
+/// Check if a process is still alive.
+#[cfg(unix)]
+fn is_process_alive(pid: u32) -> bool {
+    std::path::Path::new(&format!("/proc/{}", pid)).exists()
 }
 
 #[cfg(not(unix))]
