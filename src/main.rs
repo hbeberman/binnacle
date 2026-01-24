@@ -453,8 +453,8 @@ fn run_command(
                 )?;
                 output(&result, human);
             }
-            DocCommands::Show { id } => {
-                let result = commands::doc_show(repo_path, &id)?;
+            DocCommands::Show { id, full } => {
+                let result = commands::doc_show(repo_path, &id, full)?;
                 output(&result, human);
             }
             DocCommands::List {
@@ -1686,7 +1686,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "tag": tag,
                 }),
             ),
-            DocCommands::Show { id } => ("doc show".to_string(), serde_json::json!({ "id": id })),
+            DocCommands::Show { id, full } => (
+                "doc show".to_string(),
+                serde_json::json!({ "id": id, "full": full }),
+            ),
             DocCommands::List {
                 tag,
                 doc_type,

@@ -105,14 +105,122 @@ fn test_doc_create_with_summary() {
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
     let doc_id = json["id"].as_str().expect("No doc ID");
 
-    // Verify summary was prepended
+    // Verify summary was prepended (need --full to see full content including # Summary header)
     bn_in(&temp)
-        .args(["doc", "show", doc_id, "-H"])
+        .args(["doc", "show", doc_id, "-H", "--full"])
         .assert()
         .success()
         .stdout(predicate::str::contains("# Summary"))
         .stdout(predicate::str::contains("This is the summary"))
         .stdout(predicate::str::contains("# Main content"));
+}
+
+#[test]
+fn test_doc_show_default_shows_summary_only() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc with summary and content
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "Doc for show test",
+            "--short",
+            "The summary text",
+            "-c",
+            "# Main content\n\nThis is the main body.",
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
+    let doc_id = json["id"].as_str().expect("No doc ID");
+
+    // Default show (without --full) should show summary but NOT full content
+    bn_in(&temp)
+        .args(["doc", "show", doc_id, "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Summary:"))
+        .stdout(predicate::str::contains("The summary text"))
+        .stdout(predicate::str::contains(
+            "(Use --full to see complete content)",
+        ))
+        // Should NOT contain full markdown headers
+        .stdout(predicate::str::contains("# Main content").not());
+}
+
+#[test]
+fn test_doc_show_full_shows_all_content() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc with summary and content
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "Doc for full show test",
+            "--short",
+            "Summary here",
+            "-c",
+            "# Body\n\nFull body text here.",
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
+    let doc_id = json["id"].as_str().expect("No doc ID");
+
+    // With --full flag, should show all content
+    bn_in(&temp)
+        .args(["doc", "show", doc_id, "-H", "--full"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Content:"))
+        .stdout(predicate::str::contains("# Summary"))
+        .stdout(predicate::str::contains("Summary here"))
+        .stdout(predicate::str::contains("# Body"))
+        .stdout(predicate::str::contains("Full body text here."))
+        // Should NOT contain the hint since we're showing full content
+        .stdout(predicate::str::contains("(Use --full").not());
+}
+
+#[test]
+fn test_doc_show_displays_linked_entities() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc linked to task
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "Linked doc",
+            "-c",
+            "content",
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
+    let doc_id = json["id"].as_str().expect("No doc ID");
+
+    // Show should display linked entities
+    bn_in(&temp)
+        .args(["doc", "show", doc_id, "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Linked Entities"))
+        .stdout(predicate::str::contains(&task_id))
+        .stdout(predicate::str::contains("Test task"));
 }
 
 #[test]
@@ -212,9 +320,9 @@ fn test_doc_create_with_file() {
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
     let doc_id = json["id"].as_str().expect("No doc ID");
 
-    // Verify content
+    // Verify content (need --full to see full content)
     bn_in(&temp)
-        .args(["doc", "show", doc_id, "-H"])
+        .args(["doc", "show", doc_id, "-H", "--full"])
         .assert()
         .success()
         .stdout(predicate::str::contains("# From File"))
@@ -370,9 +478,9 @@ fn test_doc_create_only_summary() {
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
     let doc_id = json["id"].as_str().expect("No doc ID");
 
-    // Verify only summary is present
+    // Verify summary is shown (need --full to see the # Summary header)
     bn_in(&temp)
-        .args(["doc", "show", doc_id, "-H"])
+        .args(["doc", "show", doc_id, "-H", "--full"])
         .assert()
         .success()
         .stdout(predicate::str::contains("# Summary"))

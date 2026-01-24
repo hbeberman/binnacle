@@ -692,6 +692,10 @@ pub enum DocCommands {
     Show {
         /// Doc ID (e.g., bnd-a1b2)
         id: String,
+
+        /// Show full content (syntax-highlighted markdown) instead of just summary
+        #[arg(long)]
+        full: bool,
     },
 
     /// List documentation nodes

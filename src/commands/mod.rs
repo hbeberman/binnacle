@@ -5127,10 +5127,210 @@ pub fn doc_list(
     Ok(DocList { docs, count })
 }
 
+/// Result of showing a single documentation node.
+#[derive(Serialize)]
+pub struct DocShowResult {
+    pub doc: Doc,
+    pub linked_entities: Vec<LinkedEntityInfo>,
+    #[serde(skip)]
+    pub show_full: bool,
+}
+
+/// Information about an entity linked to a doc.
+#[derive(Serialize)]
+pub struct LinkedEntityInfo {
+    pub id: String,
+    pub entity_type: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+impl Output for DocShowResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        // Header line
+        lines.push(format!("Doc: {} [{}]", self.doc.core.id, self.doc.doc_type));
+        lines.push(format!("Title: {}", self.doc.core.title));
+
+        if let Some(ref sn) = self.doc.core.short_name {
+            lines.push(format!("Short Name: {}", sn));
+        }
+        if let Some(ref desc) = self.doc.core.description {
+            lines.push(format!("Description: {}", desc));
+        }
+        if !self.doc.core.tags.is_empty() {
+            lines.push(format!("Tags: {}", self.doc.core.tags.join(", ")));
+        }
+        if self.doc.summary_dirty {
+            lines.push("⚠ Summary needs update".to_string());
+        }
+        if !self.doc.editors.is_empty() {
+            let editors_str: Vec<String> = self.doc.editors.iter().map(|e| e.to_string()).collect();
+            lines.push(format!("Editors: {}", editors_str.join(", ")));
+        }
+        if let Some(ref sup) = self.doc.supersedes {
+            lines.push(format!("Supersedes: {}", sup));
+        }
+        lines.push(format!(
+            "Created: {}",
+            self.doc.core.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.push(format!(
+            "Updated: {}",
+            self.doc.core.updated_at.format("%Y-%m-%d %H:%M")
+        ));
+
+        // Show linked entities
+        if !self.linked_entities.is_empty() {
+            lines.push(String::new());
+            lines.push(format!("Linked Entities ({}):", self.linked_entities.len()));
+            for entity in &self.linked_entities {
+                let status_str = entity
+                    .status
+                    .as_ref()
+                    .map(|s| format!(" [{}]", s))
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "  {} ({}) \"{}\"{}",
+                    entity.id, entity.entity_type, entity.title, status_str
+                ));
+            }
+        }
+
+        // Show content based on --full flag
+        if self.show_full {
+            // Show full content
+            if !self.doc.content.is_empty() {
+                lines.push(String::new());
+                lines.push("Content:".to_string());
+                lines.push("─".repeat(60));
+                match self.doc.get_content() {
+                    Ok(c) => lines.push(c),
+                    Err(_) => lines.push("[Unable to decompress content]".to_string()),
+                }
+            }
+        } else {
+            // Show only summary section
+            if !self.doc.content.is_empty()
+                && let Ok(content) = self.doc.get_content()
+                && let Some(summary) = extract_summary_section(&content)
+            {
+                lines.push(String::new());
+                lines.push("Summary:".to_string());
+                lines.push("─".repeat(40));
+                lines.push(summary);
+            }
+            // Hint about --full flag
+            if !self.doc.content.is_empty() {
+                lines.push(String::new());
+                lines.push("(Use --full to see complete content)".to_string());
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Extract the # Summary section from markdown content.
+fn extract_summary_section(content: &str) -> Option<String> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut in_summary = false;
+    let mut summary_lines = Vec::new();
+
+    for line in lines {
+        // Check for # Summary header (case-insensitive)
+        if line.trim().to_lowercase().starts_with("# summary") {
+            in_summary = true;
+            continue;
+        }
+        // Stop when we hit another heading
+        if in_summary && line.trim().starts_with('#') {
+            break;
+        }
+        if in_summary {
+            summary_lines.push(line);
+        }
+    }
+
+    if summary_lines.is_empty() {
+        None
+    } else {
+        // Trim leading/trailing empty lines
+        let summary = summary_lines.join("\n");
+        Some(summary.trim().to_string())
+    }
+}
+
 /// Show a single documentation node.
-pub fn doc_show(repo_path: &Path, id: &str) -> Result<Doc> {
+pub fn doc_show(repo_path: &Path, id: &str, full: bool) -> Result<DocShowResult> {
     let storage = Storage::open(repo_path)?;
-    storage.get_doc(id)
+    let doc = storage.get_doc(id)?;
+
+    // Get linked entities (entities this doc documents)
+    // Documents edges: doc -> entity, so we look for outbound edges
+    let edges = storage
+        .list_edges(Some(EdgeType::Documents), Some(id), None)
+        .unwrap_or_default();
+
+    let linked_entities: Vec<LinkedEntityInfo> = edges
+        .iter()
+        .filter_map(|edge| {
+            // The target of a 'documents' edge is the entity being documented
+            let entity_id = &edge.target;
+
+            // Try to get info about the entity
+            if let Ok(task) = storage.get_task(entity_id) {
+                Some(LinkedEntityInfo {
+                    id: task.core.id.clone(),
+                    entity_type: "task".to_string(),
+                    title: task.core.title.clone(),
+                    status: Some(format!("{:?}", task.status).to_lowercase()),
+                })
+            } else if let Ok(bug) = storage.get_bug(entity_id) {
+                Some(LinkedEntityInfo {
+                    id: bug.core.id.clone(),
+                    entity_type: "bug".to_string(),
+                    title: bug.core.title.clone(),
+                    status: Some(format!("{:?}", bug.status).to_lowercase()),
+                })
+            } else if let Ok(idea) = storage.get_idea(entity_id) {
+                Some(LinkedEntityInfo {
+                    id: idea.core.id.clone(),
+                    entity_type: "idea".to_string(),
+                    title: idea.core.title.clone(),
+                    status: Some(format!("{:?}", idea.status).to_lowercase()),
+                })
+            } else if let Ok(milestone) = storage.get_milestone(entity_id) {
+                Some(LinkedEntityInfo {
+                    id: milestone.core.id.clone(),
+                    entity_type: "milestone".to_string(),
+                    title: milestone.core.title.clone(),
+                    status: Some(format!("{:?}", milestone.status).to_lowercase()),
+                })
+            } else if let Ok(doc) = storage.get_doc(entity_id) {
+                Some(LinkedEntityInfo {
+                    id: doc.core.id.clone(),
+                    entity_type: "doc".to_string(),
+                    title: doc.core.title.clone(),
+                    status: None,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(DocShowResult {
+        doc,
+        linked_entities,
+        show_full: full,
+    })
 }
 
 #[derive(Serialize)]
