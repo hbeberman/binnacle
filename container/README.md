@@ -108,7 +108,7 @@ docker compose up binnacle-shell
 ### Manual Docker Run
 
 ```bash
-docker build -t binnacle-worker -f container/Dockerfile .
+docker build -t binnacle-worker -f container/Containerfile .
 
 docker run -it --rm \
   -v /path/to/worktree:/workspace \
@@ -121,7 +121,7 @@ docker run -it --rm \
 
 | File | Description |
 |------|-------------|
-| `Dockerfile` | Fedora 43 base with binnacle, git, and dev tools |
+| `Containerfile` | Fedora 43 base with binnacle, git, and dev tools |
 | `entrypoint.sh` | Orchestrates agent setup, execution, and merge |
 | `docker-compose.yml` | Service definitions for worker and shell |
 | `launch-worker.sh` | Helper to launch with correct mounts |

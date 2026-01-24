@@ -16,7 +16,7 @@ services:
   binnacle-worker:
     build:
       context: ..
-      dockerfile: container/Dockerfile
+      dockerfile: container/Containerfile
     container_name: binnacle-worker
     
     environment:
