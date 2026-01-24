@@ -1592,9 +1592,18 @@ fn get_grandparent_pid() -> Option<u32> {
     None
 }
 
-/// Find a registered agent that is an ancestor of the current process.
+/// Find a registered agent that is an ancestor or sibling of the current process.
 /// This traverses the process tree upwards to find any agent that was
 /// registered by a parent shell (since each bn command runs in a new subprocess).
+///
+/// In environments like Copilot CLI, each command runs in a *separate* bash subprocess
+/// under the same parent (MainThread). So `bn orient` might register agent PID 1234,
+/// but `bn task update` runs in sibling PID 5678. Both share the same parent.
+///
+/// Strategy:
+/// 1. First check if any agent's process shares our parent PID (sibling agents)
+/// 2. Then traverse upward looking for ancestor agents
+///
 /// Returns the agent's PID if found, None otherwise.
 #[cfg(unix)]
 fn find_ancestor_agent(storage: &Storage) -> Option<u32> {
@@ -1604,11 +1613,30 @@ fn find_ancestor_agent(storage: &Storage) -> Option<u32> {
         return None;
     }
 
+    let my_parent = get_parent_pid()?;
+
     // Build a set of registered agent PIDs for fast lookup
     let agent_pids: std::collections::HashSet<u32> = agents.iter().map(|a| a.pid).collect();
 
-    // Traverse the process tree upwards looking for a registered agent
-    let mut current_pid = get_parent_pid()?;
+    // First, check for sibling agents - agents whose process has the same parent as us.
+    // This handles Copilot CLI and similar environments where each command spawns
+    // a new subprocess under the same parent (e.g., MainThread spawns multiple bash shells).
+    for agent in &agents {
+        // Get the actual parent of the agent's process (if still running)
+        // Check if we're siblings - same parent
+        if let Some(agent_actual_parent) = get_ppid_of_pid(agent.pid)
+            && agent_actual_parent == my_parent
+        {
+            return Some(agent.pid);
+        }
+        // Also check if the agent's pid IS our parent (direct ancestor)
+        if agent.pid == my_parent {
+            return Some(agent.pid);
+        }
+    }
+
+    // Fall back to traversing the process tree upwards looking for a registered agent
+    let mut current_pid = my_parent;
 
     // Limit depth to avoid infinite loops (shouldn't happen, but be safe)
     for _ in 0..100 {
