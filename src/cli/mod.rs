@@ -670,7 +670,7 @@ pub enum DocCommands {
 
     /// Show a documentation node
     Show {
-        /// Doc ID (e.g., bnd-xxxx)
+        /// Doc ID (e.g., bnd-a1b2)
         id: String,
     },
 
@@ -713,19 +713,19 @@ pub enum DocCommands {
 
     /// Attach a doc to another entity (creates 'documents' edge)
     Attach {
-        /// Doc ID (e.g., bnd-xxxx)
+        /// Doc ID (e.g., bnd-a1b2)
         doc_id: String,
 
-        /// Target entity ID (e.g., bn-xxxx, bnt-xxxx)
+        /// Target entity ID (e.g., bn-a1b2, bnt-c3d4)
         target_id: String,
     },
 
     /// Detach a doc from an entity (removes 'documents' edge)
     Detach {
-        /// Doc ID (e.g., bnd-xxxx)
+        /// Doc ID (e.g., bnd-a1b2)
         doc_id: String,
 
-        /// Target entity ID (e.g., bn-xxxx, bnt-xxxx)
+        /// Target entity ID (e.g., bn-a1b2, bnt-c3d4)
         target_id: String,
     },
 
@@ -1035,7 +1035,7 @@ pub enum CommitCommands {
     Link {
         /// Commit SHA
         sha: String,
-        /// Entity ID (task bn-xxxx or bug bnb-xxxx)
+        /// Entity ID (task or bug, e.g., bn-a1b2)
         entity_id: String,
     },
 
@@ -1043,13 +1043,13 @@ pub enum CommitCommands {
     Unlink {
         /// Commit SHA
         sha: String,
-        /// Entity ID (task bn-xxxx or bug bnb-xxxx)
+        /// Entity ID (task or bug, e.g., bn-a1b2)
         entity_id: String,
     },
 
     /// List commits linked to a task or bug
     List {
-        /// Entity ID (task bn-xxxx or bug bnb-xxxx)
+        /// Entity ID (task or bug, e.g., bn-a1b2)
         entity_id: String,
     },
 }

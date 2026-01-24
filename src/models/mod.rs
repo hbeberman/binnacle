@@ -440,7 +440,7 @@ impl Entity for Idea {
 
 /// A documentation node for storing markdown content linked to entities.
 /// Docs provide a way to attach rich documentation to any entity in the graph.
-/// They use a separate ID format (bnd-xxxx) to distinguish from other entities.
+/// They use a separate ID format (bnd-a1b2) to distinguish from other entities.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Doc {
     /// Common entity fields (id, type, title, short_name, description, tags, timestamps)
