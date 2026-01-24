@@ -1360,8 +1360,10 @@ pub fn orient(
     let parent_pid = get_parent_pid().unwrap_or(bn_pid);
     let agent_pid = parent_pid;
 
-    // Use provided name or auto-generate (with parent PID for uniqueness)
-    let agent_name = name.unwrap_or_else(|| format!("agent-{}", agent_pid));
+    // Use provided name, or BN_AGENT_NAME env var, or auto-generate (with parent PID for uniqueness)
+    let agent_name = name
+        .or_else(|| std::env::var("BN_AGENT_NAME").ok())
+        .unwrap_or_else(|| format!("agent-{}", agent_pid));
 
     // Check if already registered (update activity, type, and potentially purpose) or register new
     if let Ok(mut existing_agent) = storage.get_agent(agent_pid) {

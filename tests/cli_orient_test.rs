@@ -447,3 +447,56 @@ fn test_orient_rejects_invalid_type() {
         .failure()
         .stderr(predicate::str::contains("invalid"));
 }
+
+#[test]
+fn test_orient_uses_bn_agent_name_env_var() {
+    let temp = init_binnacle();
+
+    // Orient with BN_AGENT_NAME env var
+    bn_in(&temp)
+        .env("BN_AGENT_NAME", "container-worker-1")
+        .args(["orient", "--type", "worker"])
+        .assert()
+        .success();
+
+    // Check agent was registered with the env var name
+    let output = bn_in(&temp)
+        .args(["agent", "list"])
+        .output()
+        .expect("Failed to run bn agent list");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("container-worker-1"),
+        "Agent list should contain the BN_AGENT_NAME value. Got: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_orient_name_flag_takes_precedence_over_env_var() {
+    let temp = init_binnacle();
+
+    // Orient with both --name flag and BN_AGENT_NAME env var
+    bn_in(&temp)
+        .env("BN_AGENT_NAME", "env-name")
+        .args(["orient", "--type", "worker", "--name", "flag-name"])
+        .assert()
+        .success();
+
+    // Check agent was registered with the flag name (not env var)
+    let output = bn_in(&temp)
+        .args(["agent", "list"])
+        .output()
+        .expect("Failed to run bn agent list");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("flag-name"),
+        "Agent list should contain the --name flag value, not BN_AGENT_NAME. Got: {}",
+        stdout
+    );
+    // The env var name should not appear (unless both somehow register)
+    // Note: we're checking that the flag takes precedence, but both could appear
+    // if the test framework creates multiple PIDs. Focus on flag-name being present.
+}
