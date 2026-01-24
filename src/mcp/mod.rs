@@ -796,12 +796,14 @@ impl McpServer {
                 let priority = get_optional_u8(args, "priority");
                 let severity = get_optional_string(args, "severity");
                 let tag = get_optional_string(args, "tag");
+                let all = get_optional_bool(args, "all").unwrap_or(false);
                 let result = commands::bug_list(
                     repo,
                     status.as_deref(),
                     priority,
                     severity.as_deref(),
                     tag.as_deref(),
+                    all,
                 )?;
                 Ok(result.to_json())
             }
@@ -894,7 +896,7 @@ impl McpServer {
                 Ok(result.to_json())
             }
             "binnacle://bugs" => {
-                let result = commands::bug_list(repo, None, None, None, None)?;
+                let result = commands::bug_list(repo, None, None, None, None, true)?; // Include all for resource
                 Ok(result.to_json())
             }
             _ => Err(Error::Other(format!("Unknown resource: {}", uri))),
@@ -2156,7 +2158,7 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "bn_bug_list".to_string(),
-            description: "List bugs with optional filters".to_string(),
+            description: "List bugs with optional filters. By default, excludes closed bugs (done/cancelled); use all=true to include them.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2176,6 +2178,10 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "tag": {
                         "type": "string",
                         "description": "Filter by tag"
+                    },
+                    "all": {
+                        "type": "boolean",
+                        "description": "Include closed bugs (done/cancelled) in the list. Default: false"
                     }
                 },
                 "required": []

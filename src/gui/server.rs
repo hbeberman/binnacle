@@ -172,7 +172,7 @@ async fn get_tasks(State(state): State<AppState>) -> Result<Json<serde_json::Val
 async fn get_bugs(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
     let storage = state.storage.lock().await;
     let bugs = storage
-        .list_bugs(None, None, None, None)
+        .list_bugs(None, None, None, None, true) // Include closed bugs for GUI
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "bugs": bugs })))

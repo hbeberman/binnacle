@@ -463,7 +463,7 @@ fn test_production_scale_export_import_roundtrip() {
 
     // Verify all bugs were imported
     let output = bn_in(&env2)
-        .args(["bug", "list"])
+        .args(["bug", "list", "--all"])
         .output()
         .expect("Failed to list bugs");
     let json = parse_json(&output.stdout);

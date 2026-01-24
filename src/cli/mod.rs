@@ -436,6 +436,10 @@ pub enum BugCommands {
         /// Filter by tag
         #[arg(long)]
         tag: Option<String>,
+
+        /// Include closed bugs (done/cancelled) in the list
+        #[arg(long)]
+        all: bool,
     },
 
     /// Show bug details

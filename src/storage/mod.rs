@@ -921,12 +921,14 @@ impl Storage {
     }
 
     /// List all bugs, optionally filtered.
+    /// By default, excludes closed bugs (Done/Cancelled) unless `include_closed` is true.
     pub fn list_bugs(
         &self,
         status: Option<&str>,
         priority: Option<u8>,
         severity: Option<&str>,
         tag: Option<&str>,
+        include_closed: bool,
     ) -> Result<Vec<Bug>> {
         let mut sql = String::from(
             "SELECT DISTINCT b.id FROM bugs b
@@ -935,9 +937,13 @@ impl Storage {
         );
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
+        // If a specific status is requested, use it; otherwise exclude closed bugs unless --all
         if let Some(s) = status {
             sql.push_str(" AND b.status = ?");
             params_vec.push(Box::new(s.to_string()));
+        } else if !include_closed {
+            // Exclude done and cancelled bugs by default (note: snake_case due to serde config)
+            sql.push_str(" AND b.status NOT IN ('done', 'cancelled')");
         }
         if let Some(p) = priority {
             sql.push_str(" AND b.priority = ?");
@@ -1705,7 +1711,7 @@ impl Storage {
 
     /// Get bugs that are ready (no open blockers).
     pub fn get_ready_bugs(&self) -> Result<Vec<Bug>> {
-        let bugs = self.list_bugs(None, None, None, None)?;
+        let bugs = self.list_bugs(None, None, None, None, false)?; // Exclude closed bugs
         let mut ready = Vec::new();
 
         for bug in bugs {
@@ -1791,7 +1797,7 @@ impl Storage {
     /// Get bugs that are blocked (have open dependencies).
     /// Checks both the legacy depends_on field and edge-based dependencies.
     pub fn get_blocked_bugs(&self) -> Result<Vec<Bug>> {
-        let bugs = self.list_bugs(None, None, None, None)?;
+        let bugs = self.list_bugs(None, None, None, None, false)?; // Exclude closed bugs
         let mut blocked = Vec::new();
 
         for bug in bugs {
@@ -3589,11 +3595,13 @@ mod tests {
         storage.add_bug(&bug).unwrap();
 
         let filtered = storage
-            .list_bugs(Some("pending"), Some(2), Some("triage"), None)
+            .list_bugs(Some("pending"), Some(2), Some("triage"), None, true)
             .unwrap();
         assert_eq!(filtered.len(), 1);
 
-        let none = storage.list_bugs(Some("done"), None, None, None).unwrap();
+        let none = storage
+            .list_bugs(Some("done"), None, None, None, true)
+            .unwrap();
         assert!(none.is_empty());
     }
 

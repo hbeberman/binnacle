@@ -1503,7 +1503,7 @@ pub fn orient(
     };
 
     // Get bug stats
-    let bugs = storage.list_bugs(None, None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None, true)?; // Include all for stats
     let total_bugs = bugs.len();
     let open_bugs_count = bugs
         .iter()
@@ -3321,9 +3321,10 @@ pub fn bug_list(
     priority: Option<u8>,
     severity: Option<&str>,
     tag: Option<&str>,
+    include_closed: bool,
 ) -> Result<BugList> {
     let storage = Storage::open(repo_path)?;
-    let bugs = storage.list_bugs(status, priority, severity, tag)?;
+    let bugs = storage.list_bugs(status, priority, severity, tag, include_closed)?;
     let count = bugs.len();
     Ok(BugList { bugs, count })
 }
@@ -6217,7 +6218,7 @@ pub fn graph_components(repo_path: &Path) -> Result<GraphComponentsResult> {
 
     // Get all entities (tasks, bugs, milestones, ideas)
     let tasks = storage.list_tasks(None, None, None)?;
-    let bugs = storage.list_bugs(None, None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None, true)?; // Include all for graph analysis
     let milestones = storage.list_milestones(None, None, None)?;
     let ideas = storage.list_ideas(None, None)?;
 
@@ -7391,7 +7392,7 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
 
     // Get all tasks, bugs, and tests for analysis
     let tasks = storage.list_tasks(None, None, None)?;
-    let bugs = storage.list_bugs(None, None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None, true)?; // Include all for doctor analysis
     let tests = storage.list_tests(None)?;
 
     // Build a set of valid entity IDs (respects cache-based deletion)
@@ -7757,7 +7758,7 @@ pub fn doctor_fix(repo_path: &Path) -> Result<DoctorFixResult> {
     // Fix: Remove orphan edges (edges pointing to/from deleted entities)
     // Build a set of valid entity IDs
     let tasks = storage.list_tasks(None, None, None)?;
-    let bugs = storage.list_bugs(None, None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None, true)?; // Include all for migration
     let tests = storage.list_tests(None)?;
     let milestones = storage.list_milestones(None, None, None)?;
     let ideas = storage.list_ideas(None, None)?;
@@ -7892,7 +7893,7 @@ pub fn doctor_migrate_edges(
     let mut storage = Storage::open(repo_path)?;
 
     let tasks = storage.list_tasks(None, None, None)?;
-    let bugs = storage.list_bugs(None, None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None, true)?; // Include all for migration
 
     let mut edges_created = 0;
     let mut edges_skipped = 0;
@@ -9639,7 +9640,7 @@ pub fn system_store_clear(
     // Get current counts before clearing
     let tasks = storage.list_tasks(None, None, None)?;
     let tests = storage.list_tests(None)?;
-    let bugs = storage.list_bugs(None, None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None, true)?; // Include all for counting
     let edges = storage.list_edges(None, None, None)?;
 
     // Count commits by reading the file directly
@@ -15181,7 +15182,7 @@ mod tests {
         )
         .unwrap();
 
-        let list = bug_list(temp.path(), None, None, None, None).unwrap();
+        let list = bug_list(temp.path(), None, None, None, None, false).unwrap();
         assert_eq!(list.count, 2);
     }
 
@@ -15218,10 +15219,10 @@ mod tests {
         // Close bug 1
         bug_close(temp.path(), &bug1.id, None, false).unwrap();
 
-        let pending_list = bug_list(temp.path(), Some("pending"), None, None, None).unwrap();
+        let pending_list = bug_list(temp.path(), Some("pending"), None, None, None, true).unwrap();
         assert_eq!(pending_list.count, 1);
 
-        let done_list = bug_list(temp.path(), Some("done"), None, None, None).unwrap();
+        let done_list = bug_list(temp.path(), Some("done"), None, None, None, true).unwrap();
         assert_eq!(done_list.count, 1);
     }
 
@@ -15255,7 +15256,7 @@ mod tests {
         )
         .unwrap();
 
-        let high_list = bug_list(temp.path(), None, Some(0), None, None).unwrap();
+        let high_list = bug_list(temp.path(), None, Some(0), None, None, false).unwrap();
         assert_eq!(high_list.count, 1);
         assert_eq!(high_list.bugs[0].core.title, "High priority");
     }
@@ -15290,7 +15291,8 @@ mod tests {
         )
         .unwrap();
 
-        let critical_list = bug_list(temp.path(), None, None, Some("critical"), None).unwrap();
+        let critical_list =
+            bug_list(temp.path(), None, None, Some("critical"), None, false).unwrap();
         assert_eq!(critical_list.count, 1);
         assert_eq!(critical_list.bugs[0].core.title, "Critical bug");
     }
@@ -15325,7 +15327,7 @@ mod tests {
         )
         .unwrap();
 
-        let ui_list = bug_list(temp.path(), None, None, None, Some("ui")).unwrap();
+        let ui_list = bug_list(temp.path(), None, None, None, Some("ui"), false).unwrap();
         assert_eq!(ui_list.count, 1);
         assert_eq!(ui_list.bugs[0].core.title, "UI bug");
     }
@@ -15707,7 +15709,7 @@ mod tests {
         let result = bug_delete(temp.path(), &created.id).unwrap();
         assert_eq!(result.id, created.id);
 
-        let list = bug_list(temp.path(), None, None, None, None).unwrap();
+        let list = bug_list(temp.path(), None, None, None, None, true).unwrap();
         assert_eq!(list.count, 0);
     }
 
@@ -15789,7 +15791,7 @@ mod tests {
         )
         .unwrap();
 
-        let list = bug_list(temp.path(), None, None, None, None).unwrap();
+        let list = bug_list(temp.path(), None, None, None, None, false).unwrap();
         let human = list.to_human();
 
         assert!(human.contains("1 bug(s)"));
@@ -15802,7 +15804,7 @@ mod tests {
     #[test]
     fn test_bug_list_empty_output() {
         let temp = setup();
-        let list = bug_list(temp.path(), None, None, None, None).unwrap();
+        let list = bug_list(temp.path(), None, None, None, None, false).unwrap();
         let human = list.to_human();
         assert_eq!(human, "No bugs found.");
     }

@@ -272,6 +272,7 @@ fn run_command(
                 priority,
                 severity,
                 tag,
+                all,
             } => {
                 let result = commands::bug_list(
                     repo_path,
@@ -279,6 +280,7 @@ fn run_command(
                     priority,
                     severity.as_deref(),
                     tag.as_deref(),
+                    all,
                 )?;
                 output(&result, human);
             }
@@ -1383,6 +1385,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 priority,
                 severity,
                 tag,
+                all,
             } => (
                 "bug list".to_string(),
                 serde_json::json!({
@@ -1390,6 +1393,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "priority": priority,
                     "severity": severity,
                     "tag": tag,
+                    "all": all,
                 }),
             ),
             BugCommands::Show { id } => ("bug show".to_string(), serde_json::json!({ "id": id })),
