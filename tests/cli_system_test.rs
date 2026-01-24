@@ -1570,3 +1570,112 @@ fn test_store_clear_human_readable_warning() {
         .stderr(predicate::str::contains("permanently delete"))
         .stderr(predicate::str::contains("--force"));
 }
+
+// === Archive Generation Tests ===
+
+#[test]
+fn test_store_archive_without_config() {
+    let env = init_binnacle();
+
+    // Create some data
+    create_task(&env, "Task to archive");
+
+    // Archive without configuring archive.directory should succeed but not create file
+    let output = bn_in(&env)
+        .args(["system", "store", "archive", "abc123def456"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["created"], false);
+    assert_eq!(json["commit_hash"], "abc123def456");
+}
+
+#[test]
+fn test_store_archive_with_config() {
+    let env = init_binnacle();
+
+    // Create archive directory
+    let archive_dir = env.path().join("archives");
+    fs::create_dir_all(&archive_dir).unwrap();
+
+    // Configure archive directory
+    bn_in(&env)
+        .args([
+            "config",
+            "set",
+            "archive.directory",
+            archive_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Create some data
+    create_task(&env, "Task to archive");
+
+    // Generate archive
+    let output = bn_in(&env)
+        .args(["system", "store", "archive", "abc123def456"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["created"], true);
+    assert_eq!(json["commit_hash"], "abc123def456");
+    assert!(json["size_bytes"].as_u64().unwrap() > 0);
+    assert_eq!(json["task_count"], 1);
+
+    // Verify archive file exists
+    let archive_path = archive_dir.join("bn_abc123def456.tar.gz");
+    assert!(archive_path.exists(), "Archive file should exist");
+}
+
+#[test]
+fn test_store_archive_human_readable() {
+    let env = init_binnacle();
+
+    // Archive without config - human readable
+    bn_in(&env)
+        .args(["-H", "system", "store", "archive", "abc123"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not created"))
+        .stdout(predicate::str::contains("abc123"));
+}
+
+#[test]
+fn test_store_archive_creates_directory() {
+    let env = init_binnacle();
+
+    // Configure archive directory that doesn't exist yet
+    let archive_dir = env.path().join("new_archives");
+    bn_in(&env)
+        .args([
+            "config",
+            "set",
+            "archive.directory",
+            archive_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Generate archive - should create directory automatically
+    bn_in(&env)
+        .args(["system", "store", "archive", "deadbeef"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"created\":true"));
+
+    // Verify directory was created and archive exists
+    assert!(archive_dir.exists(), "Archive directory should be created");
+    assert!(
+        archive_dir.join("bn_deadbeef.tar.gz").exists(),
+        "Archive file should exist"
+    );
+}

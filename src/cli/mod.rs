@@ -1151,6 +1151,12 @@ pub enum StoreCommands {
         #[arg(long)]
         no_backup: bool,
     },
+
+    /// Generate archive for a commit snapshot (used by hooks)
+    Archive {
+        /// Git commit hash to archive
+        commit_hash: String,
+    },
 }
 
 /// Agent lifecycle management subcommands

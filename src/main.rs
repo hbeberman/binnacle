@@ -742,6 +742,10 @@ fn run_command(
                     let result = commands::system_store_clear(repo_path, force, no_backup, human)?;
                     output(&result, human);
                 }
+                StoreCommands::Archive { commit_hash } => {
+                    let result = commands::generate_commit_archive(repo_path, &commit_hash)?;
+                    output(&result, human);
+                }
             },
             SystemCommands::Emit { template } => {
                 let content = match template {
@@ -1880,6 +1884,12 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     serde_json::json!({
                         "force": force,
                         "no_backup": no_backup,
+                    }),
+                ),
+                StoreCommands::Archive { commit_hash } => (
+                    "system store archive".to_string(),
+                    serde_json::json!({
+                        "commit_hash": commit_hash,
                     }),
                 ),
             },

@@ -8976,6 +8976,87 @@ pub fn system_store_export(
     })
 }
 
+/// Result of generating an archive for a commit snapshot.
+#[derive(Serialize)]
+pub struct CommitArchiveResult {
+    pub created: bool,
+    pub output_path: String,
+    pub commit_hash: String,
+    pub size_bytes: u64,
+    pub task_count: usize,
+    pub test_count: usize,
+    pub commit_count: usize,
+}
+
+impl Output for CommitArchiveResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.created {
+            format!(
+                "Created archive for commit {}:\n  Path: {}\n  Size: {} bytes\n  Tasks: {}, Tests: {}, Commits: {}",
+                &self.commit_hash[..7.min(self.commit_hash.len())],
+                self.output_path,
+                self.size_bytes,
+                self.task_count,
+                self.test_count,
+                self.commit_count
+            )
+        } else {
+            format!(
+                "Archive not created for commit {}: archive.directory not configured",
+                &self.commit_hash[..7.min(self.commit_hash.len())]
+            )
+        }
+    }
+}
+
+/// Generate archive for a commit snapshot.
+///
+/// Creates `bn_{commit-hash}.tar.gz` in the configured archive directory.
+/// Returns `None` if `archive.directory` is not configured.
+pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<CommitArchiveResult> {
+    // Check if archive directory is configured
+    let archive_dir = match config_get_archive_directory(repo_path) {
+        Some(dir) => dir,
+        None => {
+            return Ok(CommitArchiveResult {
+                created: false,
+                output_path: String::new(),
+                commit_hash: commit_hash.to_string(),
+                size_bytes: 0,
+                task_count: 0,
+                test_count: 0,
+                commit_count: 0,
+            });
+        }
+    };
+
+    // Create archive directory if it doesn't exist
+    if !archive_dir.exists() {
+        fs::create_dir_all(&archive_dir)?;
+    }
+
+    // Generate archive filename
+    let archive_filename = format!("bn_{}.tar.gz", commit_hash);
+    let archive_path = archive_dir.join(&archive_filename);
+
+    // Use the existing export functionality
+    let result = system_store_export(repo_path, archive_path.to_str().unwrap(), "archive")?;
+
+    Ok(CommitArchiveResult {
+        created: true,
+        output_path: archive_path.to_string_lossy().to_string(),
+        commit_hash: commit_hash.to_string(),
+        size_bytes: result.size_bytes,
+        task_count: result.task_count,
+        test_count: result.test_count,
+        commit_count: result.commit_count,
+    })
+}
+
 /// Result of the store import command.
 #[derive(Serialize)]
 pub struct StoreImportResult {
