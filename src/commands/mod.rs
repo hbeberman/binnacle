@@ -8061,6 +8061,167 @@ pub fn compact(repo_path: &Path) -> Result<CompactResult> {
     Ok(result)
 }
 
+// === Storage Migration ===
+
+#[derive(Serialize)]
+pub struct MigrateResult {
+    pub success: bool,
+    pub from_backend: String,
+    pub to_backend: String,
+    pub dry_run: bool,
+    pub files_migrated: Vec<MigratedFile>,
+    pub total_lines: usize,
+}
+
+#[derive(Serialize)]
+pub struct MigratedFile {
+    pub name: String,
+    pub lines: usize,
+}
+
+impl Output for MigrateResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if self.dry_run {
+            lines.push(format!(
+                "DRY RUN: Would migrate from '{}' to '{}'",
+                self.from_backend, self.to_backend
+            ));
+        } else {
+            lines.push(format!(
+                "Migrated from '{}' to '{}'",
+                self.from_backend, self.to_backend
+            ));
+        }
+
+        lines.push(String::new());
+        lines.push("Files:".to_string());
+
+        for file in &self.files_migrated {
+            lines.push(format!("  {} ({} lines)", file.name, file.lines));
+        }
+
+        lines.push(String::new());
+        lines.push(format!("Total: {} lines migrated", self.total_lines));
+
+        if self.dry_run {
+            lines.push(String::new());
+            lines.push("Run without --dry-run to perform the migration.".to_string());
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Migrate data between storage backends.
+pub fn migrate_storage(repo_path: &Path, to_backend: &str, dry_run: bool) -> Result<MigrateResult> {
+    use crate::storage::{BackendType, GitNotesBackend, OrphanBranchBackend, StorageBackend};
+
+    // Parse target backend type
+    let target_type: BackendType = to_backend
+        .parse()
+        .map_err(|e: String| Error::InvalidInput(e))?;
+
+    // Open source storage (file backend)
+    let storage = Storage::open(repo_path)?;
+
+    // List of JSONL files to migrate
+    let files = [
+        "tasks.jsonl",
+        "bugs.jsonl",
+        "ideas.jsonl",
+        "milestones.jsonl",
+        "edges.jsonl",
+        "commits.jsonl",
+        "test-results.jsonl",
+        "agents.jsonl",
+    ];
+
+    // Read all data from source
+    let mut file_data: Vec<(String, Vec<String>)> = Vec::new();
+    let mut total_lines = 0;
+
+    for filename in &files {
+        let path = storage.root.join(filename);
+        let lines = if path.exists() {
+            std::fs::read_to_string(&path)?
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        total_lines += lines.len();
+        file_data.push((filename.to_string(), lines));
+    }
+
+    // Build result structure
+    let files_migrated: Vec<MigratedFile> = file_data
+        .iter()
+        .map(|(name, lines)| MigratedFile {
+            name: name.clone(),
+            lines: lines.len(),
+        })
+        .collect();
+
+    // If dry run, return without making changes
+    if dry_run {
+        return Ok(MigrateResult {
+            success: true,
+            from_backend: "file".to_string(),
+            to_backend: target_type.to_string(),
+            dry_run: true,
+            files_migrated,
+            total_lines,
+        });
+    }
+
+    // Initialize and write to target backend
+    match target_type {
+        BackendType::OrphanBranch => {
+            let mut backend = OrphanBranchBackend::new(repo_path);
+            backend.init(repo_path)?;
+
+            for (filename, lines) in &file_data {
+                if !lines.is_empty() {
+                    backend.write_jsonl(filename, lines)?;
+                }
+            }
+        }
+        BackendType::GitNotes => {
+            let mut backend = GitNotesBackend::new(repo_path);
+            backend.init(repo_path)?;
+
+            for (filename, lines) in &file_data {
+                if !lines.is_empty() {
+                    backend.write_jsonl(filename, lines)?;
+                }
+            }
+        }
+        BackendType::File => {
+            // Migration to file backend doesn't make sense from file backend
+            return Err(Error::InvalidInput(
+                "Cannot migrate from file backend to file backend".to_string(),
+            ));
+        }
+    }
+
+    Ok(MigrateResult {
+        success: true,
+        from_backend: "file".to_string(),
+        to_backend: target_type.to_string(),
+        dry_run: false,
+        files_migrated,
+        total_lines,
+    })
+}
+
 #[derive(Serialize)]
 pub struct CommitLinked {
     pub sha: String,

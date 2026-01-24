@@ -704,6 +704,10 @@ fn run_command(
                 let result = commands::compact(repo_path)?;
                 output(&result, human);
             }
+            SystemCommands::Migrate { to, dry_run } => {
+                let result = commands::migrate_storage(repo_path, &to, dry_run)?;
+                output(&result, human);
+            }
         },
         Some(Commands::Agent { command }) => match command {
             AgentCommands::List { status } => {
@@ -1707,6 +1711,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 )
             }
             SystemCommands::Compact => ("system compact".to_string(), serde_json::json!({})),
+            SystemCommands::Migrate { to, dry_run } => (
+                "system migrate".to_string(),
+                serde_json::json!({ "to": to, "dry_run": dry_run }),
+            ),
         },
 
         Some(Commands::Agent { command }) => match command {

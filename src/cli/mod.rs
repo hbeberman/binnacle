@@ -948,6 +948,17 @@ pub enum SystemCommands {
 
     /// Compact storage by removing duplicate entries
     Compact,
+
+    /// Migrate data between storage backends
+    Migrate {
+        /// Target backend type (file, orphan-branch, git-notes)
+        #[arg(long)]
+        to: String,
+
+        /// Preview migration without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// Template types for the emit command
