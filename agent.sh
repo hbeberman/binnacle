@@ -30,6 +30,7 @@ TOOLS_FULL=(
     --allow-tool "shell(jq:*)"
     --allow-tool "shell(sed:*)"
     --allow-tool "shell(cp:*)"
+    --allow-tool "shell(lsof:*)"
 )
 
 TOOLS_PRD=(
