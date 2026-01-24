@@ -1592,18 +1592,9 @@ fn get_grandparent_pid() -> Option<u32> {
     None
 }
 
-/// Find a registered agent that is an ancestor or sibling of the current process.
+/// Find a registered agent that is an ancestor of the current process.
 /// This traverses the process tree upwards to find any agent that was
 /// registered by a parent shell (since each bn command runs in a new subprocess).
-///
-/// In environments like Copilot CLI, each command runs in a *separate* bash subprocess
-/// under the same parent (MainThread). So `bn orient` might register agent PID 1234,
-/// but `bn task update` runs in sibling PID 5678. Both share the same parent.
-///
-/// Strategy:
-/// 1. First check if any agent's process shares our parent PID (sibling agents)
-/// 2. Then traverse upward looking for ancestor agents
-///
 /// Returns the agent's PID if found, None otherwise.
 #[cfg(unix)]
 fn find_ancestor_agent(storage: &Storage) -> Option<u32> {
@@ -1613,30 +1604,11 @@ fn find_ancestor_agent(storage: &Storage) -> Option<u32> {
         return None;
     }
 
-    let my_parent = get_parent_pid()?;
-
     // Build a set of registered agent PIDs for fast lookup
     let agent_pids: std::collections::HashSet<u32> = agents.iter().map(|a| a.pid).collect();
 
-    // First, check for sibling agents - agents whose process has the same parent as us.
-    // This handles Copilot CLI and similar environments where each command spawns
-    // a new subprocess under the same parent (e.g., MainThread spawns multiple bash shells).
-    for agent in &agents {
-        // Get the actual parent of the agent's process (if still running)
-        // Check if we're siblings - same parent
-        if let Some(agent_actual_parent) = get_ppid_of_pid(agent.pid)
-            && agent_actual_parent == my_parent
-        {
-            return Some(agent.pid);
-        }
-        // Also check if the agent's pid IS our parent (direct ancestor)
-        if agent.pid == my_parent {
-            return Some(agent.pid);
-        }
-    }
-
-    // Fall back to traversing the process tree upwards looking for a registered agent
-    let mut current_pid = my_parent;
+    // Traverse the process tree upwards looking for a registered agent
+    let mut current_pid = get_parent_pid()?;
 
     // Limit depth to avoid infinite loops (shouldn't happen, but be safe)
     for _ in 0..100 {
@@ -4039,7 +4011,7 @@ pub fn bug_reopen(repo_path: &Path, id: &str) -> Result<BugReopened> {
             closed_at.format("%Y-%m-%d %H:%M:%S UTC"),
             bug.closed_reason.as_deref().unwrap_or("(no reason given)")
         );
-        bug.description = Some(match &bug.description {
+        bug.core.description = Some(match &bug.core.description {
             Some(desc) => format!("{}{}", desc, annotation),
             None => annotation.trim_start().to_string(),
         });
@@ -10064,7 +10036,11 @@ impl Output for AgentListResult {
 
 /// List active agents.
 pub fn agent_list(repo_path: &Path, status: Option<&str>) -> Result<AgentListResult> {
-    let storage = Storage::open(repo_path)?;
+    let mut storage = Storage::open(repo_path)?;
+    // Update agent statuses (active/idle/stale) based on activity and process status
+    let _ = storage.update_agent_statuses();
+    // Clean up agents whose processes are dead
+    let _ = storage.cleanup_stale_agents();
     let agents = storage.list_agents(status)?;
 
     let agent_infos: Vec<AgentInfo> = agents
@@ -15423,7 +15399,7 @@ mod tests {
         assert!(result.bug.closed_reason.is_none());
 
         // Verify closure history is preserved in description
-        let description = result.bug.description.unwrap();
+        let description = result.bug.core.description.unwrap();
         assert!(description.contains("Previously closed on:"));
         assert!(description.contains("Reason: Fixed"));
     }
