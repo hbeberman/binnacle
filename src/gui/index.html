@@ -697,6 +697,38 @@
             opacity: 1;
         }
 
+        /* Agent card clickable task links */
+        .agent-card .task-link {
+            font-family: monospace;
+            color: var(--accent-light);
+            cursor: pointer;
+            text-decoration: none;
+            transition: color 0.15s ease;
+        }
+
+        .agent-card .task-link:hover {
+            color: var(--accent);
+            text-decoration: underline;
+        }
+
+        /* Focus on Graph button */
+        .agent-card .focus-btn {
+            background: transparent;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: all 0.2s ease;
+            margin-top: 0.5rem;
+        }
+
+        .agent-card .focus-btn:hover {
+            background: var(--accent);
+            color: white;
+        }
+
         /* Agent Activity Section */
         .agents-activity-section {
             margin-top: 2rem;
@@ -5265,11 +5297,12 @@
                 const startedAt = new Date(agent.started_at).toLocaleString();
                 const lastActivity = new Date(agent.last_activity_at).toLocaleString();
                 const tasksHtml = agent.tasks && agent.tasks.length > 0 
-                    ? agent.tasks.map(t => `<span class="task-id">${escapeHtml(t)}</span>`).join(', ')
+                    ? agent.tasks.map(t => `<span class="task-link" data-node-id="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join(', ')
                     : '<span class="no-tasks">No active tasks</span>';
                 const purposeHtml = agent.purpose 
                     ? `<div class="agent-purpose">${escapeHtml(agent.purpose)}</div>` 
                     : `<div class="agent-purpose agent-type-label">${escapeHtml(agent.agent_type || 'worker')} agent</div>`;
+                const agentNodeId = `agent-${agent.name}`;
                 return `
                 <div class="card agent-card">
                     <button class="terminate-btn" onclick="showTerminateModal(${agent.pid}, '${escapeHtml(agent.name).replace(/'/g, "\\'")}', '${tasksHtml.replace(/'/g, "\\'")}')">✕ Terminate</button>
@@ -5287,6 +5320,7 @@
                     <div class="agent-stats">
                         <span>⏱️ Last active: ${lastActivity}</span>
                     </div>
+                    <button class="focus-btn" data-agent-id="${escapeHtml(agentNodeId)}">🎯 Focus on Graph</button>
                 </div>
             `}).join('');
             
@@ -5324,6 +5358,47 @@
                     `;
                 }).join('');
             }
+        }
+
+        // Event delegation for agent card interactive elements
+        document.getElementById('agents-list').addEventListener('click', (e) => {
+            // Handle task link clicks
+            const taskLink = e.target.closest('.task-link');
+            if (taskLink) {
+                const nodeId = taskLink.dataset.nodeId;
+                if (nodeId) {
+                    navigateToNodeOnGraph(nodeId);
+                }
+                return;
+            }
+            
+            // Handle focus button clicks
+            const focusBtn = e.target.closest('.focus-btn');
+            if (focusBtn) {
+                const agentId = focusBtn.dataset.agentId;
+                if (agentId) {
+                    navigateToNodeOnGraph(agentId);
+                }
+                return;
+            }
+        });
+
+        // Navigate to graph view and focus on a specific node
+        function navigateToNodeOnGraph(nodeId) {
+            // Switch to graph view
+            switchView('graph');
+            // Wait for graph to render, then pan to node
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    panToNode(nodeId, true);
+                    // Also select the node to show info panel
+                    const node = state.graph.nodes.find(n => n.id === nodeId);
+                    if (node) {
+                        state.selectedNode = node;
+                        updateInfoPanel(node);
+                    }
+                });
+            });
         }
 
         // Agent termination modal functions
