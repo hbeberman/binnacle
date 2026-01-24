@@ -104,6 +104,34 @@ bn task close bn-xxxx --reason "Implemented feature X"
 5. Push and open a PR
 6. CI will automatically run tests, clippy, and format checks
 
+## Release Process (Maintainers)
+
+### GitHub Repository Setup
+
+Before publishing releases, repository maintainers must configure:
+
+1. **Create a GitHub Environment** named `Release`:
+   - Go to Settings → Environments → New environment
+   - Name it exactly `Release`
+   - Optionally add protection rules (e.g., require approval)
+
+2. **Add the `CARGO_REGISTRY_TOKEN` secret**:
+   - Get a token from [crates.io/settings/tokens](https://crates.io/settings/tokens)
+   - Go to Settings → Environments → Release → Environment secrets
+   - Add `CARGO_REGISTRY_TOKEN` with your crates.io API token
+
+### Creating a Release
+
+1. Update version in `Cargo.toml`
+2. Commit: `git commit -am "chore: bump version to X.Y.Z"`
+3. Create a GitHub Release with tag `vX.Y.Z` (must match Cargo.toml version)
+
+The CD workflow will:
+- Verify tag matches Cargo.toml version
+- Run preflight checks (fmt, clippy, tests)
+- Build and upload binaries to the release
+- Publish to crates.io (only on release events)
+
 ## Questions?
 
 Open an issue or reach out to the maintainers!
