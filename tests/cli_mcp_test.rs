@@ -125,8 +125,7 @@ fn test_mcp_manifest_contains_maintenance_tools() {
         .assert()
         .success()
         .stdout(predicate::str::contains("bn_doctor"))
-        .stdout(predicate::str::contains("bn_log"))
-        .stdout(predicate::str::contains("bn_compact"));
+        .stdout(predicate::str::contains("bn_log"));
 }
 
 #[test]

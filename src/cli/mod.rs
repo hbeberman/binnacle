@@ -166,10 +166,6 @@ pub enum Commands {
         task_id: Option<String>,
     },
 
-    /// Summarize old closed tasks (DEPRECATED: use 'bn system compact' instead)
-    #[command(hide = true)]
-    Compact,
-
     /// Push/pull binnacle data with remote (requires orphan-branch backend)
     Sync {
         /// Remote name (default: origin)
@@ -1021,9 +1017,6 @@ pub enum SystemCommands {
         #[arg(value_enum)]
         template: EmitTemplate,
     },
-
-    /// Compact storage by removing duplicate entries
-    Compact,
 
     /// Migrate data between storage backends
     Migrate {

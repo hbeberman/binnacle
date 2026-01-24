@@ -507,7 +507,6 @@ bn goodbye "completed task bn-a1b2"
 
 - Binnacle stores data in `.bn/` directory using git's orphan branch backend
 - All changes are tracked in an append-only log
-- Use `bn compact` to summarize old closed tasks
 - Run `bn --help` for full command reference
 "#;
 
@@ -7356,7 +7355,7 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                     severity: "warning".to_string(),
                     category: "data".to_string(),
                     message: format!(
-                        "{} contains {} blank line(s) - run 'bn system compact' to fix",
+                        "{} contains {} blank line(s) - these are harmless but can be removed manually",
                         filename, blank_count
                     ),
                     entity_id: None,
@@ -9450,45 +9449,6 @@ pub fn system_store_clear(
         aborted: false,
         abort_reason: None,
     })
-}
-
-// === Compact Command ===
-
-/// Result of the compact command.
-#[derive(Serialize)]
-pub struct CompactResult {
-    pub tasks_compacted: usize,
-    pub original_entries: usize,
-    pub final_entries: usize,
-    pub space_saved_bytes: usize,
-}
-
-impl Output for CompactResult {
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_default()
-    }
-
-    fn to_human(&self) -> String {
-        let mut lines = Vec::new();
-        lines.push("Compact complete.".to_string());
-        lines.push(format!("  Tasks compacted: {}", self.tasks_compacted));
-        lines.push(format!(
-            "  Entries: {} -> {}",
-            self.original_entries, self.final_entries
-        ));
-        if self.space_saved_bytes > 0 {
-            lines.push(format!("  Space saved: {} bytes", self.space_saved_bytes));
-        }
-        lines.join("\n")
-    }
-}
-
-/// Compact the storage by removing duplicate entries and summarizing old closed tasks.
-pub fn compact(repo_path: &Path) -> Result<CompactResult> {
-    let mut storage = Storage::open(repo_path)?;
-    let result = storage.compact()?;
-
-    Ok(result)
 }
 
 // === Storage Migration ===
@@ -12624,142 +12584,6 @@ mod tests {
 
         let result = config_get(temp.path(), "key").unwrap();
         assert_eq!(result.value, Some("value2".to_string()));
-    }
-
-    // === Compact Command Tests ===
-
-    #[test]
-    fn test_compact_basic() {
-        let temp = setup();
-
-        // Create a task and update it multiple times
-        let task = task_create(
-            temp.path(),
-            "Task A".to_string(),
-            None,
-            None,
-            None,
-            vec![],
-            None,
-        )
-        .unwrap();
-        task_update(
-            temp.path(),
-            &task.id,
-            Some("Updated 1".to_string()),
-            None, // short_name
-            None,
-            None,
-            None,
-            vec![],
-            vec![],
-            None,
-            false,
-        )
-        .unwrap();
-        task_update(
-            temp.path(),
-            &task.id,
-            Some("Updated 2".to_string()),
-            None, // short_name
-            None,
-            None,
-            None,
-            vec![],
-            vec![],
-            None,
-            false,
-        )
-        .unwrap();
-
-        let result = compact(temp.path()).unwrap();
-
-        // Should have compacted 3 entries (create + 2 updates) to 1
-        assert!(result.original_entries >= 3);
-        assert_eq!(result.final_entries, 1);
-        assert_eq!(result.tasks_compacted, 1);
-
-        // Verify the task still exists with the final title
-        let result = task_show(temp.path(), &task.id).unwrap().unwrap();
-        assert_eq!(result.task.title, "Updated 2");
-    }
-
-    #[test]
-    fn test_compact_preserves_all_tasks() {
-        let temp = setup();
-
-        task_create(
-            temp.path(),
-            "Task A".to_string(),
-            None,
-            None,
-            None,
-            vec![],
-            None,
-        )
-        .unwrap();
-        task_create(
-            temp.path(),
-            "Task B".to_string(),
-            None,
-            None,
-            None,
-            vec![],
-            None,
-        )
-        .unwrap();
-        task_create(
-            temp.path(),
-            "Task C".to_string(),
-            None,
-            None,
-            None,
-            vec![],
-            None,
-        )
-        .unwrap();
-
-        let result = compact(temp.path()).unwrap();
-        assert_eq!(result.tasks_compacted, 3);
-        assert_eq!(result.final_entries, 3);
-
-        // Verify all tasks still exist
-        let tasks = task_list(temp.path(), None, None, None).unwrap();
-        assert_eq!(tasks.count, 3);
-    }
-
-    #[test]
-    fn test_compact_with_tests() {
-        let temp = setup();
-
-        let task = task_create(
-            temp.path(),
-            "Task A".to_string(),
-            None,
-            None,
-            None,
-            vec![],
-            None,
-        )
-        .unwrap();
-        test_create(
-            temp.path(),
-            "Test 1".to_string(),
-            "echo test".to_string(),
-            ".".to_string(),
-            Some(task.id.clone()),
-            None,
-        )
-        .unwrap();
-
-        let result = compact(temp.path()).unwrap();
-        assert_eq!(result.final_entries, 2); // 1 task + 1 test
-
-        // Verify both still exist
-        let tasks = task_list(temp.path(), None, None, None).unwrap();
-        assert_eq!(tasks.count, 1);
-        let tests = test_list(temp.path(), None).unwrap();
-        assert_eq!(tests.count, 1);
     }
 
     // === Init AGENTS.md Tests ===

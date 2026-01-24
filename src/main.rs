@@ -608,15 +608,6 @@ fn run_command(
             let result = commands::log(repo_path, task_id.as_deref())?;
             output(&result, human);
         }
-        Some(Commands::Compact) => {
-            // DEPRECATED: Print warning before executing
-            eprintln!(
-                "Warning: 'bn compact' is deprecated and will be removed in a future version."
-            );
-            eprintln!("         Use 'bn system compact' instead if you need this functionality.");
-            let result = commands::compact(repo_path)?;
-            output(&result, human);
-        }
         Some(Commands::Sync { remote, push, pull }) => {
             let result = commands::sync(repo_path, remote, push, pull)?;
             output(&result, human);
@@ -751,10 +742,6 @@ fn run_command(
                 } else {
                     println!("{}", serde_json::json!({"content": content.trim()}));
                 }
-            }
-            SystemCommands::Compact => {
-                let result = commands::compact(repo_path)?;
-                output(&result, human);
             }
             SystemCommands::Migrate { to, dry_run } => {
                 let result = commands::migrate_storage(repo_path, &to, dry_run)?;
@@ -1734,8 +1721,6 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             ("log".to_string(), serde_json::json!({ "task_id": task_id }))
         }
 
-        Some(Commands::Compact) => ("compact".to_string(), serde_json::json!({})),
-
         Some(Commands::Sync { remote, push, pull }) => (
             "sync".to_string(),
             serde_json::json!({
@@ -1846,7 +1831,6 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     serde_json::json!({ "template": template_name }),
                 )
             }
-            SystemCommands::Compact => ("system compact".to_string(), serde_json::json!({})),
             SystemCommands::Migrate { to, dry_run } => (
                 "system migrate".to_string(),
                 serde_json::json!({ "to": to, "dry_run": dry_run }),

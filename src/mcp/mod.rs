@@ -527,10 +527,6 @@ impl McpServer {
                 let result = commands::log(repo, task_id.as_deref())?;
                 Ok(result.to_json())
             }
-            "bn_compact" => {
-                let result = commands::compact(repo)?;
-                Ok(result.to_json())
-            }
             "bn_config_get" => {
                 let key = get_string_arg(args, "key")?;
                 let result = commands::config_get(repo, &key)?;
@@ -544,11 +540,6 @@ impl McpServer {
             }
             "bn_config_list" => {
                 let result = commands::config_list(repo)?;
-                Ok(result.to_json())
-            }
-            // System tools
-            "bn_system_compact" => {
-                let result = commands::compact(repo)?;
                 Ok(result.to_json())
             }
             // Milestone tools
@@ -1596,15 +1587,6 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
-            name: "bn_compact".to_string(),
-            description: "(DEPRECATED: use bn_system_compact) Compact storage by summarizing old closed tasks".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-        },
-        ToolDef {
             name: "bn_config_get".to_string(),
             description: "Get a configuration value".to_string(),
             input_schema: json!({
@@ -1639,16 +1621,6 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
         ToolDef {
             name: "bn_config_list".to_string(),
             description: "List all configuration values".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-        },
-        // System tools
-        ToolDef {
-            name: "bn_system_compact".to_string(),
-            description: "Compact storage by removing duplicate entries".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {},
