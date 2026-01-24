@@ -48,6 +48,10 @@ pub enum Commands {
     },
 
     /// Gracefully terminate this agent (signals parent process)
+    ///
+    /// Note: Planner agents (PRD generators) should not normally call goodbye.
+    /// They produce artifacts but don't run long-lived sessions. If a planner
+    /// agent must terminate, use --force.
     Goodbye {
         /// Optional reason for termination
         reason: Option<String>,
@@ -55,6 +59,10 @@ pub enum Commands {
         /// Log goodbye without actually terminating (for testing)
         #[arg(long)]
         dry_run: bool,
+
+        /// Force termination even for planner agents (normally disallowed)
+        #[arg(long)]
+        force: bool,
     },
 
     /// Show any entity by ID (auto-detects type)

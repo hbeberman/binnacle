@@ -204,3 +204,56 @@ fn test_goodbye_json_includes_warning_field() {
             .contains("No reason provided")
     );
 }
+
+// === Planner Agent Tests ===
+
+#[test]
+fn test_goodbye_force_flag_documented_in_help() {
+    let temp = TempDir::new().unwrap();
+
+    bn_in(&temp)
+        .args(["goodbye", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--force"))
+        .stdout(predicate::str::contains("planner"));
+}
+
+#[test]
+fn test_goodbye_json_includes_should_terminate() {
+    let temp = init_binnacle();
+
+    // Run goodbye and check JSON includes should_terminate field
+    let output = bn_in(&temp)
+        .args(["goodbye", "--dry-run"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // should_terminate should be present and true for non-planner agents
+    assert!(json.get("should_terminate").is_some());
+    assert!(json["should_terminate"].as_bool().unwrap());
+}
+
+#[test]
+fn test_goodbye_with_force_flag() {
+    let temp = init_binnacle();
+
+    // Run goodbye with --force flag
+    let output = bn_in(&temp)
+        .args(["goodbye", "--dry-run", "--force", "Forced termination"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // should_terminate should be true when --force is used
+    assert!(json["should_terminate"].as_bool().unwrap());
+}

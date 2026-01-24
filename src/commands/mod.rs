@@ -8546,9 +8546,20 @@ pub struct GoodbyeResult {
     pub was_registered: bool,
     pub reason: Option<String>,
     pub terminated: bool,
+    /// Whether to actually terminate the process (false for planner agents without --force)
+    #[serde(default = "default_true")]
+    pub should_terminate: bool,
     /// Warning message when reason is not provided
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    /// The agent type (if registered)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_type: Option<String>,
+}
+
+#[allow(dead_code)] // Used by serde for default deserialization
+fn default_true() -> bool {
+    true
 }
 
 impl Output for GoodbyeResult {
@@ -8558,6 +8569,15 @@ impl Output for GoodbyeResult {
 
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
+
+        // Show warning for planner agents that won't terminate
+        if !self.should_terminate {
+            lines.push(
+                "Error: Planner agents should not call goodbye. They produce artifacts but don't run long-lived sessions.".to_string()
+            );
+            lines.push("Use 'bn goodbye --force \"reason\"' if you must terminate.".to_string());
+            return lines.join("\n");
+        }
 
         if !self.was_registered {
             lines.push(
@@ -8601,10 +8621,13 @@ impl Output for GoodbyeResult {
 /// 4. Removes own registration from agents.jsonl
 /// 5. Sends SIGTERM to grandparent PID (then SIGKILL after timeout if still running)
 ///
+/// For planner agents (PRD generators), termination is blocked unless force=true.
+/// Planner agents produce artifacts but don't run long-lived sessions.
+///
 /// Note: We target the grandparent PID because the process tree is typically:
 /// agent session → shell (running bn) → bn goodbye
 /// Killing the direct parent (shell) doesn't terminate the agent session.
-pub fn goodbye(repo_path: &Path, reason: Option<String>) -> Result<GoodbyeResult> {
+pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<GoodbyeResult> {
     let bn_pid = std::process::id();
     let parent_pid = get_parent_pid().unwrap_or(0);
 
@@ -8629,18 +8652,33 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>) -> Result<GoodbyeResult
     let agent = storage.get_agent(parent_pid).ok();
     let was_registered = agent.is_some();
     let agent_name = agent.as_ref().map(|a| a.name.clone());
+    let agent_type = agent
+        .as_ref()
+        .map(|a| format!("{:?}", a.agent_type).to_lowercase());
 
-    // Remove agent from registry if registered (using parent_pid)
-    if was_registered {
+    // Check if planner agent trying to call goodbye without --force
+    let is_planner = agent
+        .as_ref()
+        .map(|a| a.agent_type == AgentType::Planner)
+        .unwrap_or(false);
+    let should_terminate = !is_planner || force;
+
+    // Only remove agent from registry if we're actually terminating
+    if should_terminate && was_registered {
         let _ = storage.remove_agent(parent_pid);
     }
 
     // Log the bn command PID for debugging
     let _ = bn_pid;
 
-    // Add warning if no reason provided
-    let warning = if reason.is_none() {
+    // Add warning if no reason provided (only relevant if we're terminating)
+    let warning = if should_terminate && reason.is_none() {
         Some("No reason provided. Please use: bn goodbye \"reason for termination\"".to_string())
+    } else if !should_terminate {
+        Some(
+            "Planner agents should not call goodbye. Use --force if you must terminate."
+                .to_string(),
+        )
     } else {
         None
     };
@@ -8651,8 +8689,10 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>) -> Result<GoodbyeResult
         grandparent_pid,
         was_registered,
         reason,
-        terminated: true, // Actual termination happens in main.rs after output
+        terminated: should_terminate,
+        should_terminate,
         warning,
+        agent_type,
     })
 }
 
@@ -13666,7 +13706,7 @@ mod tests {
         let temp = setup();
 
         // Goodbye without orient should still work (unregistered agent)
-        let result = goodbye(temp.path(), None);
+        let result = goodbye(temp.path(), None, false);
         assert!(result.is_ok());
 
         let goodbye_result = result.unwrap();
@@ -13680,7 +13720,7 @@ mod tests {
     fn test_goodbye_with_reason() {
         let temp = setup();
 
-        let result = goodbye(temp.path(), Some("Task completed".to_string()));
+        let result = goodbye(temp.path(), Some("Task completed".to_string()), false);
         assert!(result.is_ok());
 
         let goodbye_result = result.unwrap();
@@ -13691,7 +13731,7 @@ mod tests {
     fn test_goodbye_output_format() {
         let temp = setup();
 
-        let result = goodbye(temp.path(), Some("Done".to_string())).unwrap();
+        let result = goodbye(temp.path(), Some("Done".to_string()), false).unwrap();
 
         // Test JSON output
         let json = result.to_json();

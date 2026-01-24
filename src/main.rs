@@ -133,13 +133,17 @@ fn run_command(
             }
         }
 
-        Some(Commands::Goodbye { reason, dry_run }) => {
-            let result = commands::goodbye(repo_path, reason)?;
+        Some(Commands::Goodbye {
+            reason,
+            dry_run,
+            force,
+        }) => {
+            let result = commands::goodbye(repo_path, reason, force)?;
             output(&result, human);
 
             // Actually terminate the grandparent process after output (unless dry-run)
             // We target grandparent because: agent → shell → bn goodbye
-            if !dry_run {
+            if !dry_run && result.should_terminate {
                 // Use 5 second timeout before SIGKILL
                 commands::terminate_process(result.grandparent_pid, 5);
             }
@@ -1164,9 +1168,13 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             serde_json::json!({ "agent_type": agent_type, "init": init, "name": name, "register": register }),
         ),
 
-        Some(Commands::Goodbye { reason, dry_run }) => (
+        Some(Commands::Goodbye {
+            reason,
+            dry_run,
+            force,
+        }) => (
             "goodbye".to_string(),
-            serde_json::json!({ "reason": reason, "dry_run": dry_run }),
+            serde_json::json!({ "reason": reason, "dry_run": dry_run, "force": force }),
         ),
 
         Some(Commands::Show { id }) => ("show".to_string(), serde_json::json!({ "id": id })),
