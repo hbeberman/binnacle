@@ -127,7 +127,7 @@ Run `bn goodbye "session complete"` to gracefully terminate your agent session w
         ;;
     free)
         echo "Launching Free Agent"
-        PROMPT='You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn task show ID` (task details), `bn blocked` (blocked tasks). Run `bn orient` to see the current project state, then ask the user what they would like you to work on. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done.'
+        PROMPT='You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bni-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient` to see the current project state, then ask the user what they would like you to work on. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done.'
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     *)

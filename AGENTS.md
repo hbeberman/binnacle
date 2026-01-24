@@ -17,6 +17,8 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 
 The task graph drives development priorities. Always update task status to keep it accurate.
 
+**Tip**: Use `bn show <id>` to view any entity by ID - it auto-detects the type from the prefix (bn-, bnt-, bni-, bnq-).
+
 ## Before you mark task done (IMPORTANT)
 
 1. Run `bn ready` to check if any related tasks should also be closed
