@@ -2914,7 +2914,7 @@ pub fn task_close(
     // Auto-remove task from any queues it's in
     let removed_from_queues = remove_task_from_queues(&mut storage, id)?;
 
-    // Generate warnings for incomplete deps and missing commits
+    // Generate warnings for incomplete deps, missing commits, no commits, and uncommitted changes
     let mut warnings = Vec::new();
     if !incomplete_deps.is_empty() {
         warnings.push(format!(
@@ -2929,6 +2929,14 @@ pub fn task_close(
                 sha
             ));
         }
+    }
+    // Warn if no commits are linked to this task
+    if commits.is_empty() {
+        warnings.push("No commits linked to this task".to_string());
+    }
+    // Warn if there are uncommitted changes in the repo
+    if git_has_uncommitted_changes(repo_path) {
+        warnings.push("Uncommitted changes in repository".to_string());
     }
     let warning = if warnings.is_empty() {
         None
@@ -3823,7 +3831,7 @@ pub fn bug_close(
     // Auto-remove bug from any queues it's in
     let removed_from_queues = remove_task_from_queues(&mut storage, id)?;
 
-    // Generate warnings for incomplete deps and missing commits
+    // Generate warnings for incomplete deps, missing commits, no commits, and uncommitted changes
     let mut warnings = Vec::new();
     if !incomplete_deps.is_empty() {
         warnings.push(format!(
@@ -3838,6 +3846,14 @@ pub fn bug_close(
                 sha
             ));
         }
+    }
+    // Warn if no commits are linked to this bug
+    if commits.is_empty() {
+        warnings.push("No commits linked to this bug".to_string());
+    }
+    // Warn if there are uncommitted changes in the repo
+    if git_has_uncommitted_changes(repo_path) {
+        warnings.push("Uncommitted changes in repository".to_string());
     }
     let warning = if warnings.is_empty() {
         None
@@ -7467,6 +7483,19 @@ pub fn git_commit_exists(repo_path: &Path, sha: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Check if there are uncommitted changes in the git repository.
+///
+/// Uses `git status --porcelain` to check for staged or unstaged changes.
+/// Returns true if there are uncommitted changes, false otherwise.
+pub fn git_has_uncommitted_changes(repo_path: &Path) -> bool {
+    Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(repo_path)
+        .output()
+        .map(|o| o.status.success() && !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
 /// Get a string configuration value with default.
 ///
 /// Returns the default value if the config is not set.
@@ -10261,7 +10290,11 @@ mod tests {
         // Now close B (all deps are complete)
         let result = task_close(temp.path(), &task_b.id, None, false).unwrap();
         assert_eq!(result.status, "done");
-        assert!(result.warning.is_none());
+        // Warning about no commits linked is expected, but NOT about incomplete deps
+        if let Some(warning) = &result.warning {
+            assert!(!warning.contains("incomplete dependencies"));
+            assert!(warning.contains("No commits linked"));
+        }
 
         // Verify task is closed
         let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
@@ -13800,7 +13833,15 @@ mod tests {
         let result = bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
         assert_eq!(result.id, created.id);
         assert_eq!(result.status, "done");
-        assert!(result.warning.is_none());
+        // Warning is expected when no commits are linked to the bug
+        assert!(result.warning.is_some());
+        assert!(
+            result
+                .warning
+                .as_ref()
+                .unwrap()
+                .contains("No commits linked")
+        );
 
         let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.bug.status, TaskStatus::Done);
