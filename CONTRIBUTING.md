@@ -107,3 +107,42 @@ bn task close bn-xxxx --reason "Implemented feature X"
 ## Questions?
 
 Open an issue or reach out to the maintainers!
+
+## Adding a New Entity Type
+
+When adding a new entity type to binnacle (like Task, Bug, Idea, etc.), you must update multiple places. Use this checklist to avoid data loss bugs:
+
+### Checklist
+
+1. **Define the model** (`src/models/mod.rs`)
+   - [ ] Create the struct with `entity_type` field
+   - [ ] Implement serialization/deserialization
+   - [ ] Add to `EntityType` enum if needed
+
+2. **Update storage schema** (`src/storage/mod.rs`)
+   - [ ] Add `CREATE TABLE` in `init_schema()`
+   - [ ] Add `DELETE FROM` in `rebuild_cache()` clear section
+   - [ ] Add re-read logic in `rebuild_cache()` for your `<entity>.jsonl`
+   - [ ] Implement `cache_<entity>()` method
+   - [ ] Implement CRUD methods (`create_<entity>`, `get_<entity>`, etc.)
+
+3. **Add CLI commands** (`src/commands/`)
+   - [ ] Create command module
+   - [ ] Register in `main.rs`
+
+4. **Update tests**
+   - [ ] Add entity to `test_compact_preserves_all_entity_types` in `cli_maintenance_test.rs`
+   - [ ] Add unit tests for the new entity
+
+5. **Update documentation**
+   - [ ] Add to PRD.md if appropriate
+   - [ ] Update README.md
+
+### Why This Matters
+
+The `rebuild_cache()` function reconstructs the SQLite cache from JSONL files. If a new entity type is not added to this function:
+- The cache will be missing data after `bn compact` runs
+- Entity lookups will fail mysteriously
+- Data appears "lost" even though it exists in JSONL files
+
+The `test_compact_preserves_all_entity_types` test exists specifically to catch this bug early.

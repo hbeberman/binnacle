@@ -661,6 +661,204 @@ fn test_compact_preserves_bugs() {
         .stdout(predicate::str::contains("Second bug"));
 }
 
+/// CRITICAL TEST: Ensures ALL entity types survive compact/rebuild_cache.
+///
+/// This test catches the common bug where a new entity type is added but
+/// rebuild_cache() is not updated to handle it. If this test fails after
+/// adding a new entity type, you need to update rebuild_cache() in storage/mod.rs.
+///
+/// Entity types tested (via CLI):
+/// - Task (bn-xxxx) - tasks.jsonl
+/// - Bug (bn-xxxx) - bugs.jsonl  
+/// - Idea (bni-xxxx) - ideas.jsonl
+/// - Milestone (bnm-xxxx) - milestones.jsonl
+/// - TestNode (bnt-xxxx) - tasks.jsonl
+/// - Edge (bne-xxxx) - edges.jsonl
+/// - Queue (bnq-xxxx) - queues.jsonl
+///
+/// Entity types NOT tested here (no CLI creation command):
+/// - Agent (bna-xxxx) - agents.jsonl (created internally via orient/session)
+#[test]
+fn test_compact_preserves_all_entity_types() {
+    let temp = init_binnacle();
+
+    // 1. Create a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Test task for rebuild_cache"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let task_id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap()
+        .to_string();
+
+    // 2. Create a bug
+    let output = bn_in(&temp)
+        .args(["bug", "create", "Test bug for rebuild_cache"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let bug_id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap()
+        .to_string();
+
+    // 3. Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "Test idea for rebuild_cache"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let idea_id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap()
+        .to_string();
+
+    // 4. Create a milestone
+    let output = bn_in(&temp)
+        .args(["milestone", "create", "Test milestone for rebuild_cache"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let milestone_id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap()
+        .to_string();
+
+    // 5. Create a test node
+    let output = bn_in(&temp)
+        .args([
+            "test",
+            "create",
+            "Test node for rebuild_cache",
+            "--cmd",
+            "echo test",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let test_id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap()
+        .to_string();
+
+    // 6. Create an edge (link task to milestone)
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &milestone_id, "--type", "child_of"])
+        .assert()
+        .success();
+
+    // 7. Create an agent
+    // NOTE: Agents are created internally via orient/session start, not via CLI command.
+    // Uncomment this when `bn agent create` is implemented:
+    // let output = bn_in(&temp)
+    //     .args(["agent", "create", "test-agent"])
+    //     .output()
+    //     .unwrap();
+    // let stdout = String::from_utf8_lossy(&output.stdout);
+    // let agent_id = stdout
+    //     .split("\"id\":\"")
+    //     .nth(1)
+    //     .unwrap()
+    //     .split("\"")
+    //     .next()
+    //     .unwrap()
+    //     .to_string();
+
+    // 8. Create a queue
+    bn_in(&temp)
+        .args(["queue", "create", "Test queue for rebuild_cache"])
+        .assert()
+        .success();
+
+    // Run compact (this triggers rebuild_cache)
+    bn_in(&temp)
+        .arg("compact")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("compacted"));
+
+    // Verify ALL entity types survived rebuild_cache:
+
+    // 1. Task survives
+    bn_in(&temp)
+        .args(["task", "show", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Test task for rebuild_cache"));
+
+    // 2. Bug survives
+    bn_in(&temp)
+        .args(["bug", "show", &bug_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Test bug for rebuild_cache"));
+
+    // 3. Idea survives
+    bn_in(&temp)
+        .args(["idea", "show", &idea_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Test idea for rebuild_cache"));
+
+    // 4. Milestone survives
+    bn_in(&temp)
+        .args(["milestone", "show", &milestone_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Test milestone for rebuild_cache"));
+
+    // 5. Test node survives
+    bn_in(&temp)
+        .args(["test", "show", &test_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Test node for rebuild_cache"));
+
+    // 6. Edge survives (check via link list)
+    bn_in(&temp)
+        .args(["link", "list", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&milestone_id));
+
+    // 7. Agent survives
+    // Uncomment when `bn agent create` is implemented:
+    // bn_in(&temp)
+    //     .args(["agent", "show", &agent_id])
+    //     .assert()
+    //     .success()
+    //     .stdout(predicate::str::contains("test-agent"));
+
+    // 8. Queue survives
+    bn_in(&temp)
+        .args(["queue", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Test queue for rebuild_cache"));
+}
+
 // === Not Initialized Tests ===
 
 #[test]

@@ -453,6 +453,7 @@ impl Storage {
             DELETE FROM edges;
             DELETE FROM agent_tasks;
             DELETE FROM agents;
+            DELETE FROM queues;
             "#,
         )?;
 
@@ -584,6 +585,25 @@ impl Storage {
                     // Ensure backward compatibility: generate ID if missing
                     agent.ensure_id();
                     self.cache_agent(&agent)?;
+                }
+            }
+        }
+
+        // Re-read queues from queues.jsonl
+        let queues_path = self.root.join("queues.jsonl");
+        if queues_path.exists() {
+            let file = File::open(&queues_path)?;
+            let reader = BufReader::new(file);
+
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(queue) = serde_json::from_str::<Queue>(&line)
+                    && queue.entity_type == "queue"
+                {
+                    self.cache_queue(&queue)?;
                 }
             }
         }
