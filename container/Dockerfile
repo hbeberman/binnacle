@@ -6,7 +6,7 @@ LABEL org.opencontainers.image.title="binnacle-worker"
 LABEL org.opencontainers.image.description="AI agent worker with binnacle task tracking"
 LABEL org.opencontainers.image.source="https://github.com/henry/binnacle"
 
-# Install system dependencies
+# Install system dependencies (including build tools for Rust compilation)
 RUN dnf install -y \
     git \
     curl \
@@ -20,6 +20,10 @@ RUN dnf install -y \
     npm \
     python3 \
     python3-pip \
+    gcc \
+    make \
+    openssl-devel \
+    pkg-config \
     && dnf clean all
 
 # Install Rust (for building binnacle)
