@@ -4004,6 +4004,19 @@ pub fn bug_reopen(repo_path: &Path, id: &str) -> Result<BugReopened> {
     let mut storage = Storage::open(repo_path)?;
     let mut bug = storage.get_bug(id)?;
 
+    // Preserve closure history in the description
+    if let Some(closed_at) = &bug.closed_at {
+        let annotation = format!(
+            "\n\n---\nPreviously closed on: {}\nReason: {}",
+            closed_at.format("%Y-%m-%d %H:%M:%S UTC"),
+            bug.closed_reason.as_deref().unwrap_or("(no reason given)")
+        );
+        bug.description = Some(match &bug.description {
+            Some(desc) => format!("{}{}", desc, annotation),
+            None => annotation.trim_start().to_string(),
+        });
+    }
+
     bug.status = TaskStatus::Reopened;
     bug.closed_at = None;
     bug.closed_reason = None;
@@ -15380,6 +15393,11 @@ mod tests {
         assert_eq!(result.bug.status, TaskStatus::Reopened);
         assert!(result.bug.closed_at.is_none());
         assert!(result.bug.closed_reason.is_none());
+
+        // Verify closure history is preserved in description
+        let description = result.bug.description.unwrap();
+        assert!(description.contains("Previously closed on:"));
+        assert!(description.contains("Reason: Fixed"));
     }
 
     #[test]
