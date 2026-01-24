@@ -33,6 +33,15 @@ fn init_git(env: &TestEnv) {
 
 /// Helper to run the commit-msg hook directly with test environment
 fn run_hook(env: &TestEnv, commit_msg_file: &Path) -> std::process::Output {
+    run_hook_with_session(env, commit_msg_file, false)
+}
+
+/// Helper to run the commit-msg hook with or without an active agent session
+fn run_hook_with_session(
+    env: &TestEnv,
+    commit_msg_file: &Path,
+    agent_session: bool,
+) -> std::process::Output {
     let hook_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("hooks/commit-msg");
 
     // Get the directory containing the bn binary
@@ -43,13 +52,18 @@ fn run_hook(env: &TestEnv, commit_msg_file: &Path) -> std::process::Output {
     let path_env = std::env::var("PATH").unwrap_or_default();
     let new_path = format!("{}:{}", bn_dir.display(), path_env);
 
-    let output = Command::new(&hook_path)
-        .arg(commit_msg_file)
+    let mut cmd = Command::new(&hook_path);
+    cmd.arg(commit_msg_file)
         .current_dir(env.repo_path())
         .env("BN_DATA_DIR", env.data_path())
-        .env("PATH", new_path)
-        .output()
-        .expect("Failed to run hook");
+        .env("PATH", new_path);
+
+    // Set BN_AGENT_SESSION if running under agent session
+    if agent_session {
+        cmd.env("BN_AGENT_SESSION", "1");
+    }
+
+    let output = cmd.output().expect("Failed to run hook");
 
     if !output.status.success() {
         eprintln!("Hook stdout: {}", String::from_utf8_lossy(&output.stdout));
@@ -57,36 +71,6 @@ fn run_hook(env: &TestEnv, commit_msg_file: &Path) -> std::process::Output {
     }
 
     output
-}
-
-/// Write a session.json file to the storage directory
-fn write_session_state(env: &TestEnv, agent_pid: u32, orient_called: bool) {
-    // Get storage dir for this repo
-    let repo_canonical = env.repo_path().canonicalize().unwrap();
-    let repo_str = repo_canonical.to_string_lossy();
-
-    // SHA256 hash (first 12 chars)
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(repo_str.as_bytes());
-    let hash = hasher.finalize();
-    let hash_hex = format!("{:x}", hash);
-    let short_hash = &hash_hex[..12];
-
-    let storage_dir = env.data_path().join(short_hash);
-    fs::create_dir_all(&storage_dir).unwrap();
-
-    let session_json = format!(
-        r#"{{
-  "agent_pid": {},
-  "agent_type": "worker",
-  "started_at": "2026-01-24T00:00:00Z",
-  "orient_called": {}
-}}"#,
-        agent_pid, orient_called
-    );
-
-    fs::write(storage_dir.join("session.json"), session_json).unwrap();
 }
 
 #[test]
@@ -117,17 +101,14 @@ fn test_hook_no_session_does_nothing() {
 }
 
 #[test]
-fn test_hook_with_orient_called_false_does_nothing() {
+fn test_hook_without_agent_session_does_nothing() {
     let env = TestEnv::init();
-
-    // Write session state with orient_called=false
-    write_session_state(&env, std::process::id(), false);
 
     // Create commit message file
     let msg_file = env.repo_path().join("COMMIT_MSG");
     fs::write(&msg_file, "Test commit\n").unwrap();
 
-    // Run hook
+    // Run hook without BN_AGENT_SESSION
     let output = run_hook(&env, &msg_file);
     assert!(output.status.success());
 
@@ -146,15 +127,12 @@ fn test_hook_disabled_by_config() {
         .assert()
         .success();
 
-    // Write active session state with current process as agent
-    write_session_state(&env, std::process::id(), true);
-
     // Create commit message file
     let msg_file = env.repo_path().join("COMMIT_MSG");
     fs::write(&msg_file, "Test commit\n").unwrap();
 
-    // Run hook - should be disabled
-    let output = run_hook(&env, &msg_file);
+    // Run hook with agent session - should be disabled by config
+    let output = run_hook_with_session(&env, &msg_file, true);
     assert!(output.status.success());
 
     // Message should be unchanged
@@ -163,32 +141,31 @@ fn test_hook_disabled_by_config() {
 }
 
 #[test]
-fn test_hook_with_wrong_pid_does_nothing() {
+fn test_hook_with_agent_session_adds_trailer() {
     let env = TestEnv::init();
-
-    // Write session state with a different PID (not our ancestor)
-    write_session_state(&env, 99999, true); // Very unlikely to be an ancestor
+    init_git(&env); // Initialize git repo
 
     // Create commit message file
     let msg_file = env.repo_path().join("COMMIT_MSG");
     fs::write(&msg_file, "Test commit\n").unwrap();
 
-    // Run hook
-    let output = run_hook(&env, &msg_file);
+    // Run hook with BN_AGENT_SESSION=1
+    let output = run_hook_with_session(&env, &msg_file, true);
     assert!(output.status.success());
 
-    // Message should be unchanged (wrong PID)
+    // Message should have trailer added
     let content = fs::read_to_string(&msg_file).unwrap();
-    assert_eq!(content, "Test commit\n");
+    assert!(
+        content.contains("Co-authored-by: binnacle-bot <noreply@binnacle.bot>"),
+        "Should add trailer, got: {}",
+        content
+    );
 }
 
 #[test]
 fn test_hook_already_has_trailer_no_duplicate() {
     let env = TestEnv::init();
     init_git(&env); // Initialize git repo
-
-    // Write active session state with PID 1 (init, always an ancestor)
-    write_session_state(&env, 1, true);
 
     // Create commit message with existing trailer
     let msg_file = env.repo_path().join("COMMIT_MSG");
@@ -198,8 +175,8 @@ fn test_hook_already_has_trailer_no_duplicate() {
     )
     .unwrap();
 
-    // Run hook
-    let output = run_hook(&env, &msg_file);
+    // Run hook with agent session
+    let output = run_hook_with_session(&env, &msg_file, true);
     assert!(output.status.success());
 
     // Message should not have duplicate trailer
@@ -223,15 +200,12 @@ fn test_hook_custom_name_email() {
         .assert()
         .success();
 
-    // Write active session state with PID 1
-    write_session_state(&env, 1, true);
-
     // Create commit message
     let msg_file = env.repo_path().join("COMMIT_MSG");
     fs::write(&msg_file, "Test commit\n").unwrap();
 
-    // Run hook
-    let output = run_hook(&env, &msg_file);
+    // Run hook with agent session
+    let output = run_hook_with_session(&env, &msg_file, true);
     assert!(output.status.success());
 
     // Check for custom trailer

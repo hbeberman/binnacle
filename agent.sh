@@ -127,6 +127,9 @@ case "$AGENT_TYPE" in
         ;;
 esac
 
+# Export BN_AGENT_SESSION so child processes (including git hooks) know they're running under an agent
+export BN_AGENT_SESSION=1
+
 # Run the agent (with optional loop)
 if [[ "$LOOP_MODE" == "true" ]]; then
     echo "Loop mode enabled - agent will restart on exit"
