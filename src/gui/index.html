@@ -4852,9 +4852,9 @@
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
                 if (distance > 0) {
-                    // Queue nodes get stronger gravity (lower mass effect)
-                    // This makes them more responsive and less "heavy"
-                    const gravityMultiplier = node.type === 'queue' ? 3.0 : 1.0;
+                    // Queue nodes are HEAVY - they barely respond to gravity
+                    // This makes other nodes move toward them via edge attraction
+                    const gravityMultiplier = node.type === 'queue' ? 0.1 : 1.0;
                     const force = gravityStrength * gravityMultiplier;
                     node.vx += (dx / distance) * force;
                     node.vy += (dy / distance) * force;
@@ -4970,8 +4970,12 @@
                 node.vy *= damping;
 
                 // Cap velocity - higher limit for nodes connected to dragged node
+                // Queue nodes have very low max velocity (they're heavy anchors)
                 const isConnected = connectedToDragged.has(node.id);
-                const velocityLimit = isConnected ? connectedMaxVelocity : maxVelocity;
+                let velocityLimit = isConnected ? connectedMaxVelocity : maxVelocity;
+                if (node.type === 'queue') {
+                    velocityLimit = maxVelocity * 0.3; // Queue nodes move very slowly
+                }
                 const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
                 if (speed > velocityLimit) {
                     node.vx = (node.vx / speed) * velocityLimit;
