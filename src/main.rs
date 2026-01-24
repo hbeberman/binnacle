@@ -748,6 +748,13 @@ fn run_command(
                 let result = commands::migrate_storage(repo_path, &to, dry_run)?;
                 output(&result, human);
             }
+            SystemCommands::MigrateBugs {
+                dry_run,
+                remove_tag,
+            } => {
+                let result = commands::migrate_bugs(repo_path, dry_run, remove_tag)?;
+                output(&result, human);
+            }
             SystemCommands::Hooks { command } => match command {
                 HooksCommands::Uninstall => {
                     let result = commands::hooks_uninstall(repo_path)?;
@@ -1815,6 +1822,13 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             SystemCommands::Migrate { to, dry_run } => (
                 "system migrate".to_string(),
                 serde_json::json!({ "to": to, "dry_run": dry_run }),
+            ),
+            SystemCommands::MigrateBugs {
+                dry_run,
+                remove_tag,
+            } => (
+                "system migrate-bugs".to_string(),
+                serde_json::json!({ "dry_run": dry_run, "remove_tag": remove_tag }),
             ),
             SystemCommands::Hooks { command } => match command {
                 HooksCommands::Uninstall => {

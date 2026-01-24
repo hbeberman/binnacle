@@ -1021,6 +1021,17 @@ pub enum SystemCommands {
         #[command(subcommand)]
         command: HooksCommands,
     },
+
+    /// Convert tasks tagged as 'bug' into Bug entities
+    MigrateBugs {
+        /// Preview migration without making changes
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Delete the 'bug' tag from converted tasks (default: keep tag for reference)
+        #[arg(long)]
+        remove_tag: bool,
+    },
 }
 
 /// Hooks management subcommands

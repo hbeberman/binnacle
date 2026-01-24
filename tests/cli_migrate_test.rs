@@ -303,3 +303,199 @@ fn test_migrate_backend_aliases() {
         .assert()
         .success();
 }
+
+// ============================================================================
+// Tests for `bn system migrate-bugs` command
+// ============================================================================
+
+/// Initialize binnacle only (no test data)
+fn init_only(env: &GitTestEnv) {
+    env.bn().args(["system", "init", "-y"]).assert().success();
+}
+
+#[test]
+fn migrate_bugs_no_tasks_with_bug_tag() {
+    let env = GitTestEnv::new();
+    init_only(&env);
+
+    // Create a regular task without 'bug' tag
+    env.bn()
+        .args(["task", "create", "Regular task", "-t", "feature"])
+        .assert()
+        .success();
+
+    // Run migrate-bugs - should find nothing
+    env.bn()
+        .args(["system", "migrate-bugs", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No tasks with 'bug' tag found"));
+}
+
+#[test]
+fn migrate_bugs_converts_tagged_tasks() {
+    let env = GitTestEnv::new();
+    init_only(&env);
+
+    // Create tasks with 'bug' tag
+    env.bn()
+        .args(["task", "create", "Bug task one", "-t", "bug", "-p", "1"])
+        .assert()
+        .success();
+
+    env.bn()
+        .args([
+            "task",
+            "create",
+            "Bug task two",
+            "-t",
+            "bug",
+            "-t",
+            "backend",
+        ])
+        .assert()
+        .success();
+
+    // Run migrate-bugs
+    env.bn()
+        .args(["system", "migrate-bugs", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Migrated 2 task(s) to bugs"))
+        .stdout(predicate::str::contains("Bug task one"))
+        .stdout(predicate::str::contains("Bug task two"));
+
+    // Verify bugs were created
+    env.bn()
+        .args(["bug", "list", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Bug task one"))
+        .stdout(predicate::str::contains("Bug task two"));
+}
+
+#[test]
+fn migrate_bugs_dry_run_mode() {
+    let env = GitTestEnv::new();
+    init_only(&env);
+
+    // Create a task with 'bug' tag
+    env.bn()
+        .args(["task", "create", "Bug to migrate", "-t", "bug"])
+        .assert()
+        .success();
+
+    // Run migrate-bugs with --dry-run
+    env.bn()
+        .args(["system", "migrate-bugs", "--dry-run", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Dry run: would migrate 1 task(s) to bugs",
+        ))
+        .stdout(predicate::str::contains("Bug to migrate"));
+
+    // Verify no bugs were actually created
+    env.bn().args(["bug", "list"]).assert().success().stdout(
+        predicate::str::contains("\"count\":0").or(predicate::str::contains("\"bugs\":[]")),
+    );
+}
+
+#[test]
+fn migrate_bugs_removes_tag_when_requested() {
+    let env = GitTestEnv::new();
+    init_only(&env);
+
+    // Create a task with 'bug' tag and another tag
+    env.bn()
+        .args([
+            "task",
+            "create",
+            "Bug with multiple tags",
+            "-t",
+            "bug",
+            "-t",
+            "frontend",
+        ])
+        .assert()
+        .success();
+
+    // Run migrate-bugs with --remove-tag
+    env.bn()
+        .args(["system", "migrate-bugs", "--remove-tag", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Removed 'bug' tag from original tasks",
+        ));
+
+    // Verify the original task no longer has 'bug' tag but still has 'frontend'
+    let output = env.bn().args(["task", "list"]).assert().success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    // The task should still exist with 'frontend' tag
+    assert!(stdout.contains("frontend"));
+    // Note: task is still there (we don't delete tasks, just remove the tag)
+}
+
+#[test]
+fn migrate_bugs_preserves_task_metadata() {
+    let env = GitTestEnv::new();
+    init_only(&env);
+
+    // Create a task with bug tag and various metadata
+    env.bn()
+        .args([
+            "task",
+            "create",
+            "Bug with metadata",
+            "-t",
+            "bug",
+            "-p",
+            "0",
+            "-a",
+            "alice",
+            "-d",
+            "This is a description",
+        ])
+        .assert()
+        .success();
+
+    // Run migrate-bugs
+    env.bn()
+        .args(["system", "migrate-bugs", "-H"])
+        .assert()
+        .success();
+
+    // List bugs and verify metadata was preserved
+    let output = env.bn().args(["bug", "list"]).assert().success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    // Verify priority was preserved (0 is highest)
+    assert!(stdout.contains("\"priority\":0"));
+    // Verify assignee was preserved
+    assert!(stdout.contains("\"assignee\":\"alice\""));
+}
+
+#[test]
+fn migrate_bugs_json_output() {
+    let env = GitTestEnv::new();
+    init_only(&env);
+
+    // Create a task with 'bug' tag
+    env.bn()
+        .args(["task", "create", "JSON bug task", "-t", "bug"])
+        .assert()
+        .success();
+
+    // Run migrate-bugs (JSON output by default)
+    env.bn()
+        .args(["system", "migrate-bugs"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"success\":true"))
+        .stdout(predicate::str::contains("\"tasks_found\":1"))
+        .stdout(predicate::str::contains("\"tasks_migrated\":["))
+        .stdout(predicate::str::contains("\"old_task_id\":"))
+        .stdout(predicate::str::contains("\"new_bug_id\":"));
+}

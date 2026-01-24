@@ -9463,6 +9463,143 @@ pub fn migrate_storage(repo_path: &Path, to_backend: &str, dry_run: bool) -> Res
     })
 }
 
+/// Result of migrating bug-tagged tasks to Bug entities.
+#[derive(Serialize)]
+pub struct MigrateBugsResult {
+    pub success: bool,
+    pub dry_run: bool,
+    pub tasks_found: usize,
+    pub tasks_migrated: Vec<MigratedTask>,
+    pub remove_tag: bool,
+}
+
+/// Information about a migrated task.
+#[derive(Serialize)]
+pub struct MigratedTask {
+    pub old_task_id: String,
+    pub new_bug_id: String,
+    pub title: String,
+}
+
+impl Output for MigrateBugsResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.tasks_found == 0 {
+            return "No tasks with 'bug' tag found.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        if self.dry_run {
+            lines.push(format!(
+                "Dry run: would migrate {} task(s) to bugs:",
+                self.tasks_found
+            ));
+        } else {
+            lines.push(format!(
+                "Migrated {} task(s) to bugs:",
+                self.tasks_migrated.len()
+            ));
+        }
+
+        for task in &self.tasks_migrated {
+            lines.push(format!(
+                "  {} -> {} \"{}\"",
+                task.old_task_id, task.new_bug_id, task.title
+            ));
+        }
+
+        if self.remove_tag && !self.dry_run {
+            lines.push("\nRemoved 'bug' tag from original tasks.".to_string());
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Convert tasks with the 'bug' tag to Bug entities.
+///
+/// This migration helper finds all tasks tagged with 'bug' and creates corresponding
+/// Bug entities with the same metadata. The original tasks are preserved but optionally
+/// have their 'bug' tag removed.
+pub fn migrate_bugs(
+    repo_path: &Path,
+    dry_run: bool,
+    remove_tag: bool,
+) -> Result<MigrateBugsResult> {
+    use crate::models::Bug;
+
+    let mut storage = Storage::open(repo_path)?;
+
+    // Find all tasks with the 'bug' tag
+    let tasks = storage.list_tasks(None, None, Some("bug"))?;
+    let tasks_found = tasks.len();
+
+    if tasks_found == 0 {
+        return Ok(MigrateBugsResult {
+            success: true,
+            dry_run,
+            tasks_found: 0,
+            tasks_migrated: Vec::new(),
+            remove_tag,
+        });
+    }
+
+    let mut migrated = Vec::new();
+
+    for task in &tasks {
+        // Generate a new bug ID based on the task title (ensures unique ID)
+        let bug_id = generate_id("bn", &format!("bug-{}", task.title));
+
+        // Create the bug entity
+        let mut bug = Bug::new(bug_id.clone(), task.title.clone());
+        bug.description = task.description.clone();
+        bug.priority = task.priority;
+        bug.status = task.status.clone();
+        bug.tags = task
+            .tags
+            .iter()
+            .filter(|t| *t != "bug") // Don't copy the 'bug' tag to the Bug entity
+            .cloned()
+            .collect();
+        bug.assignee = task.assignee.clone();
+        bug.depends_on = task.depends_on.clone();
+        bug.created_at = task.created_at;
+        bug.updated_at = task.updated_at;
+        bug.closed_at = task.closed_at;
+        bug.closed_reason = task.closed_reason.clone();
+
+        if !dry_run {
+            // Add the bug
+            storage.add_bug(&bug)?;
+
+            // Optionally remove the 'bug' tag from the original task
+            if remove_tag {
+                let mut updated_task = task.clone();
+                updated_task.tags.retain(|t| t != "bug");
+                updated_task.updated_at = chrono::Utc::now();
+                storage.update_task(&updated_task)?;
+            }
+        }
+
+        migrated.push(MigratedTask {
+            old_task_id: task.id.clone(),
+            new_bug_id: bug_id,
+            title: task.title.clone(),
+        });
+    }
+
+    Ok(MigrateBugsResult {
+        success: true,
+        dry_run,
+        tasks_found,
+        tasks_migrated: migrated,
+        remove_tag,
+    })
+}
+
 #[derive(Serialize)]
 pub struct CommitLinked {
     pub sha: String,
