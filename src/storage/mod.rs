@@ -1761,6 +1761,11 @@ impl Storage {
                     // Explicitly blocked tasks are always included
                     blocked.push(task);
                 }
+                TaskStatus::Partial => {
+                    // Partial tasks are tasks that were done but now have incomplete
+                    // dependencies added - they are effectively blocked
+                    blocked.push(task);
+                }
                 _ => {}
             }
         }

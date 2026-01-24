@@ -15588,4 +15588,335 @@ mod tests {
         let session = storage.read_session_state().unwrap();
         assert_eq!(session.agent_type, crate::models::AgentType::Planner);
     }
+
+    // === Partial Status Transition Tests ===
+
+    #[test]
+    fn test_partial_task_excluded_from_ready() {
+        let temp = setup();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Close B, then add A as dependency → B becomes partial
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // Verify B is partial
+        let shown = task_show(temp.path(), &task_b.id).unwrap().unwrap();
+        assert_eq!(shown.task.status, TaskStatus::Partial);
+
+        // Partial tasks should not appear in ready
+        let result = ready(temp.path(), false, false).unwrap();
+        assert!(!result.tasks.iter().any(|t| t.task.id == task_b.id));
+    }
+
+    #[test]
+    fn test_partial_task_appears_in_blocked() {
+        let temp = setup();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Close B, then add A as dependency → B becomes partial
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // Verify B is partial
+        let shown = task_show(temp.path(), &task_b.id).unwrap().unwrap();
+        assert_eq!(shown.task.status, TaskStatus::Partial);
+
+        // Partial tasks should appear in blocked
+        let result = blocked(temp.path(), false, false).unwrap();
+        assert!(result.tasks.iter().any(|t| t.task.id == task_b.id));
+    }
+
+    #[test]
+    fn test_done_to_partial_skipped_when_dependency_already_done() {
+        let temp = setup();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Close both tasks
+        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+
+        // Add A as dependency of B (both are done, so B should stay done)
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // B should remain Done (not transition to Partial)
+        let shown = task_show(temp.path(), &task_b.id).unwrap().unwrap();
+        assert_eq!(shown.task.status, TaskStatus::Done);
+        assert!(shown.task.closed_at.is_some());
+    }
+
+    #[test]
+    fn test_done_to_partial_skipped_when_dependency_cancelled() {
+        let temp = setup();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Cancel A and close B
+        task_update(
+            temp.path(),
+            &task_a.id,
+            None,
+            None,
+            None,
+            None,
+            Some("cancelled"),
+            vec![],
+            vec![],
+            None,
+            false,
+        )
+        .unwrap();
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+
+        // Add cancelled A as dependency of B
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // B should remain Done (cancelled is treated as complete)
+        let shown = task_show(temp.path(), &task_b.id).unwrap().unwrap();
+        assert_eq!(shown.task.status, TaskStatus::Done);
+        assert!(shown.task.closed_at.is_some());
+    }
+
+    #[test]
+    fn test_cascading_partial_promotion() {
+        let temp = setup();
+        // Create chain: C -> B -> A
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Close C and B
+        task_close(temp.path(), &task_c.id, Some("Done".to_string()), false).unwrap();
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+
+        // Add dependencies: C -> B (first, while B is done, so C stays done)
+        // Then B -> A (B becomes partial since A is pending)
+        dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
+
+        // At this point, C is still Done (B is done)
+        let shown_c = task_show(temp.path(), &task_c.id).unwrap().unwrap();
+        assert_eq!(shown_c.task.status, TaskStatus::Done);
+
+        // Now add B -> A (B becomes partial since A is pending)
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        // B should be partial (A is pending)
+        let shown_b = task_show(temp.path(), &task_b.id).unwrap().unwrap();
+        assert_eq!(shown_b.task.status, TaskStatus::Partial);
+
+        // C is still Done because B was Done when the dependency was added
+        // (partial status doesn't cascade retroactively)
+        let shown_c = task_show(temp.path(), &task_c.id).unwrap().unwrap();
+        assert_eq!(shown_c.task.status, TaskStatus::Done);
+
+        // Close A - should promote B to Done
+        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+
+        // B should now be Done
+        let shown_b = task_show(temp.path(), &task_b.id).unwrap().unwrap();
+        assert_eq!(shown_b.task.status, TaskStatus::Done);
+        assert!(shown_b.task.closed_at.is_some());
+
+        // C was already Done, still Done
+        let shown_c = task_show(temp.path(), &task_c.id).unwrap().unwrap();
+        assert_eq!(shown_c.task.status, TaskStatus::Done);
+    }
+
+    #[test]
+    fn test_partial_with_multiple_dependencies_all_must_complete() {
+        let temp = setup();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Close C, then add A and B as dependencies
+        task_close(temp.path(), &task_c.id, Some("Done".to_string()), false).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
+        dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
+
+        // C should be partial
+        let shown = task_show(temp.path(), &task_c.id).unwrap().unwrap();
+        assert_eq!(shown.task.status, TaskStatus::Partial);
+
+        // Close only A - C should still be partial (B is pending)
+        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+        let shown = task_show(temp.path(), &task_c.id).unwrap().unwrap();
+        assert_eq!(shown.task.status, TaskStatus::Partial);
+
+        // Close B - now C should be promoted to Done
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        let shown = task_show(temp.path(), &task_c.id).unwrap().unwrap();
+        assert_eq!(shown.task.status, TaskStatus::Done);
+        assert!(shown.task.closed_at.is_some());
+    }
+
+    #[test]
+    fn test_removing_dependency_does_not_auto_promote_partial() {
+        let temp = setup();
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Close B, add A as dependency → B becomes partial
+        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        let shown = task_show(temp.path(), &task_b.id).unwrap().unwrap();
+        assert_eq!(shown.task.status, TaskStatus::Partial);
+
+        // Remove the dependency - B should still be partial
+        // (removing a dep doesn't auto-promote, closing all deps does)
+        dep_rm(temp.path(), &task_b.id, &task_a.id).unwrap();
+
+        let shown = task_show(temp.path(), &task_b.id).unwrap().unwrap();
+        // After removing all dependencies, the task remains partial
+        // (needs manual close or close of remaining deps to promote)
+        assert_eq!(shown.task.status, TaskStatus::Partial);
+    }
 }
