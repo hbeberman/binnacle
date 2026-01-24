@@ -111,7 +111,7 @@ case "$AGENT_TYPE" in
         PROMPT='Run `bn orient --type planner` to get oriented with the project. Read PRD.md. Your job is to help render ideas into proper PRDs. First, ask the user: "Do you have a specific idea or topic in mind, or would you like me to pick one from the open ideas?" 
 
 CRITICAL: Before writing ANY PRD, ALWAYS run `bn idea list -H` to search for existing ideas related to the topic. This ensures you build upon existing thoughts and do not duplicate work. If you find related ideas:
-1. Reference them in the PRD (e.g., "Related ideas: bni-xxxx, bni-yyyy")
+1. Reference them in the PRD (e.g., "Related ideas: bn-xxxx, bn-yyyy")
 2. Incorporate their insights into the PRD content
 3. Consider whether the PRD should supersede/combine multiple related ideas
 
@@ -134,7 +134,7 @@ Run `bn goodbye "session complete"` to gracefully terminate your agent session w
         ;;
     free)
         echo "Launching Free Agent"
-        PROMPT='You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bni-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done.'
+        PROMPT='You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done.'
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     *)

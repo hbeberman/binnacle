@@ -450,7 +450,7 @@ Key Commands:
   bn              Status summary (JSON, use -H for human-readable)
   bn ready        Show tasks ready to work on
   bn task list    List all tasks
-  bn show X       Show any entity by ID (works for bn-/bnt-/bni-/bnq- IDs)
+  bn show X       Show any entity by ID (works for bn-/bnt-/bnq- IDs)
   bn test run     Run linked tests
 
 Run 'bn --help' for full command reference.

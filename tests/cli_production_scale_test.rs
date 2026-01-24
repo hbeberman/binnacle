@@ -115,14 +115,14 @@ fn add_link(env: &TestEnv, source: &str, target: &str, link_type: &str, reason: 
 /// Extract an ID from JSON output.
 fn extract_id(output: &[u8]) -> String {
     let stdout = String::from_utf8_lossy(output);
-    // All entity types now use "bn-" prefix
+    // Tasks, bugs, ideas, milestones use "bn-" prefix
     if let Some(start) = stdout.find("\"id\":\"bn-") {
         let id_start = start + 6; // Skip `"id":"`
         let id_end = stdout[id_start..].find('"').unwrap() + id_start;
         return stdout[id_start..id_end].to_string();
     }
-    // Also check for milestone "bnm-" and idea "bni-" prefixes
-    for prefix in ["bnm-", "bni-"] {
+    // Tests use "bnt-" prefix, queues use "bnq-" prefix
+    for prefix in ["bnt-", "bnq-"] {
         if let Some(start) = stdout.find(&format!("\"id\":\"{}", prefix)) {
             let id_start = start + 6;
             let id_end = stdout[id_start..].find('"').unwrap() + id_start;

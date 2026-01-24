@@ -277,7 +277,7 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 
 The task graph drives development priorities. Always update task status to keep it accurate.
 
-**Tip**: Use `bn show <id>` to view any entity by ID - it auto-detects the type from the prefix (bn-, bnt-, bni-, bnq-).
+**Tip**: Use `bn show <id>` to view any entity by ID - it auto-detects the type from the prefix (bn-, bnt-, bnq-).
 
 ## Creating Tasks (Best Practices)
 
@@ -1294,8 +1294,7 @@ impl Output for OrientResult {
         lines.push("  bn ready        Show tasks ready to work on".to_string());
         lines.push("  bn task list    List all tasks".to_string());
         lines.push(
-            "  bn show X       Show any entity by ID (works for bn-/bnt-/bni-/bnq- IDs)"
-                .to_string(),
+            "  bn show X       Show any entity by ID (works for bn-/bnt-/bnq- IDs)".to_string(),
         );
         lines.push("  bn test run     Run linked tests".to_string());
         lines
