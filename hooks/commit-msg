@@ -13,9 +13,26 @@ if [[ "$enabled_value" == "false" ]] || [[ "$enabled_value" == "no" ]] || [[ "$e
     exit 0
 fi
 
-# Check for active agent session via BN_AGENT_SESSION environment variable
-# This env var is set by agent.sh and inherited by child processes (including git)
-if [[ -z "$BN_AGENT_SESSION" ]] || [[ "$BN_AGENT_SESSION" != "1" ]]; then
+# Check for active agent session
+# Method 1: BN_AGENT_SESSION env var (set by agent.sh, inherited by child processes)
+# Method 2: Check for marker file in .git directory (created by agent.sh)
+agent_active=false
+
+if [[ "$BN_AGENT_SESSION" == "1" ]]; then
+    agent_active=true
+else
+    # Check for marker file created by agent.sh
+    GIT_DIR=$(git rev-parse --git-dir 2>/dev/null) || GIT_DIR=""
+    if [[ -n "$GIT_DIR" ]] && [[ -f "$GIT_DIR/bn-agent-session" ]]; then
+        # Verify the agent process is still running
+        agent_pid=$(cat "$GIT_DIR/bn-agent-session" 2>/dev/null || echo "")
+        if [[ -n "$agent_pid" ]] && kill -0 "$agent_pid" 2>/dev/null; then
+            agent_active=true
+        fi
+    fi
+fi
+
+if [[ "$agent_active" != "true" ]]; then
     exit 0
 fi
 

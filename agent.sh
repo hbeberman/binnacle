@@ -146,6 +146,21 @@ esac
 # Export BN_AGENT_SESSION so child processes (including git hooks) know they're running under an agent
 export BN_AGENT_SESSION=1
 
+# Create a marker file in .git directory so commit hooks can detect agent activity
+# This works even when the copilot CLI doesn't inherit environment variables
+GIT_DIR=$(git rev-parse --git-dir 2>/dev/null) || GIT_DIR=""
+BN_AGENT_MARKER=""
+if [[ -n "$GIT_DIR" ]]; then
+    BN_AGENT_MARKER="$GIT_DIR/bn-agent-session"
+    echo "$$" > "$BN_AGENT_MARKER"
+    
+    # Clean up marker file on exit
+    cleanup_marker() {
+        [[ -n "$BN_AGENT_MARKER" ]] && rm -f "$BN_AGENT_MARKER"
+    }
+    trap cleanup_marker EXIT
+fi
+
 # Run the agent (with optional loop)
 if [[ "$LOOP_MODE" == "true" ]]; then
     echo "Loop mode enabled - agent will restart on exit"
