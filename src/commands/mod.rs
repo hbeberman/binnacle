@@ -1207,6 +1207,12 @@ pub struct OrientResult {
     pub queue: Option<OrientQueueInfo>,
     /// Number of ready tasks that are in the queue
     pub queued_ready_count: usize,
+    /// Total number of bugs in the system
+    pub total_bugs: usize,
+    /// Number of open bugs (pending, in_progress, blocked, reopened)
+    pub open_bugs_count: usize,
+    /// Number of high/critical severity bugs that are open
+    pub critical_bugs_count: usize,
 }
 
 /// Queue info for orient output.
@@ -1267,6 +1273,20 @@ impl Output for OrientResult {
         }
         lines.push(format!("  Blocked: {}", self.blocked_count));
         lines.push(format!("  In progress: {}", self.in_progress_count));
+
+        // Show bug info if there are any bugs
+        if self.total_bugs > 0 {
+            lines.push(format!(
+                "  Bugs: {} total, {} open{}",
+                self.total_bugs,
+                self.open_bugs_count,
+                if self.critical_bugs_count > 0 {
+                    format!(" ({} high/critical)", self.critical_bugs_count)
+                } else {
+                    String::new()
+                }
+            ));
+        }
         lines.push(String::new());
         lines.push("Key Commands:".to_string());
         lines
@@ -1436,6 +1456,34 @@ pub fn orient(
         (None, 0)
     };
 
+    // Get bug stats
+    let bugs = storage.list_bugs(None, None, None, None)?;
+    let total_bugs = bugs.len();
+    let open_bugs_count = bugs
+        .iter()
+        .filter(|b| {
+            matches!(
+                b.status,
+                TaskStatus::Pending
+                    | TaskStatus::InProgress
+                    | TaskStatus::Blocked
+                    | TaskStatus::Reopened
+            )
+        })
+        .count();
+    let critical_bugs_count = bugs
+        .iter()
+        .filter(|b| {
+            matches!(
+                b.status,
+                TaskStatus::Pending
+                    | TaskStatus::InProgress
+                    | TaskStatus::Blocked
+                    | TaskStatus::Reopened
+            ) && matches!(b.severity, BugSeverity::High | BugSeverity::Critical)
+        })
+        .count();
+
     Ok(OrientResult {
         ready: true, // Always true when orient succeeds - store is ready to use
         just_initialized,
@@ -1446,6 +1494,9 @@ pub fn orient(
         in_progress_count,
         queue: queue_info,
         queued_ready_count,
+        total_bugs,
+        open_bugs_count,
+        critical_bugs_count,
     })
 }
 
@@ -12251,6 +12302,68 @@ mod tests {
         assert!(human.contains("Total tasks: 1"));
         assert!(human.contains("bn ready"));
         assert!(human.contains("bn task list"));
+    }
+
+    #[test]
+    fn test_orient_shows_bug_counts() {
+        let temp = setup();
+
+        // Create some bugs with different severities and statuses
+        bug_create(
+            temp.path(),
+            "Low bug".to_string(),
+            None,
+            None,
+            Some("low".to_string()),
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        bug_create(
+            temp.path(),
+            "Critical bug".to_string(),
+            None,
+            None,
+            Some("critical".to_string()),
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let closed_bug = bug_create(
+            temp.path(),
+            "Closed bug".to_string(),
+            None,
+            None,
+            Some("high".to_string()),
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        bug_close(
+            temp.path(),
+            &closed_bug.id,
+            Some("fixed".to_string()),
+            false,
+        )
+        .unwrap();
+
+        let result = orient(temp.path(), "worker", false, None, None).unwrap();
+        assert_eq!(result.total_bugs, 3);
+        assert_eq!(result.open_bugs_count, 2); // Low and Critical are open
+        assert_eq!(result.critical_bugs_count, 1); // Only Critical (not High since it's closed)
+
+        // Check human output includes bug info
+        let human = result.to_human();
+        assert!(human.contains("Bugs: 3 total, 2 open"));
+        assert!(human.contains("(1 high/critical)"));
     }
 
     #[test]
