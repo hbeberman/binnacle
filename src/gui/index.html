@@ -4841,7 +4841,10 @@
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
                 if (distance > 0) {
-                    const force = gravityStrength;
+                    // Queue nodes get stronger gravity (lower mass effect)
+                    // This makes them more responsive and less "heavy"
+                    const gravityMultiplier = node.type === 'queue' ? 3.0 : 1.0;
+                    const force = gravityStrength * gravityMultiplier;
                     node.vx += (dx / distance) * force;
                     node.vy += (dy / distance) * force;
                 }
