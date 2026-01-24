@@ -8355,6 +8355,19 @@ pub fn config_get_string(repo_path: &Path, key: &str, default: &str) -> String {
     }
 }
 
+/// Get the archive directory configuration.
+///
+/// Returns `Some(PathBuf)` if `archive.directory` is set and non-empty,
+/// `None` if not set or empty (feature disabled).
+pub fn config_get_archive_directory(repo_path: &Path) -> Option<std::path::PathBuf> {
+    let value = config_get_string(repo_path, "archive.directory", "");
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(std::path::PathBuf::from(value))
+    }
+}
+
 /// Result of config set command.
 #[derive(Serialize)]
 pub struct ConfigSet {
@@ -8405,6 +8418,22 @@ pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet>
             // Validate non-empty strings
             if value.trim().is_empty() {
                 return Err(Error::Other(format!("{} cannot be empty", key)));
+            }
+        }
+        "archive.directory" => {
+            // Empty value is allowed (disables the feature)
+            // Non-empty value must be a valid path (parent directory should exist)
+            if !value.trim().is_empty() {
+                let path = std::path::Path::new(value);
+                if let Some(parent) = path.parent()
+                    && !parent.as_os_str().is_empty()
+                    && !parent.exists()
+                {
+                    return Err(Error::Other(format!(
+                        "Parent directory does not exist: {}",
+                        parent.display()
+                    )));
+                }
             }
         }
         _ => {

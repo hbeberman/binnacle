@@ -450,6 +450,63 @@ fn test_config_overwrite() {
         .stdout(predicate::str::contains("\"value\":\"new_value\""));
 }
 
+#[test]
+fn test_config_archive_directory_empty() {
+    let temp = init_binnacle();
+
+    // Setting empty value should work (disables feature)
+    bn_in(&temp)
+        .args(["config", "set", "archive.directory", ""])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["config", "get", "archive.directory"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"value\":\"\""));
+}
+
+#[test]
+fn test_config_archive_directory_valid() {
+    let temp = init_binnacle();
+
+    // Setting to temp directory should work (parent exists)
+    let archive_dir = temp.path().join("archives");
+    bn_in(&temp)
+        .args([
+            "config",
+            "set",
+            "archive.directory",
+            archive_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["config", "get", "archive.directory"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(archive_dir.to_str().unwrap()));
+}
+
+#[test]
+fn test_config_archive_directory_invalid_parent() {
+    let temp = init_binnacle();
+
+    // Setting to nonexistent parent should fail
+    bn_in(&temp)
+        .args([
+            "config",
+            "set",
+            "archive.directory",
+            "/nonexistent/path/archives",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Parent directory does not exist"));
+}
+
 // === Not Initialized Tests ===
 
 #[test]
