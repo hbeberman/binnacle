@@ -499,3 +499,170 @@ fn test_queue_delete_schema_no_required_args() {
     let required = queue_delete["inputSchema"]["required"].as_array().unwrap();
     assert!(required.is_empty());
 }
+
+// === Doc Tool Tests ===
+
+#[test]
+fn test_mcp_manifest_contains_doc_tools() {
+    let env = setup();
+
+    env.bn()
+        .args(["mcp", "manifest"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bn_doc_create"))
+        .stdout(predicate::str::contains("bn_doc_show"))
+        .stdout(predicate::str::contains("bn_doc_list"))
+        .stdout(predicate::str::contains("bn_doc_update"))
+        .stdout(predicate::str::contains("bn_doc_history"))
+        .stdout(predicate::str::contains("bn_doc_delete"));
+}
+
+#[test]
+fn test_doc_create_schema_requires_title_and_entity_ids() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let doc_create = tools
+        .iter()
+        .find(|t| t["name"] == "bn_doc_create")
+        .expect("bn_doc_create tool not found");
+
+    let schema = &doc_create["inputSchema"];
+    assert_eq!(schema["type"], "object");
+
+    let required = schema["required"].as_array().unwrap();
+    assert!(
+        required.iter().any(|r| r == "title"),
+        "title should be required"
+    );
+    assert!(
+        required.iter().any(|r| r == "entity_ids"),
+        "entity_ids should be required"
+    );
+
+    // Verify doc_type enum
+    let properties = schema["properties"].as_object().unwrap();
+    let doc_type_enum = properties["doc_type"]["enum"].as_array().unwrap();
+    assert!(doc_type_enum.iter().any(|v| v == "prd"));
+    assert!(doc_type_enum.iter().any(|v| v == "note"));
+    assert!(doc_type_enum.iter().any(|v| v == "handoff"));
+}
+
+#[test]
+fn test_doc_show_schema_requires_id() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let doc_show = tools
+        .iter()
+        .find(|t| t["name"] == "bn_doc_show")
+        .expect("bn_doc_show tool not found");
+
+    let required = doc_show["inputSchema"]["required"].as_array().unwrap();
+    assert!(required.iter().any(|r| r == "id"), "id should be required");
+
+    // Verify full option exists
+    let properties = doc_show["inputSchema"]["properties"].as_object().unwrap();
+    assert!(properties.contains_key("full"), "full option should exist");
+}
+
+#[test]
+fn test_doc_list_schema_no_required_args() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let doc_list = tools
+        .iter()
+        .find(|t| t["name"] == "bn_doc_list")
+        .expect("bn_doc_list tool not found");
+
+    let required = doc_list["inputSchema"]["required"].as_array().unwrap();
+    assert!(required.is_empty(), "doc_list should have no required args");
+
+    // Verify filter options exist
+    let properties = doc_list["inputSchema"]["properties"].as_object().unwrap();
+    assert!(properties.contains_key("tag"));
+    assert!(properties.contains_key("doc_type"));
+    assert!(properties.contains_key("edited_by"));
+    assert!(properties.contains_key("for_entity"));
+}
+
+#[test]
+fn test_doc_update_schema_requires_id() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let doc_update = tools
+        .iter()
+        .find(|t| t["name"] == "bn_doc_update")
+        .expect("bn_doc_update tool not found");
+
+    let required = doc_update["inputSchema"]["required"].as_array().unwrap();
+    assert!(required.iter().any(|r| r == "id"), "id should be required");
+
+    // Verify update options exist
+    let properties = doc_update["inputSchema"]["properties"].as_object().unwrap();
+    assert!(properties.contains_key("content"));
+    assert!(properties.contains_key("title"));
+    assert!(properties.contains_key("editor"));
+    assert!(properties.contains_key("clear_dirty"));
+}
+
+#[test]
+fn test_doc_history_schema_requires_id() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let doc_history = tools
+        .iter()
+        .find(|t| t["name"] == "bn_doc_history")
+        .expect("bn_doc_history tool not found");
+
+    let required = doc_history["inputSchema"]["required"].as_array().unwrap();
+    assert!(required.iter().any(|r| r == "id"), "id should be required");
+}
+
+#[test]
+fn test_doc_delete_schema_requires_id() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let doc_delete = tools
+        .iter()
+        .find(|t| t["name"] == "bn_doc_delete")
+        .expect("bn_doc_delete tool not found");
+
+    let required = doc_delete["inputSchema"]["required"].as_array().unwrap();
+    assert!(required.iter().any(|r| r == "id"), "id should be required");
+}

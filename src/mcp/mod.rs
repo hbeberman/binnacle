@@ -8,6 +8,7 @@
 
 use crate::Error;
 use crate::commands::{self, Output};
+use crate::models::DocType;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -864,6 +865,101 @@ impl McpServer {
             // Graph tools
             "bn_graph_components" => {
                 let result = commands::graph_components(repo)?;
+                Ok(result.to_json())
+            }
+            // Doc tools
+            "bn_doc_create" => {
+                let title = get_string_arg(args, "title")?;
+                let doc_type_str = get_optional_string(args, "doc_type");
+                let short_name = get_optional_string(args, "short_name");
+                let content = get_optional_string(args, "content");
+                let summary = get_optional_string(args, "summary");
+                let tags = get_string_array(args, "tags");
+                let entity_ids = get_string_array(args, "entity_ids");
+
+                // Parse doc_type string to enum
+                let doc_type = match doc_type_str.as_deref() {
+                    Some("prd") => DocType::Prd,
+                    Some("note") => DocType::Note,
+                    Some("handoff") => DocType::Handoff,
+                    Some(other) => {
+                        return Err(Error::InvalidInput(format!(
+                            "Invalid doc_type '{}'. Must be one of: prd, note, handoff",
+                            other
+                        )));
+                    }
+                    None => DocType::Note, // default
+                };
+
+                let result = commands::doc_create(
+                    repo, title, doc_type, short_name, content, summary, tags, entity_ids,
+                )?;
+                Ok(result.to_json())
+            }
+            "bn_doc_show" => {
+                let id = get_string_arg(args, "id")?;
+                let full = get_optional_bool(args, "full").unwrap_or(false);
+                let result = commands::doc_show(repo, &id, full)?;
+                Ok(result.to_json())
+            }
+            "bn_doc_list" => {
+                let tag = get_optional_string(args, "tag");
+                let doc_type_str = get_optional_string(args, "doc_type");
+                let edited_by = get_optional_string(args, "edited_by");
+                let for_entity = get_optional_string(args, "for_entity");
+
+                // Parse doc_type string to enum if provided
+                let doc_type = match doc_type_str.as_deref() {
+                    Some("prd") => Some(DocType::Prd),
+                    Some("note") => Some(DocType::Note),
+                    Some("handoff") => Some(DocType::Handoff),
+                    Some(other) => {
+                        return Err(Error::InvalidInput(format!(
+                            "Invalid doc_type '{}'. Must be one of: prd, note, handoff",
+                            other
+                        )));
+                    }
+                    None => None,
+                };
+
+                let result = commands::doc_list(
+                    repo,
+                    tag.as_deref(),
+                    doc_type.as_ref(),
+                    edited_by.as_deref(),
+                    for_entity.as_deref(),
+                )?;
+                Ok(result.to_json())
+            }
+            "bn_doc_update" => {
+                let id = get_string_arg(args, "id")?;
+                let content = get_optional_string(args, "content");
+                let title = get_optional_string(args, "title");
+                let short_name = get_optional_string(args, "short_name");
+                let description = get_optional_string(args, "description");
+                let editor = get_optional_string(args, "editor");
+                let clear_dirty = get_optional_bool(args, "clear_dirty").unwrap_or(false);
+
+                let result = commands::doc_update(
+                    repo,
+                    &id,
+                    content,
+                    title,
+                    short_name,
+                    description,
+                    editor.as_deref(),
+                    clear_dirty,
+                )?;
+                Ok(result.to_json())
+            }
+            "bn_doc_history" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::doc_history(repo, &id)?;
+                Ok(result.to_json())
+            }
+            "bn_doc_delete" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::doc_delete(repo, &id)?;
                 Ok(result.to_json())
             }
             _ => Err(Error::Other(format!("Unknown tool: {}", name))),
@@ -2316,6 +2412,160 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {},
                 "required": []
+            }),
+        },
+        // Doc tools
+        ToolDef {
+            name: "bn_doc_create".to_string(),
+            description: "Create a new documentation node linked to one or more entities".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Document title"
+                    },
+                    "entity_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Entity IDs to link this doc to (at least one required)"
+                    },
+                    "doc_type": {
+                        "type": "string",
+                        "description": "Document type",
+                        "enum": ["prd", "note", "handoff"],
+                        "default": "note"
+                    },
+                    "short_name": {
+                        "type": "string",
+                        "description": "Short display name for GUI"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Markdown content of the document"
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Agent-provided summary (prepended as # Summary section)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags for categorization"
+                    }
+                },
+                "required": ["title", "entity_ids"]
+            }),
+        },
+        ToolDef {
+            name: "bn_doc_show".to_string(),
+            description: "Show details of a documentation node".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Doc ID (e.g., bnd-a1b2)"
+                    },
+                    "full": {
+                        "type": "boolean",
+                        "description": "Show full content instead of just summary"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_doc_list".to_string(),
+            description: "List documentation nodes with optional filters".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tag": {
+                        "type": "string",
+                        "description": "Filter by tag"
+                    },
+                    "doc_type": {
+                        "type": "string",
+                        "description": "Filter by document type",
+                        "enum": ["prd", "note", "handoff"]
+                    },
+                    "edited_by": {
+                        "type": "string",
+                        "description": "Filter by editor (format: 'agent:id' or 'user:name')"
+                    },
+                    "for_entity": {
+                        "type": "string",
+                        "description": "Filter by linked entity ID"
+                    }
+                },
+                "required": []
+            }),
+        },
+        ToolDef {
+            name: "bn_doc_update".to_string(),
+            description: "Create a new version of a documentation node. Each update creates a new doc entity with a supersedes link to the previous version.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Doc ID to update"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "New markdown content"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New title"
+                    },
+                    "short_name": {
+                        "type": "string",
+                        "description": "New short display name"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "New description"
+                    },
+                    "editor": {
+                        "type": "string",
+                        "description": "Editor attribution (format: 'agent:id' or 'user:name')"
+                    },
+                    "clear_dirty": {
+                        "type": "boolean",
+                        "description": "Clear the summary_dirty flag"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_doc_history".to_string(),
+            description: "Show version history of a documentation node".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Doc ID"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_doc_delete".to_string(),
+            description: "Delete a documentation node".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Doc ID to delete"
+                    }
+                },
+                "required": ["id"]
             }),
         },
     ]
