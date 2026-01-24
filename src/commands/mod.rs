@@ -10761,14 +10761,18 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
     }
 
     // Export and import to containerd
-    eprintln!("📤 Exporting image to OCI archive...");
+    // Use docker-archive format (not oci-archive) because it embeds the full image
+    // reference in the manifest, allowing ctr to import it with the correct name.
+    // OCI archives require annotations that buildah doesn't always include.
+    eprintln!("📤 Exporting image to docker archive...");
     let temp_archive = "/tmp/binnacle-worker.tar";
+    let image_ref = format!("localhost/binnacle-worker:{}", tag);
 
     let push_output = Command::new("buildah")
         .args([
             "push",
-            &format!("localhost/binnacle-worker:{}", tag),
-            &format!("oci-archive:{}", temp_archive),
+            &image_ref,
+            &format!("docker-archive:{}:{}", temp_archive, image_ref),
         ])
         .output()?;
 
@@ -10784,19 +10788,8 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
     }
 
     eprintln!("📥 Importing image to containerd...");
-    // Use --base-name to ensure the image is stored with the correct reference
-    // that matches what container_run looks for (localhost/binnacle-worker:tag)
     let import_output = Command::new("sudo")
-        .args([
-            "ctr",
-            "-n",
-            "binnacle",
-            "images",
-            "import",
-            "--base-name",
-            "localhost/binnacle-worker",
-            temp_archive,
-        ])
+        .args(["ctr", "-n", "binnacle", "images", "import", temp_archive])
         .output()?;
 
     // Clean up temp file
