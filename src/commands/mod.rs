@@ -10502,6 +10502,25 @@ For more info, see: https://github.com/containerd/containerd"#
         .to_string()
 }
 
+/// Check if the binnacle worker image exists in containerd.
+fn container_image_exists(image_name: &str) -> bool {
+    let filter = format!("name=={}", image_name);
+    Command::new("sudo")
+        .args(["ctr", "-n", "binnacle", "images", "check", &filter])
+        .output()
+        .map(|o| {
+            // If the command succeeds and has output lines beyond the header, the image exists
+            if o.status.success() {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                // The output includes a header line, so we need more than 1 line
+                stdout.lines().count() > 1
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false)
+}
+
 /// Parse a memory limit string (e.g., "512m", "1g", "2048m") into bytes.
 fn parse_memory_limit(s: &str) -> Result<u64> {
     let s = s.trim().to_lowercase();
@@ -10688,6 +10707,19 @@ pub fn container_run(
             success: false,
             name: None,
             error: Some(container_deps_missing_message()),
+        });
+    }
+
+    // Check if the worker image exists in containerd
+    let image_name = "localhost/binnacle-worker:latest";
+    if !container_image_exists(image_name) {
+        return Ok(ContainerRunResult {
+            success: false,
+            name: None,
+            error: Some(format!(
+                "Image '{}' not found in containerd.\n\nRun 'bn container build' first to build the worker image.",
+                image_name
+            )),
         });
     }
 
