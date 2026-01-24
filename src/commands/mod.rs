@@ -10321,6 +10321,554 @@ pub fn terminate_process(pid: u32, timeout_secs: u64) -> bool {
     true
 }
 
+// === Container Commands ===
+
+/// Result of container build operation.
+#[derive(Serialize)]
+pub struct ContainerBuildResult {
+    /// Whether the build was successful
+    pub success: bool,
+    /// Image tag that was built
+    pub tag: String,
+    /// Error message if build failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl Output for ContainerBuildResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.success {
+            format!("Built image: localhost/binnacle-worker:{}", self.tag)
+        } else {
+            format!(
+                "Build failed: {}",
+                self.error.as_deref().unwrap_or("unknown error")
+            )
+        }
+    }
+}
+
+/// Result of container run operation.
+#[derive(Serialize)]
+pub struct ContainerRunResult {
+    /// Whether the container started successfully
+    pub success: bool,
+    /// Container name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Error message if run failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl Output for ContainerRunResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.success {
+            format!(
+                "Started container: {}",
+                self.name.as_deref().unwrap_or("unknown")
+            )
+        } else {
+            format!(
+                "Failed to start container: {}",
+                self.error.as_deref().unwrap_or("unknown error")
+            )
+        }
+    }
+}
+
+/// Result of container stop operation.
+#[derive(Serialize)]
+pub struct ContainerStopResult {
+    /// Whether the operation was successful
+    pub success: bool,
+    /// Number of containers stopped
+    pub stopped_count: usize,
+    /// Names of stopped containers
+    pub stopped: Vec<String>,
+    /// Error message if stop failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl Output for ContainerStopResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.success {
+            if self.stopped.is_empty() {
+                "No containers to stop".to_string()
+            } else {
+                format!(
+                    "Stopped {} container(s): {}",
+                    self.stopped_count,
+                    self.stopped.join(", ")
+                )
+            }
+        } else {
+            format!(
+                "Failed to stop container(s): {}",
+                self.error.as_deref().unwrap_or("unknown error")
+            )
+        }
+    }
+}
+
+/// Information about a binnacle container.
+#[derive(Serialize)]
+pub struct ContainerInfo {
+    /// Container name
+    pub name: String,
+    /// Container status (running, stopped, etc.)
+    pub status: String,
+    /// Image used
+    pub image: String,
+    /// Creation time
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created: Option<String>,
+}
+
+/// Result of container list operation.
+#[derive(Serialize)]
+pub struct ContainerListResult {
+    /// Whether the operation was successful
+    pub success: bool,
+    /// List of containers
+    pub containers: Vec<ContainerInfo>,
+    /// Error message if list failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl Output for ContainerListResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if !self.success {
+            return format!(
+                "Failed to list containers: {}",
+                self.error.as_deref().unwrap_or("unknown error")
+            );
+        }
+
+        if self.containers.is_empty() {
+            return "No binnacle containers found".to_string();
+        }
+
+        let mut lines = vec!["NAME\tSTATUS\tIMAGE".to_string()];
+        for c in &self.containers {
+            lines.push(format!("{}\t{}\t{}", c.name, c.status, c.image));
+        }
+        lines.join("\n")
+    }
+}
+
+/// Check if a command exists on the system.
+fn command_exists(cmd: &str) -> bool {
+    Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Get the helpful installation message for container dependencies.
+fn container_deps_missing_message() -> String {
+    r#"Error: containerd or buildah not found
+
+To use binnacle containers, install containerd and buildah:
+
+  # Fedora/RHEL
+  sudo dnf install containerd buildah
+  sudo systemctl enable --now containerd
+
+  # Debian/Ubuntu
+  sudo apt install containerd buildah
+  sudo systemctl enable --now containerd
+
+For more info, see: https://github.com/containerd/containerd"#
+        .to_string()
+}
+
+/// Build the binnacle worker image using buildah.
+pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult> {
+    // Check for required tools
+    if !command_exists("buildah") || !command_exists("ctr") {
+        return Ok(ContainerBuildResult {
+            success: false,
+            tag: tag.to_string(),
+            error: Some(container_deps_missing_message()),
+        });
+    }
+
+    // Check if Containerfile exists
+    let containerfile = Path::new("container/Containerfile");
+    if !containerfile.exists() {
+        return Ok(ContainerBuildResult {
+            success: false,
+            tag: tag.to_string(),
+            error: Some(
+                "container/Containerfile not found. Run from binnacle repository root.".to_string(),
+            ),
+        });
+    }
+
+    // Build with buildah
+    let mut build_cmd = Command::new("buildah");
+    build_cmd
+        .arg("bud")
+        .arg("-t")
+        .arg(format!("localhost/binnacle-worker:{}", tag))
+        .arg("-f")
+        .arg("container/Containerfile");
+
+    if no_cache {
+        build_cmd.arg("--no-cache");
+    }
+
+    build_cmd.arg(".");
+
+    let output = build_cmd.output()?;
+
+    if !output.status.success() {
+        return Ok(ContainerBuildResult {
+            success: false,
+            tag: tag.to_string(),
+            error: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+        });
+    }
+
+    // Export and import to containerd
+    let temp_archive = "/tmp/binnacle-worker.tar";
+
+    let push_output = Command::new("buildah")
+        .args([
+            "push",
+            &format!("localhost/binnacle-worker:{}", tag),
+            &format!("oci-archive:{}", temp_archive),
+        ])
+        .output()?;
+
+    if !push_output.status.success() {
+        return Ok(ContainerBuildResult {
+            success: false,
+            tag: tag.to_string(),
+            error: Some(format!(
+                "Failed to export image: {}",
+                String::from_utf8_lossy(&push_output.stderr)
+            )),
+        });
+    }
+
+    let import_output = Command::new("sudo")
+        .args(["ctr", "-n", "binnacle", "images", "import", temp_archive])
+        .output()?;
+
+    // Clean up temp file
+    let _ = fs::remove_file(temp_archive);
+
+    if !import_output.status.success() {
+        return Ok(ContainerBuildResult {
+            success: false,
+            tag: tag.to_string(),
+            error: Some(format!(
+                "Failed to import image to containerd: {}",
+                String::from_utf8_lossy(&import_output.stderr)
+            )),
+        });
+    }
+
+    Ok(ContainerBuildResult {
+        success: true,
+        tag: tag.to_string(),
+        error: None,
+    })
+}
+
+/// Run a binnacle worker container.
+#[allow(clippy::too_many_arguments)]
+pub fn container_run(
+    worktree_path: &str,
+    agent_type: &str,
+    name: Option<String>,
+    merge_target: &str,
+    no_merge: bool,
+    detach: bool,
+) -> Result<ContainerRunResult> {
+    // Check for required tools
+    if !command_exists("ctr") {
+        return Ok(ContainerRunResult {
+            success: false,
+            name: None,
+            error: Some(container_deps_missing_message()),
+        });
+    }
+
+    // Validate worktree path exists
+    let worktree = Path::new(worktree_path);
+    if !worktree.exists() {
+        return Ok(ContainerRunResult {
+            success: false,
+            name: None,
+            error: Some(format!("Worktree path does not exist: {}", worktree_path)),
+        });
+    }
+
+    // Canonicalize the worktree path
+    let worktree_abs = worktree.canonicalize()?;
+
+    // Get binnacle data path
+    let binnacle_data = dirs::data_local_dir()
+        .unwrap_or_else(|| Path::new("/tmp").to_path_buf())
+        .join("binnacle");
+
+    // Generate container name if not provided
+    let container_name =
+        name.unwrap_or_else(|| format!("binnacle-worker-{}", chrono::Utc::now().timestamp()));
+
+    // Build ctr run command
+    let mut args = vec![
+        "-n".to_string(),
+        "binnacle".to_string(),
+        "run".to_string(),
+        "--rm".to_string(),
+    ];
+
+    if !detach {
+        args.push("--tty".to_string());
+    } else {
+        args.push("-d".to_string());
+    }
+
+    // Add mounts
+    args.push("--mount".to_string());
+    args.push(format!(
+        "type=bind,src={},dst=/workspace,options=rbind:rw",
+        worktree_abs.display()
+    ));
+
+    args.push("--mount".to_string());
+    args.push(format!(
+        "type=bind,src={},dst=/binnacle,options=rbind:rw",
+        binnacle_data.display()
+    ));
+
+    // Add environment variables
+    args.push("--env".to_string());
+    args.push(format!("BN_AGENT_TYPE={}", agent_type));
+
+    args.push("--env".to_string());
+    args.push("BN_CONTAINER_MODE=true".to_string());
+
+    args.push("--env".to_string());
+    args.push(format!("BN_MERGE_TARGET={}", merge_target));
+
+    if no_merge {
+        args.push("--env".to_string());
+        args.push("BN_NO_MERGE=true".to_string());
+    }
+
+    // Pass through GitHub token if available
+    if let Ok(token) = std::env::var("COPILOT_GITHUB_TOKEN") {
+        args.push("--env".to_string());
+        args.push(format!("COPILOT_GITHUB_TOKEN={}", token));
+    }
+
+    // Add image and container name
+    args.push("localhost/binnacle-worker:latest".to_string());
+    args.push(container_name.clone());
+
+    let output = Command::new("sudo").arg("ctr").args(&args).output()?;
+
+    if !output.status.success() {
+        return Ok(ContainerRunResult {
+            success: false,
+            name: Some(container_name),
+            error: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+        });
+    }
+
+    Ok(ContainerRunResult {
+        success: true,
+        name: Some(container_name),
+        error: None,
+    })
+}
+
+/// Stop binnacle containers.
+pub fn container_stop(name: Option<String>, all: bool) -> Result<ContainerStopResult> {
+    // Check for required tools
+    if !command_exists("ctr") {
+        return Ok(ContainerStopResult {
+            success: false,
+            stopped_count: 0,
+            stopped: vec![],
+            error: Some(container_deps_missing_message()),
+        });
+    }
+
+    let mut stopped = Vec::new();
+
+    if all {
+        // Get list of containers in binnacle namespace
+        let output = Command::new("sudo")
+            .args(["ctr", "-n", "binnacle", "containers", "list", "-q"])
+            .output()?;
+
+        if !output.status.success() {
+            return Ok(ContainerStopResult {
+                success: false,
+                stopped_count: 0,
+                stopped: vec![],
+                error: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+            });
+        }
+
+        let containers: Vec<String> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        for container in containers {
+            // Kill task first
+            let _ = Command::new("sudo")
+                .args(["ctr", "-n", "binnacle", "tasks", "kill", &container])
+                .output();
+
+            // Remove container
+            let rm_output = Command::new("sudo")
+                .args(["ctr", "-n", "binnacle", "containers", "rm", &container])
+                .output()?;
+
+            if rm_output.status.success() {
+                stopped.push(container);
+            }
+        }
+    } else if let Some(container_name) = name {
+        // Kill task first
+        let _ = Command::new("sudo")
+            .args(["ctr", "-n", "binnacle", "tasks", "kill", &container_name])
+            .output();
+
+        // Remove container
+        let rm_output = Command::new("sudo")
+            .args(["ctr", "-n", "binnacle", "containers", "rm", &container_name])
+            .output()?;
+
+        if rm_output.status.success() {
+            stopped.push(container_name);
+        } else {
+            return Ok(ContainerStopResult {
+                success: false,
+                stopped_count: 0,
+                stopped: vec![],
+                error: Some(String::from_utf8_lossy(&rm_output.stderr).to_string()),
+            });
+        }
+    } else {
+        return Ok(ContainerStopResult {
+            success: false,
+            stopped_count: 0,
+            stopped: vec![],
+            error: Some("Must specify container name or --all".to_string()),
+        });
+    }
+
+    Ok(ContainerStopResult {
+        success: true,
+        stopped_count: stopped.len(),
+        stopped,
+        error: None,
+    })
+}
+
+/// List binnacle containers.
+pub fn container_list(all: bool, _quiet: bool) -> Result<ContainerListResult> {
+    // Check for required tools
+    if !command_exists("ctr") {
+        return Ok(ContainerListResult {
+            success: false,
+            containers: vec![],
+            error: Some(container_deps_missing_message()),
+        });
+    }
+
+    // Get list of containers
+    let output = Command::new("sudo")
+        .args(["ctr", "-n", "binnacle", "containers", "list"])
+        .output()?;
+
+    if !output.status.success() {
+        return Ok(ContainerListResult {
+            success: false,
+            containers: vec![],
+            error: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+        });
+    }
+
+    // Get running tasks to determine status
+    let tasks_output = Command::new("sudo")
+        .args(["ctr", "-n", "binnacle", "tasks", "list"])
+        .output()?;
+
+    let running_tasks: std::collections::HashSet<String> = if tasks_output.status.success() {
+        String::from_utf8_lossy(&tasks_output.stdout)
+            .lines()
+            .skip(1) // Skip header
+            .filter_map(|line| line.split_whitespace().next())
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    // Parse container list output
+    let mut containers = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines().skip(1) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let name = parts[0].to_string();
+            let image = parts[1].to_string();
+            let status = if running_tasks.contains(&name) {
+                "running".to_string()
+            } else {
+                "stopped".to_string()
+            };
+
+            // Skip stopped containers if not showing all
+            if !all && status == "stopped" {
+                continue;
+            }
+
+            containers.push(ContainerInfo {
+                name,
+                status,
+                image,
+                created: None,
+            });
+        }
+    }
+
+    Ok(ContainerListResult {
+        success: true,
+        containers,
+        error: None,
+    })
+}
+
 // === Sync Command ===
 
 /// Result of the sync operation.

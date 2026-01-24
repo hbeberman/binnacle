@@ -2,9 +2,10 @@
 
 use binnacle::action_log;
 use binnacle::cli::{
-    AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, EmitTemplate,
-    GraphCommands, HooksCommands, IdeaCommands, LinkCommands, McpCommands, MilestoneCommands,
-    QueueCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
+    AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
+    EmitTemplate, GraphCommands, HooksCommands, IdeaCommands, LinkCommands, McpCommands,
+    MilestoneCommands, QueueCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands,
+    TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -768,6 +769,38 @@ fn run_command(
             }
             AgentCommands::Kill { target, timeout } => {
                 let result = commands::agent_kill(repo_path, &target, timeout)?;
+                output(&result, human);
+            }
+        },
+        Some(Commands::Container { command }) => match command {
+            ContainerCommands::Build { tag, no_cache } => {
+                let result = commands::container_build(&tag, no_cache)?;
+                output(&result, human);
+            }
+            ContainerCommands::Run {
+                worktree_path,
+                agent_type,
+                name,
+                merge_target,
+                no_merge,
+                detach,
+            } => {
+                let result = commands::container_run(
+                    &worktree_path,
+                    &agent_type,
+                    name,
+                    &merge_target,
+                    no_merge,
+                    detach,
+                )?;
+                output(&result, human);
+            }
+            ContainerCommands::Stop { name, all } => {
+                let result = commands::container_stop(name, all)?;
+                output(&result, human);
+            }
+            ContainerCommands::List { all, quiet } => {
+                let result = commands::container_list(all, quiet)?;
                 output(&result, human);
             }
         },
@@ -1857,6 +1890,39 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             AgentCommands::Kill { target, timeout } => (
                 "agent kill".to_string(),
                 serde_json::json!({ "target": target, "timeout": timeout }),
+            ),
+        },
+
+        Some(Commands::Container { command }) => match command {
+            ContainerCommands::Build { tag, no_cache } => (
+                "container build".to_string(),
+                serde_json::json!({ "tag": tag, "no_cache": no_cache }),
+            ),
+            ContainerCommands::Run {
+                worktree_path,
+                agent_type,
+                name,
+                merge_target,
+                no_merge,
+                detach,
+            } => (
+                "container run".to_string(),
+                serde_json::json!({
+                    "worktree_path": worktree_path,
+                    "agent_type": agent_type,
+                    "name": name,
+                    "merge_target": merge_target,
+                    "no_merge": no_merge,
+                    "detach": detach
+                }),
+            ),
+            ContainerCommands::Stop { name, all } => (
+                "container stop".to_string(),
+                serde_json::json!({ "name": name, "all": all }),
+            ),
+            ContainerCommands::List { all, quiet } => (
+                "container list".to_string(),
+                serde_json::json!({ "all": all, "quiet": quiet }),
             ),
         },
 

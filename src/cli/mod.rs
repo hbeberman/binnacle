@@ -220,6 +220,12 @@ pub enum Commands {
         command: AgentCommands,
     },
 
+    /// Container management commands (requires containerd/buildah)
+    Container {
+        #[command(subcommand)]
+        command: ContainerCommands,
+    },
+
     /// Start the web GUI (requires 'gui' feature)
     #[cfg(feature = "gui")]
     Gui {
@@ -1134,6 +1140,68 @@ pub enum AgentCommands {
         /// Seconds to wait after SIGTERM before sending SIGKILL
         #[arg(long, default_value = "5")]
         timeout: u64,
+    },
+}
+
+/// Container management subcommands (requires containerd/buildah)
+#[derive(Subcommand, Debug)]
+pub enum ContainerCommands {
+    /// Build the binnacle worker image using buildah
+    Build {
+        /// Image tag (default: latest)
+        #[arg(short, long, default_value = "latest")]
+        tag: String,
+
+        /// Force rebuild without cache
+        #[arg(long)]
+        no_cache: bool,
+    },
+
+    /// Run a worker container in headed (interactive) mode
+    Run {
+        /// Path to git worktree to mount (required)
+        worktree_path: String,
+
+        /// Agent type: worker, planner, buddy (default: worker)
+        #[arg(long = "type", short = 't', default_value = "worker", value_parser = ["worker", "planner", "buddy"])]
+        agent_type: String,
+
+        /// Container name (auto-generated if not provided)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Branch to merge into on exit (default: main)
+        #[arg(long, default_value = "main")]
+        merge_target: String,
+
+        /// Disable auto-merge on exit
+        #[arg(long)]
+        no_merge: bool,
+
+        /// Run in background (non-headed mode)
+        #[arg(long)]
+        detach: bool,
+    },
+
+    /// Stop a running binnacle container
+    Stop {
+        /// Container name (omit for --all)
+        name: Option<String>,
+
+        /// Stop all binnacle containers
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// List binnacle containers
+    List {
+        /// Show all containers (including stopped)
+        #[arg(long)]
+        all: bool,
+
+        /// Only show container names
+        #[arg(long)]
+        quiet: bool,
     },
 }
 
