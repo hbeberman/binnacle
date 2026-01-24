@@ -18,7 +18,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Instant;
 
 /// Output format trait for commands.
@@ -10564,14 +10564,20 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
         });
     }
 
-    // Build with buildah
+    // Build with buildah - stream output for real-time feedback
+    eprintln!(
+        "📦 Building container image (localhost/binnacle-worker:{})...",
+        tag
+    );
     let mut build_cmd = Command::new("buildah");
     build_cmd
         .arg("bud")
         .arg("-t")
         .arg(format!("localhost/binnacle-worker:{}", tag))
         .arg("-f")
-        .arg("container/Containerfile");
+        .arg("container/Containerfile")
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
 
     if no_cache {
         build_cmd.arg("--no-cache");
@@ -10579,17 +10585,18 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
 
     build_cmd.arg(".");
 
-    let output = build_cmd.output()?;
+    let status = build_cmd.status()?;
 
-    if !output.status.success() {
+    if !status.success() {
         return Ok(ContainerBuildResult {
             success: false,
             tag: tag.to_string(),
-            error: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+            error: Some("Build failed (see output above)".to_string()),
         });
     }
 
     // Export and import to containerd
+    eprintln!("📤 Exporting image to OCI archive...");
     let temp_archive = "/tmp/binnacle-worker.tar";
 
     let push_output = Command::new("buildah")
@@ -10611,11 +10618,13 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
         });
     }
 
+    eprintln!("📥 Importing image to containerd...");
     let import_output = Command::new("sudo")
         .args(["ctr", "-n", "binnacle", "images", "import", temp_archive])
         .output()?;
 
     // Clean up temp file
+    eprintln!("🧹 Cleaning up...");
     let _ = fs::remove_file(temp_archive);
 
     if !import_output.status.success() {
@@ -10629,6 +10638,7 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
         });
     }
 
+    eprintln!("✅ Build complete!");
     Ok(ContainerBuildResult {
         success: true,
         tag: tag.to_string(),
