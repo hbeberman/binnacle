@@ -5802,6 +5802,21 @@ fn validate_edge_type_constraints(
                 )));
             }
         }
+        EdgeType::WorkedOn => {
+            // Agent → Task/Bug (agent previously worked on this item)
+            if source_type != "agent" {
+                return Err(Error::Other(format!(
+                    "worked_on edge requires source to be an agent, got: {}",
+                    source_type
+                )));
+            }
+            if target_type != "task" && target_type != "bug" {
+                return Err(Error::Other(format!(
+                    "worked_on edge requires target to be a task or bug, got: {}",
+                    target_type
+                )));
+            }
+        }
         // Other types are permissive
         EdgeType::DependsOn | EdgeType::Blocks | EdgeType::RelatedTo => {}
     }

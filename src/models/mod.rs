@@ -920,6 +920,8 @@ pub enum EdgeType {
     Impacts,
     /// Agent is working on this task/bug (Agent → Task/Bug)
     WorkingOn,
+    /// Agent previously worked on this task/bug (Agent → Task/Bug)
+    WorkedOn,
 }
 
 impl EdgeType {
@@ -949,6 +951,7 @@ impl EdgeType {
             EdgeType::Queued,
             EdgeType::Impacts,
             EdgeType::WorkingOn,
+            EdgeType::WorkedOn,
         ]
     }
 }
@@ -969,6 +972,7 @@ impl fmt::Display for EdgeType {
             EdgeType::Queued => "queued",
             EdgeType::Impacts => "impacts",
             EdgeType::WorkingOn => "working_on",
+            EdgeType::WorkedOn => "worked_on",
         };
         write!(f, "{}", s)
     }
@@ -992,6 +996,7 @@ impl std::str::FromStr for EdgeType {
             "queued" => Ok(EdgeType::Queued),
             "impacts" => Ok(EdgeType::Impacts),
             "working_on" => Ok(EdgeType::WorkingOn),
+            "worked_on" => Ok(EdgeType::WorkedOn),
             _ => Err(format!("Unknown edge type: {}", s)),
         }
     }
@@ -1533,12 +1538,13 @@ mod tests {
     #[test]
     fn test_edge_type_all() {
         let all = EdgeType::all();
-        assert_eq!(all.len(), 13);
+        assert_eq!(all.len(), 14);
         assert!(all.contains(&EdgeType::DependsOn));
         assert!(all.contains(&EdgeType::Tests));
         assert!(all.contains(&EdgeType::Queued));
         assert!(all.contains(&EdgeType::Impacts));
         assert!(all.contains(&EdgeType::WorkingOn));
+        assert!(all.contains(&EdgeType::WorkedOn));
     }
 
     #[test]

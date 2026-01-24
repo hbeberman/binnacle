@@ -52,6 +52,8 @@
             --edge-queued: #20b2aa;
             /* Edge type colors - agent working_on */
             --edge-agent: #00d4ff;
+            /* Edge type colors - agent worked_on (grey, like a dead/historical link) */
+            --edge-agent-past: #6b7a8a;
             /* Overlay backgrounds */
             --overlay-bg: rgba(0, 0, 0, 0.85);
         }
@@ -2393,7 +2395,8 @@
             child_of: { name: 'Child', category: 'hierarchy', defaultVisible: false },
             tests: { name: 'Tests', category: 'fixes', defaultVisible: false },
             queued: { name: 'Queued', category: 'queued', defaultVisible: true },
-            working_on: { name: 'Working On', category: 'agent', defaultVisible: true }
+            working_on: { name: 'Working On', category: 'agent', defaultVisible: true },
+            worked_on: { name: 'Worked On', category: 'agent', defaultVisible: false }
         };
 
         // Load edge filter state from localStorage
@@ -5203,8 +5206,14 @@
                 case 'working_on':
                     return {
                         color: styles.getPropertyValue('--edge-agent').trim() || '#00d4ff',
-                        dashed: false,
+                        dashed: true,  // Dotted line for active work
                         lineWidth: 3  // Thicker to stand out
+                    };
+                case 'worked_on':
+                    return {
+                        color: styles.getPropertyValue('--edge-agent-past').trim() || '#6b7a8a',
+                        dashed: false,  // Solid grey line (like a dead/historical link)
+                        lineWidth: 2
                     };
                 default:
                     return {
