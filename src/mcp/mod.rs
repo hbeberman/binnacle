@@ -748,6 +748,18 @@ impl McpServer {
                 let result = commands::idea_delete(repo, &id)?;
                 Ok(result.to_json())
             }
+            "bn_idea_promote" => {
+                let id = get_string_arg(args, "id")?;
+                let as_prd = get_optional_bool(args, "as_prd").unwrap_or(false);
+                let priority = get_optional_u8(args, "priority");
+                let result = commands::idea_promote(repo, &id, as_prd, priority)?;
+                Ok(result.to_json())
+            }
+            "bn_idea_germinate" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::idea_germinate(repo, &id)?;
+                Ok(result.to_json())
+            }
             // Agent tools (read-only)
             "bn_agent_list" => {
                 let status = get_optional_string(args, "status");
@@ -2039,6 +2051,42 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
         ToolDef {
             name: "bn_idea_delete".to_string(),
             description: "Permanently delete an idea".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Idea ID"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_idea_promote".to_string(),
+            description: "Promote an idea to a task or PRD".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Idea ID"
+                    },
+                    "as_prd": {
+                        "type": "boolean",
+                        "description": "If true, generate a PRD file instead of creating a task"
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "description": "Priority for the new task (0-4, lower is higher)"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_idea_germinate".to_string(),
+            description: "Mark an idea as germinating (being developed)".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {

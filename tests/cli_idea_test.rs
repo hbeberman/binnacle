@@ -500,3 +500,474 @@ fn test_generic_show_idea() {
         .stdout(predicate::str::contains("\"type\":\"idea\""))
         .stdout(predicate::str::contains("Generic show test"));
 }
+
+// === Idea Germinate Tests ===
+
+#[test]
+fn test_idea_germinate_json() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "To germinate"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Germinate it
+    bn_in(&temp)
+        .args(["idea", "germinate", id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!("\"id\":\"{}\"", id)));
+
+    // Verify status changed
+    bn_in(&temp)
+        .args(["idea", "show", id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"germinating\""));
+}
+
+#[test]
+fn test_idea_germinate_human() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "Germinate test"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Germinate with human output
+    bn_in(&temp)
+        .args(["idea", "germinate", id, "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("is now germinating"));
+}
+
+#[test]
+fn test_idea_germinate_already_promoted_fails() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "Already promoted"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Promote first
+    bn_in(&temp)
+        .args(["idea", "promote", id])
+        .assert()
+        .success();
+
+    // Try to germinate - should fail
+    bn_in(&temp)
+        .args(["idea", "germinate", id])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already promoted"));
+}
+
+#[test]
+fn test_idea_germinate_discarded_fails() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "Discarded idea"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Discard first
+    bn_in(&temp).args(["idea", "close", id]).assert().success();
+
+    // Try to germinate - should fail
+    bn_in(&temp)
+        .args(["idea", "germinate", id])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("discarded"));
+}
+
+// === Idea Promote Tests ===
+
+#[test]
+fn test_idea_promote_to_task_json() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args([
+            "idea",
+            "create",
+            "Promote to task",
+            "--tag",
+            "feature",
+            "--description",
+            "A detailed description",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let idea_id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Promote to task
+    let output = bn_in(&temp)
+        .args(["idea", "promote", idea_id])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"promoted_to\":\"bn-"));
+    assert!(!stdout.contains("\"prd_path\""));
+
+    // Get the task ID from the output
+    let task_id = stdout
+        .split("\"promoted_to\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Verify idea is marked as promoted
+    bn_in(&temp)
+        .args(["idea", "show", idea_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"promoted\""))
+        .stdout(predicate::str::contains(format!(
+            "\"promoted_to\":\"{}\"",
+            task_id
+        )));
+
+    // Verify task was created with correct fields
+    bn_in(&temp)
+        .args(["task", "show", task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"title\":\"Promote to task\""))
+        .stdout(predicate::str::contains(
+            "\"description\":\"A detailed description\"",
+        ))
+        .stdout(predicate::str::contains("\"feature\""));
+}
+
+#[test]
+fn test_idea_promote_to_task_human() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "Human promote test"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Promote with human output
+    bn_in(&temp)
+        .args(["idea", "promote", id, "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Promoted idea"))
+        .stdout(predicate::str::contains("to task: bn-"))
+        .stdout(predicate::str::contains("marked as promoted"));
+}
+
+#[test]
+fn test_idea_promote_with_priority() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "Priority test"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let idea_id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Promote with priority 1
+    let output = bn_in(&temp)
+        .args(["idea", "promote", idea_id, "--priority", "1"])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let task_id = stdout
+        .split("\"promoted_to\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Verify task has priority 1
+    bn_in(&temp)
+        .args(["task", "show", task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"priority\":1"));
+}
+
+#[test]
+fn test_idea_promote_to_prd() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args([
+            "idea",
+            "create",
+            "Create PRD Feature",
+            "--description",
+            "This is the origin story",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let idea_id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Promote as PRD
+    let output = bn_in(&temp)
+        .args(["idea", "promote", idea_id, "--as-prd"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"prd_path\":"));
+    assert!(stdout.contains("PRD_CREATE_PRD_FEATURE.md"));
+
+    // Verify the PRD file was created
+    let prd_path = temp.path().join("prds/PRD_CREATE_PRD_FEATURE.md");
+    assert!(prd_path.exists(), "PRD file should exist");
+
+    // Verify PRD content
+    let prd_content = std::fs::read_to_string(&prd_path).unwrap();
+    assert!(prd_content.contains("# PRD: Create PRD Feature"));
+    assert!(prd_content.contains(&format!("Promoted from idea {}", idea_id)));
+    assert!(prd_content.contains("This is the origin story"));
+    assert!(prd_content.contains("## Problem Statement"));
+    assert!(prd_content.contains("## Proposed Solution"));
+    assert!(prd_content.contains("## Implementation Plan"));
+
+    // Verify idea is marked as promoted
+    bn_in(&temp)
+        .args(["idea", "show", idea_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"promoted\""));
+}
+
+#[test]
+fn test_idea_promote_to_prd_human() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "PRD Human Test"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Promote as PRD with human output
+    bn_in(&temp)
+        .args(["idea", "promote", id, "--as-prd", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Promoted idea"))
+        .stdout(predicate::str::contains("to PRD:"))
+        .stdout(predicate::str::contains("PRD_PRD_HUMAN_TEST.md"));
+}
+
+#[test]
+fn test_idea_promote_already_promoted_fails() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "Double promote"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Promote first time
+    bn_in(&temp)
+        .args(["idea", "promote", id])
+        .assert()
+        .success();
+
+    // Try to promote again - should fail
+    bn_in(&temp)
+        .args(["idea", "promote", id])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already promoted"));
+}
+
+#[test]
+fn test_idea_promote_discarded_fails() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "Discarded promote"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Discard first
+    bn_in(&temp).args(["idea", "close", id]).assert().success();
+
+    // Try to promote - should fail
+    bn_in(&temp)
+        .args(["idea", "promote", id])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("discarded"));
+}
+
+#[test]
+fn test_idea_promote_creates_prds_directory() {
+    let temp = init_binnacle();
+
+    // Remove prds directory if it exists
+    let prds_dir = temp.path().join("prds");
+    if prds_dir.exists() {
+        std::fs::remove_dir_all(&prds_dir).unwrap();
+    }
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "New PRD"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Promote as PRD - should create prds directory
+    bn_in(&temp)
+        .args(["idea", "promote", id, "--as-prd"])
+        .assert()
+        .success();
+
+    assert!(prds_dir.exists(), "prds directory should be created");
+}
+
+#[test]
+fn test_idea_promote_prd_already_exists_fails() {
+    let temp = init_binnacle();
+
+    // Create an idea
+    let output = bn_in(&temp)
+        .args(["idea", "create", "Existing PRD"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .unwrap()
+        .split("\"")
+        .next()
+        .unwrap();
+
+    // Create prds directory and a conflicting PRD file
+    let prds_dir = temp.path().join("prds");
+    std::fs::create_dir_all(&prds_dir).unwrap();
+    std::fs::write(prds_dir.join("PRD_EXISTING_PRD.md"), "existing content").unwrap();
+
+    // Try to promote as PRD - should fail due to existing file
+    bn_in(&temp)
+        .args(["idea", "promote", id, "--as-prd"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already exists"));
+}

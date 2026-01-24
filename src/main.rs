@@ -372,6 +372,18 @@ fn run_command(
                 let result = commands::idea_delete(repo_path, &id)?;
                 output(&result, human);
             }
+            IdeaCommands::Promote {
+                id,
+                as_prd,
+                priority,
+            } => {
+                let result = commands::idea_promote(repo_path, &id, as_prd, priority)?;
+                output(&result, human);
+            }
+            IdeaCommands::Germinate { id } => {
+                let result = commands::idea_germinate(repo_path, &id)?;
+                output(&result, human);
+            }
         },
 
         Some(Commands::Milestone { command }) => match command {
@@ -1439,6 +1451,22 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             IdeaCommands::Delete { id } => {
                 ("idea delete".to_string(), serde_json::json!({ "id": id }))
             }
+            IdeaCommands::Promote {
+                id,
+                as_prd,
+                priority,
+            } => (
+                "idea promote".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "as_prd": as_prd,
+                    "priority": priority,
+                }),
+            ),
+            IdeaCommands::Germinate { id } => (
+                "idea germinate".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
         },
 
         Some(Commands::Milestone { command }) => match command {

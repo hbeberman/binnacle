@@ -590,6 +590,26 @@ pub enum IdeaCommands {
         /// Idea ID
         id: String,
     },
+
+    /// Promote an idea to a task or PRD
+    Promote {
+        /// Idea ID
+        id: String,
+
+        /// Generate a PRD file instead of creating a task
+        #[arg(long)]
+        as_prd: bool,
+
+        /// Priority for the new task (0-4, lower is higher priority)
+        #[arg(short, long)]
+        priority: Option<u8>,
+    },
+
+    /// Mark an idea as germinating (being developed)
+    Germinate {
+        /// Idea ID
+        id: String,
+    },
 }
 
 /// Milestone subcommands

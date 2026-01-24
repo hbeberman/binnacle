@@ -4257,6 +4257,195 @@ pub fn idea_delete(repo_path: &Path, id: &str) -> Result<IdeaDeleted> {
     Ok(IdeaDeleted { id: id.to_string() })
 }
 
+#[derive(Serialize)]
+pub struct IdeaPromoted {
+    pub id: String,
+    pub promoted_to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prd_path: Option<String>,
+}
+
+impl Output for IdeaPromoted {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if let Some(ref path) = self.prd_path {
+            format!(
+                "Promoted idea {} to PRD: {}\nIdea marked as promoted.",
+                self.id, path
+            )
+        } else {
+            format!(
+                "Promoted idea {} to task: {}\nIdea marked as promoted.",
+                self.id, self.promoted_to
+            )
+        }
+    }
+}
+
+/// Promote an idea to a task or PRD.
+pub fn idea_promote(
+    repo_path: &Path,
+    id: &str,
+    as_prd: bool,
+    priority: Option<u8>,
+) -> Result<IdeaPromoted> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut idea = storage.get_idea(id)?;
+
+    // Check that idea is not already promoted or discarded
+    if idea.status == IdeaStatus::Promoted {
+        return Err(Error::Other(format!("Idea {} is already promoted", id)));
+    }
+    if idea.status == IdeaStatus::Discarded {
+        return Err(Error::Other(format!(
+            "Idea {} is discarded and cannot be promoted",
+            id
+        )));
+    }
+
+    if as_prd {
+        // Generate PRD file
+        let title_slug = idea
+            .title
+            .to_uppercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '_' })
+            .collect::<String>();
+        // Collapse multiple underscores and trim
+        let title_slug = title_slug
+            .split('_')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("_");
+
+        let prd_filename = format!("PRD_{}.md", title_slug);
+        let prd_dir = repo_path.join("prds");
+
+        // Create prds directory if it doesn't exist
+        if !prd_dir.exists() {
+            fs::create_dir_all(&prd_dir)?;
+        }
+
+        let prd_path = prd_dir.join(&prd_filename);
+
+        // Check if PRD already exists
+        if prd_path.exists() {
+            return Err(Error::Other(format!(
+                "PRD file already exists: {}",
+                prd_path.display()
+            )));
+        }
+
+        // Generate PRD content from template
+        let origin_desc = idea
+            .description
+            .clone()
+            .unwrap_or_else(|| idea.title.clone());
+        let prd_content = format!(
+            r#"# PRD: {}
+
+> Promoted from idea {} on {}
+
+## Origin
+{}
+
+## Problem Statement
+[TODO: Define the problem]
+
+## Proposed Solution
+[TODO: Describe the solution]
+
+## Implementation Plan
+[TODO: Break into tasks]
+"#,
+            idea.title,
+            id,
+            chrono::Utc::now().format("%Y-%m-%d"),
+            origin_desc
+        );
+
+        fs::write(&prd_path, prd_content)?;
+
+        // Update idea
+        let prd_path_str = prd_path.to_string_lossy().to_string();
+        idea.status = IdeaStatus::Promoted;
+        idea.promoted_to = Some(prd_path_str.clone());
+        idea.updated_at = Utc::now();
+        storage.update_idea(&idea)?;
+
+        Ok(IdeaPromoted {
+            id: id.to_string(),
+            promoted_to: prd_path_str.clone(),
+            prd_path: Some(prd_path_str),
+        })
+    } else {
+        // Create a task from the idea
+        let task_id = generate_id("bn", &idea.title);
+        let mut task = Task::new(task_id.clone(), idea.title.clone());
+        task.description = idea.description.clone();
+        task.tags = idea.tags.clone();
+        task.priority = priority.unwrap_or(2);
+
+        storage.create_task(&task)?;
+
+        // Update idea
+        idea.status = IdeaStatus::Promoted;
+        idea.promoted_to = Some(task_id.clone());
+        idea.updated_at = Utc::now();
+        storage.update_idea(&idea)?;
+
+        Ok(IdeaPromoted {
+            id: id.to_string(),
+            promoted_to: task_id,
+            prd_path: None,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct IdeaGerminated {
+    pub id: String,
+}
+
+impl Output for IdeaGerminated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Idea {} is now germinating", self.id)
+    }
+}
+
+/// Mark an idea as germinating (being developed).
+pub fn idea_germinate(repo_path: &Path, id: &str) -> Result<IdeaGerminated> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut idea = storage.get_idea(id)?;
+
+    // Check that idea is in valid state for germination
+    if idea.status == IdeaStatus::Promoted {
+        return Err(Error::Other(format!(
+            "Idea {} is already promoted and cannot be germinated",
+            id
+        )));
+    }
+    if idea.status == IdeaStatus::Discarded {
+        return Err(Error::Other(format!(
+            "Idea {} is discarded and cannot be germinated",
+            id
+        )));
+    }
+
+    idea.status = IdeaStatus::Germinating;
+    idea.updated_at = Utc::now();
+    storage.update_idea(&idea)?;
+
+    Ok(IdeaGerminated { id: id.to_string() })
+}
+
 // === Milestone Commands ===
 
 use crate::models::MilestoneProgress;
