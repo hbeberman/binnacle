@@ -473,6 +473,22 @@
             text-overflow: ellipsis;
         }
 
+        .card-closed {
+            border-color: var(--success);
+            opacity: 0.7;
+        }
+
+        .closed-banner {
+            background: var(--success);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-radius: 4px 4px 0 0;
+            margin: -0.75rem -0.75rem 0.5rem -0.75rem;
+            text-align: center;
+        }
+
         /* Agents sidebar on graph view */
         .agents-sidebar {
             position: absolute;
@@ -1179,6 +1195,8 @@
         /* View search bar (for Tasks, Bugs, Ideas views) */
         .view-search-container {
             margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
         }
 
         .view-search {
@@ -1218,6 +1236,53 @@
             color: var(--text-secondary);
             font-size: 0.9rem;
             pointer-events: none;
+        }
+
+        /* Include closed toggle (for Tasks, Bugs, Ideas views) */
+        .include-closed-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-left: 0.75rem;
+        }
+
+        .include-closed-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .include-closed-switch {
+            width: 32px;
+            height: 18px;
+            border-radius: 9px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            position: relative;
+            transition: background 0.2s ease, border-color 0.2s ease;
+            padding: 0;
+        }
+
+        .include-closed-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: white;
+            transition: transform 0.2s ease;
+        }
+
+        .include-closed-switch.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-light);
+        }
+
+        .include-closed-switch.active::after {
+            transform: translateX(14px);
         }
 
         /* Auto-follow toggle */
@@ -2526,6 +2591,10 @@
                         <span class="view-search-icon">🔍</span>
                         <input class="view-search" id="tasks-search" type="text" placeholder="Search tasks…" autocomplete="off" spellcheck="false" />
                     </div>
+                    <div class="include-closed-toggle">
+                        <span class="include-closed-label">Include closed</span>
+                        <button class="include-closed-switch" id="tasks-include-closed" title="Include closed/done tasks in search"></button>
+                    </div>
                 </div>
                 <div class="task-list" id="ready-list"></div>
             </div>
@@ -2536,6 +2605,10 @@
                         <span class="view-search-icon">🔍</span>
                         <input class="view-search" id="bugs-search" type="text" placeholder="Search bugs…" autocomplete="off" spellcheck="false" />
                     </div>
+                    <div class="include-closed-toggle">
+                        <span class="include-closed-label">Include closed</span>
+                        <button class="include-closed-switch" id="bugs-include-closed" title="Include closed/done bugs in search"></button>
+                    </div>
                 </div>
                 <div class="task-list" id="bugs-list"></div>
             </div>
@@ -2545,6 +2618,10 @@
                     <div class="view-search-wrapper">
                         <span class="view-search-icon">🔍</span>
                         <input class="view-search" id="ideas-search" type="text" placeholder="Search ideas…" autocomplete="off" spellcheck="false" />
+                    </div>
+                    <div class="include-closed-toggle">
+                        <span class="include-closed-label">Include closed</span>
+                        <button class="include-closed-switch" id="ideas-include-closed" title="Include closed/done ideas in search"></button>
                     </div>
                 </div>
                 <div class="task-list" id="ideas-list"></div>
@@ -2886,6 +2963,13 @@
             tasks: '',
             bugs: '',
             ideas: ''
+        };
+
+        // Include closed state (for searching through completed items)
+        const includeClosed = {
+            tasks: false,
+            bugs: false,
+            ideas: false
         };
 
         // WebSocket connection
@@ -3991,12 +4075,12 @@
         // Initialize view search bars (Tasks, Bugs, Ideas)
         function initializeViewSearch() {
             const searchConfigs = [
-                { inputId: 'tasks-search', key: 'tasks', renderFn: renderReady },
-                { inputId: 'bugs-search', key: 'bugs', renderFn: renderBugs },
-                { inputId: 'ideas-search', key: 'ideas', renderFn: renderIdeas }
+                { inputId: 'tasks-search', toggleId: 'tasks-include-closed', key: 'tasks', renderFn: renderReady },
+                { inputId: 'bugs-search', toggleId: 'bugs-include-closed', key: 'bugs', renderFn: renderBugs },
+                { inputId: 'ideas-search', toggleId: 'ideas-include-closed', key: 'ideas', renderFn: renderIdeas }
             ];
 
-            searchConfigs.forEach(({ inputId, key, renderFn }) => {
+            searchConfigs.forEach(({ inputId, toggleId, key, renderFn }) => {
                 const input = document.getElementById(inputId);
                 if (!input) return;
 
@@ -4013,6 +4097,16 @@
                         e.preventDefault();
                     }
                 });
+
+                // Initialize include-closed toggle
+                const toggle = document.getElementById(toggleId);
+                if (toggle) {
+                    toggle.addEventListener('click', () => {
+                        includeClosed[key] = !includeClosed[key];
+                        toggle.classList.toggle('active', includeClosed[key]);
+                        renderFn();
+                    });
+                }
             });
         }
 
@@ -5887,22 +5981,39 @@
 
         function renderReady() {
             const list = document.getElementById('ready-list');
-            // Get all unclosed tasks and bugs (not done, not cancelled)
-            let unclosedTasks = (state.tasks || []).filter(t => 
-                (t.type === 'task' || t.type === 'bug') && 
-                t.status !== 'done' && 
-                t.status !== 'cancelled'
-            );
-            
-            // Apply search filter
             const searchQuery = viewSearch.tasks;
-            if (searchQuery) {
-                unclosedTasks = unclosedTasks.filter(t => itemMatchesViewSearch(t, searchQuery));
+            const showClosed = includeClosed.tasks;
+            
+            // Get tasks and bugs - if includeClosed is on, get all; otherwise only unclosed
+            let filteredTasks;
+            if (showClosed) {
+                // When includeClosed is on, show all tasks/bugs
+                filteredTasks = (state.tasks || []).filter(t => 
+                    (t.type === 'task' || t.type === 'bug')
+                );
+            } else {
+                // Default behavior: only unclosed tasks
+                filteredTasks = (state.tasks || []).filter(t => 
+                    (t.type === 'task' || t.type === 'bug') && 
+                    t.status !== 'done' && 
+                    t.status !== 'cancelled'
+                );
             }
             
-            // Sort: ready tasks first, then by priority, then by ID
+            // Apply search filter
+            if (searchQuery) {
+                filteredTasks = filteredTasks.filter(t => itemMatchesViewSearch(t, searchQuery));
+            }
+            
+            // Sort: open tasks first (when showing closed), ready tasks first, then by priority, then by ID
             const readyIds = new Set((state.ready || []).map(t => t.id));
-            unclosedTasks.sort((a, b) => {
+            filteredTasks.sort((a, b) => {
+                // If showing closed, put open items first
+                if (showClosed) {
+                    const aOpen = a.status !== 'done' && a.status !== 'cancelled';
+                    const bOpen = b.status !== 'done' && b.status !== 'cancelled';
+                    if (aOpen !== bOpen) return bOpen - aOpen;  // Open first
+                }
                 const aReady = readyIds.has(a.id);
                 const bReady = readyIds.has(b.id);
                 if (aReady !== bReady) return bReady - aReady;  // Ready first
@@ -5910,21 +6021,23 @@
                 return a.id.localeCompare(b.id);
             });
             
-            if (unclosedTasks.length === 0) {
+            if (filteredTasks.length === 0) {
                 list.innerHTML = searchQuery 
                     ? '<div class="empty-state">No tasks match your search</div>'
                     : '<div class="empty-state">No open tasks</div>';
                 return;
             }
-            list.innerHTML = unclosedTasks.map(task => {
+            list.innerHTML = filteredTasks.map(task => {
                 const isQueued = isNodeQueued(task.id);
                 const isReady = readyIds.has(task.id);
-                const isBlocked = task.status === 'blocked' || !isReady;
+                const isClosed = task.status === 'done' || task.status === 'cancelled';
+                const isBlocked = !isClosed && (task.status === 'blocked' || !isReady);
                 const isBug = task.type === 'bug';
                 const blockingReasons = isBlocked ? getBlockingReasons(task.id) : [];
                 const reasonText = blockingReasons.length > 0 ? blockingReasons[0] : '';
                 return `
-                <div class="card ${isBlocked ? 'card-blocked' : ''}">
+                <div class="card ${isBlocked ? 'card-blocked' : ''} ${isClosed ? 'card-closed' : ''}">
+                    ${isClosed ? `<div class="closed-banner">✓ ${task.status === 'done' ? 'Done' : 'Cancelled'}</div>` : ''}
                     ${isBlocked ? `<div class="blocked-banner">🚫 Blocked${reasonText ? `<div class="blocked-reason" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</div>` : ''}</div>` : ''}
                     <div class="card-header">
                         <div class="card-title">${isBug ? '🐛 ' : ''}${escapeHtml(task.title)}</div>
@@ -5932,10 +6045,10 @@
                             <button class="card-jump-btn" data-task-id="${task.id}" title="Jump to node on graph">
                                 📍
                             </button>
-                            <button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
+                            ${!isClosed ? `<button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
                                     data-task-id="${task.id}" 
                                     title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
-                            </button>
+                            </button>` : ''}
                         </div>
                     </div>
                     <div class="card-meta">
@@ -5973,24 +6086,37 @@
 
         function renderBugs() {
             const list = document.getElementById('bugs-list');
-            // Get all open bugs (not done, not cancelled)
-            let openBugs = (state.tasks || []).filter(t => 
-                t.type === 'bug' && 
-                t.status !== 'done' && 
-                t.status !== 'cancelled'
-            );
+            const searchQuery = viewSearch.bugs;
+            const showClosed = includeClosed.bugs;
+            
+            // Get bugs - if includeClosed is on, get all; otherwise only open
+            let filteredBugs;
+            if (showClosed) {
+                filteredBugs = (state.tasks || []).filter(t => t.type === 'bug');
+            } else {
+                filteredBugs = (state.tasks || []).filter(t => 
+                    t.type === 'bug' && 
+                    t.status !== 'done' && 
+                    t.status !== 'cancelled'
+                );
+            }
             
             // Apply search filter
-            const searchQuery = viewSearch.bugs;
             if (searchQuery) {
-                openBugs = openBugs.filter(b => itemMatchesViewSearch(b, searchQuery));
+                filteredBugs = filteredBugs.filter(b => itemMatchesViewSearch(b, searchQuery));
             }
             
             // Check which bugs are ready (no blockers)
             const readyIds = new Set((state.ready || []).filter(t => t.type === 'bug').map(t => t.id));
             
-            // Sort: ready bugs first, then by priority, then by ID
-            openBugs.sort((a, b) => {
+            // Sort: open bugs first (when showing closed), ready bugs first, then by priority, then by ID
+            filteredBugs.sort((a, b) => {
+                // If showing closed, put open items first
+                if (showClosed) {
+                    const aOpen = a.status !== 'done' && a.status !== 'cancelled';
+                    const bOpen = b.status !== 'done' && b.status !== 'cancelled';
+                    if (aOpen !== bOpen) return bOpen - aOpen;  // Open first
+                }
                 const aReady = readyIds.has(a.id);
                 const bReady = readyIds.has(b.id);
                 if (aReady !== bReady) return bReady - aReady;  // Ready first
@@ -5998,20 +6124,22 @@
                 return a.id.localeCompare(b.id);
             });
             
-            if (openBugs.length === 0) {
+            if (filteredBugs.length === 0) {
                 list.innerHTML = searchQuery
                     ? '<div class="empty-state">No bugs match your search</div>'
                     : '<div class="empty-state">No open bugs 🎉</div>';
                 return;
             }
-            list.innerHTML = openBugs.map(bug => {
+            list.innerHTML = filteredBugs.map(bug => {
                 const isQueued = isNodeQueued(bug.id);
                 const isReady = readyIds.has(bug.id);
-                const isBlocked = bug.status === 'blocked' || !isReady;
+                const isClosed = bug.status === 'done' || bug.status === 'cancelled';
+                const isBlocked = !isClosed && (bug.status === 'blocked' || !isReady);
                 const blockingReasons = isBlocked ? getBlockingReasons(bug.id) : [];
                 const reasonText = blockingReasons.length > 0 ? blockingReasons[0] : '';
                 return `
-                <div class="card ${isBlocked ? 'card-blocked' : ''}">
+                <div class="card ${isBlocked ? 'card-blocked' : ''} ${isClosed ? 'card-closed' : ''}">
+                    ${isClosed ? `<div class="closed-banner">✓ ${bug.status === 'done' ? 'Fixed' : 'Cancelled'}</div>` : ''}
                     ${isBlocked ? `<div class="blocked-banner">🚫 Blocked${reasonText ? `<div class="blocked-reason" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</div>` : ''}</div>` : ''}
                     <div class="card-header">
                         <div class="card-title">🐛 ${escapeHtml(bug.title)}</div>
@@ -6019,10 +6147,10 @@
                             <button class="card-jump-btn" data-task-id="${bug.id}" title="Jump to node on graph">
                                 📍
                             </button>
-                            <button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
+                            ${!isClosed ? `<button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
                                     data-task-id="${bug.id}" 
                                     title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
-                            </button>
+                            </button>` : ''}
                         </div>
                     </div>
                     ${bug.description ? `<div class="card-description">${escapeHtml(bug.description)}</div>` : ''}
@@ -6061,33 +6189,56 @@
 
         function renderIdeas() {
             const list = document.getElementById('ideas-list');
-            // Filter to show only open ideas (seed or germinating)
-            let openIdeas = state.ideas.filter(idea => 
-                idea.status === 'seed' || idea.status === 'germinating'
-            );
-            
-            // Apply search filter
             const searchQuery = viewSearch.ideas;
-            if (searchQuery) {
-                openIdeas = openIdeas.filter(idea => itemMatchesViewSearch(idea, searchQuery));
+            const showClosed = includeClosed.ideas;
+            
+            // Get ideas - if includeClosed is on, get all; otherwise only open (seed or germinating)
+            let filteredIdeas;
+            if (showClosed) {
+                filteredIdeas = state.ideas.slice();  // All ideas
+            } else {
+                filteredIdeas = state.ideas.filter(idea => 
+                    idea.status === 'seed' || idea.status === 'germinating'
+                );
             }
             
-            if (openIdeas.length === 0) {
+            // Apply search filter
+            if (searchQuery) {
+                filteredIdeas = filteredIdeas.filter(idea => itemMatchesViewSearch(idea, searchQuery));
+            }
+            
+            // Sort: open ideas first when showing closed
+            if (showClosed) {
+                filteredIdeas.sort((a, b) => {
+                    const aOpen = a.status === 'seed' || a.status === 'germinating';
+                    const bOpen = b.status === 'seed' || b.status === 'germinating';
+                    if (aOpen !== bOpen) return bOpen - aOpen;  // Open first
+                    return a.id.localeCompare(b.id);
+                });
+            }
+            
+            if (filteredIdeas.length === 0) {
                 list.innerHTML = searchQuery
                     ? '<div class="empty-state">No ideas match your search</div>'
                     : '<div class="empty-state">No open ideas</div>';
                 return;
             }
-            list.innerHTML = openIdeas.map(idea => {
-                const statusLabel = idea.status === 'seed' ? '🌱 Seed' : '🌿 Germinating';
+            list.innerHTML = filteredIdeas.map(idea => {
+                const isClosed = idea.status !== 'seed' && idea.status !== 'germinating';
+                const statusLabel = idea.status === 'seed' ? '🌱 Seed' 
+                    : idea.status === 'germinating' ? '🌿 Germinating'
+                    : idea.status === 'promoted' ? '🚀 Promoted'
+                    : idea.status === 'wilted' ? '🥀 Wilted'
+                    : idea.status;
                 return `
-                <div class="card">
+                <div class="card ${isClosed ? 'card-closed' : ''}">
+                    ${isClosed ? `<div class="closed-banner">✓ ${idea.status === 'promoted' ? 'Promoted' : 'Wilted'}</div>` : ''}
                     <div class="card-header">
                         <div class="card-title">${escapeHtml(idea.title)}</div>
                     </div>
                     ${idea.description ? `<div class="card-description">${escapeHtml(idea.description)}</div>` : ''}
                     <div class="card-meta">
-                        <span class="badge" style="background: var(--idea-${idea.status})">${statusLabel}</span>
+                        <span class="badge" style="background: var(--idea-${idea.status === 'seed' || idea.status === 'germinating' ? idea.status : 'done'})">${statusLabel}</span>
                         <span class="badge" style="background: var(--bg-tertiary)">${idea.id}</span>
                         ${(idea.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
                     </div>
