@@ -1285,6 +1285,35 @@
             transform: translateX(14px);
         }
 
+        /* Doc type filter */
+        .doc-type-filter {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-left: 0.75rem;
+        }
+
+        .filter-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .type-filter-select {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            cursor: pointer;
+        }
+
+        .type-filter-select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
         /* Auto-follow toggle */
         .auto-follow-toggle {
             display: flex;
@@ -2474,6 +2503,7 @@
                     <button class="nav-btn" data-view="bugs">Bugs</button>
                     <button class="nav-btn" data-view="ideas">Ideas</button>
                     <button class="nav-btn" data-view="tests">Tests</button>
+                    <button class="nav-btn" data-view="docs">Docs</button>
                     <button class="nav-btn" data-view="agents">Agents</button>
                     <button class="nav-btn" data-view="log">Activity Log</button>
                 </nav>
@@ -2680,6 +2710,25 @@
 
             <div id="tests-view" class="view">
                 <div class="test-list" id="test-list"></div>
+            </div>
+
+            <div id="docs-view" class="view">
+                <div class="view-search-container">
+                    <div class="view-search-wrapper">
+                        <span class="view-search-icon">🔍</span>
+                        <input class="view-search" id="docs-search" type="text" placeholder="Search docs…" autocomplete="off" spellcheck="false" />
+                    </div>
+                    <div class="doc-type-filter">
+                        <label class="filter-label">Type:</label>
+                        <select id="docs-type-filter" class="type-filter-select">
+                            <option value="">All</option>
+                            <option value="prd">PRD</option>
+                            <option value="note">Note</option>
+                            <option value="handoff">Handoff</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="task-list" id="docs-list"></div>
             </div>
 
             <div id="agents-view" class="view">
@@ -2931,6 +2980,7 @@
             ready: [],
             ideas: [],
             tests: [],
+            docs: [],
             log: [],
             agents: [],
             edges: [], // Raw edges from API
@@ -3191,13 +3241,14 @@
         // Data loading
         async function loadData() {
             // Load all data in parallel
-            const [configData, tasksData, bugsData, ideasData, readyData, testsData, logData, edgesData, agentsData, queueData] = await Promise.all([
+            const [configData, tasksData, bugsData, ideasData, readyData, testsData, docsData, logData, edgesData, agentsData, queueData] = await Promise.all([
                 fetch('/api/config').then(r => r.json()),
                 fetch('/api/tasks').then(r => r.json()),
                 fetch('/api/bugs').then(r => r.json()),
                 fetch('/api/ideas').then(r => r.json()),
                 fetch('/api/ready').then(r => r.json()),
                 fetch('/api/tests').then(r => r.json()),
+                fetch('/api/docs').then(r => r.json()),
                 fetch('/api/log').then(r => r.json()),
                 fetch('/api/edges').then(r => r.json()),
                 fetch('/api/agents').then(r => r.json()),
@@ -3254,6 +3305,7 @@
             state.ready = readyData.tasks || [];
             state.ideas = ideasData.ideas || [];
             state.tests = testsData.tests || [];
+            state.docs = docsData.docs || [];
             state.log = logData.log || [];
             
             // Build agent-to-task edges ("working_on" edge type)
@@ -3538,6 +3590,9 @@
                     break;
                 case 'tests':
                     renderTests();
+                    break;
+                case 'docs':
+                    renderDocs();
                     break;
                 case 'agents':
                     renderAgents();
@@ -4191,6 +4246,35 @@
                     });
                 }
             });
+        }
+
+        // Initialize docs search and type filter
+        function initializeDocsSearch() {
+            const searchInput = document.getElementById('docs-search');
+            const typeFilter = document.getElementById('docs-type-filter');
+            
+            if (searchInput) {
+                searchInput.addEventListener('input', () => {
+                    docsSearch = searchInput.value.toLowerCase();
+                    renderDocs();
+                });
+                
+                searchInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        searchInput.value = '';
+                        docsSearch = '';
+                        renderDocs();
+                        e.preventDefault();
+                    }
+                });
+            }
+            
+            if (typeFilter) {
+                typeFilter.addEventListener('change', () => {
+                    docsTypeFilter = typeFilter.value;
+                    renderDocs();
+                });
+            }
         }
 
         // Check if an item matches the view search query
@@ -6381,6 +6465,82 @@
             `).join('');
         }
 
+        // Track docs search and filter state
+        let docsSearch = '';
+        let docsTypeFilter = '';
+
+        function renderDocs() {
+            const list = document.getElementById('docs-list');
+            const searchQuery = docsSearch;
+            const typeFilter = docsTypeFilter;
+            
+            let filteredDocs = state.docs.slice();
+            
+            // Apply type filter
+            if (typeFilter) {
+                filteredDocs = filteredDocs.filter(doc => doc.doc_type === typeFilter);
+            }
+            
+            // Apply search filter
+            if (searchQuery) {
+                const query = searchQuery.toLowerCase();
+                filteredDocs = filteredDocs.filter(doc => 
+                    doc.title.toLowerCase().includes(query) ||
+                    (doc.description && doc.description.toLowerCase().includes(query)) ||
+                    doc.id.toLowerCase().includes(query) ||
+                    (doc.tags || []).some(tag => tag.toLowerCase().includes(query))
+                );
+            }
+            
+            // Sort by updated_at (most recent first)
+            filteredDocs.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+            
+            if (filteredDocs.length === 0) {
+                list.innerHTML = searchQuery || typeFilter
+                    ? '<div class="empty-state">No docs match your filters</div>'
+                    : '<div class="empty-state">No docs yet</div>';
+                return;
+            }
+            
+            // Get doc type label and color
+            function getDocTypeLabel(docType) {
+                switch (docType) {
+                    case 'prd': return { label: '📋 PRD', color: 'var(--accent-blue)' };
+                    case 'note': return { label: '📝 Note', color: 'var(--info)' };
+                    case 'handoff': return { label: '🔄 Handoff', color: 'var(--warning)' };
+                    default: return { label: docType, color: 'var(--bg-tertiary)' };
+                }
+            }
+            
+            // Count linked entities for a doc
+            function countLinkedEntities(docId) {
+                return state.edges.filter(e => 
+                    (e.source === docId || e.target === docId) && 
+                    e.edge_type === 'pinned'
+                ).length;
+            }
+            
+            list.innerHTML = filteredDocs.map(doc => {
+                const typeInfo = getDocTypeLabel(doc.doc_type);
+                const linkedCount = countLinkedEntities(doc.id);
+                const summaryDirty = doc.summary_dirty;
+                
+                return `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">${escapeHtml(doc.title)}${summaryDirty ? ' <span style="color: var(--warning)" title="Summary needs update">⚠️</span>' : ''}</div>
+                    </div>
+                    ${doc.description ? `<div class="card-description">${escapeHtml(doc.description)}</div>` : ''}
+                    <div class="card-meta">
+                        <span class="badge" style="background: ${typeInfo.color}">${typeInfo.label}</span>
+                        <span class="badge" style="background: var(--bg-tertiary)">${doc.id}</span>
+                        ${linkedCount > 0 ? `<span class="badge" style="background: var(--edge-hierarchy)">🔗 ${linkedCount}</span>` : ''}
+                        ${(doc.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+                    </div>
+                </div>
+            `}).join('');
+        }
+
         function renderAgents() {
             const list = document.getElementById('agents-list');
             const activityLog = document.getElementById('agents-activity-log');
@@ -7046,6 +7206,7 @@
         updateHideCompletedDisplay();
         initializeGraphSearch();
         initializeViewSearch();
+        initializeDocsSearch();
         connectWebSocket();
         
         // Periodically refresh the recently completed pane to keep "time ago" display current

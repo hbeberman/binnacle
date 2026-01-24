@@ -148,6 +148,7 @@ pub async fn start_server(
         .route("/api/ideas", get(get_ideas))
         .route("/api/ready", get(get_ready))
         .route("/api/tests", get(get_tests))
+        .route("/api/docs", get(get_docs))
         .route("/api/queue", get(get_queue))
         .route("/api/queue/toggle", post(toggle_queue_membership))
         .route("/api/edges", get(get_edges))
@@ -238,6 +239,16 @@ async fn get_tests(State(state): State<AppState>) -> Result<Json<serde_json::Val
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "tests": tests })))
+}
+
+/// Get all docs
+async fn get_docs(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+    let docs = storage
+        .list_docs(None, None, None, None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({ "docs": docs })))
 }
 
 /// Get the queue (if it exists)
