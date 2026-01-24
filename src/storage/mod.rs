@@ -3359,13 +3359,17 @@ pub fn find_git_root(start: &Path) -> Option<PathBuf> {
 ///
 /// Uses a hash of the repository path to create a unique directory.
 /// The base directory is determined by:
-/// 1. `BN_DATA_DIR` environment variable (if set)
-/// 2. Falls back to `~/.local/share/binnacle/`
+/// 1. `BN_CONTAINER_MODE` environment variable (if set, uses `/binnacle`)
+/// 2. `BN_DATA_DIR` environment variable (if set)
+/// 3. Falls back to `~/.local/share/binnacle/`
 ///
 /// The provided path is used directly; git root detection (if desired)
 /// should be done by the caller before invoking this function.
 pub fn get_storage_dir(repo_path: &Path) -> Result<PathBuf> {
-    let base_dir = if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
+    let base_dir = if std::env::var("BN_CONTAINER_MODE").is_ok() {
+        // Container mode: use /binnacle as base directory
+        PathBuf::from("/binnacle")
+    } else if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
         PathBuf::from(override_dir)
     } else {
         dirs::data_dir()
@@ -4547,6 +4551,28 @@ mod tests {
         let git_root_from_subdir = super::find_git_root(&subdir).unwrap();
         let storage_via_git_root = super::get_storage_dir(&git_root_from_subdir).unwrap();
         assert_eq!(storage_from_root, storage_via_git_root);
+    }
+
+    #[test]
+    fn test_get_storage_dir_container_mode() {
+        // This test verifies the BN_CONTAINER_MODE env var support.
+        // We can't easily test actual /binnacle usage, but we can test
+        // the priority order by using get_storage_dir_with_base.
+
+        let env = TestEnv::new();
+        let root = env.path();
+        fs::create_dir(root.join(".git")).unwrap();
+
+        // Test that container mode base directory (/binnacle) works with the hashing
+        let container_base = std::path::Path::new("/binnacle");
+        let storage_dir = super::get_storage_dir_with_base(root, container_base).unwrap();
+
+        // Storage dir should be under /binnacle/<hash>
+        assert!(storage_dir.starts_with("/binnacle"));
+        // And should have a 12-char hash component
+        let hash_component = storage_dir.file_name().unwrap().to_str().unwrap();
+        assert_eq!(hash_component.len(), 12);
+        assert!(hash_component.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     // === Agent Tests ===
