@@ -106,10 +106,14 @@ See [container/README.md](container/README.md) for full documentation.
 - **JSON-first output** - Machine-readable by default, `-H` for human-readable
 - **No repo pollution** - Data stored externally in `~/.local/share/binnacle/<repo-hash>/`
 - **Task dependencies** - Block tasks on other tasks, query what's ready
+- **Bug tracking** - Dedicated bug entity type with severity levels
+- **Idea management** - Capture rough ideas and promote them to tasks or PRDs
+- **Milestones** - Track progress toward larger goals
 - **Test tracking** - Link tests to tasks, auto-reopen tasks on regression
 - **Action logging** - Comprehensive audit log of all commands with timestamps and metadata
 - **MCP server** - Expose all operations as MCP tools for AI agents
 - **Work queue** - Prioritize tasks for agents with a global work queue
+- **Agent lifecycle** - Register agents, track their work, graceful termination
 
 ## Queue (Agent Prioritization)
 
@@ -137,21 +141,110 @@ bn ready -H
 bn task close bn-xxxx --reason "Fixed"
 ```
 
+## Bugs
+
+Track bugs separately from tasks with dedicated severity levels:
+
+```bash
+# Create a bug (severities: triage, low, medium, high, critical)
+bn bug create "Login fails on Safari" --severity high
+
+# List bugs
+bn bug list -H
+
+# Update bug status
+bn bug update bnb-xxxx --status in_progress
+
+# Close a bug
+bn bug close bnb-xxxx --reason "Fixed Safari-specific CSS issue"
+```
+
+## Ideas
+
+Capture low-stakes seeds that can be promoted to tasks or PRDs later:
+
+```bash
+# Create an idea (quick capture)
+bn idea create "Support dark mode"
+
+# List ideas
+bn idea list -H
+
+# Promote an idea to a task
+bn idea promote bni-xxxx --to task
+
+# Or promote to a PRD for larger features
+bn idea promote bni-xxxx --to prd
+```
+
+## Milestones
+
+Track progress toward larger goals:
+
+```bash
+# Create a milestone with optional due date
+bn milestone create "v1.0 Release" --due 2025-02-01
+
+# Show milestone with progress
+bn milestone show bnm-xxxx -H
+# Shows: 5/10 tasks complete (50%)
+
+# Link tasks to milestones
+bn link add bn-task bnm-xxxx --type child_of
+```
+
 ## Commands
+
+### Core Commands
 
 ```
 bn                    Status summary
-bn orient             Onboarding for AI agents
-bn system init        Initialize database (interactive, recommended)
-bn task create/list/show/update/close/delete
-bn link add/rm/list   Manage relationships (dependencies, etc.)
+bn orient             Onboarding for AI agents (start here!)
 bn ready              Tasks with no blockers
 bn blocked            Tasks waiting on dependencies
-bn queue create/show/delete  Agent work prioritization
-bn test create/run    Test node management
+bn show <id>          Show any entity by ID (auto-detects type)
+```
+
+### Entity Management
+
+```
+bn task create/list/show/update/close/delete    Task management
+bn bug create/list/show/update/close/delete     Bug tracking (with severity levels)
+bn idea create/list/show/update/close/promote   Idea seeds (can be promoted to tasks)
+bn milestone create/list/show/update/close      Milestones with progress tracking
+bn queue create/show/delete                     Agent work prioritization
+bn test create/list/show/run                    Test node management
+```
+
+### Relationships & Analysis
+
+```
+bn link add/rm/list   Manage relationships (dependencies, etc.)
+bn search link        Search links by type, source, or target
+bn graph components   Analyze task graph for disconnected components
 bn commit link/list   Associate commits with tasks
+```
+
+### Agent & System
+
+```
+bn agent list/kill    Agent lifecycle management
+bn goodbye            Gracefully terminate agent session
 bn mcp serve          Start MCP server
 bn gui                Start web GUI (requires gui feature)
+```
+
+### Administration
+
+```
+bn system init        Initialize database (interactive, recommended)
+bn system store       Data store management (import/export)
+bn system migrate     Migrate between storage backends
+bn system hooks       Manage git hooks
+bn doctor             Health check and issue detection
+bn log                Show audit trail of changes
+bn sync               Push/pull data with remote
+bn config             Configuration management
 ```
 
 Use `bn --help` or `bn <command> --help` for full details.
@@ -298,24 +391,28 @@ cargo install binnacle --features gui
 
 ## Status
 
-Core functionality is complete (Phases 0-7). The project tracks its own development with binnacle.
+Core functionality is complete (Phases 0-11). The project tracks its own development with binnacle.
 
 What works:
 
-- Task CRUD with priorities, tags, assignees
+- Task, bug, and idea management with priorities, tags, assignees
+- Milestones with progress tracking
 - Dependency graph with cycle detection
 - Test nodes with regression detection
 - Commit tracking
 - Action logging with sanitization
 - Work queue for agent task prioritization
-- MCP server with 38+ tools
+- MCP server with 40+ tools
 - Web GUI with live updates (behind gui feature flag)
-- CI/CD via GitHub Actions
+- CI/CD via GitHub Actions with crates.io publishing
+- Agent lifecycle management (`bn agent list/kill`, `bn goodbye`)
+- Graph analysis for disconnected components
 
-In progress:
+Storage backends:
 
-- Alternative storage backends (orphan branch done, git notes planned)
-- Sync for shared mode
+- File-based (default, external to repo)
+- Orphan branch backend (data in git history)
+- Git notes backend (data in refs/notes/binnacle)
 
 ## Building
 
