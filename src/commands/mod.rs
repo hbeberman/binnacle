@@ -3200,6 +3200,9 @@ impl Output for Bug {
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
         lines.push(format!("{} {}", self.core.id, self.core.title));
+        if let Some(ref sn) = self.core.short_name {
+            lines.push(format!("  Short Name: {}", sn));
+        }
         lines.push(format!(
             "  Status: {:?}  Priority: {}  Severity: {:?}",
             self.status, self.priority, self.severity
@@ -3323,6 +3326,9 @@ impl Output for BugShowResult {
         let mut lines = Vec::new();
         lines.push(format!("Bug: {}", self.bug.core.id));
         lines.push(format!("Title: {}", self.bug.core.title));
+        if let Some(ref sn) = self.bug.core.short_name {
+            lines.push(format!("Short Name: {}", sn));
+        }
         lines.push(format!("Status: {:?}", self.bug.status));
         lines.push(format!("Priority: P{}", self.bug.priority));
         lines.push(format!("Severity: {:?}", self.bug.severity));
@@ -4109,6 +4115,9 @@ impl Output for Idea {
             "{} [{}] {}",
             self.core.id, status_str, self.core.title
         ));
+        if let Some(ref sn) = self.core.short_name {
+            lines.push(format!("  Short Name: {}", sn));
+        }
         if let Some(ref desc) = self.core.description {
             lines.push(format!("  Description: {}", desc));
         }
@@ -4603,6 +4612,9 @@ impl Output for Milestone {
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
         lines.push(format!("{} {}", self.core.id, self.core.title));
+        if let Some(ref sn) = self.core.short_name {
+            lines.push(format!("  Short Name: {}", sn));
+        }
         lines.push(format!(
             "  Status: {:?}  Priority: {}",
             self.status, self.priority
