@@ -9,8 +9,9 @@
 //! - `commit` - Commit tracking
 
 use crate::models::{
-    Agent, AgentType, Bug, BugSeverity, Doc, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus,
-    Milestone, Queue, SessionState, Task, TaskStatus, TestNode, TestResult, graph::UnionFind,
+    Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Idea,
+    IdeaStatus, Milestone, Queue, SessionState, Task, TaskStatus, TestNode, TestResult,
+    graph::UnionFind,
 };
 use crate::storage::{EntityType, Storage, generate_id, parse_status};
 use crate::{Error, Result};
@@ -5065,9 +5066,15 @@ impl Output for DocList {
 }
 
 /// List documentation nodes with optional filters.
-pub fn doc_list(repo_path: &Path, tag: Option<&str>) -> Result<DocList> {
+pub fn doc_list(
+    repo_path: &Path,
+    tag: Option<&str>,
+    doc_type: Option<&DocType>,
+    edited_by: Option<&str>,
+    for_entity: Option<&str>,
+) -> Result<DocList> {
     let storage = Storage::open(repo_path)?;
-    let docs = storage.list_docs(tag)?;
+    let docs = storage.list_docs(tag, doc_type, edited_by, for_entity)?;
     let count = docs.len();
 
     Ok(DocList { docs, count })

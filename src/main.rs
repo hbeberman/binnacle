@@ -9,6 +9,7 @@ use binnacle::cli::{
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
+use binnacle::models::DocType;
 use binnacle::storage::find_git_root;
 use clap::Parser;
 use std::env;
@@ -413,8 +414,26 @@ fn run_command(
                 let result = commands::doc_show(repo_path, &id)?;
                 output(&result, human);
             }
-            DocCommands::List { tag } => {
-                let result = commands::doc_list(repo_path, tag.as_deref())?;
+            DocCommands::List {
+                tag,
+                doc_type,
+                edited_by,
+                for_entity,
+            } => {
+                // Parse doc_type string to DocType enum
+                let parsed_doc_type = doc_type.as_ref().map(|s| match s.to_lowercase().as_str() {
+                    "prd" => DocType::Prd,
+                    "note" => DocType::Note,
+                    "handoff" => DocType::Handoff,
+                    _ => DocType::Prd, // default to Prd for unknown types
+                });
+                let result = commands::doc_list(
+                    repo_path,
+                    tag.as_deref(),
+                    parsed_doc_type.as_ref(),
+                    edited_by.as_deref(),
+                    for_entity.as_deref(),
+                )?;
                 output(&result, human);
             }
             DocCommands::Edit {
@@ -1617,9 +1636,20 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 }),
             ),
             DocCommands::Show { id } => ("doc show".to_string(), serde_json::json!({ "id": id })),
-            DocCommands::List { tag } => {
-                ("doc list".to_string(), serde_json::json!({ "tag": tag }))
-            }
+            DocCommands::List {
+                tag,
+                doc_type,
+                edited_by,
+                for_entity,
+            } => (
+                "doc list".to_string(),
+                serde_json::json!({
+                    "tag": tag,
+                    "doc_type": doc_type,
+                    "edited_by": edited_by,
+                    "for_entity": for_entity
+                }),
+            ),
             DocCommands::Edit {
                 id,
                 title,

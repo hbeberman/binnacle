@@ -23,8 +23,8 @@ pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
 use crate::models::{
-    Agent, AgentStatus, Bug, CommitLink, Doc, Edge, EdgeDirection, EdgeType, HydratedEdge, Idea,
-    IdeaStatus, Milestone, MilestoneProgress, Queue, Task, TaskStatus, TestNode, TestResult,
+    Agent, AgentStatus, Bug, CommitLink, Doc, DocType, Edge, EdgeDirection, EdgeType, HydratedEdge,
+    Idea, IdeaStatus, Milestone, MilestoneProgress, Queue, Task, TaskStatus, TestNode, TestResult,
 };
 use crate::{Error, Result};
 use chrono::Utc;
@@ -120,6 +120,7 @@ impl Storage {
             "tasks.jsonl",
             "bugs.jsonl",
             "ideas.jsonl",
+            "docs.jsonl",
             "milestones.jsonl",
             "edges.jsonl",
             "commits.jsonl",
@@ -284,7 +285,11 @@ impl Storage {
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 description TEXT,
+                doc_type TEXT NOT NULL DEFAULT 'prd',
                 content TEXT NOT NULL DEFAULT '',
+                summary_dirty INTEGER NOT NULL DEFAULT 0,
+                editors TEXT NOT NULL DEFAULT '[]',
+                supersedes TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -1279,14 +1284,23 @@ impl Storage {
 
     /// Cache a doc in SQLite for fast querying.
     fn cache_doc(&self, doc: &Doc) -> Result<()> {
+        let doc_type = serde_json::to_string(&doc.doc_type)?
+            .trim_matches('"')
+            .to_string();
+        let editors_json = serde_json::to_string(&doc.editors)?;
+
         self.conn.execute(
-            "INSERT OR REPLACE INTO docs (id, title, description, content, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO docs (id, title, description, doc_type, content, summary_dirty, editors, supersedes, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 &doc.core.id,
                 &doc.core.title,
                 &doc.core.description,
+                &doc_type,
                 &doc.content,
+                doc.summary_dirty as i32,
+                &editors_json,
+                &doc.supersedes,
                 doc.core.created_at.to_rfc3339(),
                 doc.core.updated_at.to_rfc3339(),
             ],
@@ -1363,11 +1377,24 @@ impl Storage {
         latest.ok_or_else(|| Error::NotFound(format!("Doc not found: {}", id)))
     }
 
-    /// List all docs, optionally filtered by tag.
-    pub fn list_docs(&self, tag: Option<&str>) -> Result<Vec<Doc>> {
+    /// List all docs, optionally filtered.
+    ///
+    /// # Arguments
+    /// * `tag` - Filter by tag
+    /// * `doc_type` - Filter by doc type (prd, note, handoff)
+    /// * `edited_by` - Filter by editor (format: "agent:id" or "user:name")
+    /// * `for_entity` - Filter by linked entity ID
+    pub fn list_docs(
+        &self,
+        tag: Option<&str>,
+        doc_type: Option<&DocType>,
+        edited_by: Option<&str>,
+        for_entity: Option<&str>,
+    ) -> Result<Vec<Doc>> {
         let mut sql = String::from(
             "SELECT DISTINCT d.id FROM docs d
              LEFT JOIN doc_tags dt ON d.id = dt.doc_id
+             LEFT JOIN edges e ON (d.id = e.source OR d.id = e.target)
              WHERE 1=1",
         );
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -1375,6 +1402,29 @@ impl Storage {
         if let Some(t) = tag {
             sql.push_str(" AND dt.tag = ?");
             params_vec.push(Box::new(t.to_string()));
+        }
+
+        if let Some(dt) = doc_type {
+            let doc_type_str = serde_json::to_string(dt)
+                .unwrap_or_default()
+                .trim_matches('"')
+                .to_string();
+            sql.push_str(" AND d.doc_type = ?");
+            params_vec.push(Box::new(doc_type_str));
+        }
+
+        if let Some(editor) = edited_by {
+            // Search for editor in the editors JSON array
+            // Format: "agent:id" or "user:name"
+            sql.push_str(" AND d.editors LIKE ?");
+            params_vec.push(Box::new(format!("%{}%", editor)));
+        }
+
+        if let Some(entity_id) = for_entity {
+            // Find docs linked to the entity (either direction)
+            sql.push_str(" AND (e.source = ? OR e.target = ?)");
+            params_vec.push(Box::new(entity_id.to_string()));
+            params_vec.push(Box::new(entity_id.to_string()));
         }
 
         sql.push_str(" ORDER BY d.updated_at DESC");
@@ -5000,5 +5050,133 @@ mod tests {
         let read_state = storage.read_session_state().unwrap();
         assert_eq!(read_state.agent_pid, 2222);
         assert_eq!(read_state.agent_type, AgentType::Buddy);
+    }
+
+    // === Doc Storage Tests ===
+
+    #[test]
+    fn test_doc_create_and_get() {
+        let (_env, mut storage) = create_test_storage();
+
+        let doc = Doc::new("bn-doc1".to_string(), "Test Doc".to_string());
+        storage.add_doc(&doc).unwrap();
+
+        let retrieved = storage.get_doc("bn-doc1").unwrap();
+        assert_eq!(retrieved.core.id, "bn-doc1");
+        assert_eq!(retrieved.core.title, "Test Doc");
+    }
+
+    #[test]
+    fn test_doc_with_all_fields() {
+        use crate::models::{DocType, Editor};
+
+        let (_env, mut storage) = create_test_storage();
+
+        let mut doc = Doc::new("bn-doc2".to_string(), "Full Doc".to_string());
+        doc.doc_type = DocType::Prd;
+        doc.content = "# Summary\nTest content".to_string();
+        doc.summary_dirty = true;
+        doc.editors = vec![
+            Editor::agent("bna-1234".to_string()),
+            Editor::user("henry".to_string()),
+        ];
+        doc.supersedes = Some("bn-doc1".to_string());
+
+        storage.add_doc(&doc).unwrap();
+
+        let retrieved = storage.get_doc("bn-doc2").unwrap();
+        assert_eq!(retrieved.doc_type, DocType::Prd);
+        assert_eq!(retrieved.content, "# Summary\nTest content");
+        assert!(retrieved.summary_dirty);
+        assert_eq!(retrieved.editors.len(), 2);
+        assert_eq!(retrieved.supersedes, Some("bn-doc1".to_string()));
+    }
+
+    #[test]
+    fn test_doc_list_basic() {
+        let (_env, mut storage) = create_test_storage();
+
+        let doc1 = Doc::new("bn-doc1".to_string(), "Doc 1".to_string());
+        let doc2 = Doc::new("bn-doc2".to_string(), "Doc 2".to_string());
+        storage.add_doc(&doc1).unwrap();
+        storage.add_doc(&doc2).unwrap();
+
+        let docs = storage.list_docs(None, None, None, None).unwrap();
+        assert_eq!(docs.len(), 2);
+    }
+
+    #[test]
+    fn test_doc_list_filter_by_type() {
+        use crate::models::DocType;
+
+        let (_env, mut storage) = create_test_storage();
+
+        let mut doc1 = Doc::new("bn-doc1".to_string(), "PRD Doc".to_string());
+        doc1.doc_type = DocType::Prd;
+
+        let mut doc2 = Doc::new("bn-doc2".to_string(), "Note Doc".to_string());
+        doc2.doc_type = DocType::Note;
+
+        storage.add_doc(&doc1).unwrap();
+        storage.add_doc(&doc2).unwrap();
+
+        let prds = storage
+            .list_docs(None, Some(&DocType::Prd), None, None)
+            .unwrap();
+        assert_eq!(prds.len(), 1);
+        assert_eq!(prds[0].core.title, "PRD Doc");
+
+        let notes = storage
+            .list_docs(None, Some(&DocType::Note), None, None)
+            .unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].core.title, "Note Doc");
+    }
+
+    #[test]
+    fn test_doc_update() {
+        let (_env, mut storage) = create_test_storage();
+
+        let doc = Doc::new("bn-doc1".to_string(), "Original Title".to_string());
+        storage.add_doc(&doc).unwrap();
+
+        let mut updated = storage.get_doc("bn-doc1").unwrap();
+        updated.core.title = "Updated Title".to_string();
+        updated.content = "New content".to_string();
+        storage.update_doc(&updated).unwrap();
+
+        let retrieved = storage.get_doc("bn-doc1").unwrap();
+        assert_eq!(retrieved.core.title, "Updated Title");
+        assert_eq!(retrieved.content, "New content");
+    }
+
+    #[test]
+    fn test_doc_delete() {
+        let (_env, mut storage) = create_test_storage();
+
+        let doc = Doc::new("bn-doc1".to_string(), "Test Doc".to_string());
+        storage.add_doc(&doc).unwrap();
+
+        // Verify it exists
+        assert!(storage.get_doc("bn-doc1").is_ok());
+
+        // Delete it
+        storage.delete_doc("bn-doc1").unwrap();
+
+        // Verify it's gone
+        assert!(storage.get_doc("bn-doc1").is_err());
+    }
+
+    #[test]
+    fn test_docs_jsonl_created_on_init() {
+        let env = TestEnv::new();
+        let storage = env.init_storage();
+
+        // Verify docs.jsonl file was created
+        let docs_path = storage.root.join("docs.jsonl");
+        assert!(
+            docs_path.exists(),
+            "docs.jsonl should be created during init"
+        );
     }
 }

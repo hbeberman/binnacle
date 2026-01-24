@@ -679,6 +679,18 @@ pub enum DocCommands {
         /// Filter by tag
         #[arg(long)]
         tag: Option<String>,
+
+        /// Filter by doc type (prd, note, handoff)
+        #[arg(long, value_name = "TYPE")]
+        doc_type: Option<String>,
+
+        /// Filter by editor (format: "agent:id" or "user:name")
+        #[arg(long, value_name = "EDITOR")]
+        edited_by: Option<String>,
+
+        /// Filter by linked entity ID
+        #[arg(long, value_name = "ENTITY_ID", visible_alias = "for")]
+        for_entity: Option<String>,
     },
 
     /// Edit/update a documentation node
