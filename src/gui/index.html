@@ -2532,6 +2532,7 @@
         let wasConnected = false;  // Track connection state for toast notifications
         let disconnectToast = null;  // Track active disconnect toast
         let initialLoadComplete = false;  // Track if we've done the initial data load
+        const shownClosedToasts = new Set();  // Track task IDs that have shown "closed" notification
 
         function connectWebSocket() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -2604,12 +2605,19 @@
                         }
                         
                         // Task completion detection: show toast when task is closed (1 minute timeout)
+                        // Track shown notifications by task ID to prevent duplicates across reloads
                         if (state.tasks) {
                             for (const task of state.tasks) {
                                 const prevStatus = prevStatuses[task.id];
                                 if (task.status === 'done' && prevStatus && prevStatus !== 'done') {
-                                    // Task just transitioned to done - show toast with 1 minute timeout
-                                    showToast(`✅ Task closed: ${task.id} - ${task.title}`, 'success', 60000);
+                                    // Task just transitioned to done - show toast only if not shown before
+                                    if (!shownClosedToasts.has(task.id)) {
+                                        shownClosedToasts.add(task.id);
+                                        showToast(`✅ Task closed: ${task.id} - ${task.title}`, 'success', 60000);
+                                    }
+                                } else if (task.status !== 'done' && prevStatus === 'done') {
+                                    // Task was reopened - allow showing closed toast again if it closes
+                                    shownClosedToasts.delete(task.id);
                                 }
                             }
                         }
