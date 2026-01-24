@@ -2458,6 +2458,8 @@ pub fn task_list(
 pub struct TaskUpdated {
     pub id: String,
     pub updated_fields: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 impl Output for TaskUpdated {
@@ -2466,11 +2468,15 @@ impl Output for TaskUpdated {
     }
 
     fn to_human(&self) -> String {
-        format!(
+        let mut output = format!(
             "Updated task {}: {}",
             self.id,
             self.updated_fields.join(", ")
-        )
+        );
+        if let Some(warning) = &self.warning {
+            output.push_str(&format!("\nWarning: {}", warning));
+        }
+        output
     }
 }
 
@@ -2492,6 +2498,7 @@ pub fn task_update(
     let mut storage = Storage::open(repo_path)?;
     let mut task = storage.get_task(id)?;
     let mut updated_fields = Vec::new();
+    let mut setting_to_done = false;
 
     if let Some(t) = title {
         task.title = t;
@@ -2564,6 +2571,9 @@ pub fn task_update(
             let _ = storage.agent_remove_task(agent_pid, id);
         }
 
+        // Track if we're setting status to done (for commit validation later)
+        setting_to_done = new_status == TaskStatus::Done;
+
         // If setting status to in_progress, track task association for registered agents
         if new_status == TaskStatus::InProgress {
             // First try to find the ancestor agent (for when bn commands run in subprocesses)
@@ -2624,9 +2634,39 @@ pub fn task_update(
     task.updated_at = Utc::now();
     storage.update_task(&task)?;
 
+    // Validate linked commits exist when setting status to done
+    let warning = if setting_to_done {
+        let commits = storage.get_commits_for_task(id)?;
+        let missing_commits: Vec<String> = commits
+            .iter()
+            .filter(|c| !git_commit_exists(repo_path, &c.sha))
+            .map(|c| c.sha.clone())
+            .collect();
+
+        if !missing_commits.is_empty() {
+            Some(
+                missing_commits
+                    .iter()
+                    .map(|sha| {
+                        format!(
+                            "Linked commit {} not found in repository (may have been rebased)",
+                            sha
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     Ok(TaskUpdated {
         id: id.to_string(),
         updated_fields,
+        warning,
     })
 }
 
@@ -2779,6 +2819,14 @@ pub fn task_close(
         }
     }
 
+    // Validate that linked commits exist in the git repo (warn if missing)
+    let commits = storage.get_commits_for_task(id)?;
+    let missing_commits: Vec<String> = commits
+        .iter()
+        .filter(|c| !git_commit_exists(repo_path, &c.sha))
+        .map(|c| c.sha.clone())
+        .collect();
+
     // Proceed with close
     let mut task = task;
     task.status = TaskStatus::Done;
@@ -2801,14 +2849,26 @@ pub fn task_close(
     // Auto-remove task from any queues it's in
     let removed_from_queues = remove_task_from_queues(&mut storage, id)?;
 
-    // Generate warning if force was used with incomplete deps
-    let warning = if !incomplete_deps.is_empty() {
-        Some(format!(
+    // Generate warnings for incomplete deps and missing commits
+    let mut warnings = Vec::new();
+    if !incomplete_deps.is_empty() {
+        warnings.push(format!(
             "Closed with {} incomplete dependencies",
             incomplete_deps.len()
-        ))
-    } else {
+        ));
+    }
+    if !missing_commits.is_empty() {
+        for sha in &missing_commits {
+            warnings.push(format!(
+                "Linked commit {} not found in repository (may have been rebased)",
+                sha
+            ));
+        }
+    }
+    let warning = if warnings.is_empty() {
         None
+    } else {
+        Some(warnings.join("; "))
     };
 
     // Include a hint to remind agents to call goodbye when done
@@ -3679,6 +3739,14 @@ pub fn bug_close(
         )));
     }
 
+    // Validate that linked commits exist in the git repo (warn if missing)
+    let commits = storage.get_commits_for_entity(id)?;
+    let missing_commits: Vec<String> = commits
+        .iter()
+        .filter(|c| !git_commit_exists(repo_path, &c.sha))
+        .map(|c| c.sha.clone())
+        .collect();
+
     let mut bug = bug;
     bug.status = TaskStatus::Done;
     bug.closed_at = Some(Utc::now());
@@ -3690,13 +3758,26 @@ pub fn bug_close(
     // Auto-remove bug from any queues it's in
     let removed_from_queues = remove_task_from_queues(&mut storage, id)?;
 
-    let warning = if !incomplete_deps.is_empty() {
-        Some(format!(
+    // Generate warnings for incomplete deps and missing commits
+    let mut warnings = Vec::new();
+    if !incomplete_deps.is_empty() {
+        warnings.push(format!(
             "Closed with {} incomplete dependencies",
             incomplete_deps.len()
-        ))
-    } else {
+        ));
+    }
+    if !missing_commits.is_empty() {
+        for sha in &missing_commits {
+            warnings.push(format!(
+                "Linked commit {} not found in repository (may have been rebased)",
+                sha
+            ));
+        }
+    }
+    let warning = if warnings.is_empty() {
         None
+    } else {
+        Some(warnings.join("; "))
     };
 
     // Include a hint to remind agents to call goodbye when done
@@ -7222,6 +7303,19 @@ pub fn config_get_bool(repo_path: &Path, key: &str, default: bool) -> bool {
     }
 }
 
+/// Check if a git commit exists in the repository.
+///
+/// Uses `git cat-file -t <sha>` to verify the commit exists and is a commit object.
+/// Returns true if the commit exists, false otherwise.
+pub fn git_commit_exists(repo_path: &Path, sha: &str) -> bool {
+    Command::new("git")
+        .args(["cat-file", "-t", sha])
+        .current_dir(repo_path)
+        .output()
+        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "commit")
+        .unwrap_or(false)
+}
+
 /// Get a string configuration value with default.
 ///
 /// Returns the default value if the config is not set.
@@ -10162,6 +10256,97 @@ mod tests {
     }
 
     #[test]
+    fn test_task_close_warns_when_linked_commit_not_in_repo() {
+        let temp = setup();
+
+        // Initialize as a git repo
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link a commit that doesn't exist in the repo
+        commit_link(
+            temp.path(),
+            "abcd1234567890abcdef1234567890abcdef1234",
+            &task.id,
+        )
+        .unwrap();
+
+        // Should succeed but with a warning
+        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
+        assert!(result.is_ok());
+        let closed = result.unwrap();
+        assert!(closed.warning.is_some());
+        let warning = closed.warning.unwrap();
+        assert!(warning.contains("not found in repository"));
+        assert!(warning.contains("may have been rebased"));
+    }
+
+    #[test]
+    fn test_task_update_warns_when_linked_commit_not_in_repo() {
+        let temp = setup();
+
+        // Initialize as a git repo
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link a commit that doesn't exist in the repo
+        commit_link(
+            temp.path(),
+            "abcd1234567890abcdef1234567890abcdef1234",
+            &task.id,
+        )
+        .unwrap();
+
+        // Update status to done - should succeed but with a warning
+        let result = task_update(
+            temp.path(),
+            &task.id,
+            None,
+            None,
+            None,
+            None,
+            Some("done"),
+            vec![],
+            vec![],
+            None,
+            false,
+        );
+        assert!(result.is_ok());
+        let updated = result.unwrap();
+        assert!(updated.warning.is_some());
+        let warning = updated.warning.unwrap();
+        assert!(warning.contains("not found in repository"));
+    }
+
+    #[test]
     fn test_task_close_removes_agent_association() {
         let temp = setup();
 
@@ -11033,6 +11218,113 @@ mod tests {
 
         let result = commit_list(temp.path(), "bn-9999");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_git_commit_exists_valid() {
+        let temp = setup();
+
+        // Create a git repo and make a commit
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        // Create a file and commit
+        std::fs::write(temp.path().join("test.txt"), "test content").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "test commit"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        // Get the commit SHA
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        // Valid commit should return true
+        assert!(git_commit_exists(temp.path(), &sha));
+    }
+
+    #[test]
+    fn test_git_commit_exists_invalid() {
+        let temp = setup();
+
+        // Create a git repo but don't make any commits
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        // Non-existent commit should return false
+        assert!(!git_commit_exists(temp.path(), "abcd1234567890abcdef"));
+        assert!(!git_commit_exists(temp.path(), "nonexistent"));
+    }
+
+    #[test]
+    fn test_git_commit_exists_tree_object() {
+        let temp = setup();
+
+        // Create a git repo with a commit
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        std::fs::write(temp.path().join("test.txt"), "test content").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "test commit"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        // Get the tree SHA (not a commit)
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD^{tree}"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        let tree_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        // Tree object should return false (we only accept commits)
+        assert!(!git_commit_exists(temp.path(), &tree_sha));
     }
 
     // === Doctor Command Tests ===
