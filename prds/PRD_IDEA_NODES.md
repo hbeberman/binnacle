@@ -2,7 +2,7 @@
 
 ## Overview
 
-Introduce a new entity type called **Idea** (`bni-xxxx`) that is distinct from Tasks. Ideas represent low-stakes seeds—rough concepts, shower thoughts, or early-stage notions—that can be captured quickly and potentially grown into full PRDs or task trees in future sessions.
+Introduce a new entity type called **Idea** (`bn-xxxx`) that is distinct from Tasks. Ideas represent low-stakes seeds—rough concepts, shower thoughts, or early-stage notions—that can be captured quickly and potentially grown into full PRDs or task trees in future sessions.
 
 ## Problem Statement
 
@@ -17,7 +17,7 @@ Currently, binnacle only has Tasks and Tests. When an agent or user has a half-f
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `id` | string | Format: `bni-xxxx` (hash-based like tasks) |
+| `id` | string | Format: `bn-xxxx` (hash-based like tasks) |
 | `type` | string | Always `"idea"` |
 | `title` | string | Brief title |
 | `description` | string | Optional longer description |
@@ -46,10 +46,10 @@ seed → germinating → promoted (becomes task/PRD)
 ```bash
 bn idea create "Title" [--description "..."] [--tag T]  # Create idea
 bn idea list [--status S] [--tag T]                     # List ideas
-bn idea show bni-xxxx                                   # View details
-bn idea update bni-xxxx [--title|--description|--status]  # Modify
-bn idea close bni-xxxx [--reason "..."]                 # Mark as discarded
-bn idea delete bni-xxxx                                 # Permanent removal
+bn idea show bn-xxxx                                   # View details
+bn idea update bn-xxxx [--title|--description|--status]  # Modify
+bn idea close bn-xxxx [--reason "..."]                 # Mark as discarded
+bn idea delete bn-xxxx                                 # Permanent removal
 ```
 
 ### Key Design Decisions
@@ -63,14 +63,14 @@ bn idea delete bni-xxxx                                 # Permanent removal
 
 ```bash
 $ bn idea create "Use SQLite FTS for search" --tag search
-{"id":"bni-a1b2","title":"Use SQLite FTS for search"}
+{"id":"bn-a1b2","title":"Use SQLite FTS for search"}
 
 $ bn idea list -H
 3 idea(s):
 
-[ ] bni-a1b2 [seed] Use SQLite FTS for search [search]
-[ ] bni-c3d4 [seed] Add visualization of task graph
-[ ] bni-e5f6 [germinating] Time-based task aging
+[ ] bn-a1b2 [seed] Use SQLite FTS for search [search]
+[ ] bn-c3d4 [seed] Add visualization of task graph
+[ ] bn-e5f6 [germinating] Time-based task aging
 ```
 
 ## Feature 2: Idea Promotion to Tasks/PRDs
@@ -78,9 +78,9 @@ $ bn idea list -H
 ### Commands
 
 ```bash
-bn idea promote bni-xxxx                           # Convert to task
-bn idea promote bni-xxxx --as-prd                  # Generate PRD file
-bn idea germinate bni-xxxx                         # Mark as being developed
+bn idea promote bn-xxxx                           # Convert to task
+bn idea promote bn-xxxx --as-prd                  # Generate PRD file
+bn idea germinate bn-xxxx                         # Mark as being developed
 ```
 
 ### Promotion Workflow
@@ -102,7 +102,7 @@ When promoted as PRD:
 ```markdown
 # PRD: {Title}
 
-> Promoted from idea bni-xxxx on {date}
+> Promoted from idea bn-xxxx on {date}
 
 ## Origin
 {Original idea description}
@@ -120,12 +120,12 @@ When promoted as PRD:
 ### Example
 
 ```bash
-$ bn idea promote bni-a1b2 --as-prd
+$ bn idea promote bn-a1b2 --as-prd
 Created PRD: prds/PRD_SQLITE_FTS_SEARCH.md
-Idea bni-a1b2 marked as promoted
+Idea bn-a1b2 marked as promoted
 
-$ bn idea show bni-a1b2 -H
-Idea bni-a1b2 [promoted]
+$ bn idea show bn-a1b2 -H
+Idea bn-a1b2 [promoted]
   Title: Use SQLite FTS for search
   Promoted to: prds/PRD_SQLITE_FTS_SEARCH.md
   Created: 2026-01-22T09:00:00Z
@@ -137,7 +137,7 @@ Idea bni-a1b2 [promoted]
 
 ```json
 {
-  "id": "bni-a1b2",
+  "id": "bn-a1b2",
   "type": "idea",
   "title": "Use SQLite FTS for search",
   "description": "Could use FTS5 extension for full-text search across task titles and descriptions",

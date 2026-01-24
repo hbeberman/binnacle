@@ -2,7 +2,7 @@
 
 **Status:** Draft  
 **Created:** 2026-01-24  
-**Related Ideas:** bn-8918, bn-bdf0, bni-dc17
+**Related Ideas:** bn-8918, bn-bdf0, bn-dc17
 
 ## Overview
 
@@ -435,4 +435,4 @@ git worktree remove ../test-worktree
 
 - **bn-8918**: Original idea for container worker with unconfined tool access
 - **bn-bdf0**: Graph mounting concept this PRD implements
-- **bni-dc17**: Agent name from environment variable (incorporated here)
+- **bn-dc17**: Agent name from environment variable (incorporated here)

@@ -74,9 +74,9 @@ bn task create "Add win detection" -s "win detection" -p 2 --tag core
 bn task create "Add player turn indicator" -s "turn indicator" -p 2 --tag frontend
 bn task create "Add reset button" -s "reset button" -p 3 --tag frontend
 
-# Link tasks to milestone (assuming bnm-xxxx is your milestone ID)
+# Link tasks to milestone (assuming bn-yyyy is your milestone ID)
 # Run `bn milestone list` to get the actual ID
-bn link add bn-xxxx bnm-yyyy --type child_of
+bn link add bn-xxxx bn-yyyy --type child_of
 ```
 
 Add dependencies to model the build order:
@@ -128,7 +128,7 @@ bn -H
 bn blocked -H
 
 # View milestone progress
-bn milestone show bnm-xxxx -H
+bn milestone show bn-xxxx -H
 
 # Open the GUI for visual tracking
 bn gui

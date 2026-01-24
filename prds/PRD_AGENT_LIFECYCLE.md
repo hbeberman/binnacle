@@ -1,6 +1,6 @@
 # PRD: Agent Lifecycle Management (`bn goodbye`)
 
-**Idea:** bni-5666  
+**Idea:** bn-5666  
 **Status:** Implemented  
 **Priority:** P1  
 **Tags:** agent, lifecycle, process-management

@@ -1,6 +1,6 @@
 # PRD: Queue Nodes
 
-> Promoted from idea bni-7d71 on 2026-01-23
+> Promoted from idea bn-7d71 on 2026-01-23
 
 ## Overview
 

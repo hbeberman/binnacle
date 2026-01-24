@@ -1,6 +1,6 @@
 # PRD: GUI Process Management
 
-**Idea:** bni-bbf8  
+**Idea:** bn-bbf8  
 **Status:** Implemented ✅  
 **Priority:** P2  
 **Tags:** gui, dx, process-management
