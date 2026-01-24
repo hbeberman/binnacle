@@ -87,10 +87,21 @@ The container worker provides:
 
 ### Build the Worker Image
 
+The container uses a pre-built binnacle binary for faster builds. Use the justfile recipe:
+
 ```bash
-bn container build                # Build with tag 'latest'
-bn container build --tag v1.0    # Build with specific tag
-bn container build --no-cache    # Force full rebuild
+just container                   # Build binary + container with tag 'binnacle-worker:latest'
+just container myimage:v1.0      # Build with custom tag
+```
+
+Or manually:
+
+```bash
+# 1. Build the release binary
+cargo build --release
+
+# 2. Build the container image
+podman build -t binnacle-worker:latest -f container/Containerfile .
 ```
 
 ### Run a Container

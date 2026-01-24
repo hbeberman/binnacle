@@ -64,3 +64,10 @@ test:
 # Usage: just dev orient, just dev task list, just dev --help
 dev *args:
     cargo run -- {{args}}
+
+# Build the container image (builds release binary first)
+container tag="binnacle-worker:latest":
+    @echo "Building release binary..."
+    cargo build --release
+    @echo "Building container image..."
+    podman build -t {{tag}} -f container/Containerfile .
