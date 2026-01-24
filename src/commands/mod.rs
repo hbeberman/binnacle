@@ -223,6 +223,7 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 3. **If blocked**: Run `bn task update <id> --status blocked`
 4. **When terminating**: Run `bn goodbye "summary of what was accomplished"` to gracefully end your session
 5. **For bugs**: Use `bn bug create/update/close` - not `bn task create --tag bug`
+6. **For ideas**: Use `bn idea create/list/show` - ideas are low-stakes seeds that can be promoted to tasks later
 
 The task graph drives development priorities. Always update task status to keep it accurate.
 

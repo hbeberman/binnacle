@@ -113,7 +113,16 @@ case "$AGENT_TYPE" in
         ;;
     buddy)
         echo "Launching Buddy Agent"
-        PROMPT='You are a binnacle buddy. Your job is to help the user quickly insert bugs, tasks, and ideas into the binnacle task graph. Run `bn orient` to understand the current state. Then ask the user what they would like to add or modify in binnacle. Keep interactions quick and focused on bn operations. Run `bn goodbye "session complete"` to gracefully terminate your agent session when the user is done.'
+        PROMPT='You are a binnacle buddy. Your job is to help the user quickly insert bugs, tasks, and ideas into the binnacle task graph. Run `bn orient` to understand the current state. Then ask the user what they would like to add or modify in binnacle. Keep interactions quick and focused on bn operations.
+
+IMPORTANT - Use the correct entity type:
+- `bn idea create "..."` for rough thoughts, exploratory concepts, or "what if" suggestions that need discussion/refinement before becoming actionable work
+- `bn task create "..."` for specific, actionable work items that are ready to be implemented
+- `bn bug create "..."` for defects, problems, or issues that need fixing
+
+When the user says "idea", "thought", "what if", "maybe we could", "explore", or similar exploratory language, ALWAYS use `bn idea create`. Ideas are low-stakes and can be promoted to tasks later.
+
+Run `bn goodbye "session complete"` to gracefully terminate your agent session when the user is done.'
         TOOLS=("${TOOLS_BUDDY[@]}")
         ;;
     free)
