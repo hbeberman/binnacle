@@ -10502,6 +10502,45 @@ For more info, see: https://github.com/containerd/containerd"#
         .to_string()
 }
 
+/// Parse a memory limit string (e.g., "512m", "1g", "2048m") into bytes.
+fn parse_memory_limit(s: &str) -> Result<u64> {
+    let s = s.trim().to_lowercase();
+
+    // Handle plain numbers (interpreted as bytes)
+    if let Ok(bytes) = s.parse::<u64>() {
+        return Ok(bytes);
+    }
+
+    // Parse with suffix
+    let (num_str, multiplier) = if let Some(num) = s.strip_suffix("k") {
+        (num, 1024u64)
+    } else if let Some(num) = s.strip_suffix("kb") {
+        (num, 1024u64)
+    } else if let Some(num) = s.strip_suffix("m") {
+        (num, 1024u64 * 1024)
+    } else if let Some(num) = s.strip_suffix("mb") {
+        (num, 1024u64 * 1024)
+    } else if let Some(num) = s.strip_suffix("g") {
+        (num, 1024u64 * 1024 * 1024)
+    } else if let Some(num) = s.strip_suffix("gb") {
+        (num, 1024u64 * 1024 * 1024)
+    } else {
+        return Err(Error::InvalidInput(format!(
+            "Invalid memory limit format: '{}'. Use formats like '512m', '1g', '2048mb'",
+            s
+        )));
+    };
+
+    let num: u64 = num_str.parse().map_err(|_| {
+        Error::InvalidInput(format!(
+            "Invalid memory limit number: '{}'. Use formats like '512m', '1g', '2048mb'",
+            s
+        ))
+    })?;
+
+    Ok(num * multiplier)
+}
+
 /// Build the binnacle worker image using buildah.
 pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult> {
     // Check for required tools
@@ -10606,6 +10645,8 @@ pub fn container_run(
     merge_target: &str,
     no_merge: bool,
     detach: bool,
+    cpus: Option<f64>,
+    memory: Option<&str>,
 ) -> Result<ContainerRunResult> {
     // Check for required tools
     if !command_exists("ctr") {
@@ -10650,6 +10691,19 @@ pub fn container_run(
         args.push("--tty".to_string());
     } else {
         args.push("-d".to_string());
+    }
+
+    // Add resource limits if specified
+    if let Some(cpu_limit) = cpus {
+        args.push("--cpus".to_string());
+        args.push(cpu_limit.to_string());
+    }
+
+    if let Some(mem_limit) = memory {
+        // Parse memory string (e.g., "512m", "1g", "2048m") to bytes
+        let bytes = parse_memory_limit(mem_limit)?;
+        args.push("--memory-limit".to_string());
+        args.push(bytes.to_string());
     }
 
     // Add mounts
@@ -16939,5 +16993,38 @@ mod tests {
         // After removing all dependencies, the task remains partial
         // (needs manual close or close of remaining deps to promote)
         assert_eq!(shown.task.status, TaskStatus::Partial);
+    }
+
+    #[test]
+    fn test_parse_memory_limit_bytes() {
+        assert_eq!(parse_memory_limit("1024").unwrap(), 1024);
+        assert_eq!(parse_memory_limit("2048").unwrap(), 2048);
+    }
+
+    #[test]
+    fn test_parse_memory_limit_kilobytes() {
+        assert_eq!(parse_memory_limit("512k").unwrap(), 512 * 1024);
+        assert_eq!(parse_memory_limit("1kb").unwrap(), 1024);
+    }
+
+    #[test]
+    fn test_parse_memory_limit_megabytes() {
+        assert_eq!(parse_memory_limit("512m").unwrap(), 512 * 1024 * 1024);
+        assert_eq!(parse_memory_limit("1mb").unwrap(), 1024 * 1024);
+        assert_eq!(parse_memory_limit("2048M").unwrap(), 2048 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_memory_limit_gigabytes() {
+        assert_eq!(parse_memory_limit("1g").unwrap(), 1024 * 1024 * 1024);
+        assert_eq!(parse_memory_limit("2gb").unwrap(), 2 * 1024 * 1024 * 1024);
+        assert_eq!(parse_memory_limit("4G").unwrap(), 4 * 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_memory_limit_invalid() {
+        assert!(parse_memory_limit("invalid").is_err());
+        assert!(parse_memory_limit("512x").is_err());
+        assert!(parse_memory_limit("abc123").is_err());
     }
 }

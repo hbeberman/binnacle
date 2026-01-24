@@ -1181,6 +1181,14 @@ pub enum ContainerCommands {
         /// Run in background (non-headed mode)
         #[arg(long)]
         detach: bool,
+
+        /// CPU limit (e.g., 1.5 for 1.5 CPUs, 0.5 for half a CPU)
+        #[arg(long)]
+        cpus: Option<f64>,
+
+        /// Memory limit (e.g., "512m", "1g", "2048m")
+        #[arg(long)]
+        memory: Option<String>,
     },
 
     /// Stop a running binnacle container
