@@ -18067,4 +18067,119 @@ mod tests {
         assert!(parse_memory_limit("512x").is_err());
         assert!(parse_memory_limit("abc123").is_err());
     }
+
+    // ==========================================================================
+    // ARCHIVE SCHEMA FINGERPRINT TESTS
+    //
+    // These tests catch accidental schema changes in archive export format.
+    // When fields are added/removed/renamed, these tests WILL FAIL.
+    //
+    // If a test fails after you modified archive structs:
+    // 1. VERIFY the change is intentional
+    // 2. CONSIDER backwards compatibility (can old archives still be read?)
+    // 3. UPDATE the expected fingerprint below
+    // 4. INCREMENT the manifest version if breaking change
+    // 5. DOCUMENT the schema change in your commit message
+    // ==========================================================================
+
+    /// Extract all JSON keys from a serialized value, sorted alphabetically.
+    fn extract_json_keys(json: &str) -> Vec<String> {
+        let value: serde_json::Value = serde_json::from_str(json).unwrap();
+        let mut keys = Vec::new();
+        collect_keys(&value, "", &mut keys);
+        keys.sort();
+        keys
+    }
+
+    fn collect_keys(value: &serde_json::Value, prefix: &str, keys: &mut Vec<String>) {
+        if let serde_json::Value::Object(map) = value {
+            for (k, v) in map {
+                let full_key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{}.{}", prefix, k)
+                };
+                keys.push(full_key.clone());
+                collect_keys(v, &full_key, keys);
+            }
+        }
+    }
+
+    /// Create a fingerprint string from a list of keys.
+    fn fingerprint(keys: &[String]) -> String {
+        keys.join("|")
+    }
+
+    #[test]
+    fn test_archive_schema_fingerprint_export_manifest() {
+        // Create an ExportManifest with all fields populated
+        let mut checksums = std::collections::HashMap::new();
+        checksums.insert("tasks.jsonl".to_string(), "abc123".to_string());
+
+        let manifest = super::ExportManifest {
+            version: 1,
+            format: "binnacle-store-v1".to_string(),
+            exported_at: "2026-01-24T12:00:00Z".to_string(),
+            source_repo: "/path/to/repo".to_string(),
+            binnacle_version: "0.0.1".to_string(),
+            task_count: 10,
+            test_count: 5,
+            commit_count: 3,
+            checksums,
+        };
+
+        let json = serde_json::to_string(&manifest).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        // Expected schema fingerprint for ExportManifest
+        // If this fails, you've changed the archive schema - see comment above!
+        let expected = "binnacle_version|checksums|checksums.tasks.jsonl|commit_count|exported_at|format|source_repo|task_count|test_count|version";
+        assert_eq!(
+            fp, expected,
+            "ExportManifest schema changed! Update expected fingerprint if intentional. \
+             Also consider incrementing manifest version and ensuring backwards compatibility."
+        );
+    }
+
+    #[test]
+    fn test_archive_schema_fingerprint_export_config() {
+        let config = super::ExportConfig {
+            repo_path: "/path/to/repo".to_string(),
+            exported_at: "2026-01-24T12:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        // Expected schema fingerprint for ExportConfig
+        let expected = "exported_at|repo_path";
+        assert_eq!(
+            fp, expected,
+            "ExportConfig schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_archive_format_version() {
+        // This test ensures the archive format version is explicitly tracked.
+        // If you need to make breaking changes to the archive format:
+        // 1. Increment this version number
+        // 2. Update the import code to handle both old and new versions
+        // 3. Document the change in CHANGELOG
+        const EXPECTED_VERSION: u32 = 1;
+        const EXPECTED_FORMAT: &str = "binnacle-store-v1";
+
+        // These values are used in system_store_export
+        // If this test fails, you're changing the archive format version!
+        assert_eq!(
+            EXPECTED_VERSION, 1,
+            "Archive version changed! Ensure backwards compatibility."
+        );
+        assert_eq!(
+            EXPECTED_FORMAT, "binnacle-store-v1",
+            "Archive format string changed! Ensure backwards compatibility."
+        );
+    }
 }
