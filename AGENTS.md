@@ -55,7 +55,7 @@ The task graph drives development priorities. Always update task status to keep 
 
 ## Documentation Nodes (IMPORTANT)
 
-Use **doc nodes** (`bnd-xxxx`) instead of creating loose markdown files. Doc nodes are tracked in the task graph and linked to relevant entities.
+Use **doc nodes** instead of creating loose markdown files. Doc nodes are tracked in the task graph and linked to relevant entities.
 
 ### When to Use Doc Nodes vs Markdown Files
 
@@ -81,11 +81,11 @@ bn doc create bn-task -T "PRD: Feature" --file spec.md --type prd
 
 # List, show, attach to more entities
 bn doc list
-bn doc show bnd-xxxx
-bn doc attach bnd-xxxx bn-other-task
+bn doc show bn-xxxx
+bn doc attach bn-xxxx bn-other-task
 
 # Update (creates new version, preserves history)
-bn doc update bnd-xxxx -c "Updated content..."
+bn doc update bn-xxxx -c "Updated content..."
 ```
 
 ### Doc Types

@@ -47,7 +47,7 @@ See [container/README.md](container/README.md) for sandboxed execution.
 - **Ideas** (`bn-xxxx`) that can be promoted to tasks
 - **Milestones** (`bn-xxxx`) with progress tracking
 - **Tests** (`bnt-xxxx`) linked to tasks, auto-reopen on regression
-- **Docs** (`bnd-xxxx`) for attached documentation
+- **Docs** (`bn-xxxx`) for attached documentation
 - **Queue** (`bnq-xxxx`) for agent prioritization
 
 ## Quick Reference

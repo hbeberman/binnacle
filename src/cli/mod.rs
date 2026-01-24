@@ -690,7 +690,7 @@ pub enum DocCommands {
 
     /// Show a documentation node
     Show {
-        /// Doc ID (e.g., bnd-a1b2)
+        /// Doc ID (e.g., bn-a1b2)
         id: String,
 
         /// Show full content (syntax-highlighted markdown) instead of just summary
@@ -793,7 +793,7 @@ pub enum DocCommands {
 
     /// Attach a doc to another entity (creates 'documents' edge)
     Attach {
-        /// Doc ID (e.g., bnd-a1b2)
+        /// Doc ID (e.g., bn-a1b2)
         doc_id: String,
 
         /// Target entity ID (e.g., bn-a1b2, bnt-c3d4)
@@ -802,7 +802,7 @@ pub enum DocCommands {
 
     /// Detach a doc from an entity (removes 'documents' edge)
     Detach {
-        /// Doc ID (e.g., bnd-a1b2)
+        /// Doc ID (e.g., bn-a1b2)
         doc_id: String,
 
         /// Target entity ID (e.g., bn-a1b2, bnt-c3d4)

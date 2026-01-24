@@ -388,7 +388,7 @@ The task graph drives development priorities. Always update task status to keep 
 
 ## Documentation Nodes (IMPORTANT)
 
-Use **doc nodes** (`bnd-xxxx`) instead of creating loose markdown files. Doc nodes are tracked in the task graph and linked to relevant entities.
+Use **doc nodes** instead of creating loose markdown files. Doc nodes are tracked in the task graph and linked to relevant entities.
 
 ### When to Use Doc Nodes vs Markdown Files
 
@@ -414,11 +414,11 @@ bn doc create bn-task -T "PRD: Feature" --file spec.md --type prd
 
 # List, show, attach to more entities
 bn doc list
-bn doc show bnd-xxxx
-bn doc attach bnd-xxxx bn-other-task
+bn doc show bn-xxxx
+bn doc attach bn-xxxx bn-other-task
 
 # Update (creates new version, preserves history)
-bn doc update bnd-xxxx -c "Updated content..."
+bn doc update bn-xxxx -c "Updated content..."
 ```
 
 ### Doc Types
@@ -2534,7 +2534,7 @@ impl Output for TaskShowResult {
             lines.push(format!("📄 Related Docs ({}):", self.linked_docs.len()));
             for doc in &self.linked_docs {
                 let name = doc.short_name.as_deref().unwrap_or(&doc.title);
-                // Format: bnd-xxxx [type] "Title" - summary
+                // Format: bn-xxxx [type] "Title" - summary
                 let mut doc_line = format!("  {} [{}] \"{}\"", doc.id, doc.doc_type, name);
                 if let Some(ref summary) = doc.summary {
                     doc_line.push_str(&format!(" - {}", summary));
@@ -3903,7 +3903,7 @@ impl Output for BugShowResult {
             lines.push(format!("📄 Related Docs ({}):", self.linked_docs.len()));
             for doc in &self.linked_docs {
                 let name = doc.short_name.as_deref().unwrap_or(&doc.title);
-                // Format: bnd-xxxx [type] "Title" - summary
+                // Format: bn-xxxx [type] "Title" - summary
                 let mut doc_line = format!("  {} [{}] \"{}\"", doc.id, doc.doc_type, name);
                 if let Some(ref summary) = doc.summary {
                     doc_line.push_str(&format!(" - {}", summary));
@@ -5083,7 +5083,7 @@ pub fn doc_create(
             .map_err(|_| Error::InvalidInput(format!("Entity '{}' does not exist", entity_id)))?;
     }
 
-    let id = storage.generate_unique_id("bnd", &title);
+    let id = storage.generate_unique_id("bn", &title);
     let mut doc = Doc::new(id.clone(), title.clone());
     doc.core.short_name = normalize_short_name(short_name);
     doc.core.tags = tags;
@@ -5556,7 +5556,7 @@ pub fn doc_update(
     let old_doc = storage.get_doc(id)?;
 
     // Generate a new ID for the new version
-    let new_id = storage.generate_unique_id("bnd", &old_doc.core.title);
+    let new_id = storage.generate_unique_id("bn", &old_doc.core.title);
 
     // Create the new doc by cloning the old one
     let mut new_doc = Doc::new(new_id.clone(), old_doc.core.title.clone());
@@ -9084,6 +9084,23 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
         });
     }
 
+    // Check for legacy bnd- prefixed docs (should use bn- prefix)
+    let legacy_doc_count = docs
+        .iter()
+        .filter(|d| d.core.id.starts_with("bnd-"))
+        .count();
+    if legacy_doc_count > 0 {
+        issues.push(DoctorIssue {
+            severity: "warning".to_string(),
+            category: "legacy_prefix".to_string(),
+            message: format!(
+                "{} doc(s) have legacy bnd- prefix - run 'bn doctor --fix' to migrate to bn- prefix",
+                legacy_doc_count
+            ),
+            entity_id: None,
+        });
+    }
+
     // Check for orphan docs (docs with no linked entities)
     for doc in &docs {
         let edges = storage.get_edges_for_entity(&doc.core.id)?;
@@ -9240,6 +9257,41 @@ pub fn doctor_fix(repo_path: &Path) -> Result<DoctorFixResult> {
         storage.delete_idea(&old_id)?;
 
         fixes_applied.push(format!("Migrated idea {} → {}", old_id, new_id));
+    }
+
+    // Fix: Migrate legacy bnd- prefixed docs to bn- prefix
+    let docs = storage.list_docs(None, None, None, None)?;
+    let legacy_docs: Vec<_> = docs
+        .into_iter()
+        .filter(|d| d.core.id.starts_with("bnd-"))
+        .collect();
+    for mut doc in legacy_docs {
+        let old_id = doc.core.id.clone();
+        // Generate new bn- prefixed ID using strip_prefix
+        let new_id = if let Some(suffix) = old_id.strip_prefix("bnd-") {
+            format!("bn-{}", suffix)
+        } else {
+            continue; // Shouldn't happen since we filtered, but be safe
+        };
+        doc.core.id = new_id.clone();
+
+        // Update supersedes reference if it points to a bnd- prefixed ID
+        if let Some(ref supersedes_id) = doc.supersedes
+            && let Some(suffix) = supersedes_id.strip_prefix("bnd-")
+        {
+            doc.supersedes = Some(format!("bn-{}", suffix));
+        }
+
+        // Add the doc with new ID (this writes to JSONL and updates cache)
+        storage.add_doc(&doc)?;
+
+        // Update any edges that reference the old ID
+        storage.update_edge_entity_id(&old_id, &new_id)?;
+
+        // Delete the old doc from cache (JSONL retains history, but cache is updated)
+        storage.delete_doc(&old_id)?;
+
+        fixes_applied.push(format!("Migrated doc {} → {}", old_id, new_id));
     }
 
     // Fix: Remove orphan edges (edges pointing to/from deleted entities)

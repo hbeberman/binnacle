@@ -76,7 +76,7 @@ fn test_doc_create_with_inline_content() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\":\"bnd-"))
+        .stdout(predicate::str::contains("\"id\":\"bn-"))
         .stdout(predicate::str::contains("\"doc_type\":\"prd\""))
         .stdout(predicate::str::contains(&task_id));
 }

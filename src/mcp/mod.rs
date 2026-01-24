@@ -2594,7 +2594,7 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                 "properties": {
                     "id": {
                         "type": "string",
-                        "description": "Doc ID (e.g., bnd-a1b2)"
+                        "description": "Doc ID (e.g., bn-a1b2)"
                     },
                     "full": {
                         "type": "boolean",
