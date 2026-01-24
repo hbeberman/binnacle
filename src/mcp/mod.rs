@@ -690,6 +690,64 @@ impl McpServer {
                 let result = commands::queue_delete(repo)?;
                 Ok(result.to_json())
             }
+            "bn_queue_add" => {
+                let item_id = get_string_arg(args, "item_id")?;
+                let result = commands::queue_add(repo, &item_id)?;
+                Ok(result.to_json())
+            }
+            "bn_queue_rm" => {
+                let item_id = get_string_arg(args, "item_id")?;
+                let result = commands::queue_rm(repo, &item_id)?;
+                Ok(result.to_json())
+            }
+            // Idea tools
+            "bn_idea_create" => {
+                let title = get_string_arg(args, "title")?;
+                let description = get_optional_string(args, "description");
+                let tags = get_string_array(args, "tags");
+                let result = commands::idea_create(repo, title, description, tags)?;
+                Ok(result.to_json())
+            }
+            "bn_idea_list" => {
+                let status = get_optional_string(args, "status");
+                let tag = get_optional_string(args, "tag");
+                let result = commands::idea_list(repo, status.as_deref(), tag.as_deref())?;
+                Ok(result.to_json())
+            }
+            "bn_idea_show" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::idea_show(repo, &id)?;
+                Ok(result.to_json())
+            }
+            "bn_idea_update" => {
+                let id = get_string_arg(args, "id")?;
+                let title = get_optional_string(args, "title");
+                let description = get_optional_string(args, "description");
+                let status = get_optional_string(args, "status");
+                let add_tags = get_string_array(args, "add_tags");
+                let remove_tags = get_string_array(args, "remove_tags");
+                let result = commands::idea_update(
+                    repo,
+                    &id,
+                    title,
+                    description,
+                    status.as_deref(),
+                    add_tags,
+                    remove_tags,
+                )?;
+                Ok(result.to_json())
+            }
+            "bn_idea_close" => {
+                let id = get_string_arg(args, "id")?;
+                let reason = get_optional_string(args, "reason");
+                let result = commands::idea_close(repo, &id, reason)?;
+                Ok(result.to_json())
+            }
+            "bn_idea_delete" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::idea_delete(repo, &id)?;
+                Ok(result.to_json())
+            }
             // Agent tools (read-only)
             "bn_agent_list" => {
                 let status = get_optional_string(args, "status");
@@ -1836,6 +1894,160 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {},
                 "required": []
+            }),
+        },
+        ToolDef {
+            name: "bn_queue_add".to_string(),
+            description: "Add a task or bug to the work queue".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "ID of the task or bug to add (e.g., 'bn-a1b2')"
+                    }
+                },
+                "required": ["item_id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_queue_rm".to_string(),
+            description: "Remove a task or bug from the work queue".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "ID of the task or bug to remove (e.g., 'bn-a1b2')"
+                    }
+                },
+                "required": ["item_id"]
+            }),
+        },
+        // Idea tools
+        ToolDef {
+            name: "bn_idea_create".to_string(),
+            description: "Create a new idea (low-stakes seed for potential tasks)".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Idea title"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional description"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional tags for categorization"
+                    }
+                },
+                "required": ["title"]
+            }),
+        },
+        ToolDef {
+            name: "bn_idea_list".to_string(),
+            description: "List ideas with optional filtering".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "enum": ["seed", "germinating", "promoted", "discarded"]
+                    },
+                    "tag": {
+                        "type": "string",
+                        "description": "Filter by tag"
+                    }
+                },
+                "required": []
+            }),
+        },
+        ToolDef {
+            name: "bn_idea_show".to_string(),
+            description: "Show details of a specific idea".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Idea ID (e.g., 'bn-a1b2')"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_idea_update".to_string(),
+            description: "Update an idea's properties".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Idea ID"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New title"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "New description"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "New status",
+                        "enum": ["seed", "germinating", "promoted", "discarded"]
+                    },
+                    "add_tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Tags to add"
+                    },
+                    "remove_tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Tags to remove"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_idea_close".to_string(),
+            description: "Close (discard) an idea".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Idea ID"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional reason for discarding"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_idea_delete".to_string(),
+            description: "Permanently delete an idea".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Idea ID"
+                    }
+                },
+                "required": ["id"]
             }),
         },
         // Agent tools (read-only - do NOT expose goodbye or kill via MCP)
