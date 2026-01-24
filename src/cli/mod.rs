@@ -92,6 +92,12 @@ pub enum Commands {
         command: IdeaCommands,
     },
 
+    /// Documentation node commands (attach markdown docs to entities)
+    Doc {
+        #[command(subcommand)]
+        command: DocCommands,
+    },
+
     /// Milestone management commands
     Milestone {
         #[command(subcommand)]
@@ -637,6 +643,99 @@ pub enum IdeaCommands {
     },
 }
 
+/// Documentation node subcommands
+#[derive(Subcommand, Debug)]
+pub enum DocCommands {
+    /// Create a new documentation node
+    Create {
+        /// Doc title
+        title: String,
+
+        /// Short display name (shown in GUI instead of ID)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
+        /// Description or summary
+        #[arg(short, long, visible_alias = "desc")]
+        description: Option<String>,
+
+        /// Full markdown content (can also be read from stdin)
+        #[arg(short, long)]
+        content: Option<String>,
+
+        /// Tags for the doc
+        #[arg(short, long)]
+        tag: Vec<String>,
+    },
+
+    /// Show a documentation node
+    Show {
+        /// Doc ID (e.g., bnd-xxxx)
+        id: String,
+    },
+
+    /// List documentation nodes
+    List {
+        /// Filter by tag
+        #[arg(long)]
+        tag: Option<String>,
+    },
+
+    /// Edit/update a documentation node
+    Edit {
+        /// Doc ID
+        id: String,
+
+        /// New title
+        #[arg(short = 'T', long)]
+        title: Option<String>,
+
+        /// New short name
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
+        /// New description
+        #[arg(short, long, visible_alias = "desc")]
+        description: Option<String>,
+
+        /// New content (full replacement)
+        #[arg(short, long)]
+        content: Option<String>,
+
+        /// Add a tag
+        #[arg(long)]
+        add_tag: Vec<String>,
+
+        /// Remove a tag
+        #[arg(long)]
+        remove_tag: Vec<String>,
+    },
+
+    /// Attach a doc to another entity (creates 'documents' edge)
+    Attach {
+        /// Doc ID (e.g., bnd-xxxx)
+        doc_id: String,
+
+        /// Target entity ID (e.g., bn-xxxx, bnt-xxxx)
+        target_id: String,
+    },
+
+    /// Detach a doc from an entity (removes 'documents' edge)
+    Detach {
+        /// Doc ID (e.g., bnd-xxxx)
+        doc_id: String,
+
+        /// Target entity ID (e.g., bn-xxxx, bnt-xxxx)
+        target_id: String,
+    },
+
+    /// Delete a documentation node
+    Delete {
+        /// Doc ID
+        id: String,
+    },
+}
+
 /// Milestone subcommands
 #[derive(Subcommand, Debug)]
 pub enum MilestoneCommands {
@@ -809,7 +908,7 @@ pub enum LinkCommands {
         /// Target entity ID (e.g., bn-5678)
         target: String,
         /// Type of relationship
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts", "documents"])]
         edge_type: String,
         /// Reason for creating this relationship (required for depends_on)
         #[arg(long)]
@@ -823,7 +922,7 @@ pub enum LinkCommands {
         /// Target entity ID
         target: String,
         /// Type of relationship (required)
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts", "documents"])]
         edge_type: Option<String>,
     },
 
@@ -835,7 +934,7 @@ pub enum LinkCommands {
         #[arg(long)]
         all: bool,
         /// Filter by edge type
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts", "documents"])]
         edge_type: Option<String>,
     },
 }
@@ -999,7 +1098,7 @@ pub enum SearchCommands {
     /// Search for links/edges by type, source, or target
     Link {
         /// Filter by edge type
-        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts"])]
+        #[arg(long = "type", short = 't', value_parser = ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "queued", "impacts", "documents"])]
         edge_type: Option<String>,
 
         /// Filter by source entity ID

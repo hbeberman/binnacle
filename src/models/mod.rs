@@ -983,6 +983,8 @@ pub enum EdgeType {
     WorkingOn,
     /// Agent previously worked on this task/bug (Agent → Task/Bug)
     WorkedOn,
+    /// Doc provides documentation for this entity (Doc → Any)
+    Documents,
 }
 
 impl EdgeType {
@@ -1034,6 +1036,7 @@ impl fmt::Display for EdgeType {
             EdgeType::Impacts => "impacts",
             EdgeType::WorkingOn => "working_on",
             EdgeType::WorkedOn => "worked_on",
+            EdgeType::Documents => "documents",
         };
         write!(f, "{}", s)
     }
@@ -1058,6 +1061,7 @@ impl std::str::FromStr for EdgeType {
             "impacts" => Ok(EdgeType::Impacts),
             "working_on" => Ok(EdgeType::WorkingOn),
             "worked_on" => Ok(EdgeType::WorkedOn),
+            "documents" => Ok(EdgeType::Documents),
             _ => Err(format!("Unknown edge type: {}", s)),
         }
     }

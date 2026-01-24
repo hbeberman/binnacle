@@ -3,9 +3,9 @@
 use binnacle::action_log;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
-    EmitTemplate, GraphCommands, HooksCommands, IdeaCommands, LinkCommands, McpCommands,
-    MilestoneCommands, QueueCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands,
-    TestCommands,
+    DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands, LinkCommands,
+    McpCommands, MilestoneCommands, QueueCommands, SearchCommands, StoreCommands, SystemCommands,
+    TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -393,6 +393,61 @@ fn run_command(
             }
             IdeaCommands::Germinate { id } => {
                 let result = commands::idea_germinate(repo_path, &id)?;
+                output(&result, human);
+            }
+        },
+
+        Some(Commands::Doc { command }) => match command {
+            DocCommands::Create {
+                title,
+                short_name,
+                description,
+                content,
+                tag,
+            } => {
+                let result =
+                    commands::doc_create(repo_path, title, short_name, description, content, tag)?;
+                output(&result, human);
+            }
+            DocCommands::Show { id } => {
+                let result = commands::doc_show(repo_path, &id)?;
+                output(&result, human);
+            }
+            DocCommands::List { tag } => {
+                let result = commands::doc_list(repo_path, tag.as_deref())?;
+                output(&result, human);
+            }
+            DocCommands::Edit {
+                id,
+                title,
+                short_name,
+                description,
+                content,
+                add_tag,
+                remove_tag,
+            } => {
+                let result = commands::doc_edit(
+                    repo_path,
+                    &id,
+                    title,
+                    short_name,
+                    description,
+                    content,
+                    add_tag,
+                    remove_tag,
+                )?;
+                output(&result, human);
+            }
+            DocCommands::Attach { doc_id, target_id } => {
+                let result = commands::doc_attach(repo_path, &doc_id, &target_id)?;
+                output(&result, human);
+            }
+            DocCommands::Detach { doc_id, target_id } => {
+                let result = commands::doc_detach(repo_path, &doc_id, &target_id)?;
+                output(&result, human);
+            }
+            DocCommands::Delete { id } => {
+                let result = commands::doc_delete(repo_path, &id)?;
                 output(&result, human);
             }
         },
@@ -1520,6 +1575,66 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 "idea germinate".to_string(),
                 serde_json::json!({ "id": id }),
             ),
+        },
+
+        Some(Commands::Doc { command }) => match command {
+            DocCommands::Create {
+                title,
+                short_name,
+                description,
+                content,
+                tag,
+            } => (
+                "doc create".to_string(),
+                serde_json::json!({
+                    "title": title,
+                    "short_name": short_name,
+                    "description": description,
+                    "content": content,
+                    "tag": tag,
+                }),
+            ),
+            DocCommands::Show { id } => ("doc show".to_string(), serde_json::json!({ "id": id })),
+            DocCommands::List { tag } => {
+                ("doc list".to_string(), serde_json::json!({ "tag": tag }))
+            }
+            DocCommands::Edit {
+                id,
+                title,
+                short_name,
+                description,
+                content,
+                add_tag,
+                remove_tag,
+            } => (
+                "doc edit".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "title": title,
+                    "short_name": short_name,
+                    "description": description,
+                    "content": content,
+                    "add_tag": add_tag,
+                    "remove_tag": remove_tag,
+                }),
+            ),
+            DocCommands::Attach { doc_id, target_id } => (
+                "doc attach".to_string(),
+                serde_json::json!({
+                    "doc_id": doc_id,
+                    "target_id": target_id,
+                }),
+            ),
+            DocCommands::Detach { doc_id, target_id } => (
+                "doc detach".to_string(),
+                serde_json::json!({
+                    "doc_id": doc_id,
+                    "target_id": target_id,
+                }),
+            ),
+            DocCommands::Delete { id } => {
+                ("doc delete".to_string(), serde_json::json!({ "id": id }))
+            }
         },
 
         Some(Commands::Milestone { command }) => match command {

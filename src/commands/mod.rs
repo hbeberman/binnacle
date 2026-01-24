@@ -4840,6 +4840,304 @@ pub fn idea_germinate(repo_path: &Path, id: &str) -> Result<IdeaGerminated> {
     Ok(IdeaGerminated { id: id.to_string() })
 }
 
+// === Doc Commands ===
+
+#[derive(Serialize)]
+pub struct DocCreated {
+    pub id: String,
+    pub title: String,
+}
+
+impl Output for DocCreated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Created doc {} \"{}\"", self.id, self.title)
+    }
+}
+
+/// Create a new documentation node.
+pub fn doc_create(
+    repo_path: &Path,
+    title: String,
+    short_name: Option<String>,
+    description: Option<String>,
+    content: Option<String>,
+    tags: Vec<String>,
+) -> Result<DocCreated> {
+    let mut storage = Storage::open(repo_path)?;
+
+    let id = storage.generate_unique_id("bnd", &title);
+    let mut doc = Doc::with_content(id.clone(), title.clone(), content.unwrap_or_default());
+    doc.core.short_name = normalize_short_name(short_name);
+    doc.core.description = description;
+    doc.core.tags = tags;
+
+    storage.add_doc(&doc)?;
+
+    Ok(DocCreated { id, title })
+}
+
+impl Output for Doc {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("{} {}", self.core.id, self.core.title));
+        if let Some(ref sn) = self.core.short_name {
+            lines.push(format!("  Short Name: {}", sn));
+        }
+        if let Some(ref desc) = self.core.description {
+            lines.push(format!("  Description: {}", desc));
+        }
+        if !self.core.tags.is_empty() {
+            lines.push(format!("  Tags: {}", self.core.tags.join(", ")));
+        }
+        lines.push(format!(
+            "  Created: {}",
+            self.core.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.push(format!(
+            "  Updated: {}",
+            self.core.updated_at.format("%Y-%m-%d %H:%M")
+        ));
+        if !self.content.is_empty() {
+            lines.push(String::new());
+            lines.push("Content:".to_string());
+            lines.push("─".repeat(40));
+            lines.push(self.content.clone());
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct DocList {
+    pub docs: Vec<Doc>,
+    pub count: usize,
+}
+
+impl Output for DocList {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.docs.is_empty() {
+            return "No docs found.".to_string();
+        }
+
+        let mut lines = vec![format!("{} doc(s):\n", self.count)];
+        for doc in &self.docs {
+            let tags_str = if doc.core.tags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", doc.core.tags.join(", "))
+            };
+            lines.push(format!("📄 {} {}{}", doc.core.id, doc.core.title, tags_str));
+        }
+        lines.join("\n")
+    }
+}
+
+/// List documentation nodes with optional filters.
+pub fn doc_list(repo_path: &Path, tag: Option<&str>) -> Result<DocList> {
+    let storage = Storage::open(repo_path)?;
+    let docs = storage.list_docs(tag)?;
+    let count = docs.len();
+
+    Ok(DocList { docs, count })
+}
+
+/// Show a single documentation node.
+pub fn doc_show(repo_path: &Path, id: &str) -> Result<Doc> {
+    let storage = Storage::open(repo_path)?;
+    storage.get_doc(id)
+}
+
+#[derive(Serialize)]
+pub struct DocUpdated {
+    pub id: String,
+    pub updated_fields: Vec<String>,
+}
+
+impl Output for DocUpdated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Updated doc {}: {}",
+            self.id,
+            self.updated_fields.join(", ")
+        )
+    }
+}
+
+/// Update a documentation node.
+#[allow(clippy::too_many_arguments)]
+pub fn doc_edit(
+    repo_path: &Path,
+    id: &str,
+    title: Option<String>,
+    short_name: Option<String>,
+    description: Option<String>,
+    content: Option<String>,
+    add_tags: Vec<String>,
+    remove_tags: Vec<String>,
+) -> Result<DocUpdated> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut doc = storage.get_doc(id)?;
+    let mut updated_fields = Vec::new();
+
+    if let Some(t) = title {
+        doc.core.title = t;
+        updated_fields.push("title".to_string());
+    }
+    if let Some(sn) = short_name {
+        doc.core.short_name = normalize_short_name(Some(sn));
+        updated_fields.push("short_name".to_string());
+    }
+    if let Some(d) = description {
+        doc.core.description = Some(d);
+        updated_fields.push("description".to_string());
+    }
+    if let Some(c) = content {
+        doc.content = c;
+        updated_fields.push("content".to_string());
+    }
+    for tag in add_tags {
+        if !doc.core.tags.contains(&tag) {
+            doc.core.tags.push(tag);
+            if !updated_fields.contains(&"tags".to_string()) {
+                updated_fields.push("tags".to_string());
+            }
+        }
+    }
+    for tag in &remove_tags {
+        if let Some(pos) = doc.core.tags.iter().position(|t| t == tag) {
+            doc.core.tags.remove(pos);
+            if !updated_fields.contains(&"tags".to_string()) {
+                updated_fields.push("tags".to_string());
+            }
+        }
+    }
+
+    if updated_fields.is_empty() {
+        return Err(Error::Other("No fields to update".to_string()));
+    }
+
+    doc.core.updated_at = Utc::now();
+    storage.update_doc(&doc)?;
+
+    Ok(DocUpdated {
+        id: id.to_string(),
+        updated_fields,
+    })
+}
+
+#[derive(Serialize)]
+pub struct DocAttached {
+    pub doc_id: String,
+    pub target_id: String,
+}
+
+impl Output for DocAttached {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Attached doc {} to {}", self.doc_id, self.target_id)
+    }
+}
+
+/// Attach a doc to another entity (creates a 'documents' edge).
+pub fn doc_attach(repo_path: &Path, doc_id: &str, target_id: &str) -> Result<DocAttached> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Verify doc exists
+    storage.get_doc(doc_id)?;
+
+    // Verify target entity exists (could be task, bug, idea, milestone, etc.)
+    storage.get_entity_type(target_id)?;
+
+    // Create edge: doc_id --documents--> target_id
+    let edge_id = storage.generate_edge_id(doc_id, target_id, EdgeType::Documents);
+    let edge = Edge::new(
+        edge_id,
+        doc_id.to_string(),
+        target_id.to_string(),
+        EdgeType::Documents,
+    );
+    storage.add_edge(&edge)?;
+
+    Ok(DocAttached {
+        doc_id: doc_id.to_string(),
+        target_id: target_id.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct DocDetached {
+    pub doc_id: String,
+    pub target_id: String,
+}
+
+impl Output for DocDetached {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Detached doc {} from {}", self.doc_id, self.target_id)
+    }
+}
+
+/// Detach a doc from an entity (removes the 'documents' edge).
+pub fn doc_detach(repo_path: &Path, doc_id: &str, target_id: &str) -> Result<DocDetached> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Verify doc exists
+    storage.get_doc(doc_id)?;
+
+    // Remove the edge
+    storage.remove_edge(doc_id, target_id, EdgeType::Documents)?;
+
+    Ok(DocDetached {
+        doc_id: doc_id.to_string(),
+        target_id: target_id.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct DocDeleted {
+    pub id: String,
+}
+
+impl Output for DocDeleted {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Deleted doc {}", self.id)
+    }
+}
+
+/// Delete a documentation node.
+pub fn doc_delete(repo_path: &Path, id: &str) -> Result<DocDeleted> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.delete_doc(id)?;
+
+    Ok(DocDeleted { id: id.to_string() })
+}
+
 // === Milestone Commands ===
 
 use crate::models::MilestoneProgress;
@@ -6223,6 +6521,15 @@ fn validate_edge_type_constraints(
         }
         // Other types are permissive
         EdgeType::DependsOn | EdgeType::Blocks | EdgeType::RelatedTo => {}
+        EdgeType::Documents => {
+            // Doc → Any (documentation can attach to any entity)
+            if source_type != "doc" {
+                return Err(Error::Other(format!(
+                    "documents edge requires source to be a doc, got: {}",
+                    source_type
+                )));
+            }
+        }
     }
 
     Ok(())
