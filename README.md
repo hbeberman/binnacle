@@ -74,6 +74,33 @@ The agents automatically:
 - Claim tasks, work on them, and mark them complete
 - Commit their changes and terminate gracefully with `bn goodbye`
 
+## Container Workers
+
+Run AI agents in Docker containers with isolated environments and shared binnacle graph access:
+
+```bash
+# 1. Create a git worktree for the agent
+git worktree add ../agent-worktree -b agent-feature
+
+# 2. Set your GitHub token
+export COPILOT_GITHUB_TOKEN="your-token"
+
+# 3. Launch the containerized worker
+./container/launch-worker.sh ../agent-worktree
+```
+
+**Benefits:**
+- **Isolation** - Agent runs in a sandboxed Fedora 43 container
+- **Reproducibility** - Consistent environment across machines
+- **Auto-merge** - Completed work merged to target branch automatically
+
+**Environment variables:**
+- `BN_AGENT_TYPE` - Agent type: worker, planner, buddy (default: worker)
+- `BN_MERGE_TARGET` - Branch to merge into on success (default: main)
+- `BN_AUTO_MERGE` - Enable auto-merge on success (default: true)
+
+See [container/README.md](container/README.md) for full documentation.
+
 ## Features
 
 - **JSON-first output** - Machine-readable by default, `-H` for human-readable
