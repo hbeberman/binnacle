@@ -9,8 +9,8 @@
 //! - `commit` - Commit tracking
 
 use crate::models::{
-    Agent, AgentType, Bug, BugSeverity, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus, Milestone,
-    Queue, SessionState, Task, TaskStatus, TestNode, TestResult, graph::UnionFind,
+    Agent, AgentType, Bug, BugSeverity, Doc, Edge, EdgeDirection, EdgeType, Idea, IdeaStatus,
+    Milestone, Queue, SessionState, Task, TaskStatus, TestNode, TestResult, graph::UnionFind,
 };
 use crate::storage::{EntityType, Storage, generate_id, parse_status};
 use crate::{Error, Result};
@@ -1932,6 +1932,8 @@ pub struct GenericShowResult {
     pub edge: Option<Edge>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queue: Option<Queue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc: Option<Doc>,
 }
 
 impl Output for GenericShowResult {
@@ -1993,6 +1995,20 @@ impl Output for GenericShowResult {
                     "Queue data not available".to_string()
                 }
             }
+            EntityType::Doc => {
+                if let Some(ref doc) = self.doc {
+                    format!(
+                        "Doc: {} \"{}\"\n  Content: {} bytes\n  Created: {}\n  Updated: {}",
+                        doc.core.id,
+                        doc.core.title,
+                        doc.content.len(),
+                        doc.core.created_at,
+                        doc.core.updated_at
+                    )
+                } else {
+                    "Doc data not available".to_string()
+                }
+            }
         }
     }
 }
@@ -2011,6 +2027,7 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
         milestone: None,
         edge: None,
         queue: None,
+        doc: None,
     };
 
     match entity_type {
@@ -2040,6 +2057,9 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
         }
         EntityType::Queue => {
             result.queue = Some(storage.get_queue_by_id(id)?);
+        }
+        EntityType::Doc => {
+            result.doc = Some(storage.get_doc(id)?);
         }
     }
 

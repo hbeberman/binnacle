@@ -23,7 +23,7 @@ pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
 use crate::models::{
-    Agent, AgentStatus, Bug, CommitLink, Edge, EdgeDirection, EdgeType, HydratedEdge, Idea,
+    Agent, AgentStatus, Bug, CommitLink, Doc, Edge, EdgeDirection, EdgeType, HydratedEdge, Idea,
     IdeaStatus, Milestone, MilestoneProgress, Queue, Task, TaskStatus, TestNode, TestResult,
 };
 use crate::{Error, Result};
@@ -46,6 +46,7 @@ pub enum EntityType {
     Milestone,
     Edge,
     Queue,
+    Doc,
 }
 
 impl std::fmt::Display for EntityType {
@@ -58,6 +59,7 @@ impl std::fmt::Display for EntityType {
             EntityType::Milestone => write!(f, "milestone"),
             EntityType::Edge => write!(f, "edge"),
             EntityType::Queue => write!(f, "queue"),
+            EntityType::Doc => write!(f, "doc"),
         }
     }
 }
@@ -277,6 +279,25 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status);
             CREATE INDEX IF NOT EXISTS idx_idea_tags_tag ON idea_tags(tag);
 
+            -- Doc node tables (for markdown documentation attached to entities)
+            CREATE TABLE IF NOT EXISTS docs (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                content TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS doc_tags (
+                doc_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (doc_id, tag),
+                FOREIGN KEY (doc_id) REFERENCES docs(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_doc_tags_tag ON doc_tags(tag);
+
             -- Test node tables
             CREATE TABLE IF NOT EXISTS tests (
                 id TEXT PRIMARY KEY,
@@ -456,6 +477,8 @@ impl Storage {
             DELETE FROM bugs;
             DELETE FROM idea_tags;
             DELETE FROM ideas;
+            DELETE FROM doc_tags;
+            DELETE FROM docs;
             DELETE FROM milestone_tags;
             DELETE FROM milestones;
             DELETE FROM test_links;
@@ -539,6 +562,25 @@ impl Storage {
                     && idea.core.entity_type == "idea"
                 {
                     self.cache_idea(&idea)?;
+                }
+            }
+        }
+
+        // Re-read docs from docs.jsonl
+        let docs_path = self.root.join("docs.jsonl");
+        if docs_path.exists() {
+            let file = File::open(&docs_path)?;
+            let reader = BufReader::new(file);
+
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(doc) = serde_json::from_str::<Doc>(&line)
+                    && doc.core.entity_type == "doc"
+                {
+                    self.cache_doc(&doc)?;
                 }
             }
         }
@@ -805,6 +847,10 @@ impl Storage {
         if let Ok(queue) = self.get_queue()
             && queue.id == id
         {
+            return true;
+        }
+        // Check docs
+        if self.get_doc(id).is_ok() {
             return true;
         }
         false
@@ -1227,6 +1273,162 @@ impl Storage {
                 [&idea.core.id, tag],
             )?;
         }
+
+        Ok(())
+    }
+
+    /// Cache a doc in SQLite for fast querying.
+    fn cache_doc(&self, doc: &Doc) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO docs (id, title, description, content, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+            params![
+                &doc.core.id,
+                &doc.core.title,
+                &doc.core.description,
+                &doc.content,
+                doc.core.created_at.to_rfc3339(),
+                doc.core.updated_at.to_rfc3339(),
+            ],
+        )?;
+
+        // Update tags
+        self.conn
+            .execute("DELETE FROM doc_tags WHERE doc_id = ?", [&doc.core.id])?;
+        for tag in &doc.core.tags {
+            self.conn.execute(
+                "INSERT INTO doc_tags (doc_id, tag) VALUES (?, ?)",
+                [&doc.core.id, tag],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    // === Doc Operations ===
+
+    /// Add a new doc.
+    pub fn add_doc(&mut self, doc: &Doc) -> Result<()> {
+        let docs_path = self.root.join("docs.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&docs_path)?;
+
+        let json = serde_json::to_string(doc)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_doc(doc)?;
+
+        Ok(())
+    }
+
+    /// Get a doc by ID.
+    pub fn get_doc(&self, id: &str) -> Result<Doc> {
+        // First check if the doc exists in the cache (handles deletions)
+        let exists: bool = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM docs WHERE id = ?)",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !exists {
+            return Err(Error::NotFound(format!("Doc not found: {}", id)));
+        }
+
+        let docs_path = self.root.join("docs.jsonl");
+        if !docs_path.exists() {
+            return Err(Error::NotFound(format!("Doc not found: {}", id)));
+        }
+
+        let file = File::open(&docs_path)?;
+        let reader = BufReader::new(file);
+
+        let mut latest: Option<Doc> = None;
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(doc) = serde_json::from_str::<Doc>(&line)
+                && doc.core.id == id
+            {
+                latest = Some(doc);
+            }
+        }
+
+        latest.ok_or_else(|| Error::NotFound(format!("Doc not found: {}", id)))
+    }
+
+    /// List all docs, optionally filtered by tag.
+    pub fn list_docs(&self, tag: Option<&str>) -> Result<Vec<Doc>> {
+        let mut sql = String::from(
+            "SELECT DISTINCT d.id FROM docs d
+             LEFT JOIN doc_tags dt ON d.id = dt.doc_id
+             WHERE 1=1",
+        );
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(t) = tag {
+            sql.push_str(" AND dt.tag = ?");
+            params_vec.push(Box::new(t.to_string()));
+        }
+
+        sql.push_str(" ORDER BY d.updated_at DESC");
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids: Vec<String> = stmt
+            .query_map(params_refs.as_slice(), |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut docs = Vec::new();
+        for id in ids {
+            if let Ok(doc) = self.get_doc(&id) {
+                docs.push(doc);
+            }
+        }
+
+        Ok(docs)
+    }
+
+    /// Update a doc.
+    pub fn update_doc(&mut self, doc: &Doc) -> Result<()> {
+        // Verify doc exists
+        self.get_doc(&doc.core.id)?;
+
+        // Append updated version to JSONL
+        let docs_path = self.root.join("docs.jsonl");
+        let mut file = OpenOptions::new().append(true).open(&docs_path)?;
+
+        let json = serde_json::to_string(doc)?;
+        writeln!(file, "{}", json)?;
+
+        // Update cache
+        self.cache_doc(doc)?;
+
+        Ok(())
+    }
+
+    /// Delete a doc by ID.
+    pub fn delete_doc(&mut self, id: &str) -> Result<()> {
+        // Verify doc exists
+        self.get_doc(id)?;
+
+        // Remove from cache (JSONL keeps history)
+        self.conn
+            .execute("DELETE FROM doc_tags WHERE doc_id = ?", [id])?;
+        self.conn.execute("DELETE FROM docs WHERE id = ?", [id])?;
+
+        // Also remove any edges involving this doc
+        self.conn
+            .execute("DELETE FROM edges WHERE source = ? OR target = ?", [id, id])?;
 
         Ok(())
     }
@@ -2211,6 +2413,11 @@ impl Storage {
         // Try queue
         if self.get_queue_by_id(id).is_ok() {
             return Ok(EntityType::Queue);
+        }
+
+        // Try doc
+        if self.get_doc(id).is_ok() {
+            return Ok(EntityType::Doc);
         }
 
         Err(Error::NotFound(id.to_string()))

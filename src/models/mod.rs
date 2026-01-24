@@ -438,6 +438,67 @@ impl Entity for Idea {
     }
 }
 
+/// A documentation node for storing markdown content linked to entities.
+/// Docs provide a way to attach rich documentation to any entity in the graph.
+/// They use a separate ID format (bnd-xxxx) to distinguish from other entities.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Doc {
+    /// Common entity fields (id, type, title, short_name, description, tags, timestamps)
+    /// Note: For Doc, the `description` field in EntityCore is used for brief summaries,
+    /// while `content` holds the full markdown documentation.
+    #[serde(flatten)]
+    pub core: EntityCore,
+
+    /// Full markdown content of the documentation
+    #[serde(default)]
+    pub content: String,
+}
+
+impl Doc {
+    /// Create a new doc with the given ID and title.
+    pub fn new(id: String, title: String) -> Self {
+        Self {
+            core: EntityCore::new("doc", id, title),
+            content: String::new(),
+        }
+    }
+
+    /// Create a new doc with content.
+    pub fn with_content(id: String, title: String, content: String) -> Self {
+        Self {
+            core: EntityCore::new("doc", id, title),
+            content,
+        }
+    }
+}
+
+impl Entity for Doc {
+    fn id(&self) -> &str {
+        self.core.id()
+    }
+    fn entity_type(&self) -> &str {
+        self.core.entity_type()
+    }
+    fn title(&self) -> &str {
+        self.core.title()
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.core.short_name()
+    }
+    fn description(&self) -> Option<&str> {
+        self.core.description()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.core.created_at()
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.core.updated_at()
+    }
+    fn tags(&self) -> &[String] {
+        self.core.tags()
+    }
+}
+
 /// A milestone for grouping and tracking progress of tasks and bugs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Milestone {
