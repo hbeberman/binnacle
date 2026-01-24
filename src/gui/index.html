@@ -164,6 +164,54 @@
             padding: 0.15rem 0.5rem;
         }
 
+        /* Available work counter */
+        .available-work-pane {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin-left: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-width: 120px;
+        }
+
+        .available-work-pane-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
+        }
+
+        .available-work-count {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-light);
+            line-height: 1;
+        }
+
+        .available-work-pane.has-work .available-work-count {
+            color: var(--success);
+        }
+
+        .available-work-pane.no-work .available-work-count {
+            color: var(--text-secondary);
+            opacity: 0.5;
+        }
+
+        .available-work-breakdown {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
         /* Recently completed pane */
         .recently-completed-pane {
             background: var(--bg-tertiary);
@@ -3013,6 +3061,13 @@
                     <button class="nav-btn" data-view="log">Activity Log</button>
                 </nav>
             </div>
+            <div class="available-work-pane no-work" id="available-work-pane">
+                <div class="available-work-pane-header">
+                    <span>Available Work</span>
+                </div>
+                <div class="available-work-count" id="available-work-count">0</div>
+                <div class="available-work-breakdown" id="available-work-breakdown"></div>
+            </div>
             <div class="active-task-pane empty" id="active-task-pane">
                 <div class="active-task-pane-header">
                     <span class="indicator"></span>
@@ -3919,6 +3974,7 @@
             updateFollowSelector();
             updateStatsOverlay();
             updateActiveTaskPane();
+            updateAvailableWorkPane();
             updateRecentlyCompletedPane();
             renderCurrentView();
         }
@@ -3961,6 +4017,42 @@
                 titleEl.title = '';
                 metaEl.innerHTML = '';
             }
+        }
+        
+        /**
+         * Update the available work counter in the header.
+         * Shows total count of claimable items: ready tasks + open bugs.
+         */
+        function updateAvailableWorkPane() {
+            const pane = document.getElementById('available-work-pane');
+            const countEl = document.getElementById('available-work-count');
+            const breakdownEl = document.getElementById('available-work-breakdown');
+            
+            // Count ready tasks (pending tasks with no blockers)
+            const readyTasks = (state.ready || []).filter(t => t.type !== 'bug');
+            const readyTaskCount = readyTasks.length;
+            
+            // Count open bugs (not done, not cancelled)
+            const openBugs = (state.tasks || []).filter(t => 
+                t.type === 'bug' && 
+                t.status !== 'done' && 
+                t.status !== 'cancelled'
+            );
+            const openBugCount = openBugs.length;
+            
+            const totalCount = readyTaskCount + openBugCount;
+            
+            countEl.textContent = totalCount;
+            
+            // Update styling based on whether there's work
+            pane.classList.remove('has-work', 'no-work');
+            pane.classList.add(totalCount > 0 ? 'has-work' : 'no-work');
+            
+            // Show breakdown
+            const parts = [];
+            if (readyTaskCount > 0) parts.push(`${readyTaskCount} task${readyTaskCount !== 1 ? 's' : ''}`);
+            if (openBugCount > 0) parts.push(`${openBugCount} bug${openBugCount !== 1 ? 's' : ''}`);
+            breakdownEl.textContent = parts.join(', ');
         }
         
         /**
