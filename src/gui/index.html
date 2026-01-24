@@ -7559,6 +7559,8 @@
 
         /**
          * Basic syntax highlighting for code blocks
+         * Uses a two-pass approach: first tokenize, then wrap with spans
+         * This avoids the issue of regex patterns matching our own HTML markup
          */
         function highlightSyntax(code, lang) {
             if (!lang) return code;
@@ -7567,32 +7569,101 @@
             
             // Keywords by language family
             const keywords = {
-                rust: /\b(fn|let|mut|const|pub|mod|use|struct|enum|impl|trait|where|for|while|loop|if|else|match|return|break|continue|async|await|move|ref|self|Self|super|crate|dyn|static|type|unsafe|extern|as|in)\b/g,
-                javascript: /\b(function|const|let|var|if|else|for|while|do|switch|case|break|continue|return|class|extends|new|this|super|import|export|default|async|await|try|catch|finally|throw|typeof|instanceof|in|of|yield)\b/g,
-                typescript: /\b(function|const|let|var|if|else|for|while|do|switch|case|break|continue|return|class|extends|new|this|super|import|export|default|async|await|try|catch|finally|throw|typeof|instanceof|in|of|yield|interface|type|enum|namespace|module|declare|readonly|private|public|protected|static|abstract|implements)\b/g,
-                python: /\b(def|class|if|elif|else|for|while|try|except|finally|with|as|import|from|return|yield|raise|pass|break|continue|and|or|not|in|is|None|True|False|lambda|global|nonlocal|async|await)\b/g,
-                go: /\b(func|var|const|type|struct|interface|map|chan|if|else|for|range|switch|case|default|break|continue|return|go|defer|select|package|import|make|new|nil|true|false|iota)\b/g,
-                json: /\b(null|true|false)\b/g,
-                bash: /\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|echo|export|source|alias|cd|pwd|ls|mkdir|rm|cp|mv|cat|grep|sed|awk|find|chmod|chown|sudo)\b/g,
-                sh: /\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|echo|export|source|alias|cd|pwd|ls|mkdir|rm|cp|mv|cat|grep|sed|awk|find|chmod|chown|sudo)\b/g,
+                rust: ['fn', 'let', 'mut', 'const', 'pub', 'mod', 'use', 'struct', 'enum', 'impl', 'trait', 'where', 'for', 'while', 'loop', 'if', 'else', 'match', 'return', 'break', 'continue', 'async', 'await', 'move', 'ref', 'self', 'Self', 'super', 'crate', 'dyn', 'static', 'type', 'unsafe', 'extern', 'as', 'in'],
+                javascript: ['function', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'return', 'class', 'extends', 'new', 'this', 'super', 'import', 'export', 'default', 'async', 'await', 'try', 'catch', 'finally', 'throw', 'typeof', 'instanceof', 'in', 'of', 'yield'],
+                typescript: ['function', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'return', 'class', 'extends', 'new', 'this', 'super', 'import', 'export', 'default', 'async', 'await', 'try', 'catch', 'finally', 'throw', 'typeof', 'instanceof', 'in', 'of', 'yield', 'interface', 'type', 'enum', 'namespace', 'module', 'declare', 'readonly', 'private', 'public', 'protected', 'static', 'abstract', 'implements'],
+                python: ['def', 'class', 'if', 'elif', 'else', 'for', 'while', 'try', 'except', 'finally', 'with', 'as', 'import', 'from', 'return', 'yield', 'raise', 'pass', 'break', 'continue', 'and', 'or', 'not', 'in', 'is', 'None', 'True', 'False', 'lambda', 'global', 'nonlocal', 'async', 'await'],
+                go: ['func', 'var', 'const', 'type', 'struct', 'interface', 'map', 'chan', 'if', 'else', 'for', 'range', 'switch', 'case', 'default', 'break', 'continue', 'return', 'go', 'defer', 'select', 'package', 'import', 'make', 'new', 'nil', 'true', 'false', 'iota'],
+                json: ['null', 'true', 'false'],
+                bash: ['if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'do', 'done', 'case', 'esac', 'function', 'return', 'exit', 'echo', 'export', 'source', 'alias', 'cd', 'pwd', 'ls', 'mkdir', 'rm', 'cp', 'mv', 'cat', 'grep', 'sed', 'awk', 'find', 'chmod', 'chown', 'sudo'],
+                sh: ['if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'do', 'done', 'case', 'esac', 'function', 'return', 'exit', 'echo', 'export', 'source', 'alias', 'cd', 'pwd', 'ls', 'mkdir', 'rm', 'cp', 'mv', 'cat', 'grep', 'sed', 'awk', 'find', 'chmod', 'chown', 'sudo'],
             };
             
-            // Apply keywords
-            const keywordPattern = keywords[lang] || keywords.javascript;
-            code = code.replace(keywordPattern, '<span class="keyword">$&</span>');
+            const keywordSet = new Set(keywords[lang] || keywords.javascript);
             
-            // Strings (double and single quotes)
-            code = code.replace(/("(?:[^"\\]|\\.)*")/g, '<span class="string">$1</span>');
-            code = code.replace(/('(?:[^'\\]|\\.)*')/g, '<span class="string">$1</span>');
+            // Tokenize the code first, then apply highlighting to tokens
+            // This prevents regex from matching our own HTML markup
+            const tokens = [];
+            let remaining = code;
             
-            // Numbers
-            code = code.replace(/\b(\d+\.?\d*)\b/g, '<span class="number">$1</span>');
+            while (remaining.length > 0) {
+                let matched = false;
+                
+                // Try to match a comment (// or #)
+                const singleLineComment = remaining.match(/^(\/\/.*|#.*)$/m);
+                if (singleLineComment && remaining.indexOf(singleLineComment[0]) === 0) {
+                    tokens.push({ type: 'comment', value: singleLineComment[0] });
+                    remaining = remaining.slice(singleLineComment[0].length);
+                    matched = true;
+                }
+                
+                // Try to match a double-quoted string
+                if (!matched) {
+                    const doubleString = remaining.match(/^"(?:[^"\\]|\\.)*"/);
+                    if (doubleString) {
+                        tokens.push({ type: 'string', value: doubleString[0] });
+                        remaining = remaining.slice(doubleString[0].length);
+                        matched = true;
+                    }
+                }
+                
+                // Try to match a single-quoted string
+                if (!matched) {
+                    const singleString = remaining.match(/^'(?:[^'\\]|\\.)*'/);
+                    if (singleString) {
+                        tokens.push({ type: 'string', value: singleString[0] });
+                        remaining = remaining.slice(singleString[0].length);
+                        matched = true;
+                    }
+                }
+                
+                // Try to match a number
+                if (!matched) {
+                    const number = remaining.match(/^\d+\.?\d*/);
+                    if (number) {
+                        tokens.push({ type: 'number', value: number[0] });
+                        remaining = remaining.slice(number[0].length);
+                        matched = true;
+                    }
+                }
+                
+                // Try to match an identifier (potential keyword)
+                if (!matched) {
+                    const identifier = remaining.match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
+                    if (identifier) {
+                        const word = identifier[0];
+                        if (keywordSet.has(word)) {
+                            tokens.push({ type: 'keyword', value: word });
+                        } else {
+                            tokens.push({ type: 'text', value: word });
+                        }
+                        remaining = remaining.slice(word.length);
+                        matched = true;
+                    }
+                }
+                
+                // Otherwise, take one character as plain text
+                if (!matched) {
+                    tokens.push({ type: 'text', value: remaining[0] });
+                    remaining = remaining.slice(1);
+                }
+            }
             
-            // Comments (single line)
-            code = code.replace(/(\/\/.*$)/gm, '<span class="comment">$1</span>');
-            code = code.replace(/(#.*$)/gm, '<span class="comment">$1</span>');
-            
-            return code;
+            // Convert tokens to HTML
+            return tokens.map(token => {
+                switch (token.type) {
+                    case 'keyword':
+                        return `<span class="keyword">${token.value}</span>`;
+                    case 'string':
+                        return `<span class="string">${token.value}</span>`;
+                    case 'number':
+                        return `<span class="number">${token.value}</span>`;
+                    case 'comment':
+                        return `<span class="comment">${token.value}</span>`;
+                    default:
+                        return token.value;
+                }
+            }).join('');
         }
 
         /**
