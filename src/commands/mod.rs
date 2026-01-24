@@ -2839,13 +2839,26 @@ pub fn task_close(
     let mut storage = Storage::open(repo_path)?;
     let task = storage.get_task(id)?;
 
-    // Check for incomplete dependencies
-    let incomplete_deps: Vec<Task> = task
+    // Check for incomplete dependencies (both legacy depends_on and edge-based)
+    let mut incomplete_deps: Vec<Task> = task
         .depends_on
         .iter()
         .filter_map(|dep_id| storage.get_task(dep_id).ok())
         .filter(|dep| dep.status != TaskStatus::Done && dep.status != TaskStatus::Cancelled)
         .collect();
+
+    // Also check edge-based dependencies
+    let edge_deps = storage.get_edge_dependencies(id).unwrap_or_default();
+    for dep_id in edge_deps {
+        if let Ok(dep) = storage.get_task(&dep_id)
+            && dep.status != TaskStatus::Done
+            && dep.status != TaskStatus::Cancelled
+            // Avoid duplicates if dependency exists in both legacy and edge-based
+            && !incomplete_deps.iter().any(|d| d.id == dep.id)
+        {
+            incomplete_deps.push(dep);
+        }
+    }
 
     // If there are incomplete dependencies and force is false, return error
     if !incomplete_deps.is_empty() && !force {

@@ -2141,3 +2141,300 @@ fn test_bug_close_json_includes_goodbye_hint() {
         "Hint should mention goodbye command"
     );
 }
+
+// === Close with Incomplete Dependencies Tests ===
+
+#[test]
+fn test_task_close_fails_with_incomplete_deps() {
+    let temp = init_binnacle();
+
+    // Create task A (will be the dependency)
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Dependency task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    // Create task B
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Dependent task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "-t",
+            "depends_on",
+            "--reason",
+            "B needs A",
+        ])
+        .assert()
+        .success();
+
+    // Try to close B without force (A is still pending)
+    bn_in(&temp)
+        .args(["task", "close", &id_b])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("incomplete dependencies"))
+        .stderr(predicate::str::contains(&id_a));
+}
+
+#[test]
+fn test_task_close_with_force_succeeds_despite_incomplete_deps() {
+    let temp = init_binnacle();
+
+    // Create task A (will be the dependency)
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Dependency task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    // Create task B
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Dependent task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "-t",
+            "depends_on",
+            "--reason",
+            "B needs A",
+        ])
+        .assert()
+        .success();
+
+    // Close B with --force (A is still pending)
+    bn_in(&temp)
+        .args(["task", "close", &id_b, "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"done\""))
+        .stdout(predicate::str::contains("warning"))
+        .stdout(predicate::str::contains("incomplete dependencies"));
+
+    // Verify task is actually closed
+    bn_in(&temp)
+        .args(["task", "show", &id_b])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"done\""));
+}
+
+#[test]
+fn test_task_close_succeeds_when_deps_are_complete() {
+    let temp = init_binnacle();
+
+    // Create task A (will be the dependency)
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Dependency task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    // Create task B
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Dependent task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "-t",
+            "depends_on",
+            "--reason",
+            "B needs A",
+        ])
+        .assert()
+        .success();
+
+    // Close A first
+    bn_in(&temp)
+        .args(["task", "close", &id_a, "--reason", "Done"])
+        .assert()
+        .success();
+
+    // Now close B (A is complete, should succeed without --force)
+    bn_in(&temp)
+        .args(["task", "close", &id_b, "--reason", "Done"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"done\""));
+}
+
+#[test]
+fn test_task_close_fails_with_multiple_incomplete_deps() {
+    let temp = init_binnacle();
+
+    // Create task A
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Dependency A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    // Create task B
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Dependency B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // Create task C (depends on both A and B)
+    let output_c = bn_in(&temp)
+        .args(["task", "create", "Dependent task C"])
+        .output()
+        .unwrap();
+    let id_c = extract_task_id(&output_c);
+
+    // C depends on A and B
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_c,
+            &id_a,
+            "-t",
+            "depends_on",
+            "--reason",
+            "C needs A",
+        ])
+        .assert()
+        .success();
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_c,
+            &id_b,
+            "-t",
+            "depends_on",
+            "--reason",
+            "C needs B",
+        ])
+        .assert()
+        .success();
+
+    // Try to close C without force
+    let output = bn_in(&temp)
+        .args(["task", "close", &id_c])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success());
+    assert!(stderr.contains("incomplete dependencies"));
+    // Both A and B should be mentioned
+    assert!(stderr.contains(&id_a));
+    assert!(stderr.contains(&id_b));
+}
+
+#[test]
+fn test_task_close_succeeds_when_dep_is_cancelled() {
+    let temp = init_binnacle();
+
+    // Create task A (will be cancelled)
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Dependency to cancel"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    // Create task B
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Dependent task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "-t",
+            "depends_on",
+            "--reason",
+            "B needs A",
+        ])
+        .assert()
+        .success();
+
+    // Cancel A (cancelled tasks are considered "complete" for dependency purposes)
+    bn_in(&temp)
+        .args(["task", "update", &id_a, "--status", "cancelled"])
+        .assert()
+        .success();
+
+    // Close B (A is cancelled, should succeed without --force)
+    bn_in(&temp)
+        .args(["task", "close", &id_b, "--reason", "Done"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"done\""));
+}
+
+#[test]
+fn test_task_close_human_readable_shows_incomplete_deps_error() {
+    let temp = init_binnacle();
+
+    // Create task A
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Blocker task"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    // Create task B
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Blocked task"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "-t",
+            "depends_on",
+            "--reason",
+            "B needs A",
+        ])
+        .assert()
+        .success();
+
+    // Try to close B with -H flag
+    bn_in(&temp)
+        .args(["task", "close", &id_b, "-H"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("incomplete dependencies"))
+        .stderr(predicate::str::contains("--force"));
+}
