@@ -1524,6 +1524,65 @@
             border-left: 3px solid var(--success);
         }
 
+        /* Clickable node links in info panel */
+        .info-panel-node-link {
+            font-family: monospace;
+            color: var(--accent-light);
+            cursor: pointer;
+            text-decoration: none;
+            transition: color 0.15s ease;
+        }
+
+        .info-panel-node-link:hover {
+            color: var(--accent);
+            text-decoration: underline;
+        }
+
+        /* Relationships list */
+        .info-panel-relationships {
+            list-style: none;
+        }
+
+        .info-panel-relationships li {
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            padding: 0.35rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .info-panel-edge-type {
+            font-size: 0.75rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .info-panel-edge-direction {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        /* Timestamps */
+        .info-panel-timestamps {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .info-panel-timestamps dt {
+            display: inline;
+            font-weight: 500;
+        }
+
+        .info-panel-timestamps dd {
+            display: inline;
+            margin-left: 0.25rem;
+            margin-right: 1rem;
+        }
+
         /* Queue toggle in info panel */
         .info-panel-queue-section {
             margin-bottom: 1rem;
@@ -2030,9 +2089,17 @@
                         <div class="info-panel-section-title">Depends On</div>
                         <ul id="info-panel-deps" class="info-panel-deps"></ul>
                     </div>
+                    <div id="info-panel-relationships-section" class="info-panel-section" style="display: none;">
+                        <div class="info-panel-section-title">Relationships</div>
+                        <ul id="info-panel-relationships" class="info-panel-relationships"></ul>
+                    </div>
                     <div id="info-panel-closed-section" class="info-panel-section" style="display: none;">
                         <div class="info-panel-section-title">Closed Reason</div>
                         <div id="info-panel-closed-reason" class="info-panel-closed-reason"></div>
+                    </div>
+                    <div id="info-panel-timestamps-section" class="info-panel-section" style="display: none;">
+                        <div class="info-panel-section-title">Timestamps</div>
+                        <dl id="info-panel-timestamps" class="info-panel-timestamps"></dl>
                     </div>
                 </div>
                 <div class="edge-info-panel" id="edge-info-panel">
@@ -3670,6 +3737,10 @@
             const closedSection = document.getElementById('info-panel-closed-section');
             const closedReason = document.getElementById('info-panel-closed-reason');
             const typeTitleEl = document.getElementById('info-panel-type-title');
+            const relationshipsSection = document.getElementById('info-panel-relationships-section');
+            const relationshipsList = document.getElementById('info-panel-relationships');
+            const timestampsSection = document.getElementById('info-panel-timestamps-section');
+            const timestampsList = document.getElementById('info-panel-timestamps');
 
             if (!node) {
                 panel.classList.remove('visible');
@@ -3723,12 +3794,40 @@
                 descSection.style.display = 'block';
             }
 
-            // Dependencies
+            // Dependencies - now clickable
             if (task.depends_on && task.depends_on.length > 0) {
-                depsList.innerHTML = task.depends_on.map(depId => `<li>${escapeHtml(depId)}</li>`).join('');
+                depsList.innerHTML = task.depends_on.map(depId => {
+                    const depTask = state.tasks.find(t => t.id === depId);
+                    const depTitle = depTask ? ` — ${escapeHtml(depTask.title)}` : '';
+                    return `<li><span class="info-panel-node-link" data-node-id="${escapeHtml(depId)}">${escapeHtml(depId)}</span>${depTitle}</li>`;
+                }).join('');
                 depsSection.style.display = 'block';
             } else {
                 depsSection.style.display = 'none';
+            }
+
+            // Relationships - show all edges connected to this node (excluding depends_on which are shown above)
+            const nodeEdges = (state.edges || []).filter(edge => 
+                (edge.source === task.id || edge.target === task.id) && edge.edge_type !== 'depends_on'
+            );
+            if (nodeEdges.length > 0) {
+                relationshipsList.innerHTML = nodeEdges.map(edge => {
+                    const isOutbound = edge.source === task.id;
+                    const relatedId = isOutbound ? edge.target : edge.source;
+                    const relatedTask = state.tasks.find(t => t.id === relatedId);
+                    const relatedTitle = relatedTask ? escapeHtml(relatedTask.title) : '';
+                    const direction = isOutbound ? '→' : '←';
+                    const edgeTypeName = EDGE_TYPES[edge.edge_type]?.name || edge.edge_type;
+                    return `<li>
+                        <span class="info-panel-edge-type">${escapeHtml(edgeTypeName)}</span>
+                        <span class="info-panel-edge-direction">${direction}</span>
+                        <span class="info-panel-node-link" data-node-id="${escapeHtml(relatedId)}">${escapeHtml(relatedId)}</span>
+                        ${relatedTitle ? `<span style="color: var(--text-secondary)">— ${relatedTitle}</span>` : ''}
+                    </li>`;
+                }).join('');
+                relationshipsSection.style.display = 'block';
+            } else {
+                relationshipsSection.style.display = 'none';
             }
 
             // Closed reason
@@ -3737,6 +3836,30 @@
                 closedSection.style.display = 'block';
             } else {
                 closedSection.style.display = 'none';
+            }
+
+            // Timestamps
+            const formatTimestamp = (ts) => {
+                if (!ts) return null;
+                const date = new Date(ts);
+                return date.toLocaleDateString(undefined, { 
+                    year: 'numeric', month: 'short', day: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            };
+            const created = formatTimestamp(task.created_at);
+            const updated = formatTimestamp(task.updated_at);
+            const closed = formatTimestamp(task.closed_at);
+            
+            if (created || updated || closed) {
+                let html = '';
+                if (created) html += `<dt>Created:</dt><dd>${escapeHtml(created)}</dd>`;
+                if (updated && updated !== created) html += `<dt>Updated:</dt><dd>${escapeHtml(updated)}</dd>`;
+                if (closed) html += `<dt>Closed:</dt><dd>${escapeHtml(closed)}</dd>`;
+                timestampsList.innerHTML = html;
+                timestampsSection.style.display = 'block';
+            } else {
+                timestampsSection.style.display = 'none';
             }
 
             // Queue toggle - only show for tasks/bugs that can be queued
@@ -3757,6 +3880,23 @@
             // Show panel
             panel.classList.add('visible');
         }
+
+        // Handle clicks on node links in info panel
+        document.getElementById('info-panel').addEventListener('click', (e) => {
+            const link = e.target.closest('.info-panel-node-link');
+            if (link) {
+                const nodeId = link.dataset.nodeId;
+                if (nodeId) {
+                    // Find and select the node
+                    const targetNode = state.graph.nodes.find(n => n.id === nodeId);
+                    if (targetNode) {
+                        state.graph.selectedNode = targetNode;
+                        updateInfoPanel(targetNode);
+                        panToNode(nodeId);
+                    }
+                }
+            }
+        });
 
         // Info panel close button
         document.getElementById('info-panel-close').addEventListener('click', () => {
