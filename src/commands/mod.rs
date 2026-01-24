@@ -10913,10 +10913,16 @@ pub fn container_run(
         "--rm".to_string(),
     ];
 
-    if !detach {
-        args.push("--tty".to_string());
-    } else {
+    if detach {
         args.push("-d".to_string());
+    } else {
+        // Only add --tty if stdin is a terminal.
+        // When running from a non-interactive context (like an AI agent subprocess),
+        // --tty would fail with "provided file is not a console".
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() {
+            args.push("--tty".to_string());
+        }
     }
 
     // Add resource limits if specified
