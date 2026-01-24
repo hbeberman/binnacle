@@ -747,6 +747,69 @@ impl Storage {
         Ok(())
     }
 
+    /// Generate a unique ID that doesn't collide with existing entities.
+    ///
+    /// This method checks the storage for existing IDs and retries with
+    /// different seeds until a unique ID is found.
+    pub fn generate_unique_id(&self, prefix: &str, seed: &str) -> String {
+        const MAX_RETRIES: usize = 100;
+
+        for attempt in 0..MAX_RETRIES {
+            let effective_seed = if attempt == 0 {
+                seed.to_string()
+            } else {
+                format!("{}-{}", seed, attempt)
+            };
+            let id = generate_id(prefix, &effective_seed);
+
+            // Check if ID already exists
+            if !self.entity_exists(&id) {
+                return id;
+            }
+        }
+
+        // Fallback: just generate an ID (extremely unlikely to reach here)
+        generate_id(
+            prefix,
+            &format!(
+                "{}-fallback-{}",
+                seed,
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            ),
+        )
+    }
+
+    /// Check if an entity with the given ID exists in storage.
+    fn entity_exists(&self, id: &str) -> bool {
+        // Check tasks
+        if self.get_task(id).is_ok() {
+            return true;
+        }
+        // Check bugs
+        if self.get_bug(id).is_ok() {
+            return true;
+        }
+        // Check milestones
+        if self.get_milestone(id).is_ok() {
+            return true;
+        }
+        // Check ideas
+        if self.get_idea(id).is_ok() {
+            return true;
+        }
+        // Check tests
+        if self.get_test(id).is_ok() {
+            return true;
+        }
+        // Check queues (single queue per repo, check if ID matches)
+        if let Ok(queue) = self.get_queue()
+            && queue.id == id
+        {
+            return true;
+        }
+        false
+    }
+
     // === Task Operations ===
 
     /// Create a new task.
@@ -3360,12 +3423,21 @@ pub fn get_storage_dir_with_base(repo_path: &Path, base_dir: &Path) -> Result<Pa
     Ok(base_dir.join(short_hash))
 }
 
+/// Thread-local counter for ID generation to ensure uniqueness within a process.
+use std::sync::atomic::{AtomicU64, Ordering};
+static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 /// Generate a unique ID for a task or test node.
 ///
 /// Format: `<prefix>-<4 hex chars>`
 /// - Task prefix: "bn"
 /// - Test prefix: "bnt"
+///
+/// Uses a combination of timestamp, seed, atomic counter, and process ID to ensure
+/// uniqueness even when multiple IDs are generated in quick succession across processes.
 pub fn generate_id(prefix: &str, seed: &str) -> String {
+    let counter = ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let pid = std::process::id();
     let mut hasher = Sha256::new();
     hasher.update(seed.as_bytes());
     hasher.update(
@@ -3374,6 +3446,8 @@ pub fn generate_id(prefix: &str, seed: &str) -> String {
             .unwrap_or(0)
             .to_le_bytes(),
     );
+    hasher.update(counter.to_le_bytes());
+    hasher.update(pid.to_le_bytes());
     let hash = hasher.finalize();
     let hash_hex = format!("{:x}", hash);
     format!("{}-{}", prefix, &hash_hex[..4])

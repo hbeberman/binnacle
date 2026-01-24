@@ -2160,7 +2160,7 @@ pub fn task_create_with_queue(
         }
     });
 
-    let id = generate_id("bn", &title);
+    let id = storage.generate_unique_id("bn", &title);
     let mut task = Task::new(id.clone(), title.clone());
     task.core.short_name = short_name.clone();
     task.core.description = description;
@@ -3439,7 +3439,7 @@ pub fn bug_create_with_queue(
         return Err(Error::Other("Priority must be 0-4".to_string()));
     }
 
-    let id = generate_id("bn", &title);
+    let id = storage.generate_unique_id("bn", &title);
     let mut bug = Bug::new(id.clone(), title.clone());
     bug.core.short_name = normalize_short_name(short_name);
     bug.core.description = description;
@@ -4366,7 +4366,7 @@ pub fn idea_create(
 ) -> Result<IdeaCreated> {
     let mut storage = Storage::open(repo_path)?;
 
-    let id = generate_id("bn", &title);
+    let id = storage.generate_unique_id("bn", &title);
     let mut idea = Idea::new(id.clone(), title.clone());
     idea.core.short_name = normalize_short_name(short_name);
     idea.core.description = description;
@@ -4757,7 +4757,7 @@ pub fn idea_promote(
         })
     } else {
         // Create a task from the idea
-        let task_id = generate_id("bn", &idea.core.title);
+        let task_id = storage.generate_unique_id("bn", &idea.core.title);
         let mut task = Task::new(task_id.clone(), idea.core.title.clone());
         task.core.description = idea.core.description.clone();
         task.core.tags = idea.core.tags.clone();
@@ -4860,7 +4860,7 @@ pub fn milestone_create(
         return Err(Error::Other("Priority must be 0-4".to_string()));
     }
 
-    let id = generate_id("bn", &title);
+    let id = storage.generate_unique_id("bn", &title);
     let mut milestone = Milestone::new(id.clone(), title.clone());
     milestone.core.short_name = normalize_short_name(short_name);
     milestone.core.description = description;
@@ -9596,7 +9596,7 @@ pub fn system_store_import(
     for task in &imported_tasks {
         if existing_ids.contains(&task.core.id) {
             // Generate new ID using task title as seed
-            let new_id = crate::storage::generate_id("bn", &task.core.title);
+            let new_id = storage.generate_unique_id("bn", &task.core.title);
             id_remappings.insert(task.core.id.clone(), new_id);
         }
     }
@@ -9869,7 +9869,7 @@ fn system_store_import_from_folder(
     for task in &imported_tasks {
         if existing_ids.contains(&task.core.id) {
             // Generate new ID using task title as seed
-            let new_id = crate::storage::generate_id("bn", &task.core.title);
+            let new_id = storage.generate_unique_id("bn", &task.core.title);
             id_remappings.insert(task.core.id.clone(), new_id);
         }
     }
@@ -10509,7 +10509,7 @@ pub fn migrate_bugs(
 
     for task in &tasks {
         // Generate a new bug ID based on the task title (ensures unique ID)
-        let bug_id = generate_id("bn", &format!("bug-{}", task.core.title));
+        let bug_id = storage.generate_unique_id("bn", &format!("bug-{}", task.core.title));
 
         // Create the bug entity
         let mut bug = Bug::new(bug_id.clone(), task.core.title.clone());
