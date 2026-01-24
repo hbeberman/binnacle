@@ -3361,16 +3361,22 @@ pub fn find_git_root(start: &Path) -> Option<PathBuf> {
 /// The base directory is determined by:
 /// 1. `BN_CONTAINER_MODE` environment variable (if set, uses `/binnacle`)
 /// 2. `BN_DATA_DIR` environment variable (if set)
-/// 3. Falls back to `~/.local/share/binnacle/`
+/// 3. `/binnacle` path exists (auto-detect container environment)
+/// 4. Falls back to `~/.local/share/binnacle/`
 ///
 /// The provided path is used directly; git root detection (if desired)
 /// should be done by the caller before invoking this function.
 pub fn get_storage_dir(repo_path: &Path) -> Result<PathBuf> {
+    let container_path = Path::new("/binnacle");
+
     let base_dir = if std::env::var("BN_CONTAINER_MODE").is_ok() {
         // Container mode: use /binnacle as base directory
         PathBuf::from("/binnacle")
     } else if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
         PathBuf::from(override_dir)
+    } else if container_path.exists() {
+        // Auto-detect container environment: /binnacle exists
+        container_path.to_path_buf()
     } else {
         dirs::data_dir()
             .ok_or_else(|| Error::Other("Could not determine data directory".to_string()))?
@@ -4570,6 +4576,30 @@ mod tests {
         // Storage dir should be under /binnacle/<hash>
         assert!(storage_dir.starts_with("/binnacle"));
         // And should have a 12-char hash component
+        let hash_component = storage_dir.file_name().unwrap().to_str().unwrap();
+        assert_eq!(hash_component.len(), 12);
+        assert!(hash_component.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_get_storage_dir_path_fallback_uses_container_base() {
+        // This test verifies that when a custom path is used as base directory,
+        // the storage dir is correctly computed under that path.
+        // This exercises the same code path that the /binnacle fallback uses.
+
+        let env = TestEnv::new();
+        let root = env.path();
+        fs::create_dir(root.join(".git")).unwrap();
+
+        // Create a custom base directory (simulating /binnacle existing)
+        let custom_base = env.path().join("custom_binnacle");
+        fs::create_dir(&custom_base).unwrap();
+
+        // Test storage with custom base
+        let storage_dir = super::get_storage_dir_with_base(root, &custom_base).unwrap();
+
+        // Storage dir should be under custom_base/<hash>
+        assert!(storage_dir.starts_with(&custom_base));
         let hash_component = storage_dir.file_name().unwrap().to_str().unwrap();
         assert_eq!(hash_component.len(), 12);
         assert!(hash_component.chars().all(|c| c.is_ascii_hexdigit()));
