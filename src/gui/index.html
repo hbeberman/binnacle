@@ -4472,7 +4472,7 @@
             applyCircularGravity(visibleNodes, physics);
             applyRepulsionForces(visibleNodes, physics);
             applyEdgeAttraction(visibleNodes, edges, physics);
-            updatePositions(visibleNodes, physics, canvas);
+            updatePositions(visibleNodes, edges, physics, canvas);
 
             // Continuous follow: track the followed node as it moves
             updateContinuousFollow(canvas);
@@ -4600,9 +4600,24 @@
             }
         }
 
-        function updatePositions(nodes, physics, canvas) {
+        function updatePositions(nodes, edges, physics, canvas) {
             const draggedNode = state.graph.draggedNode;
             const { damping, maxVelocity } = physics;
+
+            // Build set of nodes directly connected to dragged node for higher responsiveness
+            const connectedToDragged = new Set();
+            if (draggedNode) {
+                edges.forEach(edge => {
+                    if (edge.from === draggedNode.id) {
+                        connectedToDragged.add(edge.to);
+                    } else if (edge.to === draggedNode.id) {
+                        connectedToDragged.add(edge.from);
+                    }
+                });
+            }
+
+            // Connected nodes get higher max velocity for responsiveness
+            const connectedMaxVelocity = maxVelocity * 3;
 
             nodes.forEach(node => {
                 // Freeze dragged node
@@ -4616,11 +4631,13 @@
                 node.vx *= damping;
                 node.vy *= damping;
 
-                // Cap velocity to prevent extreme speeds
+                // Cap velocity - higher limit for nodes connected to dragged node
+                const isConnected = connectedToDragged.has(node.id);
+                const velocityLimit = isConnected ? connectedMaxVelocity : maxVelocity;
                 const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
-                if (speed > maxVelocity) {
-                    node.vx = (node.vx / speed) * maxVelocity;
-                    node.vy = (node.vy / speed) * maxVelocity;
+                if (speed > velocityLimit) {
+                    node.vx = (node.vx / speed) * velocityLimit;
+                    node.vy = (node.vy / speed) * velocityLimit;
                 }
 
                 // Update position (NO BOUNDARY CLAMPING for infinite canvas)
