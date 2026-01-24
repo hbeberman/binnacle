@@ -149,13 +149,14 @@ pub async fn start_server(
         .route("/api/ready", get(get_ready))
         .route("/api/tests", get(get_tests))
         .route("/api/docs", get(get_docs))
+        .route("/api/docs/:id", get(get_doc))
         .route("/api/queue", get(get_queue))
         .route("/api/queue/toggle", post(toggle_queue_membership))
         .route("/api/edges", get(get_edges))
         .route("/api/edges", post(add_edge))
         .route("/api/log", get(get_log))
         .route("/api/agents", get(get_agents))
-        .route("/api/agents/{pid}/kill", post(kill_agent))
+        .route("/api/agents/:pid/kill", post(kill_agent))
         .route("/api/metrics/ws", get(get_ws_metrics))
         .route("/ws", get(crate::gui::websocket::ws_handler))
         .with_state(state);
@@ -249,6 +250,41 @@ async fn get_docs(State(state): State<AppState>) -> Result<Json<serde_json::Valu
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "docs": docs })))
+}
+
+/// Get a single doc by ID with decompressed content
+async fn get_doc(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+    let doc = storage.get_doc(&id).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    // Decompress the content for the response
+    let content = doc
+        .get_content()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get the summary section separately
+    let summary = doc.get_summary().unwrap_or_default();
+
+    Ok(Json(serde_json::json!({
+        "doc": {
+            "id": doc.core.id,
+            "title": doc.core.title,
+            "short_name": doc.core.short_name,
+            "description": doc.core.description,
+            "tags": doc.core.tags,
+            "doc_type": doc.doc_type,
+            "content": content,
+            "summary": summary,
+            "summary_dirty": doc.summary_dirty,
+            "editors": doc.editors,
+            "supersedes": doc.supersedes,
+            "created_at": doc.core.created_at,
+            "updated_at": doc.core.updated_at
+        }
+    })))
 }
 
 /// Get the queue (if it exists)

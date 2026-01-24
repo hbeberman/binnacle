@@ -2486,6 +2486,314 @@
             }
         }
 
+        /* Doc Viewer Modal Styles */
+        .doc-viewer-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--overlay-bg);
+            display: none;
+            z-index: 1000;
+            overflow: auto;
+        }
+
+        .doc-viewer-modal.visible {
+            display: flex;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .doc-viewer-container {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            max-width: 900px;
+            width: 100%;
+            max-height: calc(100vh - 4rem);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .doc-viewer-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .doc-viewer-header-content {
+            flex: 1;
+        }
+
+        .doc-viewer-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .doc-viewer-title .summary-dirty-indicator {
+            color: var(--warning);
+            font-size: 1.2rem;
+            cursor: help;
+        }
+
+        .doc-viewer-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .doc-viewer-close {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            line-height: 1;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .doc-viewer-close:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .doc-viewer-body {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Summary Section - Prominent */
+        .doc-viewer-summary {
+            background: var(--bg-tertiary);
+            padding: 1.25rem 1.5rem;
+            border-bottom: 2px solid var(--accent-blue);
+        }
+
+        .doc-viewer-summary-header {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--accent-light);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .doc-viewer-summary-content {
+            color: var(--text-primary);
+            line-height: 1.7;
+        }
+
+        .doc-viewer-summary-content p {
+            margin: 0;
+        }
+
+        .doc-viewer-summary.dirty {
+            border-color: var(--warning);
+        }
+
+        .doc-viewer-summary.dirty .doc-viewer-summary-header {
+            color: var(--warning);
+        }
+
+        /* Main Content */
+        .doc-viewer-content {
+            padding: 1.5rem;
+            flex: 1;
+            overflow: auto;
+        }
+
+        /* Markdown Rendering Styles */
+        .doc-viewer-content h1,
+        .doc-viewer-content h2,
+        .doc-viewer-content h3,
+        .doc-viewer-content h4,
+        .doc-viewer-content h5,
+        .doc-viewer-content h6 {
+            color: var(--text-primary);
+            margin-top: 1.5em;
+            margin-bottom: 0.75em;
+            font-weight: 600;
+        }
+
+        .doc-viewer-content h1 { font-size: 1.75rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3em; }
+        .doc-viewer-content h2 { font-size: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3em; }
+        .doc-viewer-content h3 { font-size: 1.25rem; }
+        .doc-viewer-content h4 { font-size: 1.1rem; }
+        .doc-viewer-content h5 { font-size: 1rem; }
+        .doc-viewer-content h6 { font-size: 0.9rem; color: var(--text-secondary); }
+
+        .doc-viewer-content p {
+            margin-bottom: 1em;
+            line-height: 1.7;
+        }
+
+        .doc-viewer-content ul,
+        .doc-viewer-content ol {
+            margin-bottom: 1em;
+            padding-left: 2em;
+        }
+
+        .doc-viewer-content li {
+            margin-bottom: 0.25em;
+        }
+
+        .doc-viewer-content blockquote {
+            border-left: 4px solid var(--accent-blue);
+            padding-left: 1em;
+            margin: 1em 0;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .doc-viewer-content a {
+            color: var(--accent-light);
+            text-decoration: none;
+        }
+
+        .doc-viewer-content a:hover {
+            text-decoration: underline;
+        }
+
+        .doc-viewer-content hr {
+            border: none;
+            border-top: 1px solid var(--border-color);
+            margin: 2em 0;
+        }
+
+        /* Inline code */
+        .doc-viewer-content code {
+            background: var(--bg-tertiary);
+            padding: 0.2em 0.4em;
+            border-radius: 4px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.9em;
+        }
+
+        /* Code blocks with syntax highlighting */
+        .doc-viewer-content pre {
+            background: #1e2a3a;
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-x: auto;
+            margin: 1em 0;
+            border: 1px solid var(--border-color);
+        }
+
+        .doc-viewer-content pre code {
+            background: transparent;
+            padding: 0;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        /* Syntax highlighting colors */
+        .doc-viewer-content pre .keyword { color: #c792ea; }
+        .doc-viewer-content pre .string { color: #c3e88d; }
+        .doc-viewer-content pre .number { color: #f78c6c; }
+        .doc-viewer-content pre .comment { color: #546e7a; font-style: italic; }
+        .doc-viewer-content pre .function { color: #82aaff; }
+        .doc-viewer-content pre .type { color: #ffcb6b; }
+        .doc-viewer-content pre .operator { color: #89ddff; }
+        .doc-viewer-content pre .punctuation { color: #89ddff; }
+
+        /* Language label for code blocks */
+        .doc-viewer-content pre[data-lang]::before {
+            content: attr(data-lang);
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        /* Tables */
+        .doc-viewer-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1em 0;
+        }
+
+        .doc-viewer-content th,
+        .doc-viewer-content td {
+            border: 1px solid var(--border-color);
+            padding: 0.5em 0.75em;
+            text-align: left;
+        }
+
+        .doc-viewer-content th {
+            background: var(--bg-tertiary);
+            font-weight: 600;
+        }
+
+        .doc-viewer-content tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Task checkboxes */
+        .doc-viewer-content .task-list-item {
+            list-style: none;
+            margin-left: -1.5em;
+        }
+
+        .doc-viewer-content .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+
+        /* Clickable doc cards */
+        #docs-list .card {
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        #docs-list .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Loading state */
+        .doc-viewer-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+
+        .doc-viewer-loading::before {
+            content: '';
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 0.75rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
     </style>
 </head>
 <body>
@@ -2811,6 +3119,31 @@
                 <div class="modal-actions">
                     <button class="modal-btn modal-btn-cancel" onclick="closeAgentDetailModal()">Close</button>
                     <button class="modal-btn modal-btn-danger" id="agent-modal-terminate-btn">Terminate</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Doc Viewer Modal -->
+        <div id="doc-viewer-modal" class="doc-viewer-modal">
+            <div class="doc-viewer-container">
+                <div class="doc-viewer-header">
+                    <div class="doc-viewer-header-content">
+                        <div class="doc-viewer-title">
+                            <span id="doc-viewer-title-text"></span>
+                            <span id="doc-viewer-dirty-indicator" class="summary-dirty-indicator" title="Summary needs update" style="display: none;">⚠️</span>
+                        </div>
+                        <div class="doc-viewer-meta" id="doc-viewer-meta"></div>
+                    </div>
+                    <button class="doc-viewer-close" onclick="closeDocViewer()" title="Close">&times;</button>
+                </div>
+                <div class="doc-viewer-body">
+                    <div class="doc-viewer-summary" id="doc-viewer-summary">
+                        <div class="doc-viewer-summary-header">
+                            <span>📋</span> Summary
+                        </div>
+                        <div class="doc-viewer-summary-content" id="doc-viewer-summary-content"></div>
+                    </div>
+                    <div class="doc-viewer-content" id="doc-viewer-content"></div>
                 </div>
             </div>
         </div>
@@ -6526,7 +6859,7 @@
                 const summaryDirty = doc.summary_dirty;
                 
                 return `
-                <div class="card">
+                <div class="card" data-doc-id="${escapeHtml(doc.id)}" onclick="openDocViewer('${escapeHtml(doc.id)}')">
                     <div class="card-header">
                         <div class="card-title">${escapeHtml(doc.title)}${summaryDirty ? ' <span style="color: var(--warning)" title="Summary needs update">⚠️</span>' : ''}</div>
                     </div>
@@ -6842,6 +7175,279 @@
                 closeAgentDetailModal();
             }
         });
+
+        // ==================== Doc Viewer ====================
+
+        /**
+         * Simple markdown to HTML converter
+         * Handles: headings, bold, italic, code blocks, inline code, lists, links, blockquotes, tables
+         */
+        function renderMarkdown(markdown) {
+            if (!markdown) return '';
+            
+            let html = markdown;
+            
+            // Escape HTML first (but preserve what we need)
+            const escapeHtmlInText = (text) => text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            
+            // Store code blocks to protect them from other transformations
+            const codeBlocks = [];
+            html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+                const index = codeBlocks.length;
+                const highlightedCode = highlightSyntax(escapeHtmlInText(code.trim()), lang);
+                codeBlocks.push(`<pre${lang ? ` data-lang="${lang}"` : ''}><code>${highlightedCode}</code></pre>`);
+                return `__CODE_BLOCK_${index}__`;
+            });
+            
+            // Store inline code
+            const inlineCode = [];
+            html = html.replace(/`([^`]+)`/g, (match, code) => {
+                const index = inlineCode.length;
+                inlineCode.push(`<code>${escapeHtmlInText(code)}</code>`);
+                return `__INLINE_CODE_${index}__`;
+            });
+            
+            // Escape remaining HTML
+            html = escapeHtmlInText(html);
+            
+            // Restore code blocks and inline code
+            html = html.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => codeBlocks[parseInt(index)]);
+            html = html.replace(/__INLINE_CODE_(\d+)__/g, (match, index) => inlineCode[parseInt(index)]);
+            
+            // Headings (must be at start of line)
+            html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
+            html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
+            html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
+            html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+            html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+            html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+            
+            // Bold and italic (careful order)
+            html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            html = html.replace(/___(.+?)___/g, '<strong><em>$1</em></strong>');
+            html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+            html = html.replace(/_(.+?)_/g, '<em>$1</em>');
+            
+            // Links
+            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+            
+            // Horizontal rules
+            html = html.replace(/^---+$/gm, '<hr>');
+            html = html.replace(/^\*\*\*+$/gm, '<hr>');
+            
+            // Blockquotes
+            html = html.replace(/^&gt;\s+(.+)$/gm, '<blockquote>$1</blockquote>');
+            
+            // Task lists (before regular lists)
+            html = html.replace(/^(\s*)[-*]\s+\[x\]\s+(.+)$/gm, '$1<li class="task-list-item"><input type="checkbox" checked disabled> $2</li>');
+            html = html.replace(/^(\s*)[-*]\s+\[\s?\]\s+(.+)$/gm, '$1<li class="task-list-item"><input type="checkbox" disabled> $2</li>');
+            
+            // Unordered lists
+            html = html.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
+            
+            // Ordered lists
+            html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
+            
+            // Wrap consecutive <li> in <ul> (simple approach)
+            html = html.replace(/((?:<li[^>]*>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+            
+            // Tables (simple implementation)
+            const tableRegex = /^\|(.+)\|$/gm;
+            const rows = html.match(tableRegex);
+            if (rows && rows.length >= 2) {
+                let tableHtml = '<table>';
+                rows.forEach((row, i) => {
+                    const cells = row.slice(1, -1).split('|').map(c => c.trim());
+                    // Skip separator row (contains only dashes)
+                    if (cells.every(c => /^[-:]+$/.test(c))) return;
+                    
+                    const tag = i === 0 ? 'th' : 'td';
+                    tableHtml += '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
+                });
+                tableHtml += '</table>';
+                
+                // Replace the table in the HTML
+                let rowsPattern = rows.map(r => r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\n?');
+                html = html.replace(new RegExp(rowsPattern), tableHtml);
+            }
+            
+            // Paragraphs - wrap text blocks that aren't already wrapped
+            html = html.split('\n\n').map(block => {
+                block = block.trim();
+                if (!block) return '';
+                // Don't wrap if already starts with HTML tag
+                if (/^<(h[1-6]|p|ul|ol|li|pre|blockquote|table|hr|div)/.test(block)) {
+                    return block;
+                }
+                return `<p>${block}</p>`;
+            }).join('\n');
+            
+            // Clean up excessive newlines
+            html = html.replace(/\n{3,}/g, '\n\n');
+            
+            return html;
+        }
+
+        /**
+         * Basic syntax highlighting for code blocks
+         */
+        function highlightSyntax(code, lang) {
+            if (!lang) return code;
+            
+            lang = lang.toLowerCase();
+            
+            // Keywords by language family
+            const keywords = {
+                rust: /\b(fn|let|mut|const|pub|mod|use|struct|enum|impl|trait|where|for|while|loop|if|else|match|return|break|continue|async|await|move|ref|self|Self|super|crate|dyn|static|type|unsafe|extern|as|in)\b/g,
+                javascript: /\b(function|const|let|var|if|else|for|while|do|switch|case|break|continue|return|class|extends|new|this|super|import|export|default|async|await|try|catch|finally|throw|typeof|instanceof|in|of|yield)\b/g,
+                typescript: /\b(function|const|let|var|if|else|for|while|do|switch|case|break|continue|return|class|extends|new|this|super|import|export|default|async|await|try|catch|finally|throw|typeof|instanceof|in|of|yield|interface|type|enum|namespace|module|declare|readonly|private|public|protected|static|abstract|implements)\b/g,
+                python: /\b(def|class|if|elif|else|for|while|try|except|finally|with|as|import|from|return|yield|raise|pass|break|continue|and|or|not|in|is|None|True|False|lambda|global|nonlocal|async|await)\b/g,
+                go: /\b(func|var|const|type|struct|interface|map|chan|if|else|for|range|switch|case|default|break|continue|return|go|defer|select|package|import|make|new|nil|true|false|iota)\b/g,
+                json: /\b(null|true|false)\b/g,
+                bash: /\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|echo|export|source|alias|cd|pwd|ls|mkdir|rm|cp|mv|cat|grep|sed|awk|find|chmod|chown|sudo)\b/g,
+                sh: /\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|echo|export|source|alias|cd|pwd|ls|mkdir|rm|cp|mv|cat|grep|sed|awk|find|chmod|chown|sudo)\b/g,
+            };
+            
+            // Apply keywords
+            const keywordPattern = keywords[lang] || keywords.javascript;
+            code = code.replace(keywordPattern, '<span class="keyword">$&</span>');
+            
+            // Strings (double and single quotes)
+            code = code.replace(/("(?:[^"\\]|\\.)*")/g, '<span class="string">$1</span>');
+            code = code.replace(/('(?:[^'\\]|\\.)*')/g, '<span class="string">$1</span>');
+            
+            // Numbers
+            code = code.replace(/\b(\d+\.?\d*)\b/g, '<span class="number">$1</span>');
+            
+            // Comments (single line)
+            code = code.replace(/(\/\/.*$)/gm, '<span class="comment">$1</span>');
+            code = code.replace(/(#.*$)/gm, '<span class="comment">$1</span>');
+            
+            return code;
+        }
+
+        /**
+         * Open the doc viewer modal and load a doc by ID
+         */
+        async function openDocViewer(docId) {
+            const modal = document.getElementById('doc-viewer-modal');
+            const titleEl = document.getElementById('doc-viewer-title-text');
+            const metaEl = document.getElementById('doc-viewer-meta');
+            const summaryEl = document.getElementById('doc-viewer-summary');
+            const summaryContentEl = document.getElementById('doc-viewer-summary-content');
+            const contentEl = document.getElementById('doc-viewer-content');
+            const dirtyIndicator = document.getElementById('doc-viewer-dirty-indicator');
+            
+            // Show loading state
+            modal.classList.add('visible');
+            titleEl.textContent = 'Loading...';
+            metaEl.innerHTML = '';
+            summaryEl.style.display = 'none';
+            contentEl.innerHTML = '<div class="doc-viewer-loading">Loading document...</div>';
+            dirtyIndicator.style.display = 'none';
+            
+            try {
+                const response = await fetch(`/api/docs/${encodeURIComponent(docId)}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to load doc: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const doc = data.doc;
+                
+                // Set title
+                titleEl.textContent = doc.title || 'Untitled';
+                
+                // Show dirty indicator if summary needs update
+                if (doc.summary_dirty) {
+                    dirtyIndicator.style.display = 'inline';
+                    summaryEl.classList.add('dirty');
+                } else {
+                    dirtyIndicator.style.display = 'none';
+                    summaryEl.classList.remove('dirty');
+                }
+                
+                // Build meta badges
+                const docTypeLabels = {
+                    prd: { label: '📋 PRD', color: 'var(--accent-blue)' },
+                    note: { label: '📝 Note', color: 'var(--info)' },
+                    handoff: { label: '🔄 Handoff', color: 'var(--warning)' }
+                };
+                const typeInfo = docTypeLabels[doc.doc_type] || { label: doc.doc_type, color: 'var(--bg-tertiary)' };
+                
+                let metaHtml = `
+                    <span class="badge" style="background: ${typeInfo.color}">${typeInfo.label}</span>
+                    <span class="badge" style="background: var(--bg-tertiary)">${escapeHtml(doc.id)}</span>
+                `;
+                
+                if (doc.tags && doc.tags.length > 0) {
+                    metaHtml += doc.tags.map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('');
+                }
+                
+                if (doc.editors && doc.editors.length > 0) {
+                    const editorNames = doc.editors.map(e => e.name || e.agent_name || 'Unknown').join(', ');
+                    metaHtml += `<span class="badge" style="background: var(--bg-tertiary)">✍️ ${escapeHtml(editorNames)}</span>`;
+                }
+                
+                metaEl.innerHTML = metaHtml;
+                
+                // Render summary section prominently
+                if (doc.summary && doc.summary.trim()) {
+                    summaryEl.style.display = 'block';
+                    summaryContentEl.innerHTML = renderMarkdown(doc.summary);
+                } else {
+                    summaryEl.style.display = 'none';
+                }
+                
+                // Render main content (excluding summary section to avoid duplication)
+                let mainContent = doc.content || '';
+                // Remove the summary section from main content since we show it separately
+                mainContent = mainContent.replace(/^#\s*Summary\s*\n[\s\S]*?(?=^#\s|\Z)/mi, '').trim();
+                
+                if (mainContent) {
+                    contentEl.innerHTML = renderMarkdown(mainContent);
+                } else if (!doc.summary) {
+                    contentEl.innerHTML = '<div class="empty-state">No content</div>';
+                } else {
+                    contentEl.innerHTML = '';
+                }
+                
+            } catch (error) {
+                console.error('Failed to load doc:', error);
+                contentEl.innerHTML = `<div class="empty-state" style="color: var(--danger)">Failed to load document: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        /**
+         * Close the doc viewer modal
+         */
+        function closeDocViewer() {
+            document.getElementById('doc-viewer-modal').classList.remove('visible');
+        }
+
+        // Close doc viewer when clicking outside the container
+        document.getElementById('doc-viewer-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'doc-viewer-modal') {
+                closeDocViewer();
+            }
+        });
+
+        // Close doc viewer with Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('doc-viewer-modal');
+                if (modal.classList.contains('visible')) {
+                    closeDocViewer();
+                }
+            }
+        });
+
+        // ==================== End Doc Viewer ====================
 
         function renderLog() {
             const list = document.getElementById('log-list');
