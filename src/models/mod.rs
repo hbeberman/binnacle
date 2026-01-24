@@ -8,6 +8,7 @@
 //! - `CommitLink` - Associations between commits and tasks
 //! - `Edge` - Relationships between entities (dependencies, blocks, related, etc.)
 //! - `Agent` - AI agent registration for lifecycle management
+//! - `Editor` - Attribution for document version editors (agent or user)
 
 pub mod graph;
 
@@ -58,6 +59,73 @@ pub enum IdeaStatus {
     Promoted,
     /// Decided not to pursue
     Discarded,
+}
+
+/// Type of editor that modified a document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditorType {
+    /// An AI agent edited the document
+    Agent,
+    /// A human user edited the document
+    User,
+}
+
+impl fmt::Display for EditorType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EditorType::Agent => write!(f, "agent"),
+            EditorType::User => write!(f, "user"),
+        }
+    }
+}
+
+/// Attribution for who edited a document version.
+///
+/// Used in `Doc.editors` to track the chain of editors for each version.
+///
+/// # Example
+/// ```
+/// use binnacle::models::{Editor, EditorType};
+///
+/// let agent_editor = Editor::agent("bna-57f9".to_string());
+/// let user_editor = Editor::user("henry".to_string());
+///
+/// assert_eq!(agent_editor.editor_type, EditorType::Agent);
+/// assert_eq!(agent_editor.identifier, "bna-57f9");
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Editor {
+    /// Whether this is an agent or user edit
+    pub editor_type: EditorType,
+    /// Identifier: agent ID (e.g., "bna-57f9") or username (e.g., "henry")
+    pub identifier: String,
+}
+
+impl Editor {
+    /// Create a new editor attribution.
+    pub fn new(editor_type: EditorType, identifier: String) -> Self {
+        Self {
+            editor_type,
+            identifier,
+        }
+    }
+
+    /// Create an agent editor.
+    pub fn agent(identifier: String) -> Self {
+        Self::new(EditorType::Agent, identifier)
+    }
+
+    /// Create a user editor.
+    pub fn user(identifier: String) -> Self {
+        Self::new(EditorType::User, identifier)
+    }
+}
+
+impl fmt::Display for Editor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.editor_type, self.identifier)
+    }
 }
 
 // =============================================================================
@@ -2022,5 +2090,50 @@ mod tests {
             fp, expected,
             "SessionState schema changed! Update expected fingerprint if intentional."
         );
+    }
+
+    #[test]
+    fn test_schema_fingerprint_editor() {
+        let editor = super::Editor::agent("bna-57f9".to_string());
+
+        let json = serde_json::to_string(&editor).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        let expected = "editor_type|identifier";
+        assert_eq!(
+            fp, expected,
+            "Editor schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_editor_serialization_roundtrip() {
+        let agent_editor = super::Editor::agent("bna-57f9".to_string());
+        let json = serde_json::to_string(&agent_editor).unwrap();
+        let parsed: super::Editor = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.editor_type, super::EditorType::Agent);
+        assert_eq!(parsed.identifier, "bna-57f9");
+
+        let user_editor = super::Editor::user("henry".to_string());
+        let json = serde_json::to_string(&user_editor).unwrap();
+        let parsed: super::Editor = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.editor_type, super::EditorType::User);
+        assert_eq!(parsed.identifier, "henry");
+    }
+
+    #[test]
+    fn test_editor_display() {
+        let agent = super::Editor::agent("bna-57f9".to_string());
+        assert_eq!(format!("{}", agent), "agent:bna-57f9");
+
+        let user = super::Editor::user("henry".to_string());
+        assert_eq!(format!("{}", user), "user:henry");
+    }
+
+    #[test]
+    fn test_editor_type_display() {
+        assert_eq!(format!("{}", super::EditorType::Agent), "agent");
+        assert_eq!(format!("{}", super::EditorType::User), "user");
     }
 }
