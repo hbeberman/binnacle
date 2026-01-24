@@ -373,6 +373,17 @@
             text-align: center;
         }
 
+        .blocked-reason {
+            font-size: 0.7rem;
+            font-weight: 400;
+            font-style: italic;
+            opacity: 0.9;
+            margin-top: 0.15rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         /* Agents sidebar on graph view */
         .agents-sidebar {
             position: absolute;
@@ -5094,6 +5105,31 @@
             );
         }
 
+        // Get the reason(s) why a node is blocked
+        // Returns an array of reasons from depends_on edges pointing to unclosed tasks
+        function getBlockingReasons(nodeId) {
+            const reasons = [];
+            const edges = (state.edges || []).filter(edge => 
+                edge.source === nodeId && 
+                (edge.edge_type === 'depends_on' || edge.edge_type === 'blocks')
+            );
+            
+            for (const edge of edges) {
+                // Find the target task to check if it's still open (blocking)
+                const targetTask = state.tasks.find(t => t.id === edge.target);
+                if (targetTask && targetTask.status !== 'done' && targetTask.status !== 'cancelled') {
+                    if (edge.reason) {
+                        reasons.push(edge.reason);
+                    } else {
+                        // If no explicit reason, show what it's blocked by
+                        const targetTitle = targetTask.short_name || targetTask.title;
+                        reasons.push(`Waiting on: ${targetTitle}`);
+                    }
+                }
+            }
+            return reasons;
+        }
+
         function drawNode(ctx, node, canvas) {
             const isHovered = node === state.graph.hoveredNode;
             const isDragging = node === state.graph.draggedNode;
@@ -5554,9 +5590,11 @@
                 const isReady = readyIds.has(task.id);
                 const isBlocked = task.status === 'blocked' || !isReady;
                 const isBug = task.type === 'bug';
+                const blockingReasons = isBlocked ? getBlockingReasons(task.id) : [];
+                const reasonText = blockingReasons.length > 0 ? blockingReasons[0] : '';
                 return `
                 <div class="card ${isBlocked ? 'card-blocked' : ''}">
-                    ${isBlocked ? '<div class="blocked-banner">🚫 Blocked</div>' : ''}
+                    ${isBlocked ? `<div class="blocked-banner">🚫 Blocked${reasonText ? `<div class="blocked-reason" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</div>` : ''}</div>` : ''}
                     <div class="card-header">
                         <div class="card-title">${isBug ? '🐛 ' : ''}${escapeHtml(task.title)}</div>
                         <div class="card-actions">
@@ -5628,9 +5666,11 @@
                 const isQueued = isNodeQueued(bug.id);
                 const isReady = readyIds.has(bug.id);
                 const isBlocked = bug.status === 'blocked' || !isReady;
+                const blockingReasons = isBlocked ? getBlockingReasons(bug.id) : [];
+                const reasonText = blockingReasons.length > 0 ? blockingReasons[0] : '';
                 return `
                 <div class="card ${isBlocked ? 'card-blocked' : ''}">
-                    ${isBlocked ? '<div class="blocked-banner">🚫 Blocked</div>' : ''}
+                    ${isBlocked ? `<div class="blocked-banner">🚫 Blocked${reasonText ? `<div class="blocked-reason" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</div>` : ''}</div>` : ''}
                     <div class="card-header">
                         <div class="card-title">🐛 ${escapeHtml(bug.title)}</div>
                         <div class="card-actions">
