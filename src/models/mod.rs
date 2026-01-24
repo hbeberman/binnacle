@@ -61,6 +61,30 @@ pub enum IdeaStatus {
     Discarded,
 }
 
+/// Type of documentation node.
+/// Used to categorize docs for filtering and discovery.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocType {
+    /// Product requirements, specifications
+    #[default]
+    Prd,
+    /// General notes, observations
+    Note,
+    /// Context for session handoffs when partial progress made
+    Handoff,
+}
+
+impl fmt::Display for DocType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DocType::Prd => write!(f, "prd"),
+            DocType::Note => write!(f, "note"),
+            DocType::Handoff => write!(f, "handoff"),
+        }
+    }
+}
+
 /// Type of editor that modified a document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -508,34 +532,138 @@ impl Entity for Idea {
 
 /// A documentation node for storing markdown content linked to entities.
 /// Docs provide a way to attach rich documentation to any entity in the graph.
-/// They use a separate ID format (bnd-a1b2) to distinguish from other entities.
+/// They use the standard ID format (bn-xxxx) like other entities.
+///
+/// ## Content Storage
+///
+/// Content is stored compressed (zstd + base64) in JSONL to minimize storage.
+/// The `content` field holds the encoded string, while methods like
+/// `get_content()` and `set_content()` handle compression/decompression.
+///
+/// ## Versioning
+///
+/// Each `bn doc update` creates a new Doc entity with `supersedes` pointing
+/// to the previous version. This provides an audit trail of changes.
+///
+/// ## Summary Dirty Detection
+///
+/// The `summary_dirty` flag tracks when content changes but the `# Summary`
+/// section doesn't, signaling that an agent should update the summary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Doc {
     /// Common entity fields (id, type, title, short_name, description, tags, timestamps)
-    /// Note: For Doc, the `description` field in EntityCore is used for brief summaries,
-    /// while `content` holds the full markdown documentation.
     #[serde(flatten)]
     pub core: EntityCore,
 
-    /// Full markdown content of the documentation
+    /// Type of documentation (prd, note, handoff)
+    #[serde(default)]
+    pub doc_type: DocType,
+
+    /// Markdown content (zstd compressed + base64 encoded)
+    /// Use `get_content()` and `set_content()` for transparent compression.
     #[serde(default)]
     pub content: String,
+
+    /// True if content changed but # Summary section didn't
+    #[serde(default)]
+    pub summary_dirty: bool,
+
+    /// List of editors who contributed to this version
+    #[serde(default)]
+    pub editors: Vec<Editor>,
+
+    /// ID of previous version (if this is an update)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<String>,
 }
+
+/// Maximum compressed+encoded content size (5KB)
+pub const DOC_CONTENT_MAX_SIZE: usize = 5 * 1024;
 
 impl Doc {
     /// Create a new doc with the given ID and title.
     pub fn new(id: String, title: String) -> Self {
         Self {
             core: EntityCore::new("doc", id, title),
+            doc_type: DocType::default(),
             content: String::new(),
+            summary_dirty: false,
+            editors: Vec::new(),
+            supersedes: None,
         }
     }
 
-    /// Create a new doc with content.
-    pub fn with_content(id: String, title: String, content: String) -> Self {
-        Self {
+    /// Create a new doc with all fields specified.
+    pub fn with_content(
+        id: String,
+        title: String,
+        doc_type: DocType,
+        content: &str,
+        editors: Vec<Editor>,
+    ) -> Result<Self, DocCompressionError> {
+        let mut doc = Self {
             core: EntityCore::new("doc", id, title),
-            content,
+            doc_type,
+            content: String::new(),
+            summary_dirty: false,
+            editors,
+            supersedes: None,
+        };
+        doc.set_content(content)?;
+        Ok(doc)
+    }
+
+    /// Get the decompressed content.
+    ///
+    /// Returns an empty string if content is empty, otherwise decompresses.
+    pub fn get_content(&self) -> Result<String, DocCompressionError> {
+        if self.content.is_empty() {
+            return Ok(String::new());
+        }
+        decompress_content(&self.content)
+    }
+
+    /// Set content with automatic compression.
+    ///
+    /// Returns an error if the compressed content exceeds the size limit.
+    pub fn set_content(&mut self, content: &str) -> Result<(), DocCompressionError> {
+        if content.is_empty() {
+            self.content = String::new();
+            return Ok(());
+        }
+        let compressed = compress_content(content)?;
+        if compressed.len() > DOC_CONTENT_MAX_SIZE {
+            return Err(DocCompressionError::ContentTooLarge {
+                size: compressed.len(),
+                max: DOC_CONTENT_MAX_SIZE,
+            });
+        }
+        self.content = compressed;
+        Ok(())
+    }
+
+    /// Check if content changed but summary didn't between two doc contents.
+    ///
+    /// Used when updating a doc to detect if `summary_dirty` should be set.
+    pub fn is_summary_dirty(old_content: &str, new_content: &str) -> bool {
+        let old_hash = hash_excluding_summary(old_content);
+        let new_hash = hash_excluding_summary(new_content);
+        let old_summary_hash = hash_summary_section(old_content);
+        let new_summary_hash = hash_summary_section(new_content);
+
+        // Content changed but summary didn't
+        old_hash != new_hash && old_summary_hash == new_summary_hash
+    }
+
+    /// Add an editor to this doc version.
+    pub fn add_editor(&mut self, editor: Editor) {
+        // Don't duplicate editors
+        if !self
+            .editors
+            .iter()
+            .any(|e| e.identifier == editor.identifier)
+        {
+            self.editors.push(editor);
         }
     }
 }
@@ -565,6 +693,110 @@ impl Entity for Doc {
     fn tags(&self) -> &[String] {
         self.core.tags()
     }
+}
+
+// =============================================================================
+// Doc Compression Utilities
+// =============================================================================
+
+/// Errors that can occur during doc content compression/decompression.
+#[derive(Debug, thiserror::Error)]
+pub enum DocCompressionError {
+    #[error("Failed to compress content: {0}")]
+    CompressionFailed(String),
+
+    #[error("Failed to decompress content: {0}")]
+    DecompressionFailed(String),
+
+    #[error("Failed to decode base64: {0}")]
+    Base64DecodeFailed(String),
+
+    #[error("Content is not valid UTF-8: {0}")]
+    InvalidUtf8(String),
+
+    #[error("Compressed content too large: {size} bytes (max: {max} bytes)")]
+    ContentTooLarge { size: usize, max: usize },
+}
+
+/// Compress content using zstd and encode as base64.
+pub fn compress_content(content: &str) -> Result<String, DocCompressionError> {
+    use base64::Engine;
+
+    let compressed = zstd::stream::encode_all(content.as_bytes(), 3)
+        .map_err(|e| DocCompressionError::CompressionFailed(e.to_string()))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&compressed))
+}
+
+/// Decode base64 and decompress using zstd.
+pub fn decompress_content(encoded: &str) -> Result<String, DocCompressionError> {
+    use base64::Engine;
+
+    let compressed = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|e| DocCompressionError::Base64DecodeFailed(e.to_string()))?;
+    let decompressed = zstd::stream::decode_all(&compressed[..])
+        .map_err(|e| DocCompressionError::DecompressionFailed(e.to_string()))?;
+    String::from_utf8(decompressed).map_err(|e| DocCompressionError::InvalidUtf8(e.to_string()))
+}
+
+/// Hash content excluding the # Summary section.
+fn hash_excluding_summary(content: &str) -> String {
+    let without_summary = remove_summary_section(content);
+    let mut hasher = Sha256::new();
+    hasher.update(without_summary.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// Hash only the # Summary section.
+fn hash_summary_section(content: &str) -> String {
+    let summary = extract_summary_section(content);
+    let mut hasher = Sha256::new();
+    hasher.update(summary.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// Remove the # Summary section from content.
+fn remove_summary_section(content: &str) -> String {
+    let mut result = String::new();
+    let mut in_summary = false;
+
+    for line in content.lines() {
+        if line.starts_with("# Summary") {
+            in_summary = true;
+            continue;
+        }
+        // Another top-level heading ends the summary section
+        if in_summary && line.starts_with("# ") && !line.starts_with("# Summary") {
+            in_summary = false;
+        }
+        if !in_summary {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    result
+}
+
+/// Extract just the # Summary section from content.
+fn extract_summary_section(content: &str) -> String {
+    let mut result = String::new();
+    let mut in_summary = false;
+
+    for line in content.lines() {
+        if line.starts_with("# Summary") {
+            in_summary = true;
+            continue;
+        }
+        // Another top-level heading ends the summary section
+        if in_summary && line.starts_with("# ") && !line.starts_with("# Summary") {
+            break;
+        }
+        if in_summary {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    result
 }
 
 /// A milestone for grouping and tracking progress of tasks and bugs.
@@ -2135,5 +2367,231 @@ mod tests {
     fn test_editor_type_display() {
         assert_eq!(format!("{}", super::EditorType::Agent), "agent");
         assert_eq!(format!("{}", super::EditorType::User), "user");
+    }
+
+    // =============================================================================
+    // Doc model tests
+    // =============================================================================
+
+    #[test]
+    fn test_doc_type_display() {
+        assert_eq!(format!("{}", super::DocType::Prd), "prd");
+        assert_eq!(format!("{}", super::DocType::Note), "note");
+        assert_eq!(format!("{}", super::DocType::Handoff), "handoff");
+    }
+
+    #[test]
+    fn test_doc_type_default() {
+        assert_eq!(super::DocType::default(), super::DocType::Prd);
+    }
+
+    #[test]
+    fn test_doc_new() {
+        let doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        assert_eq!(doc.core.id, "bn-abc1");
+        assert_eq!(doc.core.title, "Test Doc");
+        assert_eq!(doc.core.entity_type, "doc");
+        assert_eq!(doc.doc_type, super::DocType::Prd);
+        assert!(!doc.summary_dirty);
+        assert!(doc.editors.is_empty());
+        assert!(doc.supersedes.is_none());
+        assert!(doc.content.is_empty());
+    }
+
+    #[test]
+    fn test_doc_compression_roundtrip() {
+        let original = "# Summary\nThis is a test document.\n\n# Content\nSome content here.";
+        let compressed = super::compress_content(original).unwrap();
+        let decompressed = super::decompress_content(&compressed).unwrap();
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn test_doc_set_get_content() {
+        let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        let content = "# Summary\nBrief summary.\n\n# Details\nMore details here.";
+        doc.set_content(content).unwrap();
+
+        // Content should be compressed (not plain text)
+        assert!(!doc.content.is_empty());
+        assert_ne!(doc.content, content);
+
+        // Get content should decompress
+        let retrieved = doc.get_content().unwrap();
+        assert_eq!(retrieved, content);
+    }
+
+    #[test]
+    fn test_doc_empty_content() {
+        let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        doc.set_content("").unwrap();
+        assert!(doc.content.is_empty());
+        assert_eq!(doc.get_content().unwrap(), "");
+    }
+
+    #[test]
+    fn test_doc_content_size_limit() {
+        let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        // Create content that will compress to more than 5KB
+        // Note: Random data doesn't compress well, so this should exceed the limit
+        let large_content = (0..50_000)
+            .map(|i| format!("line{:06}\n", i))
+            .collect::<String>();
+        let result = doc.set_content(&large_content);
+        assert!(result.is_err());
+        match result {
+            Err(super::DocCompressionError::ContentTooLarge { size, max }) => {
+                assert!(size > max);
+                assert_eq!(max, super::DOC_CONTENT_MAX_SIZE);
+            }
+            _ => panic!("Expected ContentTooLarge error"),
+        }
+    }
+
+    #[test]
+    fn test_doc_with_content() {
+        let doc = super::Doc::with_content(
+            "bn-abc1".to_string(),
+            "Test Doc".to_string(),
+            super::DocType::Note,
+            "# Summary\nTest",
+            vec![super::Editor::user("henry".to_string())],
+        )
+        .unwrap();
+
+        assert_eq!(doc.core.id, "bn-abc1");
+        assert_eq!(doc.doc_type, super::DocType::Note);
+        assert_eq!(doc.get_content().unwrap(), "# Summary\nTest");
+        assert_eq!(doc.editors.len(), 1);
+        assert_eq!(doc.editors[0].identifier, "henry");
+    }
+
+    #[test]
+    fn test_doc_add_editor_no_duplicates() {
+        let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        doc.add_editor(super::Editor::user("henry".to_string()));
+        doc.add_editor(super::Editor::user("henry".to_string())); // Duplicate
+        doc.add_editor(super::Editor::agent("bna-57f9".to_string()));
+        assert_eq!(doc.editors.len(), 2);
+    }
+
+    #[test]
+    fn test_doc_summary_dirty_detection() {
+        let old_content = "# Summary\nOld summary.\n\n# Content\nOld content.";
+        let new_content_same_summary = "# Summary\nOld summary.\n\n# Content\nNew content changed!";
+        let new_content_new_summary = "# Summary\nNew summary.\n\n# Content\nNew content changed!";
+
+        // Content changed but summary didn't -> dirty
+        assert!(super::Doc::is_summary_dirty(
+            old_content,
+            new_content_same_summary
+        ));
+
+        // Both content and summary changed -> not dirty
+        assert!(!super::Doc::is_summary_dirty(
+            old_content,
+            new_content_new_summary
+        ));
+
+        // Nothing changed -> not dirty
+        assert!(!super::Doc::is_summary_dirty(old_content, old_content));
+    }
+
+    #[test]
+    fn test_doc_schema_fingerprint() {
+        let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        doc.doc_type = super::DocType::Prd;
+        doc.summary_dirty = true;
+        doc.editors = vec![super::Editor::user("henry".to_string())];
+        doc.supersedes = Some("bn-old1".to_string());
+        doc.set_content("test content").unwrap();
+
+        let json = serde_json::to_string(&doc).unwrap();
+        let keys = extract_json_keys(&json);
+        let fp = fingerprint(&keys);
+
+        // Note: description and short_name only appear when set (skip_serializing_if)
+        let expected = "content|created_at|doc_type|editors|id|summary_dirty|supersedes|tags|title|type|updated_at";
+        assert_eq!(
+            fp, expected,
+            "Doc schema changed! Update expected fingerprint if intentional."
+        );
+    }
+
+    #[test]
+    fn test_doc_serialization_roundtrip() {
+        let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        doc.doc_type = super::DocType::Handoff;
+        doc.summary_dirty = true;
+        doc.editors = vec![
+            super::Editor::user("henry".to_string()),
+            super::Editor::agent("bna-57f9".to_string()),
+        ];
+        doc.supersedes = Some("bn-old1".to_string());
+        doc.set_content("# Summary\nTest summary\n\n# Content\nTest content")
+            .unwrap();
+
+        let json = serde_json::to_string(&doc).unwrap();
+        let parsed: super::Doc = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.core.id, "bn-abc1");
+        assert_eq!(parsed.core.title, "Test Doc");
+        assert_eq!(parsed.doc_type, super::DocType::Handoff);
+        assert!(parsed.summary_dirty);
+        assert_eq!(parsed.editors.len(), 2);
+        assert_eq!(parsed.supersedes, Some("bn-old1".to_string()));
+
+        // Verify content can be decompressed
+        let content = parsed.get_content().unwrap();
+        assert!(content.contains("# Summary"));
+        assert!(content.contains("Test content"));
+    }
+
+    #[test]
+    fn test_doc_entity_trait() {
+        use super::Entity;
+        let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
+        doc.core.short_name = Some("short".to_string());
+        doc.core.description = Some("desc".to_string());
+        doc.core.tags = vec!["tag1".to_string()];
+
+        assert_eq!(doc.id(), "bn-abc1");
+        assert_eq!(doc.entity_type(), "doc");
+        assert_eq!(doc.title(), "Test Doc");
+        assert_eq!(doc.short_name(), Some("short"));
+        assert_eq!(doc.description(), Some("desc"));
+        assert_eq!(doc.tags(), &["tag1".to_string()]);
+    }
+
+    #[test]
+    fn test_hash_summary_section() {
+        let content1 = "# Summary\nFirst summary\n\n# Other\nOther content";
+        let content2 = "# Summary\nFirst summary\n\n# Other\nDifferent content";
+        let content3 = "# Summary\nDifferent summary\n\n# Other\nOther content";
+
+        // Same summary section should have same hash
+        let hash1 = super::hash_summary_section(content1);
+        let hash2 = super::hash_summary_section(content2);
+        assert_eq!(hash1, hash2);
+
+        // Different summary section should have different hash
+        let hash3 = super::hash_summary_section(content3);
+        assert_ne!(hash1, hash3);
+    }
+
+    #[test]
+    fn test_hash_excluding_summary() {
+        let content1 = "# Summary\nFirst summary\n\n# Other\nOther content";
+        let content2 = "# Summary\nDifferent summary\n\n# Other\nOther content";
+        let content3 = "# Summary\nFirst summary\n\n# Other\nDifferent content";
+
+        // Same content (excluding summary) should have same hash
+        let hash1 = super::hash_excluding_summary(content1);
+        let hash2 = super::hash_excluding_summary(content2);
+        assert_eq!(hash1, hash2);
+
+        // Different content (excluding summary) should have different hash
+        let hash3 = super::hash_excluding_summary(content3);
+        assert_ne!(hash1, hash3);
     }
 }

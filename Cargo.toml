@@ -39,6 +39,8 @@ thiserror = "1"
 # Archive/compression
 tar = "0.4"
 flate2 = "1.0"
+zstd = "0.13"
+base64 = "0.22"
 
 # GUI dependencies (feature-gated)
 axum = { version = "0.7", features = ["ws"], optional = true }

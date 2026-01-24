@@ -4961,13 +4961,22 @@ pub fn doc_create(
     content: Option<String>,
     tags: Vec<String>,
 ) -> Result<DocCreated> {
+    use crate::models::DocType;
+
     let mut storage = Storage::open(repo_path)?;
 
     let id = storage.generate_unique_id("bnd", &title);
-    let mut doc = Doc::with_content(id.clone(), title.clone(), content.unwrap_or_default());
+    let mut doc = Doc::new(id.clone(), title.clone());
     doc.core.short_name = normalize_short_name(short_name);
     doc.core.description = description;
     doc.core.tags = tags;
+    doc.doc_type = DocType::default();
+
+    // Set content if provided
+    if let Some(c) = content {
+        doc.set_content(&c)
+            .map_err(|e| Error::InvalidInput(e.to_string()))?;
+    }
 
     storage.add_doc(&doc)?;
 
@@ -4981,7 +4990,10 @@ impl Output for Doc {
 
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
-        lines.push(format!("{} {}", self.core.id, self.core.title));
+        lines.push(format!(
+            "{} [{}] {}",
+            self.core.id, self.doc_type, self.core.title
+        ));
         if let Some(ref sn) = self.core.short_name {
             lines.push(format!("  Short Name: {}", sn));
         }
@@ -4990,6 +5002,16 @@ impl Output for Doc {
         }
         if !self.core.tags.is_empty() {
             lines.push(format!("  Tags: {}", self.core.tags.join(", ")));
+        }
+        if self.summary_dirty {
+            lines.push("  ⚠ Summary needs update".to_string());
+        }
+        if !self.editors.is_empty() {
+            let editors_str: Vec<String> = self.editors.iter().map(|e| e.to_string()).collect();
+            lines.push(format!("  Editors: {}", editors_str.join(", ")));
+        }
+        if let Some(ref sup) = self.supersedes {
+            lines.push(format!("  Supersedes: {}", sup));
         }
         lines.push(format!(
             "  Created: {}",
@@ -5003,7 +5025,11 @@ impl Output for Doc {
             lines.push(String::new());
             lines.push("Content:".to_string());
             lines.push("─".repeat(40));
-            lines.push(self.content.clone());
+            // Try to decompress content for display
+            match self.get_content() {
+                Ok(c) => lines.push(c),
+                Err(_) => lines.push("[Unable to decompress content]".to_string()),
+            }
         }
         lines.join("\n")
     }
