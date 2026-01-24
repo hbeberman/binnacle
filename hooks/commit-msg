@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Binnacle commit-msg hook
+# Automatically appends Co-authored-by trailer when an agent session is active
+
+COMMIT_MSG_FILE="$1"
+
+# Check if co-author feature is enabled (default: true)
+# Uses bn config get which returns JSON {"key":"...","value":...}
+enabled_value=$(bn config get co-author.enabled 2>/dev/null | grep -o '"value":[^,}]*' | cut -d':' -f2 | tr -d ' "' || echo "null")
+
+# If explicitly set to false/no/0, skip
+if [[ "$enabled_value" == "false" ]] || [[ "$enabled_value" == "no" ]] || [[ "$enabled_value" == "0" ]]; then
+    exit 0
+fi
+
+# Check for active agent session
+# Session file is at ~/.local/share/binnacle/<repo-hash>/session.json
+# We can use bn's storage path detection via a helper
+
+# Get storage dir for current repo
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [[ -z "$repo_root" ]]; then
+    exit 0
+fi
+
+# Calculate the storage directory hash (same algorithm as bn uses)
+# Hash is SHA256 of canonical path, first 12 chars
+repo_canonical=$(cd "$repo_root" && pwd -P)
+
+# Check for BN_DATA_DIR override, else use default
+if [[ -n "$BN_DATA_DIR" ]]; then
+    base_dir="$BN_DATA_DIR"
+else
+    base_dir="${XDG_DATA_HOME:-$HOME/.local/share}/binnacle"
+fi
+
+# Compute SHA256 hash of repo path
+repo_hash=$(printf "%s" "$repo_canonical" | sha256sum | cut -c1-12)
+session_file="$base_dir/$repo_hash/session.json"
+
+# Check if session file exists
+if [[ ! -f "$session_file" ]]; then
+    exit 0
+fi
+
+# Read session state
+session_json=$(cat "$session_file" 2>/dev/null || echo "{}")
+
+# Check orient_called flag
+orient_called=$(echo "$session_json" | grep -o '"orient_called":[^,}]*' | cut -d':' -f2 | tr -d ' ' || echo "false")
+if [[ "$orient_called" != "true" ]]; then
+    exit 0
+fi
+
+# Get agent PID from session
+agent_pid=$(echo "$session_json" | grep -o '"agent_pid":[^,}]*' | cut -d':' -f2 | tr -d ' ' || echo "0")
+if [[ "$agent_pid" == "0" ]] || [[ -z "$agent_pid" ]]; then
+    exit 0
+fi
+
+# Check if current process is a descendant of the agent PID
+# Walk up the process tree from current PID
+is_agent_descendant() {
+    local check_pid=$$
+    local target_pid=$1
+    
+    while [[ $check_pid -ge 1 ]]; do
+        if [[ "$check_pid" == "$target_pid" ]]; then
+            return 0
+        fi
+        # Don't go past PID 1
+        if [[ $check_pid -eq 1 ]]; then
+            break
+        fi
+        # Get parent PID (works on Linux and macOS)
+        local parent_pid
+        if [[ -f "/proc/$check_pid/stat" ]]; then
+            # Linux: read from /proc
+            parent_pid=$(cut -d' ' -f4 "/proc/$check_pid/stat" 2>/dev/null || echo "1")
+        else
+            # macOS: use ps
+            parent_pid=$(ps -o ppid= -p "$check_pid" 2>/dev/null | tr -d ' ' || echo "1")
+        fi
+        check_pid=$parent_pid
+    done
+    return 1
+}
+
+# If not running under agent process, skip
+if ! is_agent_descendant "$agent_pid"; then
+    exit 0
+fi
+
+# Agent is active - append Co-authored-by trailer if not already present
+# Get custom name/email from config, or use defaults
+co_author_name=$(bn config get co-author.name 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
+if [[ -z "$co_author_name" ]] || [[ "$co_author_name" == "null" ]]; then
+    co_author_name="binnacle-bot"
+fi
+
+co_author_email=$(bn config get co-author.email 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
+if [[ -z "$co_author_email" ]] || [[ "$co_author_email" == "null" ]]; then
+    co_author_email="noreply@binnacle.bot"
+fi
+
+trailer="Co-authored-by: $co_author_name <$co_author_email>"
+
+# Check if trailer already exists (for amend case)
+if grep -qF "$trailer" "$COMMIT_MSG_FILE" 2>/dev/null; then
+    exit 0
+fi
+
+# Append trailer with blank line separator
+# First, ensure there's a blank line before trailers
+echo "" >> "$COMMIT_MSG_FILE"
+echo "$trailer" >> "$COMMIT_MSG_FILE"
+
+exit 0
