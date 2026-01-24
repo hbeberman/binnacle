@@ -5434,13 +5434,17 @@
                 const tasksHtml = agent.tasks && agent.tasks.length > 0 
                     ? agent.tasks.map(t => `<span class="task-link" data-node-id="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join(', ')
                     : '<span class="no-tasks">No active tasks</span>';
+                // Store task IDs as data attribute (not HTML) for terminate modal
+                const taskIds = agent.tasks && agent.tasks.length > 0 
+                    ? agent.tasks.join(',') 
+                    : '';
                 const purposeHtml = agent.purpose 
                     ? `<div class="agent-purpose">${escapeHtml(agent.purpose)}</div>` 
                     : `<div class="agent-purpose agent-type-label">${escapeHtml(agent.agent_type || 'worker')} agent</div>`;
                 const agentNodeId = `agent-${agent.name}`;
                 return `
                 <div class="card agent-card">
-                    <button class="terminate-btn" onclick="showTerminateModal(${agent.pid}, '${escapeHtml(agent.name).replace(/'/g, "\\'")}', '${tasksHtml.replace(/'/g, "\\'")}')">✕ Terminate</button>
+                    <button class="terminate-btn" data-pid="${agent.pid}" data-name="${escapeHtml(agent.name)}" data-tasks="${escapeHtml(taskIds)}">✕ Terminate</button>
                     <div class="agent-name">${escapeHtml(agent.name)}</div>
                     ${purposeHtml}
                     <div class="agent-pid">PID: ${agent.pid}</div>
@@ -5514,6 +5518,20 @@
                 if (agentId) {
                     navigateToNodeOnGraph(agentId);
                 }
+                return;
+            }
+            
+            // Handle terminate button clicks
+            const terminateBtn = e.target.closest('.terminate-btn');
+            if (terminateBtn) {
+                const pid = parseInt(terminateBtn.dataset.pid, 10);
+                const name = terminateBtn.dataset.name;
+                const taskIds = terminateBtn.dataset.tasks;
+                // Format task IDs as HTML for the modal
+                const tasksHtml = taskIds 
+                    ? taskIds.split(',').map(t => `<span class="task-id">${escapeHtml(t)}</span>`).join(', ')
+                    : 'None';
+                showTerminateModal(pid, name, tasksHtml);
                 return;
             }
         });
