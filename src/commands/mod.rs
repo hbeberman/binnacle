@@ -2281,6 +2281,40 @@ pub struct TaskShowResult {
     pub blocking_info: Option<BlockingInfo>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub edges: Vec<TaskEdgeInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub linked_docs: Vec<LinkedDocInfo>,
+}
+
+/// Information about a doc linked to an entity.
+#[derive(Serialize)]
+pub struct LinkedDocInfo {
+    pub id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Helper to get linked docs for an entity.
+fn get_linked_docs_for_entity(storage: &Storage, entity_id: &str) -> Vec<LinkedDocInfo> {
+    // Find all 'documents' edges where this entity is the target
+    let edges = storage
+        .list_edges(Some(EdgeType::Documents), None, Some(entity_id))
+        .unwrap_or_default();
+
+    edges
+        .iter()
+        .filter_map(|edge| {
+            // The source of a 'documents' edge is the doc
+            storage.get_doc(&edge.source).ok().map(|doc| LinkedDocInfo {
+                id: doc.core.id.clone(),
+                title: doc.core.title.clone(),
+                short_name: doc.core.short_name.clone(),
+                description: doc.core.description.clone(),
+            })
+        })
+        .collect()
 }
 
 /// Edge information for task display.
@@ -2395,6 +2429,19 @@ impl Output for TaskShowResult {
                         "  {} {} \"{}\" ({}) [{}]",
                         arrow, e.related_id, title, e.edge_type, status
                     ));
+                }
+            }
+        }
+
+        // Show linked docs
+        if !self.linked_docs.is_empty() {
+            lines.push(String::new());
+            lines.push("Documentation:".to_string());
+            for doc in &self.linked_docs {
+                let name = doc.short_name.as_deref().unwrap_or(&doc.title);
+                lines.push(format!("  📄 {} \"{}\"", doc.id, name));
+                if let Some(ref desc) = doc.description {
+                    lines.push(format!("     {}", desc));
                 }
             }
         }
@@ -2693,10 +2740,14 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResponse> {
                 })
                 .collect();
 
+            // Get linked docs for this task
+            let linked_docs = get_linked_docs_for_entity(&storage, id);
+
             Ok(TaskShowResponse::Found(Box::new(TaskShowResult {
                 task,
                 blocking_info,
                 edges,
+                linked_docs,
             })))
         }
         Err(Error::NotFound(_)) => {
@@ -2712,6 +2763,7 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResponse> {
                     };
                     let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
                     let edges = build_edges_info(&storage, hydrated_edges);
+                    let linked_docs = get_linked_docs_for_entity(&storage, id);
 
                     Ok(TaskShowResponse::TypeMismatch(Box::new(
                         EntityMismatchResult {
@@ -2722,6 +2774,7 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResponse> {
                                 bug,
                                 blocking_info,
                                 edges,
+                                linked_docs,
                             }),
                             test: None,
                             milestone: None,
@@ -3614,6 +3667,8 @@ pub struct BugShowResult {
     pub blocking_info: Option<BlockingInfo>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub edges: Vec<TaskEdgeInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub linked_docs: Vec<LinkedDocInfo>,
 }
 
 impl Output for BugShowResult {
@@ -3737,6 +3792,19 @@ impl Output for BugShowResult {
             }
         }
 
+        // Show linked docs
+        if !self.linked_docs.is_empty() {
+            lines.push(String::new());
+            lines.push("Documentation:".to_string());
+            for doc in &self.linked_docs {
+                let name = doc.short_name.as_deref().unwrap_or(&doc.title);
+                lines.push(format!("  📄 {} \"{}\"", doc.id, name));
+                if let Some(ref desc) = doc.description {
+                    lines.push(format!("     {}", desc));
+                }
+            }
+        }
+
         if let Some(ref blocking) = self.blocking_info {
             lines.push(format!("\n{}", blocking.summary));
         }
@@ -3811,10 +3879,14 @@ pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResponse> {
             let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
             let edges = build_edges_info(&storage, hydrated_edges);
 
+            // Get linked docs for this bug
+            let linked_docs = get_linked_docs_for_entity(&storage, id);
+
             Ok(BugShowResponse::Found(Box::new(BugShowResult {
                 bug,
                 blocking_info,
                 edges,
+                linked_docs,
             })))
         }
         Err(Error::NotFound(_)) => {
@@ -3830,6 +3902,7 @@ pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResponse> {
                     };
                     let hydrated_edges = storage.get_edges_for_entity(id).unwrap_or_default();
                     let edges = build_edges_info(&storage, hydrated_edges);
+                    let linked_docs = get_linked_docs_for_entity(&storage, id);
 
                     Ok(BugShowResponse::TypeMismatch(Box::new(
                         EntityMismatchResult {
@@ -3839,6 +3912,7 @@ pub fn bug_show(repo_path: &Path, id: &str) -> Result<BugShowResponse> {
                                 task,
                                 blocking_info,
                                 edges,
+                                linked_docs,
                             }),
                             bug: None,
                             test: None,
