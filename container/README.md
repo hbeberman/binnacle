@@ -156,7 +156,7 @@ Environment variables are automatically passed to the container:
 
 | File | Description |
 |------|-------------|
-| `Containerfile` | Fedora 43 base with binnacle, git, and dev tools |
+| `Containerfile` | Fedora 43 base with binnacle, bun, @github/copilot, and dev tools |
 | `entrypoint.sh` | Orchestrates agent setup, execution, and merge |
 
 ## Workflow

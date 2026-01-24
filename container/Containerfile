@@ -16,8 +16,7 @@ RUN dnf install -y \
     fd-find \
     tree \
     vim \
-    nodejs \
-    npm \
+    unzip \
     python3 \
     python3-pip \
     && dnf clean all
@@ -25,9 +24,14 @@ RUN dnf install -y \
 # Copy pre-built binnacle binary (build with: just build release)
 COPY target/release/bn /usr/local/bin/bn
 
+# Install bun (JavaScript runtime and package manager)
+RUN curl -fsSL https://bun.sh/install | bash
+ENV BUN_INSTALL="/root/.bun"
+ENV PATH="$BUN_INSTALL/bin:$PATH"
+
 # Install GitHub Copilot CLI
 # Note: Requires COPILOT_GITHUB_TOKEN at runtime for auth
-RUN npm install -g @anthropic-ai/claude-cli || true
+RUN bun install -g @github/copilot || true
 
 # Create working directories
 RUN mkdir -p /workspace /binnacle /copilot-config

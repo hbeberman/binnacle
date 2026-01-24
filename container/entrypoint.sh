@@ -32,6 +32,10 @@ if [ "$1" = "shell" ] || [ "$1" = "bash" ]; then
     exec /bin/bash
 fi
 
+# Ensure bun is in PATH
+export BUN_INSTALL="${BUN_INSTALL:-/root/.bun}"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
 # Run the AI agent
 echo "🤖 Starting AI agent..."
 if command -v copilot &> /dev/null; then
@@ -42,7 +46,7 @@ elif command -v claude &> /dev/null; then
     AGENT_EXIT=$?
 else
     echo "❌ No AI agent found (copilot or claude CLI)"
-    echo "   Please install an AI agent CLI tool"
+    echo "   Please install @github/copilot via: bun install -g @github/copilot"
     exit 1
 fi
 
