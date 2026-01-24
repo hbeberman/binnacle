@@ -68,6 +68,49 @@ Before committing ANY code changes:
 
 **NEVER commit code that fails these checks.** CI will reject it and waste time.
 
+## Responding to CI Failures (CRITICAL)
+
+When the human reports that CI has failed, you must:
+
+1. **Ask to see the failure output** - Request the relevant error logs from the CI run
+2. **Parse the error type** - CI runs these checks (in this order of likelihood):
+   - **Format errors**: `cargo fmt --all -- --check` - Fix with `cargo fmt`
+   - **Clippy warnings**: `cargo clippy --all-targets --all-features -- -D warnings` - Fix the specific lint
+   - **Test failures**: `cargo test --all-features` - Fix the failing test or code
+   - **Security issues**: `zizmor` (GitHub Actions security) - Fix workflow file issues
+
+3. **Fix the issue locally** - Make the minimal change to address the error
+4. **Verify the fix** - Run `just check` and `cargo test --all-features`
+5. **Commit the fix** - Use a clear message like "fix: resolve clippy warning in X"
+
+### Common CI Error Patterns
+
+**Format failure:**
+```
+Diff in /path/to/file.rs at line N:
+```
+→ Run `cargo fmt` and commit
+
+**Clippy failure:**
+```
+error: [lint-name]
+  --> src/file.rs:line:col
+```
+→ Fix the specific lint, don't suppress with `#[allow(...)]` unless justified
+
+**Test failure:**
+```
+---- test_name stdout ----
+thread 'test_name' panicked at ...
+```
+→ Fix the test or the code it's testing
+
+### Important
+
+- **Never push** - Even to fix CI. The human handles all pushes.
+- **Don't guess** - If you can't see the error, ask for it
+- **One fix at a time** - Don't bundle unrelated changes with CI fixes
+
 ## Build and Test
 
 ### IMPORTANT: System bn vs Development Build
