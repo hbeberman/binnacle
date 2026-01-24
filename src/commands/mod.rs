@@ -101,6 +101,41 @@ fn process_short_name_update(short_name: Option<String>) -> Option<Option<String
     })
 }
 
+/// Format a byte size into human-readable form (e.g., "1.2 KB", "3.5 MB").
+fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * 1024;
+    const GB: u64 = 1024 * 1024 * 1024;
+
+    if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} bytes", bytes)
+    }
+}
+
+/// Calculate the total size of a directory recursively.
+fn calculate_dir_size(path: &std::path::Path) -> u64 {
+    let mut total = 0;
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if entry_path.is_file() {
+                if let Ok(metadata) = entry.metadata() {
+                    total += metadata.len();
+                }
+            } else if entry_path.is_dir() {
+                total += calculate_dir_size(&entry_path);
+            }
+        }
+    }
+    total
+}
+
 // === Init Command ===
 
 /// Prompt the user for a yes/no answer.
@@ -7654,6 +7689,12 @@ pub struct DoctorStats {
     pub total_tests: usize,
     pub total_commits: usize,
     pub storage_path: String,
+    /// Archive export directory path, if configured
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archive_directory: Option<String>,
+    /// Total size of archive directory in bytes, if configured and exists
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archive_size_bytes: Option<u64>,
 }
 
 impl Output for DoctorResult {
@@ -7680,6 +7721,21 @@ impl Output for DoctorResult {
         lines.push(format!("  Tests: {}", self.stats.total_tests));
         lines.push(format!("  Commit links: {}", self.stats.total_commits));
         lines.push(format!("  Storage: {}", self.stats.storage_path));
+
+        // Archive export status
+        if let Some(archive_dir) = &self.stats.archive_directory {
+            if let Some(size) = self.stats.archive_size_bytes {
+                lines.push(format!(
+                    "  Archive: {} ({})",
+                    archive_dir,
+                    format_bytes(size)
+                ));
+            } else {
+                lines.push(format!("  Archive: {} (not created)", archive_dir));
+            }
+        } else {
+            lines.push("  Archive: not configured".to_string());
+        }
 
         if !self.issues.is_empty() {
             lines.push(String::new());
@@ -7963,12 +8019,24 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
         });
     }
 
+    // Get archive directory configuration and size
+    let archive_directory = config_get_archive_directory(repo_path);
+    let archive_size_bytes = archive_directory.as_ref().and_then(|dir| {
+        if dir.exists() {
+            Some(calculate_dir_size(dir))
+        } else {
+            None
+        }
+    });
+
     let stats = DoctorStats {
         total_tasks: tasks.len(),
         total_bugs: bugs.len(),
         total_tests: tests.len(),
         total_commits: commit_count,
         storage_path: storage.root().to_string_lossy().to_string(),
+        archive_directory: archive_directory.map(|p| p.to_string_lossy().to_string()),
+        archive_size_bytes,
     };
 
     Ok(DoctorResult {
