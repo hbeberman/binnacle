@@ -54,6 +54,12 @@
             --edge-agent: #00d4ff;
             /* Edge type colors - agent worked_on (grey, like a dead/historical link) */
             --edge-agent-past: #6b7a8a;
+            /* Node type colors - docs (by doc_type) */
+            --doc-prd: #4a90e2;          /* Blue for PRDs */
+            --doc-note: #e8b84a;         /* Gold for Notes */
+            --doc-handoff: #e87d4a;      /* Orange for Handoffs */
+            /* Edge type colors - pinned (solid green, important connections) */
+            --edge-pinned: #5cb85c;
             /* Overlay backgrounds */
             --overlay-bg: rgba(0, 0, 0, 0.85);
         }
@@ -3252,6 +3258,7 @@
             fixes: { name: 'Fixes', category: 'fixes', defaultVisible: false },
             caused_by: { name: 'Caused By', category: 'fixes', defaultVisible: false },
             supersedes: { name: 'Supersedes', category: 'informational', defaultVisible: false },
+            pinned: { name: 'Pinned', category: 'pinned', defaultVisible: true },
             parent_of: { name: 'Parent', category: 'hierarchy', defaultVisible: false },
             child_of: { name: 'Child', category: 'hierarchy', defaultVisible: false },
             tests: { name: 'Tests', category: 'fixes', defaultVisible: false },
@@ -3634,7 +3641,17 @@
                 _agent: agent
             }));
             
-            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas, ...normalizedQueue, ...normalizedAgents];
+            // Normalize docs to have node-like fields for graph rendering
+            const normalizedDocs = (docsData.docs || []).map(doc => ({
+                ...doc,
+                type: 'doc',
+                status: 'active',  // Docs don't have status, use 'active' for rendering
+                priority: 3,  // Lower priority for layout
+                short_name: doc.short_name || doc.title,
+                depends_on: doc.supersedes ? [doc.supersedes] : []  // Version chain as dependency
+            }));
+            
+            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas, ...normalizedQueue, ...normalizedAgents, ...normalizedDocs];
             state.ready = readyData.tasks || [];
             state.ideas = ideasData.ideas || [];
             state.tests = testsData.tests || [];
@@ -3654,7 +3671,17 @@
                         edge_type: 'working_on'
                     }))
                 );
-            state.edges = [...(edgesData.edges || []), ...agentEdges];
+            
+            // Build supersedes edges from docs (version chain)
+            const docEdges = normalizedDocs
+                .filter(doc => doc.supersedes)
+                .map(doc => ({
+                    source: doc.id,
+                    target: doc.supersedes,
+                    edge_type: 'supersedes'
+                }));
+            
+            state.edges = [...(edgesData.edges || []), ...agentEdges, ...docEdges];
             state.agents = agentsData.agents || [];
             
             updateFollowSelector();
@@ -4928,10 +4955,14 @@
                 'caused_by': 'Caused By',
                 'duplicates': 'Duplicates',
                 'supersedes': 'Supersedes',
+                'pinned': 'Pinned',
                 'fixes': 'Fixes',
                 'tests': 'Tests',
                 'parent_of': 'Parent Of',
-                'child_of': 'Child Of'
+                'child_of': 'Child Of',
+                'queued': 'Queued',
+                'working_on': 'Working On',
+                'worked_on': 'Worked On'
             };
             return names[edgeType] || edgeType;
         }
@@ -6013,6 +6044,44 @@
             ctx.closePath();
         }
 
+        // Draw a rounded rectangle path (document/page shape) centered at (cx, cy)
+        // Slightly taller than wide to look like a document page
+        function drawDocPath(ctx, cx, cy, radius) {
+            const w = radius * 0.85;   // Width (narrower than height)
+            const h = radius * 1.1;    // Height (taller, page-like)
+            const corner = radius * 0.2;  // Corner radius
+            const fold = radius * 0.25;   // Corner fold size
+            
+            // Start at top-left (after corner radius)
+            ctx.moveTo(cx - w + corner, cy - h);
+            
+            // Top edge (until fold corner)
+            ctx.lineTo(cx + w - fold, cy - h);
+            
+            // Folded corner (dog-ear effect)
+            ctx.lineTo(cx + w, cy - h + fold);
+            
+            // Right edge
+            ctx.lineTo(cx + w, cy + h - corner);
+            
+            // Bottom-right corner (rounded)
+            ctx.quadraticCurveTo(cx + w, cy + h, cx + w - corner, cy + h);
+            
+            // Bottom edge
+            ctx.lineTo(cx - w + corner, cy + h);
+            
+            // Bottom-left corner (rounded)
+            ctx.quadraticCurveTo(cx - w, cy + h, cx - w, cy + h - corner);
+            
+            // Left edge
+            ctx.lineTo(cx - w, cy - h + corner);
+            
+            // Top-left corner (rounded)
+            ctx.quadraticCurveTo(cx - w, cy - h, cx - w + corner, cy - h);
+            
+            ctx.closePath();
+        }
+
         // Check if a node is in the queue (has a 'queued' edge to a queue node)
         function isNodeQueued(nodeId) {
             // Check state.edges (API data) directly, not state.graph.edges
@@ -6103,6 +6172,13 @@
                 'stale': '#4a6670'         // Dark gray-blue for stale
             };
             
+            // Doc colors (by doc_type) - use CSS variables
+            const docColors = {
+                'prd': '#4a90e2',           // --doc-prd (blue)
+                'note': '#e8b84a',          // --doc-note (gold)
+                'handoff': '#e87d4a'        // --doc-handoff (orange)
+            };
+            
             // Select color palette based on node type
             let colorPalette = colors;
             let color;
@@ -6117,6 +6193,8 @@
             } else if (node.type === 'agent') {
                 colorPalette = agentColors;
                 color = colorPalette[node.status] || '#00d4ff';
+            } else if (node.type === 'doc') {
+                color = docColors[node.doc_type] || '#4a90e2';
             } else {
                 color = colorPalette[node.status] || '#4a90e2';
             }
@@ -6145,6 +6223,8 @@
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
                 } else if (node.type === 'idea') {
                     drawCloudPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
+                } else if (node.type === 'doc') {
+                    drawDocPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 10 * zoom, 0, Math.PI * 2);
                 }
@@ -6166,6 +6246,8 @@
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'idea') {
                     drawCloudPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                } else if (node.type === 'doc') {
+                    drawDocPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
                 }
@@ -6186,6 +6268,8 @@
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'idea') {
                     drawCloudPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                } else if (node.type === 'doc') {
+                    drawDocPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else {
                     ctx.arc(screenPos.x, screenPos.y, radius + 8 * zoom, 0, Math.PI * 2);
                 }
@@ -6197,7 +6281,7 @@
             }
 
             // Draw queued indicator (teal glow for tasks in the queue)
-            const isQueued = node.type !== 'queue' && node.type !== 'agent' && isNodeQueued(node.id);
+            const isQueued = node.type !== 'queue' && node.type !== 'agent' && node.type !== 'doc' && isNodeQueued(node.id);
             if (isQueued) {
                 ctx.beginPath();
                 if (node.type === 'bug') {
@@ -6236,8 +6320,8 @@
             }
 
             // Draw active task indicator: counter-rotating hatched rings (Ghost in the Shell style)
-            // Only for in_progress tasks/bugs/ideas (not queues/agents)
-            if (node.status === 'in_progress' && node.type !== 'queue' && node.type !== 'agent') {
+            // Only for in_progress tasks/bugs/ideas (not queues/agents/docs)
+            if (node.status === 'in_progress' && node.type !== 'queue' && node.type !== 'agent' && node.type !== 'doc') {
                 const animTime = state.graph.animationTime;
                 const rotationSpeed = 0.001; // radians per ms
                 const outerRingRadius = radius + 14 * zoom;
@@ -6277,7 +6361,7 @@
                 ctx.restore();
             }
 
-            // Draw node shape (hexagon for queue, diamond for agent, square for bug, cloud for idea, circle for others)
+            // Draw node shape (hexagon for queue, diamond for agent, square for bug, cloud for idea, doc for doc, circle for others)
             ctx.beginPath();
             if (node.type === 'queue') {
                 drawHexagonPath(ctx, screenPos.x, screenPos.y, radius);
@@ -6287,6 +6371,8 @@
                 drawSquarePath(ctx, screenPos.x, screenPos.y, radius);
             } else if (node.type === 'idea') {
                 drawCloudPath(ctx, screenPos.x, screenPos.y, radius);
+            } else if (node.type === 'doc') {
+                drawDocPath(ctx, screenPos.x, screenPos.y, radius);
             } else {
                 ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
             }
@@ -6385,6 +6471,12 @@
                         color: styles.getPropertyValue('--edge-agent-past').trim() || '#6b7a8a',
                         dashed: false,  // Solid grey line (like a dead/historical link)
                         lineWidth: 2
+                    };
+                case 'pinned':
+                    return {
+                        color: styles.getPropertyValue('--edge-pinned').trim() || '#5cb85c',
+                        dashed: false,  // Solid line for important connections
+                        lineWidth: 3    // Thicker to emphasize importance
                     };
                 default:
                     return {
