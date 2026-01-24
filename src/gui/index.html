@@ -1176,6 +1176,50 @@
             box-shadow: 0 0 0 2px rgba(106, 168, 240, 0.2);
         }
 
+        /* View search bar (for Tasks, Bugs, Ideas views) */
+        .view-search-container {
+            margin-bottom: 1rem;
+        }
+
+        .view-search {
+            height: 36px;
+            width: 100%;
+            max-width: 400px;
+            padding: 0 0.75rem 0 2.25rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .view-search::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .view-search:focus {
+            outline: none;
+            border-color: var(--accent-light);
+            box-shadow: 0 0 0 2px rgba(106, 168, 240, 0.2);
+        }
+
+        .view-search-wrapper {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .view-search-icon {
+            position: absolute;
+            left: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            pointer-events: none;
+        }
+
         /* Auto-follow toggle */
         .auto-follow-toggle {
             display: flex;
@@ -2477,14 +2521,32 @@
             </div>
 
             <div id="ready-view" class="view">
+                <div class="view-search-container">
+                    <div class="view-search-wrapper">
+                        <span class="view-search-icon">🔍</span>
+                        <input class="view-search" id="tasks-search" type="text" placeholder="Search tasks…" autocomplete="off" spellcheck="false" />
+                    </div>
+                </div>
                 <div class="task-list" id="ready-list"></div>
             </div>
 
             <div id="bugs-view" class="view">
+                <div class="view-search-container">
+                    <div class="view-search-wrapper">
+                        <span class="view-search-icon">🔍</span>
+                        <input class="view-search" id="bugs-search" type="text" placeholder="Search bugs…" autocomplete="off" spellcheck="false" />
+                    </div>
+                </div>
                 <div class="task-list" id="bugs-list"></div>
             </div>
 
             <div id="ideas-view" class="view">
+                <div class="view-search-container">
+                    <div class="view-search-wrapper">
+                        <span class="view-search-icon">🔍</span>
+                        <input class="view-search" id="ideas-search" type="text" placeholder="Search ideas…" autocomplete="off" spellcheck="false" />
+                    </div>
+                </div>
                 <div class="task-list" id="ideas-list"></div>
             </div>
 
@@ -2817,6 +2879,13 @@
                 STABLE_THRESHOLD: 0.01,  // Velocity threshold for "stable" detection
                 STABLE_FRAMES_REQUIRED: 30  // Number of consecutive stable frames before stopping
             }
+        };
+
+        // View search state
+        const viewSearch = {
+            tasks: '',
+            bugs: '',
+            ideas: ''
         };
 
         // WebSocket connection
@@ -3917,6 +3986,46 @@
                     e.preventDefault();
                 }
             });
+        }
+
+        // Initialize view search bars (Tasks, Bugs, Ideas)
+        function initializeViewSearch() {
+            const searchConfigs = [
+                { inputId: 'tasks-search', key: 'tasks', renderFn: renderReady },
+                { inputId: 'bugs-search', key: 'bugs', renderFn: renderBugs },
+                { inputId: 'ideas-search', key: 'ideas', renderFn: renderIdeas }
+            ];
+
+            searchConfigs.forEach(({ inputId, key, renderFn }) => {
+                const input = document.getElementById(inputId);
+                if (!input) return;
+
+                input.addEventListener('input', () => {
+                    viewSearch[key] = input.value.toLowerCase();
+                    renderFn();
+                });
+
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        input.value = '';
+                        viewSearch[key] = '';
+                        renderFn();
+                        e.preventDefault();
+                    }
+                });
+            });
+        }
+
+        // Check if an item matches the view search query
+        function itemMatchesViewSearch(item, query) {
+            if (!query) return true;
+            const haystack = [
+                item.id || '',
+                item.title || '',
+                item.short_name || '',
+                item.description || ''
+            ].join(' ').toLowerCase();
+            return haystack.includes(query);
         }
 
         // Find and pan to the first active agent or in_progress task, zooming to 100%
@@ -5779,11 +5888,17 @@
         function renderReady() {
             const list = document.getElementById('ready-list');
             // Get all unclosed tasks and bugs (not done, not cancelled)
-            const unclosedTasks = (state.tasks || []).filter(t => 
+            let unclosedTasks = (state.tasks || []).filter(t => 
                 (t.type === 'task' || t.type === 'bug') && 
                 t.status !== 'done' && 
                 t.status !== 'cancelled'
             );
+            
+            // Apply search filter
+            const searchQuery = viewSearch.tasks;
+            if (searchQuery) {
+                unclosedTasks = unclosedTasks.filter(t => itemMatchesViewSearch(t, searchQuery));
+            }
             
             // Sort: ready tasks first, then by priority, then by ID
             const readyIds = new Set((state.ready || []).map(t => t.id));
@@ -5796,7 +5911,9 @@
             });
             
             if (unclosedTasks.length === 0) {
-                list.innerHTML = '<div class="empty-state">No open tasks</div>';
+                list.innerHTML = searchQuery 
+                    ? '<div class="empty-state">No tasks match your search</div>'
+                    : '<div class="empty-state">No open tasks</div>';
                 return;
             }
             list.innerHTML = unclosedTasks.map(task => {
@@ -5857,11 +5974,17 @@
         function renderBugs() {
             const list = document.getElementById('bugs-list');
             // Get all open bugs (not done, not cancelled)
-            const openBugs = (state.tasks || []).filter(t => 
+            let openBugs = (state.tasks || []).filter(t => 
                 t.type === 'bug' && 
                 t.status !== 'done' && 
                 t.status !== 'cancelled'
             );
+            
+            // Apply search filter
+            const searchQuery = viewSearch.bugs;
+            if (searchQuery) {
+                openBugs = openBugs.filter(b => itemMatchesViewSearch(b, searchQuery));
+            }
             
             // Check which bugs are ready (no blockers)
             const readyIds = new Set((state.ready || []).filter(t => t.type === 'bug').map(t => t.id));
@@ -5876,7 +5999,9 @@
             });
             
             if (openBugs.length === 0) {
-                list.innerHTML = '<div class="empty-state">No open bugs 🎉</div>';
+                list.innerHTML = searchQuery
+                    ? '<div class="empty-state">No bugs match your search</div>'
+                    : '<div class="empty-state">No open bugs 🎉</div>';
                 return;
             }
             list.innerHTML = openBugs.map(bug => {
@@ -5937,11 +6062,20 @@
         function renderIdeas() {
             const list = document.getElementById('ideas-list');
             // Filter to show only open ideas (seed or germinating)
-            const openIdeas = state.ideas.filter(idea => 
+            let openIdeas = state.ideas.filter(idea => 
                 idea.status === 'seed' || idea.status === 'germinating'
             );
+            
+            // Apply search filter
+            const searchQuery = viewSearch.ideas;
+            if (searchQuery) {
+                openIdeas = openIdeas.filter(idea => itemMatchesViewSearch(idea, searchQuery));
+            }
+            
             if (openIdeas.length === 0) {
-                list.innerHTML = '<div class="empty-state">No open ideas</div>';
+                list.innerHTML = searchQuery
+                    ? '<div class="empty-state">No ideas match your search</div>'
+                    : '<div class="empty-state">No open ideas</div>';
                 return;
             }
             list.innerHTML = openIdeas.map(idea => {
@@ -6677,6 +6811,7 @@
         updateAutoFollowDisplay();
         updateHideCompletedDisplay();
         initializeGraphSearch();
+        initializeViewSearch();
         connectWebSocket();
         
         // Periodically refresh the recently completed pane to keep "time ago" display current
