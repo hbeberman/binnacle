@@ -9223,6 +9223,9 @@ pub struct CommitArchiveResult {
     pub task_count: usize,
     pub test_count: usize,
     pub commit_count: usize,
+    /// Reason why archive was skipped (if `created` is false)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped_reason: Option<String>,
 }
 
 impl Output for CommitArchiveResult {
@@ -9242,9 +9245,14 @@ impl Output for CommitArchiveResult {
                 self.commit_count
             )
         } else {
+            let reason = self
+                .skipped_reason
+                .as_deref()
+                .unwrap_or("archive.directory not configured");
             format!(
-                "Archive not created for commit {}: archive.directory not configured",
-                &self.commit_hash[..7.min(self.commit_hash.len())]
+                "Archive not created for commit {}: {}",
+                &self.commit_hash[..7.min(self.commit_hash.len())],
+                reason
             )
         }
     }
@@ -9255,6 +9263,18 @@ impl Output for CommitArchiveResult {
 /// Creates `bn_{commit-hash}.tar.gz` in the configured archive directory.
 /// Returns `None` if `archive.directory` is not configured.
 pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<CommitArchiveResult> {
+    // Helper to create a skipped result
+    let skipped = |reason: &str| CommitArchiveResult {
+        created: false,
+        output_path: String::new(),
+        commit_hash: commit_hash.to_string(),
+        size_bytes: 0,
+        task_count: 0,
+        test_count: 0,
+        commit_count: 0,
+        skipped_reason: Some(reason.to_string()),
+    };
+
     // Check if archive directory is configured
     let archive_dir = match config_get_archive_directory(repo_path) {
         Some(dir) => dir,
@@ -9267,13 +9287,37 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
                 task_count: 0,
                 test_count: 0,
                 commit_count: 0,
+                skipped_reason: None, // Not configured is the default, no special reason
             });
         }
     };
 
     // Create archive directory if it doesn't exist
-    if !archive_dir.exists() {
-        fs::create_dir_all(&archive_dir)?;
+    // Handle inaccessible paths gracefully (e.g., in containers with broken mounts)
+    if !archive_dir.exists()
+        && let Err(e) = fs::create_dir_all(&archive_dir)
+    {
+        return Ok(skipped(&format!(
+            "cannot create directory '{}': {}",
+            archive_dir.display(),
+            e
+        )));
+    }
+
+    // Check if directory is writable by attempting to create a temp file
+    let test_file = archive_dir.join(".bn_write_test");
+    match fs::write(&test_file, b"test") {
+        Ok(_) => {
+            // Clean up test file
+            let _ = fs::remove_file(&test_file);
+        }
+        Err(e) => {
+            return Ok(skipped(&format!(
+                "directory '{}' is not writable: {}",
+                archive_dir.display(),
+                e
+            )));
+        }
     }
 
     // Generate archive filename
@@ -9281,7 +9325,13 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
     let archive_path = archive_dir.join(&archive_filename);
 
     // Use the existing export functionality
-    let result = system_store_export(repo_path, archive_path.to_str().unwrap(), "archive")?;
+    // Catch any errors during export (e.g., disk full, I/O errors)
+    let result = match system_store_export(repo_path, archive_path.to_str().unwrap(), "archive") {
+        Ok(r) => r,
+        Err(e) => {
+            return Ok(skipped(&format!("failed to export archive: {}", e)));
+        }
+    };
 
     Ok(CommitArchiveResult {
         created: true,
@@ -9291,6 +9341,7 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
         task_count: result.task_count,
         test_count: result.test_count,
         commit_count: result.commit_count,
+        skipped_reason: None,
     })
 }
 

@@ -161,3 +161,168 @@ fn test_post_commit_hook_install_function() {
     let stdout = String::from_utf8_lossy(&output);
     assert!(stdout.contains("\"created\":false"));
 }
+
+#[test]
+fn test_archive_graceful_nonexistent_directory() {
+    let env = TestEnv::new();
+    init_git(&env);
+    init_binnacle(&env);
+
+    // Create parent directory so config validates, then remove it
+    let parent_dir = env.path().join("archive_parent");
+    let archive_dir = parent_dir.join("archives");
+    fs::create_dir_all(&parent_dir).unwrap();
+
+    // Configure archive directory - parent exists so this passes validation
+    env.bn()
+        .args([
+            "config",
+            "set",
+            "archive.directory",
+            archive_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Now make parent unwritable so archive creation will fail
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&parent_dir).unwrap().permissions();
+        perms.set_mode(0o444); // read-only
+        fs::set_permissions(&parent_dir, perms).unwrap();
+    }
+
+    // Try to generate archive - should fail gracefully, not error
+    let output = env
+        .bn()
+        .args(["system", "store", "archive", "abc123"])
+        .assert()
+        .success() // Should succeed with created: false, not error
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8_lossy(&output);
+    assert!(stdout.contains("\"created\":false"));
+    assert!(stdout.contains("\"skipped_reason\""));
+    assert!(stdout.contains("cannot create directory"));
+
+    // Cleanup: restore permissions so the directory can be cleaned up
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&parent_dir).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&parent_dir, perms).unwrap();
+    }
+}
+
+#[test]
+fn test_archive_graceful_unwritable_directory() {
+    let env = TestEnv::new();
+    init_git(&env);
+    init_binnacle(&env);
+
+    // Create a directory and make it read-only
+    let archive_dir = env.path().join("readonly_archive");
+    fs::create_dir_all(&archive_dir).unwrap();
+
+    // Make directory unwritable (Unix only)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&archive_dir).unwrap().permissions();
+        perms.set_mode(0o444); // read-only
+        fs::set_permissions(&archive_dir, perms).unwrap();
+    }
+
+    env.bn()
+        .args([
+            "config",
+            "set",
+            "archive.directory",
+            archive_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Try to generate archive - should fail gracefully
+    let output = env
+        .bn()
+        .args(["system", "store", "archive", "abc123"])
+        .assert()
+        .success() // Should succeed with created: false, not error
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8_lossy(&output);
+    assert!(stdout.contains("\"created\":false"));
+    assert!(stdout.contains("\"skipped_reason\""));
+    assert!(stdout.contains("not writable"));
+
+    // Cleanup: restore permissions so the directory can be cleaned up
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&archive_dir).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&archive_dir, perms).unwrap();
+    }
+}
+
+#[test]
+fn test_archive_graceful_human_output() {
+    let env = TestEnv::new();
+    init_git(&env);
+    init_binnacle(&env);
+
+    // Create parent directory so config validates, then remove it
+    let parent_dir = env.path().join("archive_human_test");
+    let archive_dir = parent_dir.join("archives");
+    fs::create_dir_all(&parent_dir).unwrap();
+
+    // Configure archive directory - parent exists so this passes validation
+    env.bn()
+        .args([
+            "config",
+            "set",
+            "archive.directory",
+            archive_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Now make parent unwritable so archive creation will fail
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&parent_dir).unwrap().permissions();
+        perms.set_mode(0o444); // read-only
+        fs::set_permissions(&parent_dir, perms).unwrap();
+    }
+
+    // Try with -H for human-readable output
+    let output = env
+        .bn()
+        .args(["-H", "system", "store", "archive", "abc123"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8_lossy(&output);
+    assert!(stdout.contains("Archive not created"));
+    assert!(stdout.contains("cannot create directory"));
+
+    // Cleanup: restore permissions so the directory can be cleaned up
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&parent_dir).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&parent_dir, perms).unwrap();
+    }
+}
