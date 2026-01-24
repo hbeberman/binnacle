@@ -31,6 +31,8 @@ TOOLS_FULL=(
     --allow-tool "shell(sed:*)"
     --allow-tool "shell(cp:*)"
     --allow-tool "shell(lsof:*)"
+    --allow-tool "shell(rm:*)"
+    --allow-tool "shell(mkdir:*)"
 )
 
 TOOLS_PRD=(
