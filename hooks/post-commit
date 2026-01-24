@@ -1,9 +1,67 @@
 #!/usr/bin/env bash
 # Binnacle post-commit hook
-# Reminds agents to run bn goodbye when their session is complete
+# - Auto-links commits to in-progress tasks/bugs during agent sessions
+# - Reminds agents to run bn goodbye when their session is complete
 
-# Only show reminder if binnacle is initialized for this repo
-if command -v bn &> /dev/null && bn doctor > /dev/null 2>&1; then
+# Exit early if bn is not available or binnacle not initialized
+if ! command -v bn &> /dev/null || ! bn doctor > /dev/null 2>&1; then
+    exit 0
+fi
+
+# Check if auto-commit-link feature is enabled (default: true)
+auto_link_value=$(bn config get commit.auto-link 2>/dev/null | grep -o '"value":[^,}]*' | cut -d':' -f2 | tr -d ' "' || echo "null")
+
+# If explicitly set to false/no/0, skip auto-linking
+if [[ "$auto_link_value" == "false" ]] || [[ "$auto_link_value" == "no" ]] || [[ "$auto_link_value" == "0" ]]; then
+    auto_link_enabled=false
+else
+    auto_link_enabled=true
+fi
+
+# Check for active agent session
+agent_active=false
+if [[ "$BN_AGENT_SESSION" == "1" ]]; then
+    agent_active=true
+else
+    # Check for marker file created by agent.sh
+    GIT_DIR=$(git rev-parse --git-dir 2>/dev/null) || GIT_DIR=""
+    if [[ -n "$GIT_DIR" ]] && [[ -f "$GIT_DIR/bn-agent-session" ]]; then
+        # Verify the agent process is still running
+        agent_pid=$(cat "$GIT_DIR/bn-agent-session" 2>/dev/null || echo "")
+        if [[ -n "$agent_pid" ]] && kill -0 "$agent_pid" 2>/dev/null; then
+            agent_active=true
+        fi
+    fi
+fi
+
+# Auto-link commit to in-progress tasks/bugs if agent is active
+if [[ "$agent_active" == "true" ]] && [[ "$auto_link_enabled" == "true" ]]; then
+    # Get the commit SHA that was just made
+    commit_sha=$(git rev-parse HEAD 2>/dev/null)
+    
+    if [[ -n "$commit_sha" ]]; then
+        # Find in-progress tasks and link the commit to each
+        # bn task list returns {"tasks": [...], "count": N}
+        in_progress_tasks=$(bn task list --status in_progress 2>/dev/null | jq -r '.tasks[]?.id // .[]?.id' 2>/dev/null || true)
+        for task_id in $in_progress_tasks; do
+            if [[ -n "$task_id" ]]; then
+                bn commit link "$commit_sha" "$task_id" > /dev/null 2>&1 || true
+            fi
+        done
+        
+        # Find in-progress bugs and link the commit to each
+        # bn bug list returns {"bugs": [...], "count": N}
+        in_progress_bugs=$(bn bug list --status in_progress 2>/dev/null | jq -r '.bugs[]?.id // .[]?.id' 2>/dev/null || true)
+        for bug_id in $in_progress_bugs; do
+            if [[ -n "$bug_id" ]]; then
+                bn commit link "$commit_sha" "$bug_id" > /dev/null 2>&1 || true
+            fi
+        done
+    fi
+fi
+
+# Always show the reminder for agents
+if [[ "$agent_active" == "true" ]]; then
     echo ""
     echo "💡 Reminder: Run 'bn goodbye' when your session is complete."
     echo "   This updates binnacle and gracefully terminates your agent session."
