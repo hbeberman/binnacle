@@ -7237,13 +7237,15 @@
                 const typeInfo = getDocTypeLabel(doc.doc_type);
                 const linkedCount = countLinkedEntities(doc.id);
                 const summaryDirty = doc.summary_dirty;
+                // Get a brief preview from the summary (first non-empty line, truncated)
+                const summaryPreview = (doc.summary || '').split('\n').filter(l => l.trim()).slice(0, 1).join('').substring(0, 200);
                 
                 return `
                 <div class="card" data-doc-id="${escapeHtml(doc.id)}" onclick="openDocViewer('${escapeHtml(doc.id)}')">
                     <div class="card-header">
                         <div class="card-title">${escapeHtml(doc.title)}${summaryDirty ? ' <span style="color: var(--warning)" title="Summary needs update">⚠️</span>' : ''}</div>
                     </div>
-                    ${doc.description ? `<div class="card-description">${escapeHtml(doc.description)}</div>` : ''}
+                    ${summaryPreview ? `<div class="card-description">${escapeHtml(summaryPreview)}${summaryPreview.length >= 200 ? '…' : ''}</div>` : (doc.description ? `<div class="card-description">${escapeHtml(doc.description)}</div>` : '')}
                     <div class="card-meta">
                         <span class="badge" style="background: ${typeInfo.color}">${typeInfo.label}</span>
                         <span class="badge" style="background: var(--bg-tertiary)">${doc.id}</span>

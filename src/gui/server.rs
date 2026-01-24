@@ -250,7 +250,29 @@ async fn get_docs(State(state): State<AppState>) -> Result<Json<serde_json::Valu
         .list_docs(None, None, None, None)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(serde_json::json!({ "docs": docs })))
+    // Transform docs to include extracted summary for display in list view
+    let docs_with_summary: Vec<serde_json::Value> = docs
+        .into_iter()
+        .map(|doc| {
+            let summary = doc.get_summary().unwrap_or_default();
+            serde_json::json!({
+                "id": doc.core.id,
+                "title": doc.core.title,
+                "short_name": doc.core.short_name,
+                "description": doc.core.description,
+                "tags": doc.core.tags,
+                "doc_type": doc.doc_type,
+                "summary": summary,
+                "summary_dirty": doc.summary_dirty,
+                "editors": doc.editors,
+                "supersedes": doc.supersedes,
+                "created_at": doc.core.created_at,
+                "updated_at": doc.core.updated_at
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({ "docs": docs_with_summary })))
 }
 
 /// Get a single doc by ID with decompressed content
