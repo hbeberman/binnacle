@@ -920,6 +920,29 @@
             transform: translateX(14px);
         }
 
+        /* Agent selector dropdown */
+        .agent-selector {
+            font-size: 0.7rem;
+            padding: 0.15rem 0.25rem;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            cursor: pointer;
+            max-width: 100px;
+            text-overflow: ellipsis;
+        }
+
+        .agent-selector:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .agent-selector option {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
         /* Hide completed toggle */
         .hide-completed-toggle {
             display: flex;
@@ -2055,8 +2078,11 @@
                         <button class="hide-completed-switch" id="hide-completed-switch" title="Hide completed nodes (except in active chains)"></button>
                     </div>
                     <div class="auto-follow-toggle">
-                        <span class="auto-follow-label">Follow active</span>
-                        <button class="auto-follow-switch" id="auto-follow-switch" title="Follow active task"></button>
+                        <span class="auto-follow-label">Follow agent</span>
+                        <select class="agent-selector" id="agent-selector" title="Select agent to follow">
+                            <option value="">None</option>
+                        </select>
+                        <button class="auto-follow-switch" id="auto-follow-switch" title="Auto-focus on selected agent"></button>
                     </div>
                     <div class="zoom-buttons">
                         <button class="zoom-btn" id="zoom-in" title="Zoom In">+</button>
@@ -2443,7 +2469,8 @@
                 // Camera pan animation state
                 followAnimation: null,  // { startPanX, startPanY, targetPanX, targetPanY, startZoom, targetZoom, startTime, duration }
                 // Auto-follow state
-                autoFollow: true,
+                autoFollow: false,  // Whether auto-follow is enabled
+                followAgentId: null,  // ID of agent to follow (e.g., 'bna-xxxx' or 'agent-1234')
                 followingNodeId: null,  // ID of node currently being followed (for continuous tracking)
                 // Stat highlight filter state (null = no filter active)
                 highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
@@ -2513,18 +2540,19 @@
                         
                         await loadData();
                         
-                        // Check for in_progress transitions when auto-follow is enabled
-                        // Only follow actual tasks, not agent nodes (which move around too much)
-                        if (state.graph.autoFollow && state.tasks) {
-                            for (const task of state.tasks) {
-                                if (task.type === 'agent') continue;  // Skip agent nodes
-                                const prevStatus = prevStatuses[task.id];
-                                if (task.status === 'in_progress' && prevStatus && prevStatus !== 'in_progress') {
-                                    // Task just transitioned to in_progress - start following it with zoom to 100%
-                                    state.graph.followingNodeId = task.id;
-                                    panToNode(task.id, true);  // Zoom to 100%
-                                    break; // Follow first transition found
-                                }
+                        // When auto-follow is enabled and we have a selected agent,
+                        // re-center on the agent node if it has moved (working on a different task)
+                        if (state.graph.autoFollow && state.graph.followAgentId) {
+                            // Check if the agent is still present
+                            const agentNode = state.tasks?.find(t => t.id === state.graph.followAgentId && t.type === 'agent');
+                            if (agentNode && state.graph.followingNodeId !== agentNode.id) {
+                                // Agent exists but we weren't following it - start following
+                                state.graph.followingNodeId = agentNode.id;
+                                panToNode(agentNode.id, true);
+                            } else if (agentNode) {
+                                // Agent is being followed - re-pan to keep it centered
+                                // (the agent's visual position may have changed due to graph layout changes)
+                                panToNode(agentNode.id, false);  // Don't zoom, just pan
                             }
                         }
                         
@@ -2673,6 +2701,7 @@
             state.edges = [...(edgesData.edges || []), ...agentEdges];
             state.agents = agentsData.agents || [];
             
+            updateAgentSelector();
             updateStatsOverlay();
             updateActiveTaskPane();
             renderCurrentView();
@@ -3233,15 +3262,25 @@
             updateZoomDisplay();
         });
 
-        // Auto-follow toggle
+        // Auto-follow toggle and agent selector
         document.getElementById('auto-follow-switch').addEventListener('click', () => {
             state.graph.autoFollow = !state.graph.autoFollow;
             updateAutoFollowDisplay();
-            // When enabling auto-follow, immediately snap to current active task
-            if (state.graph.autoFollow) {
-                snapToActiveTask();
-            } else {
+            // When enabling auto-follow, immediately snap to selected agent
+            if (state.graph.autoFollow && state.graph.followAgentId) {
+                snapToFollowedAgent();
+            } else if (!state.graph.autoFollow) {
                 // When disabling auto-follow, stop tracking
+                state.graph.followingNodeId = null;
+            }
+        });
+
+        document.getElementById('agent-selector').addEventListener('change', (e) => {
+            state.graph.followAgentId = e.target.value || null;
+            // If auto-follow is enabled and we selected an agent, snap to it
+            if (state.graph.autoFollow && state.graph.followAgentId) {
+                snapToFollowedAgent();
+            } else {
                 state.graph.followingNodeId = null;
             }
         });
@@ -3252,6 +3291,51 @@
                 switchEl.classList.add('active');
             } else {
                 switchEl.classList.remove('active');
+            }
+        }
+
+        function updateAgentSelector() {
+            const selector = document.getElementById('agent-selector');
+            const workerAgents = (state.agents || []).filter(a => a.agent_type === 'worker');
+            
+            // Remember current selection
+            const currentValue = selector.value;
+            
+            // Clear and repopulate options
+            selector.innerHTML = '<option value="">None</option>';
+            workerAgents.forEach(agent => {
+                const agentId = agent.id || `agent-${agent.pid}`;
+                const option = document.createElement('option');
+                option.value = agentId;
+                option.textContent = agent.name || `Agent ${agent.pid}`;
+                if (agentId === currentValue || agentId === state.graph.followAgentId) {
+                    option.selected = true;
+                }
+                selector.appendChild(option);
+            });
+            
+            // If currently followed agent is gone, clear the follow state
+            if (state.graph.followAgentId) {
+                const agentStillExists = workerAgents.some(a => 
+                    (a.id || `agent-${a.pid}`) === state.graph.followAgentId
+                );
+                if (!agentStillExists) {
+                    state.graph.followAgentId = null;
+                    state.graph.followingNodeId = null;
+                    selector.value = '';
+                }
+            }
+            
+            // Auto-select first agent if none selected and agents exist
+            if (!state.graph.followAgentId && workerAgents.length > 0) {
+                const firstAgent = workerAgents[0];
+                const firstAgentId = firstAgent.id || `agent-${firstAgent.pid}`;
+                state.graph.followAgentId = firstAgentId;
+                selector.value = firstAgentId;
+                // If auto-follow is already on, snap to the newly selected agent
+                if (state.graph.autoFollow) {
+                    snapToFollowedAgent();
+                }
             }
         }
 
@@ -3349,15 +3433,35 @@
         }
 
         // Find and pan to the first active agent or in_progress task, zooming to 100%
+        // (Legacy function for initial page load - now uses snapToFollowedAgent when available)
         function snapToActiveTask() {
+            // If we have a selected agent to follow, use that instead
+            if (state.graph.followAgentId) {
+                snapToFollowedAgent();
+                return;
+            }
+            
             if (!state.tasks) return;
             
-            // Follow the active task (in_progress), not agent nodes
-            // Agent nodes move around too much and following them is distracting
+            // Fallback: follow the active task (in_progress), not agent nodes
             const activeTask = state.tasks.find(t => t.status === 'in_progress' && t.type !== 'agent');
             if (activeTask) {
                 state.graph.followingNodeId = activeTask.id;
                 panToNode(activeTask.id, true);  // Zoom to 100%
+            } else {
+                state.graph.followingNodeId = null;
+            }
+        }
+
+        // Snap camera to the currently followed agent node
+        function snapToFollowedAgent() {
+            if (!state.graph.followAgentId || !state.tasks) return;
+            
+            // Find the agent node
+            const agentNode = state.tasks.find(t => t.id === state.graph.followAgentId && t.type === 'agent');
+            if (agentNode) {
+                state.graph.followingNodeId = agentNode.id;
+                panToNode(agentNode.id, true);  // Zoom to 100%
             } else {
                 state.graph.followingNodeId = null;
             }
