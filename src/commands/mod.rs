@@ -1256,6 +1256,14 @@ pub struct OrientResult {
     pub open_bugs_count: usize,
     /// Number of high/critical severity bugs that are open
     pub critical_bugs_count: usize,
+    /// Total number of ideas
+    pub total_ideas: usize,
+    /// Number of open ideas (pending, promoted)
+    pub open_ideas_count: usize,
+    /// Total number of milestones
+    pub total_milestones: usize,
+    /// Number of open milestones (pending, in_progress)
+    pub open_milestones_count: usize,
 }
 
 /// Queue info for orient output.
@@ -1281,14 +1289,25 @@ impl Output for OrientResult {
         lines.push("Current State:".to_string());
         lines.push(format!("  Total tasks: {}", self.total_tasks));
 
-        // Show queue info if exists
-        if let Some(ref queue_info) = self.queue {
+        // Primary sections: Bugs, Blocked, Ready (with queued info folded beneath)
+
+        // Bugs section
+        if self.total_bugs > 0 || self.open_bugs_count > 0 {
+            let critical_info = if self.critical_bugs_count > 0 {
+                format!(" ({} high/critical)", self.critical_bugs_count)
+            } else {
+                String::new()
+            };
             lines.push(format!(
-                "  Queue: \"{}\" ({} tasks)",
-                queue_info.title, queue_info.task_count
+                "  Bugs: {} open{}",
+                self.open_bugs_count, critical_info
             ));
         }
 
+        // Blocked section
+        lines.push(format!("  Blocked: {}", self.blocked_count));
+
+        // Ready section with queued info folded beneath
         if !self.ready_ids.is_empty() {
             let ids = if self.ready_ids.len() <= 5 {
                 self.ready_ids.join(", ")
@@ -1299,37 +1318,41 @@ impl Output for OrientResult {
                     self.ready_ids.len() - 5
                 )
             };
-            // Include queued count in ready line if there's a queue
+            lines.push(format!("  Ready: {} ({})", self.ready_count, ids));
+            // Fold queued info beneath ready
             if self.queue.is_some() && self.queued_ready_count > 0 {
                 lines.push(format!(
-                    "  Ready: {} ({} queued, {} other) ({})",
-                    self.ready_count,
-                    self.queued_ready_count,
-                    self.ready_count - self.queued_ready_count,
-                    ids
+                    "    └─ {} queued (priority)",
+                    self.queued_ready_count
                 ));
-            } else {
-                lines.push(format!("  Ready: {} ({})", self.ready_count, ids));
             }
         } else {
             lines.push(format!("  Ready: {}", self.ready_count));
         }
-        lines.push(format!("  Blocked: {}", self.blocked_count));
+
+        // In progress
         lines.push(format!("  In progress: {}", self.in_progress_count));
 
-        // Show bug info if there are any bugs
-        if self.total_bugs > 0 {
-            lines.push(format!(
-                "  Bugs: {} total, {} open{}",
-                self.total_bugs,
-                self.open_bugs_count,
-                if self.critical_bugs_count > 0 {
-                    format!(" ({} high/critical)", self.critical_bugs_count)
-                } else {
-                    String::new()
-                }
+        // Folded secondary sections: Ideas, Milestones, Queue
+        let mut secondary = Vec::new();
+
+        if self.total_ideas > 0 {
+            secondary.push(format!("{} ideas", self.open_ideas_count));
+        }
+        if self.total_milestones > 0 {
+            secondary.push(format!("{} milestones", self.open_milestones_count));
+        }
+        if let Some(ref queue_info) = self.queue {
+            secondary.push(format!(
+                "queue \"{}\" ({} tasks)",
+                queue_info.title, queue_info.task_count
             ));
         }
+
+        if !secondary.is_empty() {
+            lines.push(format!("  Also: {}", secondary.join(", ")));
+        }
+
         lines.push(String::new());
         lines.push("Key Commands:".to_string());
         lines
@@ -1530,6 +1553,27 @@ pub fn orient(
         })
         .count();
 
+    // Get ideas stats
+    let ideas = storage.list_ideas(None, None)?;
+    let total_ideas = ideas.len();
+    let open_ideas_count = ideas
+        .iter()
+        .filter(|i| {
+            matches!(
+                i.status,
+                crate::models::IdeaStatus::Seed | crate::models::IdeaStatus::Germinating
+            )
+        })
+        .count();
+
+    // Get milestones stats
+    let milestones = storage.list_milestones(None, None, None)?;
+    let total_milestones = milestones.len();
+    let open_milestones_count = milestones
+        .iter()
+        .filter(|m| matches!(m.status, TaskStatus::Pending | TaskStatus::InProgress))
+        .count();
+
     Ok(OrientResult {
         ready: true, // Always true when orient succeeds - store is ready to use
         just_initialized,
@@ -1543,6 +1587,10 @@ pub fn orient(
         total_bugs,
         open_bugs_count,
         critical_bugs_count,
+        total_ideas,
+        open_ideas_count,
+        total_milestones,
+        open_milestones_count,
     })
 }
 
@@ -5314,6 +5362,11 @@ pub struct StatusSummary {
     pub ready: Vec<String>,
     pub blocked: Vec<String>,
     pub in_progress: Vec<String>,
+    pub open_bugs_count: usize,
+    pub critical_bugs_count: usize,
+    pub queued_count: usize,
+    pub open_ideas_count: usize,
+    pub open_milestones_count: usize,
 }
 
 impl Output for StatusSummary {
@@ -5326,14 +5379,45 @@ impl Output for StatusSummary {
 
         lines.push(format!("Binnacle - {} total task(s)", self.tasks.len()));
 
+        // Primary sections: Bugs, Blocked, Ready (in priority order)
+        if self.open_bugs_count > 0 {
+            let critical_info = if self.critical_bugs_count > 0 {
+                format!(" ({} high/critical)", self.critical_bugs_count)
+            } else {
+                String::new()
+            };
+            lines.push(format!(
+                "  Bugs: {} open{}",
+                self.open_bugs_count, critical_info
+            ));
+        }
+
+        if !self.blocked.is_empty() {
+            lines.push(format!("  Blocked: {}", self.blocked.join(", ")));
+        }
+
+        if !self.ready.is_empty() {
+            lines.push(format!("  Ready: {}", self.ready.join(", ")));
+            // Fold queued info beneath ready
+            if self.queued_count > 0 {
+                lines.push(format!("    └─ {} queued (priority)", self.queued_count));
+            }
+        }
+
         if !self.in_progress.is_empty() {
             lines.push(format!("  In Progress: {}", self.in_progress.join(", ")));
         }
-        if !self.ready.is_empty() {
-            lines.push(format!("  Ready: {}", self.ready.join(", ")));
+
+        // Folded secondary sections
+        let mut secondary = Vec::new();
+        if self.open_ideas_count > 0 {
+            secondary.push(format!("{} ideas", self.open_ideas_count));
         }
-        if !self.blocked.is_empty() {
-            lines.push(format!("  Blocked: {}", self.blocked.join(", ")));
+        if self.open_milestones_count > 0 {
+            secondary.push(format!("{} milestones", self.open_milestones_count));
+        }
+        if !secondary.is_empty() {
+            lines.push(format!("  Also: {}", secondary.join(", ")));
         }
 
         if self.tasks.is_empty() {
@@ -5379,11 +5463,75 @@ pub fn status(repo_path: &Path) -> Result<StatusSummary> {
         }
     }
 
+    // Get bug stats
+    let bugs = storage
+        .list_bugs(None, None, None, None, true)
+        .unwrap_or_default();
+    let open_bugs_count = bugs
+        .iter()
+        .filter(|b| {
+            matches!(
+                b.status,
+                TaskStatus::Pending
+                    | TaskStatus::InProgress
+                    | TaskStatus::Blocked
+                    | TaskStatus::Reopened
+            )
+        })
+        .count();
+    let critical_bugs_count = bugs
+        .iter()
+        .filter(|b| {
+            matches!(
+                b.status,
+                TaskStatus::Pending
+                    | TaskStatus::InProgress
+                    | TaskStatus::Blocked
+                    | TaskStatus::Reopened
+            ) && matches!(b.severity, BugSeverity::High | BugSeverity::Critical)
+        })
+        .count();
+
+    // Get queued count
+    let queued_tasks = storage.get_queued_tasks().unwrap_or_default();
+    let queued_ready_ids: std::collections::HashSet<_> = queued_tasks
+        .iter()
+        .filter(|t| ready.contains(&t.core.id))
+        .map(|t| t.core.id.clone())
+        .collect();
+    let queued_count = queued_ready_ids.len();
+
+    // Get ideas stats
+    let ideas = storage.list_ideas(None, None).unwrap_or_default();
+    let open_ideas_count = ideas
+        .iter()
+        .filter(|i| {
+            matches!(
+                i.status,
+                crate::models::IdeaStatus::Seed | crate::models::IdeaStatus::Germinating
+            )
+        })
+        .count();
+
+    // Get milestones stats
+    let milestones = storage
+        .list_milestones(None, None, None)
+        .unwrap_or_default();
+    let open_milestones_count = milestones
+        .iter()
+        .filter(|m| matches!(m.status, TaskStatus::Pending | TaskStatus::InProgress))
+        .count();
+
     Ok(StatusSummary {
         tasks,
         ready,
         blocked,
         in_progress,
+        open_bugs_count,
+        critical_bugs_count,
+        queued_count,
+        open_ideas_count,
+        open_milestones_count,
     })
 }
 
@@ -14190,7 +14338,7 @@ mod tests {
 
         // Check human output includes bug info
         let human = result.to_human();
-        assert!(human.contains("Bugs: 3 total, 2 open"));
+        assert!(human.contains("Bugs: 2 open"));
         assert!(human.contains("(1 high/critical)"));
     }
 

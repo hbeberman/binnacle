@@ -356,12 +356,12 @@ fn test_orient_human_shows_queue() {
         .assert()
         .success();
 
-    // Human orient output should show queue info
+    // Human orient output should show queue info in "Also:" section
     bn_in(&temp)
         .args(["-H", "orient", "--type", "worker"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Queue: \"Sprint 1\""))
+        .stdout(predicate::str::contains("queue \"Sprint 1\""))
         .stdout(predicate::str::contains("queued"));
 }
 
