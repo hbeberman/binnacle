@@ -5071,6 +5071,18 @@
                 ctx.fill();
             }
 
+            // Draw dotted yellow border for task nodes (visual distinction from bugs/ideas)
+            // Only for task type nodes that are not in_progress (in_progress has animated rings)
+            if (node.type === 'task' && node.status !== 'in_progress') {
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, radius + 4 * zoom, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.7)';  // Gold/yellow color
+                ctx.lineWidth = 2 * zoom;
+                ctx.setLineDash([4 * zoom, 4 * zoom]);  // Dotted pattern
+                ctx.stroke();
+                ctx.setLineDash([]);  // Reset line dash
+            }
+
             // Draw active task indicator: counter-rotating hatched rings (Ghost in the Shell style)
             // Only for in_progress tasks/bugs/ideas (not queues/agents)
             if (node.status === 'in_progress' && node.type !== 'queue' && node.type !== 'agent') {
