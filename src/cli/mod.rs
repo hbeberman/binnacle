@@ -802,6 +802,10 @@ pub enum TestCommands {
         /// Link to a task
         #[arg(long)]
         task: Option<String>,
+
+        /// Link to a bug (for verifying bug fixes)
+        #[arg(long)]
+        bug: Option<String>,
     },
 
     /// List test nodes
@@ -831,6 +835,22 @@ pub enum TestCommands {
         test_id: String,
         /// Task ID
         task_id: String,
+    },
+
+    /// Link a test to a bug
+    LinkBug {
+        /// Test ID
+        test_id: String,
+        /// Bug ID
+        bug_id: String,
+    },
+
+    /// Unlink a test from a bug
+    UnlinkBug {
+        /// Test ID
+        test_id: String,
+        /// Bug ID
+        bug_id: String,
     },
 
     /// Run tests

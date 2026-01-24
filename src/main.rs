@@ -505,8 +505,9 @@ fn run_command(
                 cmd,
                 dir,
                 task,
+                bug,
             } => {
-                let result = commands::test_create(repo_path, name, cmd, dir, task)?;
+                let result = commands::test_create(repo_path, name, cmd, dir, task, bug)?;
                 output(&result, human);
             }
             TestCommands::List { task } => {
@@ -523,6 +524,14 @@ fn run_command(
             }
             TestCommands::Unlink { test_id, task_id } => {
                 let result = commands::test_unlink(repo_path, &test_id, &task_id)?;
+                output(&result, human);
+            }
+            TestCommands::LinkBug { test_id, bug_id } => {
+                let result = commands::test_link_bug(repo_path, &test_id, &bug_id)?;
+                output(&result, human);
+            }
+            TestCommands::UnlinkBug { test_id, bug_id } => {
+                let result = commands::test_unlink_bug(repo_path, &test_id, &bug_id)?;
                 output(&result, human);
             }
             TestCommands::Run {
@@ -1565,6 +1574,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 cmd,
                 dir,
                 task,
+                bug,
             } => (
                 "test create".to_string(),
                 serde_json::json!({
@@ -1572,6 +1582,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "cmd": cmd,
                     "dir": dir,
                     "task": task,
+                    "bug": bug,
                 }),
             ),
             TestCommands::List { task } => {
@@ -1590,6 +1601,20 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 serde_json::json!({
                     "test_id": test_id,
                     "task_id": task_id,
+                }),
+            ),
+            TestCommands::LinkBug { test_id, bug_id } => (
+                "test link-bug".to_string(),
+                serde_json::json!({
+                    "test_id": test_id,
+                    "bug_id": bug_id,
+                }),
+            ),
+            TestCommands::UnlinkBug { test_id, bug_id } => (
+                "test unlink-bug".to_string(),
+                serde_json::json!({
+                    "test_id": test_id,
+                    "bug_id": bug_id,
                 }),
             ),
             TestCommands::Run {

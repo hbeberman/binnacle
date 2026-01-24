@@ -424,6 +424,10 @@ pub struct TestNode {
     #[serde(default)]
     pub linked_tasks: Vec<String>,
 
+    /// Bug IDs this test is linked to (for verifying bug fixes)
+    #[serde(default)]
+    pub linked_bugs: Vec<String>,
+
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
 }
@@ -443,6 +447,7 @@ impl TestNode {
             working_dir: ".".to_string(),
             pattern: None,
             linked_tasks: Vec::new(),
+            linked_bugs: Vec::new(),
             created_at: Utc::now(),
         }
     }

@@ -797,3 +797,178 @@ fn test_test_run_failed_only() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.contains(&pass_id));
 }
+
+// === Bug Linking Tests ===
+
+#[test]
+fn test_test_create_with_bug_link() {
+    let temp = init_binnacle();
+
+    // Create a bug
+    let bug_output = bn_in(&temp)
+        .args(["bug", "create", "Fix login issue"])
+        .output()
+        .unwrap();
+    let bug_id = extract_id(&bug_output);
+
+    // Create a test linked to the bug
+    bn_in(&temp)
+        .args([
+            "test",
+            "create",
+            "Login test",
+            "--cmd",
+            "echo login",
+            "--bug",
+            &bug_id,
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"id\":\"bnt-"));
+
+    // Verify the test shows the linked bug
+    bn_in(&temp)
+        .args(["-H", "test", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Login test"));
+}
+
+#[test]
+fn test_test_link_bug_command() {
+    let temp = init_binnacle();
+
+    // Create a test
+    let test_output = bn_in(&temp)
+        .args(["test", "create", "Bug test", "--cmd", "echo bug"])
+        .output()
+        .unwrap();
+    let test_id = extract_id(&test_output);
+
+    // Create a bug
+    let bug_output = bn_in(&temp)
+        .args(["bug", "create", "Memory leak"])
+        .output()
+        .unwrap();
+    let bug_id = extract_id(&bug_output);
+
+    // Link test to bug
+    bn_in(&temp)
+        .args(["test", "link-bug", &test_id, &bug_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&test_id))
+        .stdout(predicate::str::contains(&bug_id));
+
+    // Verify the link in test show
+    bn_in(&temp)
+        .args(["-H", "test", "show", &test_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&bug_id));
+}
+
+#[test]
+fn test_test_unlink_bug_command() {
+    let temp = init_binnacle();
+
+    // Create a bug
+    let bug_output = bn_in(&temp)
+        .args(["bug", "create", "Crash bug"])
+        .output()
+        .unwrap();
+    let bug_id = extract_id(&bug_output);
+
+    // Create test linked to bug
+    let test_output = bn_in(&temp)
+        .args([
+            "test",
+            "create",
+            "Crash test",
+            "--cmd",
+            "echo crash",
+            "--bug",
+            &bug_id,
+        ])
+        .output()
+        .unwrap();
+    let test_id = extract_id(&test_output);
+
+    // Unlink bug from test
+    bn_in(&temp)
+        .args(["test", "unlink-bug", &test_id, &bug_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&test_id))
+        .stdout(predicate::str::contains(&bug_id));
+
+    // Verify the bug is no longer linked
+    bn_in(&temp)
+        .args(["-H", "test", "show", &test_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Linked bugs: (none)"));
+}
+
+#[test]
+fn test_test_link_bug_nonexistent_bug() {
+    let temp = init_binnacle();
+
+    // Create test
+    let test_output = bn_in(&temp)
+        .args(["test", "create", "Test", "--cmd", "echo test"])
+        .output()
+        .unwrap();
+    let test_id = extract_id(&test_output);
+
+    // Try to link to nonexistent bug
+    bn_in(&temp)
+        .args(["test", "link-bug", &test_id, "bn-fake"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not found"));
+}
+
+#[test]
+fn test_test_create_with_both_task_and_bug() {
+    let temp = init_binnacle();
+
+    // Create a task
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Feature task"])
+        .output()
+        .unwrap();
+    let task_id = extract_id(&task_output);
+
+    // Create a bug
+    let bug_output = bn_in(&temp)
+        .args(["bug", "create", "Related bug"])
+        .output()
+        .unwrap();
+    let bug_id = extract_id(&bug_output);
+
+    // Create test linked to both
+    let test_output = bn_in(&temp)
+        .args([
+            "test",
+            "create",
+            "Integration test",
+            "--cmd",
+            "echo integrated",
+            "--task",
+            &task_id,
+            "--bug",
+            &bug_id,
+        ])
+        .output()
+        .unwrap();
+    let test_id = extract_id(&test_output);
+
+    // Verify both are linked in test show
+    bn_in(&temp)
+        .args(["-H", "test", "show", &test_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&task_id))
+        .stdout(predicate::str::contains(&bug_id));
+}

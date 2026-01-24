@@ -295,6 +295,15 @@ impl Storage {
                 FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
             );
 
+            -- Test-to-bug links (for verifying bug fixes)
+            CREATE TABLE IF NOT EXISTS test_bug_links (
+                test_id TEXT NOT NULL,
+                bug_id TEXT NOT NULL,
+                PRIMARY KEY (test_id, bug_id),
+                FOREIGN KEY (test_id) REFERENCES tests(id) ON DELETE CASCADE,
+                FOREIGN KEY (bug_id) REFERENCES bugs(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS test_results (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 test_id TEXT NOT NULL,
@@ -308,6 +317,7 @@ impl Storage {
             );
 
             CREATE INDEX IF NOT EXISTS idx_test_links_task ON test_links(task_id);
+            CREATE INDEX IF NOT EXISTS idx_test_bug_links_bug ON test_bug_links(bug_id);
             CREATE INDEX IF NOT EXISTS idx_test_results_test ON test_results(test_id);
 
             -- Commit link tables (supports linking to tasks and bugs)
@@ -449,6 +459,7 @@ impl Storage {
             DELETE FROM milestone_tags;
             DELETE FROM milestones;
             DELETE FROM test_links;
+            DELETE FROM test_bug_links;
             DELETE FROM tests;
             DELETE FROM edges;
             DELETE FROM agent_tasks;
@@ -2461,13 +2472,23 @@ impl Storage {
             ],
         )?;
 
-        // Update links
+        // Update task links
         self.conn
             .execute("DELETE FROM test_links WHERE test_id = ?1", [&test.id])?;
         for task_id in &test.linked_tasks {
             self.conn.execute(
                 "INSERT OR IGNORE INTO test_links (test_id, task_id) VALUES (?1, ?2)",
                 params![test.id, task_id],
+            )?;
+        }
+
+        // Update bug links
+        self.conn
+            .execute("DELETE FROM test_bug_links WHERE test_id = ?1", [&test.id])?;
+        for bug_id in &test.linked_bugs {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO test_bug_links (test_id, bug_id) VALUES (?1, ?2)",
+                params![test.id, bug_id],
             )?;
         }
 
@@ -2573,6 +2594,8 @@ impl Storage {
         self.conn.execute("DELETE FROM tests WHERE id = ?", [id])?;
         self.conn
             .execute("DELETE FROM test_links WHERE test_id = ?", [id])?;
+        self.conn
+            .execute("DELETE FROM test_bug_links WHERE test_id = ?", [id])?;
 
         Ok(())
     }
@@ -2616,6 +2639,52 @@ impl Storage {
 
         // Remove link
         test.linked_tasks.retain(|id| id != task_id);
+
+        // Update storage
+        self.update_test(&test)?;
+
+        Ok(())
+    }
+
+    /// Link a test to a bug.
+    pub fn link_test_to_bug(&mut self, test_id: &str, bug_id: &str) -> Result<()> {
+        // Verify both exist
+        let mut test = self.get_test(test_id)?;
+        self.get_bug(bug_id)?;
+
+        // Check if already linked
+        if test.linked_bugs.contains(&bug_id.to_string()) {
+            return Err(Error::Other(format!(
+                "Test {} is already linked to bug {}",
+                test_id, bug_id
+            )));
+        }
+
+        // Add link
+        test.linked_bugs.push(bug_id.to_string());
+
+        // Update storage
+        self.update_test(&test)?;
+
+        Ok(())
+    }
+
+    /// Unlink a test from a bug.
+    pub fn unlink_test_from_bug(&mut self, test_id: &str, bug_id: &str) -> Result<()> {
+        // Verify both exist
+        let mut test = self.get_test(test_id)?;
+        self.get_bug(bug_id)?;
+
+        // Check if linked
+        if !test.linked_bugs.contains(&bug_id.to_string()) {
+            return Err(Error::NotFound(format!(
+                "Test {} is not linked to bug {}",
+                test_id, bug_id
+            )));
+        }
+
+        // Remove link
+        test.linked_bugs.retain(|id| id != bug_id);
 
         // Update storage
         self.update_test(&test)?;

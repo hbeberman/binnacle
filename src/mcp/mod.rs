@@ -450,7 +450,9 @@ impl McpServer {
                 let working_dir =
                     get_optional_string(args, "working_dir").unwrap_or_else(|| ".".to_string());
                 let task_id = get_optional_string(args, "task_id");
-                let result = commands::test_create(repo, name, command, working_dir, task_id)?;
+                let bug_id = get_optional_string(args, "bug_id");
+                let result =
+                    commands::test_create(repo, name, command, working_dir, task_id, bug_id)?;
                 Ok(result.to_json())
             }
             "bn_test_list" => {
@@ -473,6 +475,18 @@ impl McpServer {
                 let test_id = get_string_arg(args, "test_id")?;
                 let task_id = get_string_arg(args, "task_id")?;
                 let result = commands::test_unlink(repo, &test_id, &task_id)?;
+                Ok(result.to_json())
+            }
+            "bn_test_link_bug" => {
+                let test_id = get_string_arg(args, "test_id")?;
+                let bug_id = get_string_arg(args, "bug_id")?;
+                let result = commands::test_link_bug(repo, &test_id, &bug_id)?;
+                Ok(result.to_json())
+            }
+            "bn_test_unlink_bug" => {
+                let test_id = get_string_arg(args, "test_id")?;
+                let bug_id = get_string_arg(args, "bug_id")?;
+                let result = commands::test_unlink_bug(repo, &test_id, &bug_id)?;
                 Ok(result.to_json())
             }
             "bn_test_run" => {
@@ -1301,6 +1315,10 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "task_id": {
                         "type": "string",
                         "description": "Task ID to link to"
+                    },
+                    "bug_id": {
+                        "type": "string",
+                        "description": "Bug ID to link to (for verifying bug fixes)"
                     }
                 },
                 "required": ["name", "command"]
@@ -1368,6 +1386,42 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     }
                 },
                 "required": ["test_id", "task_id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_test_link_bug".to_string(),
+            description: "Link a test to a bug (for verifying bug fixes)".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "test_id": {
+                        "type": "string",
+                        "description": "Test ID"
+                    },
+                    "bug_id": {
+                        "type": "string",
+                        "description": "Bug ID"
+                    }
+                },
+                "required": ["test_id", "bug_id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_test_unlink_bug".to_string(),
+            description: "Unlink a test from a bug".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "test_id": {
+                        "type": "string",
+                        "description": "Test ID"
+                    },
+                    "bug_id": {
+                        "type": "string",
+                        "description": "Bug ID"
+                    }
+                },
+                "required": ["test_id", "bug_id"]
             }),
         },
         ToolDef {

@@ -6473,6 +6473,7 @@ pub fn test_create(
     command: String,
     working_dir: String,
     task_id: Option<String>,
+    bug_id: Option<String>,
 ) -> Result<TestCreated> {
     let mut storage = Storage::open(repo_path)?;
 
@@ -6485,6 +6486,13 @@ pub fn test_create(
         // Verify task exists
         storage.get_task(&tid)?;
         test.linked_tasks.push(tid);
+    }
+
+    // If bug_id provided, link immediately
+    if let Some(bid) = bug_id {
+        // Verify bug exists
+        storage.get_bug(&bid)?;
+        test.linked_bugs.push(bid);
     }
 
     storage.create_test(&test)?;
@@ -6509,6 +6517,11 @@ impl Output for TestNode {
             lines.push("  Linked tasks: (none)".to_string());
         } else {
             lines.push(format!("  Linked tasks: {}", self.linked_tasks.join(", ")));
+        }
+        if self.linked_bugs.is_empty() {
+            lines.push("  Linked bugs: (none)".to_string());
+        } else {
+            lines.push(format!("  Linked bugs: {}", self.linked_bugs.join(", ")));
         }
         lines.push(format!(
             "  Created: {}",
@@ -6615,6 +6628,60 @@ pub fn test_unlink(repo_path: &Path, test_id: &str, task_id: &str) -> Result<Tes
     Ok(TestUnlinked {
         test_id: test_id.to_string(),
         task_id: task_id.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct TestLinkedBug {
+    pub test_id: String,
+    pub bug_id: String,
+}
+
+impl Output for TestLinkedBug {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Linked test {} to bug {}", self.test_id, self.bug_id)
+    }
+}
+
+/// Link a test to a bug.
+pub fn test_link_bug(repo_path: &Path, test_id: &str, bug_id: &str) -> Result<TestLinkedBug> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.link_test_to_bug(test_id, bug_id)?;
+
+    Ok(TestLinkedBug {
+        test_id: test_id.to_string(),
+        bug_id: bug_id.to_string(),
+    })
+}
+
+#[derive(Serialize)]
+pub struct TestUnlinkedBug {
+    pub test_id: String,
+    pub bug_id: String,
+}
+
+impl Output for TestUnlinkedBug {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Unlinked test {} from bug {}", self.test_id, self.bug_id)
+    }
+}
+
+/// Unlink a test from a bug.
+pub fn test_unlink_bug(repo_path: &Path, test_id: &str, bug_id: &str) -> Result<TestUnlinkedBug> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.unlink_test_from_bug(test_id, bug_id)?;
+
+    Ok(TestUnlinkedBug {
+        test_id: test_id.to_string(),
+        bug_id: bug_id.to_string(),
     })
 }
 
@@ -11872,6 +11939,7 @@ mod tests {
             "echo test".to_string(),
             ".".to_string(),
             None,
+            None,
         )
         .unwrap();
 
@@ -12317,6 +12385,7 @@ mod tests {
             "echo test".to_string(),
             ".".to_string(),
             Some(task.id.clone()),
+            None,
         )
         .unwrap();
 
