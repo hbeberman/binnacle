@@ -7367,6 +7367,35 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
     let bugs = storage.list_bugs(None, None, None, None)?;
     let tests = storage.list_tests(None)?;
 
+    // Build a set of valid entity IDs (respects cache-based deletion)
+    let milestones = storage.list_milestones(None, None, None)?;
+    let ideas = storage.list_ideas(None, None)?;
+    let agents = storage.list_agents(None)?;
+    let queue = storage.get_queue().ok();
+
+    let mut valid_entity_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for task in &tasks {
+        valid_entity_ids.insert(task.core.id.clone());
+    }
+    for bug in &bugs {
+        valid_entity_ids.insert(bug.core.id.clone());
+    }
+    for test in &tests {
+        valid_entity_ids.insert(test.id.clone());
+    }
+    for milestone in &milestones {
+        valid_entity_ids.insert(milestone.core.id.clone());
+    }
+    for idea in &ideas {
+        valid_entity_ids.insert(idea.core.id.clone());
+    }
+    for agent in &agents {
+        valid_entity_ids.insert(agent.id.clone());
+    }
+    if let Some(q) = &queue {
+        valid_entity_ids.insert(q.id.clone());
+    }
+
     // Check for orphan dependencies (tasks that reference non-existent tasks)
     for task in &tasks {
         for dep_id in &task.depends_on {
@@ -7408,6 +7437,39 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                     entity_id: Some(test.id.clone()),
                 });
             }
+        }
+    }
+
+    // Check for orphaned edges (edges pointing to/from deleted entities)
+    let all_edges = storage.list_edges(None, None, None)?;
+    for edge in &all_edges {
+        let source_exists = valid_entity_ids.contains(&edge.source);
+        let target_exists = valid_entity_ids.contains(&edge.target);
+
+        if !source_exists && !target_exists {
+            issues.push(DoctorIssue {
+                severity: "error".to_string(),
+                category: "orphan".to_string(),
+                message: format!(
+                    "Edge {} -> {} has both endpoints deleted",
+                    edge.source, edge.target
+                ),
+                entity_id: Some(edge.id.clone()),
+            });
+        } else if !source_exists {
+            issues.push(DoctorIssue {
+                severity: "error".to_string(),
+                category: "orphan".to_string(),
+                message: format!("Edge source {} no longer exists", edge.source),
+                entity_id: Some(edge.id.clone()),
+            });
+        } else if !target_exists {
+            issues.push(DoctorIssue {
+                severity: "error".to_string(),
+                category: "orphan".to_string(),
+                message: format!("Edge target {} no longer exists", edge.target),
+                entity_id: Some(edge.id.clone()),
+            });
         }
     }
 
@@ -13266,6 +13328,98 @@ mod tests {
         let storage = Storage::open(temp.path()).unwrap();
         assert!(storage.get_idea("bn-abcd").is_ok());
         assert!(storage.get_idea("bni-abcd").is_err());
+    }
+
+    #[test]
+    fn test_doctor_detects_orphaned_edges() {
+        let temp = setup();
+
+        // Create a queue so we don't get that warning
+        let mut storage = Storage::open(temp.path()).unwrap();
+        let queue = Queue::new("bnq-test".to_string(), "Test Queue".to_string());
+        storage.create_queue(&queue).unwrap();
+        drop(storage);
+
+        // Create two tasks
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create an edge between them
+        link_add(temp.path(), &task_a.id, &task_b.id, "related_to", None).unwrap();
+
+        // Delete task B, leaving an orphaned edge
+        task_delete(temp.path(), &task_b.id).unwrap();
+
+        // Run doctor - should detect the orphaned edge
+        let result = doctor(temp.path()).unwrap();
+        assert!(!result.healthy);
+        assert!(result.issues.iter().any(|i| {
+            i.category == "orphan" && i.message.contains("target") && i.message.contains(&task_b.id)
+        }));
+    }
+
+    #[test]
+    fn test_doctor_detects_orphaned_edge_source() {
+        let temp = setup();
+
+        // Create a queue so we don't get that warning
+        let mut storage = Storage::open(temp.path()).unwrap();
+        let queue = Queue::new("bnq-test".to_string(), "Test Queue".to_string());
+        storage.create_queue(&queue).unwrap();
+        drop(storage);
+
+        // Create two tasks
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create an edge between them
+        link_add(temp.path(), &task_a.id, &task_b.id, "related_to", None).unwrap();
+
+        // Delete task A (source), leaving an orphaned edge
+        task_delete(temp.path(), &task_a.id).unwrap();
+
+        // Run doctor - should detect the orphaned edge (source missing)
+        let result = doctor(temp.path()).unwrap();
+        assert!(!result.healthy);
+        assert!(result.issues.iter().any(|i| {
+            i.category == "orphan" && i.message.contains("source") && i.message.contains(&task_a.id)
+        }));
     }
 
     // === Log Command Tests ===
