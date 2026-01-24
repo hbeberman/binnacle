@@ -463,6 +463,67 @@ impl Storage {
             conn.execute("CREATE INDEX IF NOT EXISTS idx_agents_id ON agents(id)", [])?;
         }
 
+        // Migration: Add doc_type column to docs table if it doesn't exist
+        let has_doc_type: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('docs') WHERE name = 'doc_type'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_doc_type {
+            conn.execute(
+                "ALTER TABLE docs ADD COLUMN doc_type TEXT NOT NULL DEFAULT 'note'",
+                [],
+            )?;
+        }
+
+        // Migration: Add summary_dirty column to docs table if it doesn't exist
+        let has_summary_dirty: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('docs') WHERE name = 'summary_dirty'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_summary_dirty {
+            conn.execute(
+                "ALTER TABLE docs ADD COLUMN summary_dirty INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+
+        // Migration: Add editors column to docs table if it doesn't exist
+        let has_editors: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('docs') WHERE name = 'editors'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_editors {
+            conn.execute(
+                "ALTER TABLE docs ADD COLUMN editors TEXT NOT NULL DEFAULT '[]'",
+                [],
+            )?;
+        }
+
+        // Migration: Add supersedes column to docs table if it doesn't exist
+        let has_supersedes: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('docs') WHERE name = 'supersedes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_supersedes {
+            conn.execute("ALTER TABLE docs ADD COLUMN supersedes TEXT", [])?;
+        }
+
         Ok(())
     }
 
