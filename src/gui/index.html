@@ -2502,8 +2502,8 @@
                 // Camera pan animation state
                 followAnimation: null,  // { startPanX, startPanY, targetPanX, targetPanY, startZoom, targetZoom, startTime, duration }
                 // Auto-follow state
-                autoFollow: false,  // Whether auto-follow is enabled
-                followTargetId: null,  // Target to follow: 'active-task', 'queue', or agent ID (e.g., 'bna-xxxx')
+                autoFollow: true,  // Whether auto-follow is enabled
+                followTargetId: 'active-task',  // Target to follow: 'active-task', 'queue', or agent ID (e.g., 'bna-xxxx')
                 followingNodeId: null,  // ID of node currently being followed (for continuous tracking)
                 // Stat highlight filter state (null = no filter active)
                 highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
