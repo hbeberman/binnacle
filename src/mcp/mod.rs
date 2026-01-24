@@ -682,6 +682,95 @@ impl McpServer {
                 let result = commands::agent_list(repo, status.as_deref())?;
                 Ok(result.to_json())
             }
+            // Bug tools
+            "bn_bug_create" => {
+                let title = get_string_arg(args, "title")?;
+                let description = get_optional_string(args, "description");
+                let priority = get_optional_u8(args, "priority");
+                let severity = get_optional_string(args, "severity");
+                let tags = get_string_array(args, "tags");
+                let assignee = get_optional_string(args, "assignee");
+                let reproduction_steps = get_optional_string(args, "reproduction_steps");
+                let affected_component = get_optional_string(args, "affected_component");
+                let queue = get_optional_bool(args, "queue").unwrap_or(false);
+                let result = commands::bug_create_with_queue(
+                    repo,
+                    title,
+                    description,
+                    priority,
+                    severity,
+                    tags,
+                    assignee,
+                    reproduction_steps,
+                    affected_component,
+                    queue,
+                )?;
+                Ok(result.to_json())
+            }
+            "bn_bug_list" => {
+                let status = get_optional_string(args, "status");
+                let priority = get_optional_u8(args, "priority");
+                let severity = get_optional_string(args, "severity");
+                let tag = get_optional_string(args, "tag");
+                let result = commands::bug_list(
+                    repo,
+                    status.as_deref(),
+                    priority,
+                    severity.as_deref(),
+                    tag.as_deref(),
+                )?;
+                Ok(result.to_json())
+            }
+            "bn_bug_show" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::bug_show(repo, &id)?;
+                Ok(result.to_json())
+            }
+            "bn_bug_update" => {
+                let id = get_string_arg(args, "id")?;
+                let title = get_optional_string(args, "title");
+                let description = get_optional_string(args, "description");
+                let priority = get_optional_u8(args, "priority");
+                let status = get_optional_string(args, "status");
+                let severity = get_optional_string(args, "severity");
+                let add_tags = get_string_array(args, "add_tags");
+                let remove_tags = get_string_array(args, "remove_tags");
+                let assignee = get_optional_string(args, "assignee");
+                let reproduction_steps = get_optional_string(args, "reproduction_steps");
+                let affected_component = get_optional_string(args, "affected_component");
+                let result = commands::bug_update(
+                    repo,
+                    &id,
+                    title,
+                    description,
+                    priority,
+                    status.as_deref(),
+                    severity,
+                    add_tags,
+                    remove_tags,
+                    assignee,
+                    reproduction_steps,
+                    affected_component,
+                )?;
+                Ok(result.to_json())
+            }
+            "bn_bug_close" => {
+                let id = get_string_arg(args, "id")?;
+                let reason = get_optional_string(args, "reason");
+                let force = get_optional_bool(args, "force").unwrap_or(false);
+                let result = commands::bug_close(repo, &id, reason, force)?;
+                Ok(result.to_json())
+            }
+            "bn_bug_reopen" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::bug_reopen(repo, &id)?;
+                Ok(result.to_json())
+            }
+            "bn_bug_delete" => {
+                let id = get_string_arg(args, "id")?;
+                let result = commands::bug_delete(repo, &id)?;
+                Ok(result.to_json())
+            }
             _ => Err(Error::Other(format!("Unknown tool: {}", name))),
         }
     }
@@ -709,6 +798,10 @@ impl McpServer {
             }
             "binnacle://queue" => {
                 let result = commands::queue_show(repo)?;
+                Ok(result.to_json())
+            }
+            "binnacle://bugs" => {
+                let result = commands::bug_list(repo, None, None, None, None)?;
                 Ok(result.to_json())
             }
             _ => Err(Error::Other(format!("Unknown resource: {}", uri))),
@@ -1706,6 +1799,205 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                 "required": []
             }),
         },
+        // Bug tools
+        ToolDef {
+            name: "bn_bug_create".to_string(),
+            description: "Create a new bug report".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Bug title"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Detailed description of the bug"
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "description": "Priority (0-4, lower is higher priority)",
+                        "minimum": 0,
+                        "maximum": 4
+                    },
+                    "severity": {
+                        "type": "string",
+                        "description": "Bug severity level",
+                        "enum": ["triage", "low", "medium", "high", "critical"]
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags for categorization"
+                    },
+                    "assignee": {
+                        "type": "string",
+                        "description": "Assigned user or agent"
+                    },
+                    "reproduction_steps": {
+                        "type": "string",
+                        "description": "Steps to reproduce the bug"
+                    },
+                    "affected_component": {
+                        "type": "string",
+                        "description": "Affected component or area"
+                    },
+                    "queue": {
+                        "type": "boolean",
+                        "description": "Add to work queue immediately after creation"
+                    }
+                },
+                "required": ["title"]
+            }),
+        },
+        ToolDef {
+            name: "bn_bug_list".to_string(),
+            description: "List bugs with optional filters".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by status (pending, in_progress, done, blocked, cancelled, reopened)"
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "description": "Filter by priority"
+                    },
+                    "severity": {
+                        "type": "string",
+                        "description": "Filter by severity",
+                        "enum": ["triage", "low", "medium", "high", "critical"]
+                    },
+                    "tag": {
+                        "type": "string",
+                        "description": "Filter by tag"
+                    }
+                },
+                "required": []
+            }),
+        },
+        ToolDef {
+            name: "bn_bug_show".to_string(),
+            description: "Show details of a specific bug".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Bug ID (e.g., bn-a1b2)"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_bug_update".to_string(),
+            description: "Update a bug's properties".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Bug ID"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New title"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "New description"
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "description": "New priority (0-4)"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "New status (pending, in_progress, blocked, done)"
+                    },
+                    "severity": {
+                        "type": "string",
+                        "description": "New severity",
+                        "enum": ["triage", "low", "medium", "high", "critical"]
+                    },
+                    "add_tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags to add"
+                    },
+                    "remove_tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags to remove"
+                    },
+                    "assignee": {
+                        "type": "string",
+                        "description": "New assignee"
+                    },
+                    "reproduction_steps": {
+                        "type": "string",
+                        "description": "New reproduction steps"
+                    },
+                    "affected_component": {
+                        "type": "string",
+                        "description": "New affected component"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_bug_close".to_string(),
+            description: "Close a bug".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Bug ID"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Reason for closing"
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "Force close even with incomplete dependencies"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_bug_reopen".to_string(),
+            description: "Reopen a closed bug".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Bug ID"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_bug_delete".to_string(),
+            description: "Delete a bug".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Bug ID"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
     ]
 }
 
@@ -1740,6 +2032,12 @@ pub fn get_resource_definitions() -> Vec<ResourceDef> {
             uri: "binnacle://queue".to_string(),
             name: "Work Queue".to_string(),
             description: "The prioritized work queue and its items".to_string(),
+            mime_type: Some("application/json".to_string()),
+        },
+        ResourceDef {
+            uri: "binnacle://bugs".to_string(),
+            name: "All Bugs".to_string(),
+            description: "List of all bugs in the project".to_string(),
             mime_type: Some("application/json".to_string()),
         },
     ]
