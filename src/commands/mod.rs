@@ -1240,6 +1240,9 @@ pub struct OrientResult {
     /// True only if this call just initialized the store (first time setup).
     /// False if the store was already initialized before this call.
     pub just_initialized: bool,
+    /// The agent ID assigned to the calling agent (e.g., "bna-1234").
+    /// Agents should store this and can use it for subsequent commands.
+    pub agent_id: String,
     pub total_tasks: usize,
     pub ready_count: usize,
     pub ready_ids: Vec<String>,
@@ -1285,6 +1288,7 @@ impl Output for OrientResult {
         lines.push("Binnacle - AI agent task tracker".to_string());
         lines.push(String::new());
         lines.push("This project uses binnacle (bn) for issue and test tracking.".to_string());
+        lines.push(format!("Your agent ID: {}", self.agent_id));
         lines.push(String::new());
         lines.push("Current State:".to_string());
         lines.push(format!("  Total tasks: {}", self.total_tasks));
@@ -1431,14 +1435,16 @@ pub fn orient(
         .unwrap_or_else(|| format!("agent-{}", agent_pid));
 
     // Check if already registered (update activity, type, and potentially purpose) or register new
-    if let Ok(mut existing_agent) = storage.get_agent(agent_pid) {
+    let agent_id = if let Ok(mut existing_agent) = storage.get_agent(agent_pid) {
         // Update type and purpose if provided (allows re-registering)
         existing_agent.agent_type = agent_type.clone();
         if purpose.is_some() {
             existing_agent.purpose = purpose;
         }
+        let id = existing_agent.id.clone();
         storage.update_agent(&existing_agent)?;
         let _ = storage.touch_agent(agent_pid);
+        id
     } else {
         // Register new agent with parent PID as primary identifier
         let agent = if let Some(ref p) = purpose {
@@ -1446,8 +1452,10 @@ pub fn orient(
         } else {
             Agent::new(agent_pid, bn_pid, agent_name, agent_type.clone())
         };
+        let id = agent.id.clone();
         storage.register_agent(&agent)?;
-    }
+        id
+    };
 
     // Write session state for commit-msg hook detection
     let session_state = SessionState::new(agent_pid, agent_type);
@@ -1577,6 +1585,7 @@ pub fn orient(
     Ok(OrientResult {
         ready: true, // Always true when orient succeeds - store is ready to use
         just_initialized,
+        agent_id,
         total_tasks: tasks.len(),
         ready_count,
         ready_ids,
