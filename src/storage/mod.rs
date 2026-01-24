@@ -3072,8 +3072,22 @@ impl Storage {
             agent.tasks.retain(|t| t != task_id);
             self.register_agent(&agent)?;
 
-            // Remove the working_on edge
-            let _ = self.remove_edge(&agent.id, task_id, EdgeType::WorkingOn); // Ignore error if edge doesn't exist
+            // Transition working_on edge to worked_on (historical record)
+            // First remove the working_on edge
+            if self
+                .remove_edge(&agent.id, task_id, EdgeType::WorkingOn)
+                .is_ok()
+            {
+                // Create a worked_on edge to record the completed work
+                let edge_id = self.generate_edge_id(&agent.id, task_id, EdgeType::WorkedOn);
+                let worked_on_edge = Edge::new(
+                    edge_id,
+                    agent.id.clone(),
+                    task_id.to_string(),
+                    EdgeType::WorkedOn,
+                );
+                let _ = self.add_edge(&worked_on_edge); // Ignore error if it already exists
+            }
         }
         Ok(())
     }
