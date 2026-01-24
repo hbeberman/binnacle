@@ -2747,8 +2747,6 @@
                                 prevTitles[t.id] = t.title;
                             });
                         }
-                        // Track previous ready count for completion detection
-                        const prevReadyCount = state.ready ? state.ready.length : 0;
                         
                         await loadData();
                         
@@ -2834,16 +2832,6 @@
                             }
                         }
                         initialLoadComplete = true;
-                        
-                        // Completion detection: last ready task was claimed
-                        const newReadyCount = state.ready ? state.ready.length : 0;
-                        if (prevReadyCount > 0 && newReadyCount === 0) {
-                            showToast('All ready tasks claimed! 🎯', 'success', 5000);
-                            // Zoom out 10% from current level
-                            if (state.graph.scale > 0.1) {
-                                state.graph.scale *= 0.9;
-                            }
-                        }
                     }, RELOAD_DEBOUNCE_MS);
                 }
             };
