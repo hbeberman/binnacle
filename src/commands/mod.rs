@@ -7727,6 +7727,60 @@ pub fn doctor_fix(repo_path: &Path) -> Result<DoctorFixResult> {
         fixes_applied.push(format!("Migrated idea {} → {}", old_id, new_id));
     }
 
+    // Fix: Remove orphan edges (edges pointing to/from deleted entities)
+    // Build a set of valid entity IDs
+    let tasks = storage.list_tasks(None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None)?;
+    let tests = storage.list_tests(None)?;
+    let milestones = storage.list_milestones(None, None, None)?;
+    let ideas = storage.list_ideas(None, None)?;
+    let agents = storage.list_agents(None)?;
+    let queue = storage.get_queue().ok();
+
+    let mut valid_entity_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for task in &tasks {
+        valid_entity_ids.insert(task.core.id.clone());
+    }
+    for bug in &bugs {
+        valid_entity_ids.insert(bug.core.id.clone());
+    }
+    for test in &tests {
+        valid_entity_ids.insert(test.id.clone());
+    }
+    for milestone in &milestones {
+        valid_entity_ids.insert(milestone.core.id.clone());
+    }
+    for idea in &ideas {
+        valid_entity_ids.insert(idea.core.id.clone());
+    }
+    for agent in &agents {
+        valid_entity_ids.insert(agent.id.clone());
+    }
+    if let Some(q) = &queue {
+        valid_entity_ids.insert(q.id.clone());
+    }
+
+    // Find and remove orphan edges
+    let all_edges = storage.list_edges(None, None, None)?;
+    for edge in all_edges {
+        let source_exists = valid_entity_ids.contains(&edge.source);
+        let target_exists = valid_entity_ids.contains(&edge.target);
+
+        if (!source_exists || !target_exists) && storage.remove_edge_by_id(&edge.id).is_ok() {
+            let reason = if !source_exists && !target_exists {
+                format!(
+                    "both endpoints deleted ({} -> {})",
+                    edge.source, edge.target
+                )
+            } else if !source_exists {
+                format!("source {} deleted", edge.source)
+            } else {
+                format!("target {} deleted", edge.target)
+            };
+            fixes_applied.push(format!("Removed orphan edge {} ({})", edge.id, reason));
+        }
+    }
+
     // Run doctor again to get remaining issues
     let result = doctor(repo_path)?;
     let issues_remaining: Vec<DoctorIssue> = result

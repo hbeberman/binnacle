@@ -1965,6 +1965,19 @@ impl Storage {
         Ok(())
     }
 
+    /// Remove an edge by its ID (for cleaning up orphan edges).
+    pub fn remove_edge_by_id(&mut self, edge_id: &str) -> Result<()> {
+        let affected = self
+            .conn
+            .execute("DELETE FROM edges WHERE id = ?", [edge_id])?;
+
+        if affected == 0 {
+            return Err(Error::NotFound(format!("Edge not found: {}", edge_id)));
+        }
+
+        Ok(())
+    }
+
     /// Get edges for a specific entity (both outbound and inbound).
     pub fn get_edges_for_entity(&self, entity_id: &str) -> Result<Vec<HydratedEdge>> {
         let mut edges = Vec::new();
