@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="binnaclebanner.png" alt="Binnacle Banner" width="100%">
+</p>
+
 # binnacle
 
 A CLI tool for AI agents and humans to track project state. Think of it as a lightweight, JSON-first task tracker that lives outside your repo.
