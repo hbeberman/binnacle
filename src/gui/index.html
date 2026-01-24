@@ -2506,8 +2506,9 @@
                 followAnimation: null,  // { startPanX, startPanY, targetPanX, targetPanY, startZoom, targetZoom, startTime, duration }
                 // Auto-follow state
                 autoFollow: true,  // Whether auto-follow is enabled
-                followTargetId: 'active-task',  // Target to follow: 'active-task', 'queue', or agent ID (e.g., 'bna-xxxx')
+                followTargetId: 'auto',  // Target to follow: 'auto', 'active-task', 'queue', or agent ID (e.g., 'bna-xxxx')
                 followingNodeId: null,  // ID of node currently being followed (for continuous tracking)
+                lastFocusSwitchTime: 0,  // Timestamp of last focus switch (for 10-second delay)
                 // Stat highlight filter state (null = no filter active)
                 highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
                 // Hide completed nodes filter
@@ -2594,7 +2595,31 @@
                         if (state.graph.autoFollow && state.graph.followTargetId) {
                             // Find the target node based on followTargetId
                             let targetNode = null;
-                            if (state.graph.followTargetId === 'active-task') {
+                            if (state.graph.followTargetId === 'auto') {
+                                // Auto mode: follow the agent with the most recent activity
+                                // But only switch focus if 10 seconds have passed since last switch
+                                const FOCUS_SWITCH_DELAY_MS = 10000;
+                                const mostRecentAgent = findMostRecentlyActiveAgent();
+                                if (mostRecentAgent) {
+                                    const now = Date.now();
+                                    const timeSinceLastSwitch = now - state.graph.lastFocusSwitchTime;
+                                    
+                                    if (state.graph.followingNodeId !== mostRecentAgent.id) {
+                                        // Different agent is most active - check if we can switch
+                                        if (timeSinceLastSwitch >= FOCUS_SWITCH_DELAY_MS || !state.graph.followingNodeId) {
+                                            // Enough time has passed, or no current focus - switch
+                                            targetNode = mostRecentAgent;
+                                            state.graph.lastFocusSwitchTime = now;
+                                        } else {
+                                            // Keep following current agent (delay not met)
+                                            targetNode = state.tasks?.find(t => t.id === state.graph.followingNodeId && t.type === 'agent');
+                                        }
+                                    } else {
+                                        // Same agent - keep following
+                                        targetNode = mostRecentAgent;
+                                    }
+                                }
+                            } else if (state.graph.followTargetId === 'active-task') {
                                 targetNode = state.tasks?.find(t => 
                                     (t.type === 'task' || t.type === 'bug') && t.status === 'in_progress'
                                 );
@@ -3346,7 +3371,9 @@
         });
 
         document.getElementById('agent-selector').addEventListener('change', (e) => {
-            state.graph.followTargetId = e.target.value || null;
+            state.graph.followTargetId = e.target.value || 'auto';
+            // Reset focus switch time when user manually selects a target
+            state.graph.lastFocusSwitchTime = Date.now();
             // If auto-follow is enabled and we selected a target, snap to it
             if (state.graph.autoFollow && state.graph.followTargetId) {
                 snapToFollowTarget();
@@ -3375,8 +3402,8 @@
             // Remember current selection
             const currentValue = selector.value;
             
-            // Clear and repopulate options
-            selector.innerHTML = '<option value="">None</option>';
+            // Clear and repopulate options - start with 'Auto' (default)
+            selector.innerHTML = '<option value="auto">Auto</option>';
             
             // Add "Active Task" option
             const activeOption = document.createElement('option');
@@ -3422,18 +3449,25 @@
                 });
             }
             
-            // If currently followed target is an agent that's gone, clear the follow state
+            // If currently followed target is an agent that's gone, revert to 'auto'
             if (state.graph.followTargetId && 
+                state.graph.followTargetId !== 'auto' &&
                 state.graph.followTargetId !== 'active-task' && 
                 state.graph.followTargetId !== 'queue') {
                 const agentStillExists = workerAgents.some(a => 
                     (a.id || `agent-${a.pid}`) === state.graph.followTargetId
                 );
                 if (!agentStillExists) {
-                    state.graph.followTargetId = null;
+                    // Agent died - revert to auto mode
+                    state.graph.followTargetId = 'auto';
                     state.graph.followingNodeId = null;
-                    selector.value = '';
+                    selector.value = 'auto';
                 }
+            }
+            
+            // Ensure auto is selected if that's the current target
+            if (state.graph.followTargetId === 'auto' || currentValue === 'auto') {
+                selector.value = 'auto';
             }
         }
 
@@ -3554,13 +3588,16 @@
             }
         }
 
-        // Snap camera to the currently followed target (active task, queue, or agent)
+        // Snap camera to the currently followed target (active task, queue, auto, or agent)
         function snapToFollowTarget() {
             if (!state.graph.followTargetId || !state.tasks) return;
             
             let targetNode = null;
             
-            if (state.graph.followTargetId === 'active-task') {
+            if (state.graph.followTargetId === 'auto') {
+                // Auto mode: follow the agent with the most recent activity
+                targetNode = findMostRecentlyActiveAgent();
+            } else if (state.graph.followTargetId === 'active-task') {
                 // Find the first in_progress task or bug
                 targetNode = state.tasks.find(t => 
                     (t.type === 'task' || t.type === 'bug') && t.status === 'in_progress'
@@ -3579,6 +3616,25 @@
             } else {
                 state.graph.followingNodeId = null;
             }
+        }
+        
+        // Find the agent with the most recent activity (for auto-follow mode)
+        function findMostRecentlyActiveAgent() {
+            const workerAgents = (state.agents || []).filter(a => a.agent_type === 'worker');
+            if (workerAgents.length === 0) return null;
+            
+            // Sort by last_activity_at descending, pick the most recent
+            const sortedAgents = [...workerAgents].sort((a, b) => {
+                const aTime = a.last_activity_at ? new Date(a.last_activity_at).getTime() : 0;
+                const bTime = b.last_activity_at ? new Date(b.last_activity_at).getTime() : 0;
+                return bTime - aTime;
+            });
+            
+            const mostRecentAgent = sortedAgents[0];
+            if (!mostRecentAgent) return null;
+            
+            const agentId = mostRecentAgent.id || `agent-${mostRecentAgent.pid}`;
+            return state.tasks.find(t => t.id === agentId && t.type === 'agent');
         }
 
         function zoomCanvas(zoomDelta, centerX, centerY) {
