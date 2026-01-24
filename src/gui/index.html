@@ -4153,12 +4153,42 @@
         }
 
         /**
+         * Time window (in ms) for showing recently completed nodes before they fade out completely.
+         */
+        const RECENTLY_COMPLETED_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+        /**
+         * Check if a node was completed recently (within RECENTLY_COMPLETED_WINDOW_MS).
+         * Returns the age in ms if recently completed, or null if not.
+         */
+        function getCompletedAge(node) {
+            if (!node.closed_at) return null;
+            const closedTime = new Date(node.closed_at).getTime();
+            const now = Date.now();
+            const age = now - closedTime;
+            return age < RECENTLY_COMPLETED_WINDOW_MS ? age : null;
+        }
+
+        /**
+         * Calculate opacity for a recently completed node based on age.
+         * Returns 1.0 for just-completed nodes, fading to 0.3 at the 5-minute mark.
+         */
+        function getRecentlyCompletedOpacity(node) {
+            const age = getCompletedAge(node);
+            if (age === null) return 1.0;  // Not recently completed
+            // Linear fade from 1.0 (age=0) to 0.3 (age=5min)
+            const progress = age / RECENTLY_COMPLETED_WINDOW_MS;
+            return 1.0 - (0.7 * progress);
+        }
+
+        /**
          * Filter nodes based on hideCompleted setting.
          * Returns array of nodes that should be visible.
          *
          * When hideCompleted is true:
          * - Hide nodes with status 'done' or 'cancelled'
          * - EXCEPT those in active dependency chains
+         * - EXCEPT those completed within the last 5 minutes (shown with fade-out)
          */
         function getVisibleNodes(nodes) {
             // If hideCompleted is not enabled, start with all nodes
@@ -4169,12 +4199,17 @@
                 const activeNodes = buildActiveNodeSet();
                 const edges = state.graph.edges;
 
-                // Filter nodes: keep if not completed, or if in active chain
+                // Filter nodes: keep if not completed, or if in active chain, or if recently completed
                 visible = nodes.filter(node => {
                     const isCompleted = node.status === 'done' || node.status === 'cancelled';
 
                     // If not completed, always show it
                     if (!isCompleted) {
+                        return true;
+                    }
+
+                    // If recently completed (within 5 min), show it with fade effect
+                    if (getCompletedAge(node) !== null) {
                         return true;
                     }
 
@@ -4219,6 +4254,7 @@
                         status: task.status,
                         priority: task.priority,
                         type: task.type || 'task',
+                        closed_at: task.closed_at,  // Track when node was completed for fade-out
                         x: existing.x,
                         y: existing.y,
                         vx: 0,
@@ -4238,6 +4274,7 @@
                         status: task.status,
                         priority: task.priority,
                         type: task.type || 'task',
+                        closed_at: task.closed_at,  // Track when node was completed for fade-out
                         x: Math.cos(angle) * radius,
                         y: Math.sin(angle) * radius,
                         vx: 0,
@@ -4650,8 +4687,18 @@
                 color = colorPalette[node.status] || '#4a90e2';
             }
             
-            // Apply dimming for filtered-out nodes
-            ctx.globalAlpha = isDimmed ? 0.3 : 1.0;
+            // Apply dimming for filtered-out nodes, and fade-out for recently completed nodes
+            let opacity = 1.0;
+            if (isDimmed) {
+                opacity = 0.3;
+            } else {
+                // Apply fade-out effect for recently completed nodes (when hideCompleted is on)
+                const isCompleted = node.status === 'done' || node.status === 'cancelled';
+                if (state.graph.hideCompleted && isCompleted) {
+                    opacity = getRecentlyCompletedOpacity(node);
+                }
+            }
+            ctx.globalAlpha = opacity;
 
             // Draw selection highlight (persistent)
             if (isSelected) {
