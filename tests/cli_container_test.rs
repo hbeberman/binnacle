@@ -469,3 +469,210 @@ fn test_container_mode_data_persistence() {
         .success()
         .stdout(predicate::str::contains("Total tasks: 1"));
 }
+
+// === Auto-Merge Tests ===
+// These tests verify the merge logic from container/entrypoint.sh
+
+/// Helper to run git commands in a test environment
+fn git_cmd(env: &TestEnv, args: &[&str]) -> std::process::Output {
+    std::process::Command::new("git")
+        .current_dir(env.repo_path())
+        .args(args)
+        .output()
+        .expect("Failed to run git command")
+}
+
+/// Helper to run git commands and assert success
+fn git(env: &TestEnv, args: &[&str]) {
+    let output = git_cmd(env, args);
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        panic!("git {:?} failed: {}", args, stderr);
+    }
+}
+
+/// Initialize a git repo with an initial commit on main
+fn init_git_repo(env: &TestEnv) {
+    git(env, &["init", "-b", "main"]);
+    git(env, &["config", "user.email", "test@test.com"]);
+    git(env, &["config", "user.name", "Test User"]);
+
+    // Create initial file and commit
+    fs::write(env.repo_path().join("README.md"), "# Test\n").unwrap();
+    git(env, &["add", "README.md"]);
+    git(env, &["commit", "-m", "Initial commit"]);
+}
+
+#[test]
+fn test_auto_merge_fast_forward_succeeds() {
+    // Test that fast-forward merge works when work branch is ahead of main
+    let env = TestEnv::new();
+    init_git_repo(&env);
+
+    // Create a work branch
+    git(&env, &["checkout", "-b", "work-branch"]);
+
+    // Make a commit on work branch
+    fs::write(env.repo_path().join("feature.txt"), "New feature\n").unwrap();
+    git(&env, &["add", "feature.txt"]);
+    git(&env, &["commit", "-m", "Add feature"]);
+
+    // Store the work branch HEAD
+    let work_head = git_cmd(&env, &["rev-parse", "HEAD"]);
+    let work_head = String::from_utf8_lossy(&work_head.stdout)
+        .trim()
+        .to_string();
+
+    // Now simulate the merge logic from entrypoint.sh
+    // Checkout main and attempt fast-forward merge
+    git(&env, &["checkout", "main"]);
+    let merge_result = git_cmd(&env, &["merge", "--ff-only", "work-branch"]);
+
+    // Verify merge succeeded
+    assert!(
+        merge_result.status.success(),
+        "Fast-forward merge should succeed"
+    );
+
+    // Verify main is now at the same commit as work branch
+    let main_head = git_cmd(&env, &["rev-parse", "HEAD"]);
+    let main_head = String::from_utf8_lossy(&main_head.stdout)
+        .trim()
+        .to_string();
+    assert_eq!(work_head, main_head, "main should be at work branch HEAD");
+
+    // Verify feature.txt exists on main
+    assert!(
+        env.repo_path().join("feature.txt").exists(),
+        "feature.txt should exist on main after merge"
+    );
+}
+
+#[test]
+fn test_auto_merge_fails_when_diverged() {
+    // Test that fast-forward merge fails when branches have diverged
+    let env = TestEnv::new();
+    init_git_repo(&env);
+
+    // Create a work branch
+    git(&env, &["checkout", "-b", "work-branch"]);
+
+    // Make a commit on work branch
+    fs::write(env.repo_path().join("feature.txt"), "Feature on work\n").unwrap();
+    git(&env, &["add", "feature.txt"]);
+    git(&env, &["commit", "-m", "Add feature on work"]);
+
+    // Go back to main and make a conflicting commit
+    git(&env, &["checkout", "main"]);
+    fs::write(env.repo_path().join("other.txt"), "Other change\n").unwrap();
+    git(&env, &["add", "other.txt"]);
+    git(&env, &["commit", "-m", "Add other change on main"]);
+
+    // Now attempt fast-forward merge (should fail)
+    let merge_result = git_cmd(&env, &["merge", "--ff-only", "work-branch"]);
+
+    // Verify merge failed (branches have diverged)
+    assert!(
+        !merge_result.status.success(),
+        "Fast-forward merge should fail when branches diverge"
+    );
+
+    // Verify we're still on main (entrypoint would checkout work-branch on failure)
+    let current_branch = git_cmd(&env, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    let current_branch = String::from_utf8_lossy(&current_branch.stdout)
+        .trim()
+        .to_string();
+    assert_eq!(current_branch, "main");
+}
+
+#[test]
+fn test_auto_merge_entrypoint_script_exists() {
+    // Verify the entrypoint script exists and has expected content
+    let entrypoint_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("container")
+        .join("entrypoint.sh");
+
+    assert!(
+        entrypoint_path.exists(),
+        "container/entrypoint.sh should exist"
+    );
+
+    let content = fs::read_to_string(&entrypoint_path).expect("Failed to read entrypoint.sh");
+
+    // Verify key merge logic is present
+    assert!(
+        content.contains("BN_MERGE_TARGET"),
+        "entrypoint.sh should reference BN_MERGE_TARGET"
+    );
+    assert!(
+        content.contains("BN_AUTO_MERGE"),
+        "entrypoint.sh should reference BN_AUTO_MERGE"
+    );
+    assert!(
+        content.contains("--ff-only"),
+        "entrypoint.sh should use --ff-only merge"
+    );
+    assert!(
+        content.contains("git checkout"),
+        "entrypoint.sh should checkout target branch"
+    );
+}
+
+#[test]
+fn test_auto_merge_can_be_disabled() {
+    // Test that BN_AUTO_MERGE=false would skip merge (verify in script content)
+    let entrypoint_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("container")
+        .join("entrypoint.sh");
+
+    let content = fs::read_to_string(&entrypoint_path).expect("Failed to read entrypoint.sh");
+
+    // Verify the auto-merge disable logic is present
+    assert!(
+        content.contains("BN_AUTO_MERGE"),
+        "entrypoint.sh should have BN_AUTO_MERGE variable"
+    );
+    assert!(
+        content.contains("!= \"true\"") || content.contains("!= 'true'"),
+        "entrypoint.sh should check if BN_AUTO_MERGE != true"
+    );
+    assert!(
+        content.contains("Auto-merge disabled") || content.contains("skipping merge"),
+        "entrypoint.sh should have message about skipping merge"
+    );
+}
+
+#[test]
+fn test_auto_merge_returns_to_work_branch_on_failure() {
+    // Verify entrypoint script returns to work branch on merge failure
+    let entrypoint_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("container")
+        .join("entrypoint.sh");
+
+    let content = fs::read_to_string(&entrypoint_path).expect("Failed to read entrypoint.sh");
+
+    // The script should checkout the work branch on failure
+    // Look for the pattern: checkout work branch after merge failure
+    assert!(
+        content.contains("git checkout \"$WORK_BRANCH\""),
+        "entrypoint.sh should return to work branch on merge failure"
+    );
+}
+
+#[test]
+fn test_work_branch_tracking() {
+    // Test the WORK_BRANCH capture from entrypoint.sh works correctly
+    let env = TestEnv::new();
+    init_git_repo(&env);
+
+    // Create and checkout a work branch
+    git(&env, &["checkout", "-b", "feature-xyz"]);
+
+    // Verify we can get the branch name like entrypoint.sh does
+    let branch_output = git_cmd(&env, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    let branch_name = String::from_utf8_lossy(&branch_output.stdout)
+        .trim()
+        .to_string();
+
+    assert_eq!(branch_name, "feature-xyz", "Should detect current branch");
+}
