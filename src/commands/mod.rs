@@ -6863,6 +6863,7 @@ pub struct DoctorResult {
 #[derive(Serialize)]
 pub struct DoctorStats {
     pub total_tasks: usize,
+    pub total_bugs: usize,
     pub total_tests: usize,
     pub total_commits: usize,
     pub storage_path: String,
@@ -6888,6 +6889,7 @@ impl Output for DoctorResult {
         lines.push(String::new());
         lines.push("Statistics:".to_string());
         lines.push(format!("  Tasks: {}", self.stats.total_tasks));
+        lines.push(format!("  Bugs: {}", self.stats.total_bugs));
         lines.push(format!("  Tests: {}", self.stats.total_tests));
         lines.push(format!("  Commit links: {}", self.stats.total_commits));
         lines.push(format!("  Storage: {}", self.stats.storage_path));
@@ -6922,8 +6924,9 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
     let storage = Storage::open(repo_path)?;
     let mut issues = Vec::new();
 
-    // Get all tasks and tests for analysis
+    // Get all tasks, bugs, and tests for analysis
     let tasks = storage.list_tasks(None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None)?;
     let tests = storage.list_tests(None)?;
 
     // Check for orphan dependencies (tasks that reference non-existent tasks)
@@ -6935,6 +6938,22 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                     category: "orphan".to_string(),
                     message: format!("Task depends on non-existent task {}", dep_id),
                     entity_id: Some(task.id.clone()),
+                });
+            }
+        }
+    }
+
+    // Check for orphan dependencies in bugs (bugs that reference non-existent entities)
+    for bug in &bugs {
+        for dep_id in &bug.depends_on {
+            // Bug dependencies can be tasks or other bugs
+            let exists = storage.get_task(dep_id).is_ok() || storage.get_bug(dep_id).is_ok();
+            if !exists {
+                issues.push(DoctorIssue {
+                    severity: "error".to_string(),
+                    category: "orphan".to_string(),
+                    message: format!("Bug depends on non-existent entity {}", dep_id),
+                    entity_id: Some(bug.id.clone()),
                 });
             }
         }
@@ -6980,6 +6999,42 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                 category: "consistency".to_string(),
                 message: "Task is done but has no closed_at timestamp".to_string(),
                 entity_id: Some(task.id.clone()),
+            });
+        }
+    }
+
+    // Check for inconsistent bug states
+    for bug in &bugs {
+        // Check for done bugs with pending dependencies
+        if bug.status == TaskStatus::Done {
+            for dep_id in &bug.depends_on {
+                // Check if dependency is incomplete (task or bug)
+                let is_incomplete = if let Ok(dep_task) = storage.get_task(dep_id) {
+                    dep_task.status != TaskStatus::Done && dep_task.status != TaskStatus::Cancelled
+                } else if let Ok(dep_bug) = storage.get_bug(dep_id) {
+                    dep_bug.status != TaskStatus::Done && dep_bug.status != TaskStatus::Cancelled
+                } else {
+                    false // Already caught by orphan check
+                };
+
+                if is_incomplete {
+                    issues.push(DoctorIssue {
+                        severity: "warning".to_string(),
+                        category: "consistency".to_string(),
+                        message: format!("Bug is done but depends on incomplete entity {}", dep_id),
+                        entity_id: Some(bug.id.clone()),
+                    });
+                }
+            }
+        }
+
+        // Check for closed bugs without closed_at timestamp
+        if bug.status == TaskStatus::Done && bug.closed_at.is_none() {
+            issues.push(DoctorIssue {
+                severity: "info".to_string(),
+                category: "consistency".to_string(),
+                message: "Bug is done but has no closed_at timestamp".to_string(),
+                entity_id: Some(bug.id.clone()),
             });
         }
     }
@@ -7058,6 +7113,7 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
 
     let stats = DoctorStats {
         total_tasks: tasks.len(),
+        total_bugs: bugs.len(),
         total_tests: tests.len(),
         total_commits: commit_count,
         storage_path: storage.root().to_string_lossy().to_string(),
@@ -11821,6 +11877,102 @@ mod tests {
         let result = doctor(temp.path()).unwrap();
         assert_eq!(result.stats.total_tasks, 2);
         assert_eq!(result.stats.total_tests, 1);
+    }
+
+    #[test]
+    fn test_doctor_bug_stats() {
+        let temp = setup();
+        task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        bug_create(
+            temp.path(),
+            "Bug 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        bug_create(
+            temp.path(),
+            "Bug 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let result = doctor(temp.path()).unwrap();
+        assert_eq!(result.stats.total_tasks, 1);
+        assert_eq!(result.stats.total_bugs, 2);
+    }
+
+    #[test]
+    fn test_doctor_bug_done_with_pending_bug_dep() {
+        let temp = setup();
+
+        // Create two bugs: Bug A depends on Bug B
+        let bug_b = bug_create(
+            temp.path(),
+            "Bug B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let bug_a = bug_create(
+            temp.path(),
+            "Bug A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Manually add bug A dependency on bug B
+        let mut storage = Storage::open(temp.path()).unwrap();
+        let mut bug_a_entity = storage.get_bug(&bug_a.id).unwrap();
+        bug_a_entity.depends_on.push(bug_b.id.clone());
+        bug_a_entity.updated_at = chrono::Utc::now();
+        storage.update_bug(&bug_a_entity).unwrap();
+        drop(storage);
+
+        // Close bug A (which depends on pending bug B) - use force
+        bug_close(temp.path(), &bug_a.id, None, true).unwrap();
+
+        let result = doctor(temp.path()).unwrap();
+        // Should find consistency warning (done bug with pending dependency)
+        assert!(!result.healthy);
+        assert!(
+            result
+                .issues
+                .iter()
+                .any(|i| i.category == "consistency" && i.entity_id.as_ref() == Some(&bug_a.id))
+        );
     }
 
     #[test]
