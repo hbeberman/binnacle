@@ -9,7 +9,7 @@
 //! - `commit` - Commit tracking
 
 use crate::models::{
-    Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Idea,
+    Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Editor, Idea,
     IdeaStatus, Milestone, Queue, SessionState, Task, TaskStatus, TestNode, TestResult,
     graph::UnionFind,
 };
@@ -5412,6 +5412,261 @@ pub fn doc_edit(
     Ok(DocUpdated {
         id: id.to_string(),
         updated_fields,
+    })
+}
+
+/// Result from creating a new doc version.
+#[derive(Serialize)]
+pub struct DocVersionCreated {
+    /// ID of the new doc version
+    pub new_id: String,
+    /// ID of the previous version
+    pub previous_id: String,
+    /// Title of the doc
+    pub title: String,
+    /// Number of edges transferred from old version
+    pub edges_transferred: usize,
+}
+
+impl Output for DocVersionCreated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Created new version {} (supersedes {})\n  Title: {}\n  Edges transferred: {}",
+            self.new_id, self.previous_id, self.title, self.edges_transferred
+        )
+    }
+}
+
+/// Create a new version of a doc (versioning with supersedes chain).
+///
+/// This creates a new doc entity with modifications, sets `supersedes` to point
+/// to the previous version, and transfers all edges from the old doc to the new one.
+#[allow(clippy::too_many_arguments)]
+pub fn doc_update(
+    repo_path: &Path,
+    id: &str,
+    content: Option<String>,
+    title: Option<String>,
+    short_name: Option<String>,
+    description: Option<String>,
+    editor: Option<&str>,
+    clear_dirty: bool,
+) -> Result<DocVersionCreated> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Get the old doc
+    let old_doc = storage.get_doc(id)?;
+
+    // Generate a new ID for the new version
+    let new_id = storage.generate_unique_id("bnd", &old_doc.core.title);
+
+    // Create the new doc by cloning the old one
+    let mut new_doc = Doc::new(new_id.clone(), old_doc.core.title.clone());
+    new_doc.doc_type = old_doc.doc_type.clone();
+    new_doc.core.short_name = old_doc.core.short_name.clone();
+    new_doc.core.description = old_doc.core.description.clone();
+    new_doc.core.tags = old_doc.core.tags.clone();
+    new_doc.content = old_doc.content.clone();
+    new_doc.editors = old_doc.editors.clone();
+    new_doc.supersedes = Some(id.to_string());
+
+    // Apply modifications
+    if let Some(new_title) = title {
+        new_doc.core.title = new_title;
+    }
+    if let Some(new_short_name) = short_name {
+        new_doc.core.short_name = normalize_short_name(Some(new_short_name));
+    }
+    if let Some(new_description) = description {
+        new_doc.core.description = Some(new_description);
+    }
+    if let Some(new_content) = content {
+        new_doc.content = new_content;
+    }
+
+    // Handle summary_dirty flag
+    if clear_dirty {
+        new_doc.summary_dirty = false;
+    }
+    // Note: Full summary_dirty detection (comparing content hashes) is a separate task (bn-1a43)
+
+    // Add editor attribution if provided
+    if let Some(editor_str) = editor {
+        let parsed_editor = parse_editor(editor_str)?;
+        // Don't add duplicate editors
+        if !new_doc.editors.iter().any(|e| {
+            e.editor_type == parsed_editor.editor_type && e.identifier == parsed_editor.identifier
+        }) {
+            new_doc.editors.push(parsed_editor);
+        }
+    }
+
+    // Save the new doc
+    storage.add_doc(&new_doc)?;
+
+    // Transfer edges from old doc to new doc
+    // Get all edges where old doc is source or target
+    let edges = storage.get_edges_for_entity(id)?;
+    let mut edges_transferred = 0;
+
+    for hydrated_edge in edges {
+        // Skip edges that would create duplicates or don't involve the old doc directly
+        // Note: pinned edges are not yet implemented (task bn-e6a4), so we transfer all for now
+
+        let (new_source, new_target) = if hydrated_edge.edge.source == id {
+            // Old doc is the source - point to new doc
+            (new_id.clone(), hydrated_edge.edge.target.clone())
+        } else if hydrated_edge.edge.target == id {
+            // Old doc is the target - point to new doc
+            (hydrated_edge.edge.source.clone(), new_id.clone())
+        } else {
+            // Edge doesn't directly involve the old doc, skip
+            continue;
+        };
+
+        // Create a new edge with the same type
+        let new_edge_id =
+            storage.generate_edge_id(&new_source, &new_target, hydrated_edge.edge.edge_type);
+        let mut new_edge = Edge::new(
+            new_edge_id,
+            new_source,
+            new_target,
+            hydrated_edge.edge.edge_type,
+        );
+        new_edge.reason = hydrated_edge.edge.reason.clone();
+
+        // Add the new edge (ignore errors for duplicates)
+        if storage.add_edge(&new_edge).is_ok() {
+            edges_transferred += 1;
+        }
+    }
+
+    Ok(DocVersionCreated {
+        new_id,
+        previous_id: id.to_string(),
+        title: new_doc.core.title,
+        edges_transferred,
+    })
+}
+
+/// Parse an editor string like "agent:bna-1234" or "user:henry" into an Editor.
+fn parse_editor(s: &str) -> Result<Editor> {
+    let parts: Vec<&str> = s.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        return Err(Error::InvalidInput(format!(
+            "Invalid editor format '{}'. Expected 'agent:id' or 'user:name'",
+            s
+        )));
+    }
+
+    let (editor_type, identifier) = (parts[0], parts[1]);
+    match editor_type {
+        "agent" => Ok(Editor::agent(identifier.to_string())),
+        "user" => Ok(Editor::user(identifier.to_string())),
+        _ => Err(Error::InvalidInput(format!(
+            "Invalid editor type '{}'. Expected 'agent' or 'user'",
+            editor_type
+        ))),
+    }
+}
+
+/// Result from getting doc version history.
+#[derive(Serialize)]
+pub struct DocHistory {
+    /// Current (most recent) doc ID
+    pub current_id: String,
+    /// List of versions from newest to oldest
+    pub versions: Vec<DocHistoryEntry>,
+}
+
+#[derive(Serialize)]
+pub struct DocHistoryEntry {
+    pub id: String,
+    pub title: String,
+    pub editors: Vec<Editor>,
+    pub created_at: String,
+    pub is_current: bool,
+}
+
+impl Output for DocHistory {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = vec![format!(
+            "Doc {} history ({} versions):\n",
+            self.current_id,
+            self.versions.len()
+        )];
+
+        for (i, version) in self.versions.iter().enumerate() {
+            let current_marker = if version.is_current { " (current)" } else { "" };
+            let editors_str = if version.editors.is_empty() {
+                "unknown".to_string()
+            } else {
+                version
+                    .editors
+                    .iter()
+                    .map(|e| format!("{}:{}", e.editor_type, e.identifier))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+
+            lines.push(format!(
+                "  {}. {}{} - {} by {}",
+                i + 1,
+                version.id,
+                current_marker,
+                &version.created_at[..10], // Just the date
+                editors_str
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Get the version history of a doc by following the supersedes chain.
+pub fn doc_history(repo_path: &Path, id: &str) -> Result<DocHistory> {
+    let storage = Storage::open(repo_path)?;
+
+    // Start from the given ID and collect all versions
+    let mut versions = Vec::new();
+    let mut current_id = id.to_string();
+    let mut seen_ids = std::collections::HashSet::new();
+
+    // First, walk backwards to find all previous versions
+    loop {
+        if seen_ids.contains(&current_id) {
+            // Prevent infinite loops from circular references
+            break;
+        }
+        seen_ids.insert(current_id.clone());
+
+        let doc = storage.get_doc(&current_id)?;
+        versions.push(DocHistoryEntry {
+            id: doc.core.id.clone(),
+            title: doc.core.title.clone(),
+            editors: doc.editors.clone(),
+            created_at: doc.core.created_at.to_rfc3339(),
+            is_current: versions.is_empty(), // First one we find is current
+        });
+
+        if let Some(prev_id) = doc.supersedes {
+            current_id = prev_id;
+        } else {
+            break;
+        }
+    }
+
+    Ok(DocHistory {
+        current_id: id.to_string(),
+        versions,
     })
 }
 

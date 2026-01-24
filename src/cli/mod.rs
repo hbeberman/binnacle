@@ -747,6 +747,50 @@ pub enum DocCommands {
         remove_tag: Vec<String>,
     },
 
+    /// Create a new version of a doc (preserves history via supersedes chain)
+    Update {
+        /// Doc ID to update
+        id: String,
+
+        /// New content (full replacement)
+        #[arg(short = 'c', long)]
+        content: Option<String>,
+
+        /// Read content from file
+        #[arg(long, conflicts_with = "content")]
+        file: Option<std::path::PathBuf>,
+
+        /// Read content from stdin
+        #[arg(long, conflicts_with_all = ["content", "file"])]
+        stdin: bool,
+
+        /// New title
+        #[arg(short = 'T', long)]
+        title: Option<String>,
+
+        /// New short name
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
+        /// New description
+        #[arg(short, long, visible_alias = "desc")]
+        description: Option<String>,
+
+        /// Editor attribution (format: "agent:id" or "user:name")
+        #[arg(long)]
+        editor: Option<String>,
+
+        /// Clear the summary_dirty flag
+        #[arg(long)]
+        clear_dirty: bool,
+    },
+
+    /// Show version history for a doc
+    History {
+        /// Doc ID
+        id: String,
+    },
+
     /// Attach a doc to another entity (creates 'documents' edge)
     Attach {
         /// Doc ID (e.g., bnd-a1b2)

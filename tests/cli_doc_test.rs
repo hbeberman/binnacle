@@ -486,3 +486,445 @@ fn test_doc_create_only_summary() {
         .stdout(predicate::str::contains("# Summary"))
         .stdout(predicate::str::contains("Just a summary"));
 }
+
+// === Doc Update (Versioning) Tests ===
+
+#[test]
+fn test_doc_update_creates_new_version() {
+    let (temp, task_id) = init_with_task();
+
+    // Create initial doc
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "Versioned doc",
+            "-c",
+            "Version 1 content",
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
+    let original_id = json["id"].as_str().expect("No doc ID").to_string();
+
+    // Update the doc (creates new version)
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "update",
+            &original_id,
+            "-c",
+            "Version 2 content",
+            "--editor",
+            "user:tester",
+        ])
+        .output()
+        .expect("Failed to update doc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
+
+    // Should have a new ID
+    let new_id = json["new_id"].as_str().expect("No new_id");
+    assert_ne!(new_id, original_id);
+
+    // Should reference the previous version
+    assert_eq!(
+        json["previous_id"].as_str().expect("No previous_id"),
+        original_id
+    );
+}
+
+#[test]
+fn test_doc_update_transfers_edges() {
+    let temp = TestEnv::init();
+
+    // Create two tasks to link doc to
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .expect("Failed to create task A");
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let task_a = json["id"].as_str().expect("No task A ID").to_string();
+
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task B"])
+        .output()
+        .expect("Failed to create task B");
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let task_b = json["id"].as_str().expect("No task B ID").to_string();
+
+    // Create doc linked to both tasks
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_a,
+            &task_b,
+            "-T",
+            "Multi-linked doc",
+            "-c",
+            "Initial content",
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let original_id = json["id"].as_str().expect("No doc ID").to_string();
+
+    // Update the doc
+    let output = bn_in(&temp)
+        .args(["doc", "update", &original_id, "-c", "Updated content"])
+        .output()
+        .expect("Failed to update doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let new_id = json["new_id"].as_str().expect("No new_id").to_string();
+
+    // Should have transferred edges (2 edges from the two tasks)
+    let edges_transferred = json["edges_transferred"].as_u64().expect("No edges count");
+    assert!(
+        edges_transferred >= 2,
+        "Expected at least 2 edges transferred, got {}",
+        edges_transferred
+    );
+
+    // Verify new doc is linked to tasks
+    bn_in(&temp)
+        .args(["doc", "show", &new_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&task_a))
+        .stdout(predicate::str::contains(&task_b));
+}
+
+#[test]
+fn test_doc_update_with_title_change() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "Original Title",
+            "-c",
+            "Content",
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let original_id = json["id"].as_str().expect("No doc ID").to_string();
+
+    // Update with new title
+    let output = bn_in(&temp)
+        .args(["doc", "update", &original_id, "-T", "New Title"])
+        .output()
+        .expect("Failed to update doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let new_id = json["new_id"].as_str().expect("No new_id");
+
+    // Verify new doc has new title
+    bn_in(&temp)
+        .args(["doc", "show", new_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("New Title"));
+}
+
+#[test]
+fn test_doc_update_with_editor_attribution() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "Editor test doc",
+            "-c",
+            "Content",
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let original_id = json["id"].as_str().expect("No doc ID").to_string();
+
+    // Update with agent editor
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "update",
+            &original_id,
+            "-c",
+            "Updated by agent",
+            "--editor",
+            "agent:bna-test",
+        ])
+        .output()
+        .expect("Failed to update doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let new_id = json["new_id"].as_str().expect("No new_id");
+
+    // Verify editor is recorded
+    bn_in(&temp)
+        .args(["doc", "show", new_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bna-test"));
+}
+
+#[test]
+fn test_doc_update_human_readable() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc
+    let output = bn_in(&temp)
+        .args(["doc", "create", &task_id, "-T", "HR doc", "-c", "Content"])
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let original_id = json["id"].as_str().expect("No doc ID").to_string();
+
+    // Update with human-readable output
+    bn_in(&temp)
+        .args(["doc", "update", &original_id, "-c", "New content", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Created new version"))
+        .stdout(predicate::str::contains("supersedes"))
+        .stdout(predicate::str::contains(&original_id));
+}
+
+// === Doc History Tests ===
+
+#[test]
+fn test_doc_history_single_version() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "History test doc",
+            "-c",
+            "Content",
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let doc_id = json["id"].as_str().expect("No doc ID");
+
+    // Get history
+    let output = bn_in(&temp)
+        .args(["doc", "history", doc_id])
+        .output()
+        .expect("Failed to get history");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+
+    // Should have exactly 1 version
+    let versions = json["versions"].as_array().expect("No versions array");
+    assert_eq!(versions.len(), 1);
+    assert!(versions[0]["is_current"].as_bool().unwrap());
+}
+
+#[test]
+fn test_doc_history_multiple_versions() {
+    let (temp, task_id) = init_with_task();
+
+    // Create initial doc
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "Multi-version doc",
+            "-c",
+            "Version 1",
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let v1_id = json["id"].as_str().expect("No doc ID").to_string();
+
+    // Update to version 2
+    let output = bn_in(&temp)
+        .args(["doc", "update", &v1_id, "-c", "Version 2"])
+        .output()
+        .expect("Failed to update doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let v2_id = json["new_id"].as_str().expect("No new_id").to_string();
+
+    // Update to version 3
+    let output = bn_in(&temp)
+        .args(["doc", "update", &v2_id, "-c", "Version 3"])
+        .output()
+        .expect("Failed to update doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let v3_id = json["new_id"].as_str().expect("No new_id");
+
+    // Get history from the latest version
+    let output = bn_in(&temp)
+        .args(["doc", "history", v3_id])
+        .output()
+        .expect("Failed to get history");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+
+    // Should have 3 versions
+    let versions = json["versions"].as_array().expect("No versions array");
+    assert_eq!(versions.len(), 3);
+
+    // First should be current
+    assert!(versions[0]["is_current"].as_bool().unwrap());
+    assert!(!versions[1]["is_current"].as_bool().unwrap());
+    assert!(!versions[2]["is_current"].as_bool().unwrap());
+}
+
+#[test]
+fn test_doc_history_human_readable() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "HR history doc",
+            "-c",
+            "Content",
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let doc_id = json["id"].as_str().expect("No doc ID");
+
+    // Update once
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "update",
+            doc_id,
+            "-c",
+            "V2",
+            "--editor",
+            "user:alice",
+        ])
+        .output()
+        .expect("Failed to update doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let new_id = json["new_id"].as_str().expect("No new_id");
+
+    // Get history in human-readable format
+    bn_in(&temp)
+        .args(["doc", "history", new_id, "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("history"))
+        .stdout(predicate::str::contains("2 versions"))
+        .stdout(predicate::str::contains("(current)"))
+        .stdout(predicate::str::contains("user:alice"));
+}
+
+#[test]
+fn test_doc_update_invalid_editor_format() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc
+    let output = bn_in(&temp)
+        .args(["doc", "create", &task_id, "-T", "Test", "-c", "Content"])
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let doc_id = json["id"].as_str().expect("No doc ID");
+
+    // Try to update with invalid editor format
+    bn_in(&temp)
+        .args([
+            "doc",
+            "update",
+            doc_id,
+            "-c",
+            "New content",
+            "--editor",
+            "invalid_format",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Invalid editor format"));
+}
+
+#[test]
+fn test_doc_update_invalid_editor_type() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc
+    let output = bn_in(&temp)
+        .args(["doc", "create", &task_id, "-T", "Test", "-c", "Content"])
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let doc_id = json["id"].as_str().expect("No doc ID");
+
+    // Try to update with invalid editor type
+    bn_in(&temp)
+        .args([
+            "doc",
+            "update",
+            doc_id,
+            "-c",
+            "New content",
+            "--editor",
+            "robot:r2d2",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Invalid editor type"));
+}

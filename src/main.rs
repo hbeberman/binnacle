@@ -500,6 +500,45 @@ fn run_command(
                 )?;
                 output(&result, human);
             }
+            DocCommands::Update {
+                id,
+                content,
+                file,
+                stdin,
+                title,
+                short_name,
+                description,
+                editor,
+                clear_dirty,
+            } => {
+                // Read content from the appropriate source
+                let final_content = if stdin {
+                    use std::io::Read;
+                    let mut buffer = String::new();
+                    std::io::stdin().read_to_string(&mut buffer)?;
+                    Some(buffer)
+                } else if let Some(path) = file {
+                    Some(std::fs::read_to_string(path)?)
+                } else {
+                    content
+                };
+
+                let result = commands::doc_update(
+                    repo_path,
+                    &id,
+                    final_content,
+                    title,
+                    short_name,
+                    description,
+                    editor.as_deref(),
+                    clear_dirty,
+                )?;
+                output(&result, human);
+            }
+            DocCommands::History { id } => {
+                let result = commands::doc_history(repo_path, &id)?;
+                output(&result, human);
+            }
             DocCommands::Attach { doc_id, target_id } => {
                 let result = commands::doc_attach(repo_path, &doc_id, &target_id)?;
                 output(&result, human);
@@ -1724,6 +1763,33 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "remove_tag": remove_tag,
                 }),
             ),
+            DocCommands::Update {
+                id,
+                content,
+                file,
+                stdin,
+                title,
+                short_name,
+                description,
+                editor,
+                clear_dirty,
+            } => (
+                "doc update".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "content": content,
+                    "file": file,
+                    "stdin": stdin,
+                    "title": title,
+                    "short_name": short_name,
+                    "description": description,
+                    "editor": editor,
+                    "clear_dirty": clear_dirty,
+                }),
+            ),
+            DocCommands::History { id } => {
+                ("doc history".to_string(), serde_json::json!({ "id": id }))
+            }
             DocCommands::Attach { doc_id, target_id } => (
                 "doc attach".to_string(),
                 serde_json::json!({
