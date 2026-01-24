@@ -35,6 +35,7 @@ TOOLS_FULL=(
     --allow-tool "shell(mkdir:*)"
     --allow-tool "shell(xargs:*)"
     --allow-tool "shell(find:*)"
+    --allow-tool "shell(printf:*)"
 )
 
 TOOLS_PRD=(
