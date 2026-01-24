@@ -6894,6 +6894,8 @@ pub struct LinkAdded {
     pub edge_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
 }
 
 impl Output for LinkAdded {
@@ -6907,9 +6909,10 @@ impl Output for LinkAdded {
             .as_ref()
             .map(|r| format!(" ({})", r))
             .unwrap_or_default();
+        let pinned_str = if self.pinned { " [pinned]" } else { "" };
         format!(
-            "Created link: {} --[{}]--> {}{}",
-            self.source, self.edge_type, self.target, reason_str
+            "Created link: {} --[{}]--> {}{}{}",
+            self.source, self.edge_type, self.target, reason_str, pinned_str
         )
     }
 }
@@ -6921,6 +6924,7 @@ pub fn link_add(
     target: &str,
     edge_type_str: &str,
     reason: Option<String>,
+    pinned: bool,
 ) -> Result<LinkAdded> {
     let mut storage = Storage::open(repo_path)?;
 
@@ -6962,6 +6966,7 @@ pub fn link_add(
         edge_type,
     );
     edge.reason = reason.clone();
+    edge.pinned = pinned;
 
     storage.add_edge(&edge)?;
 
@@ -6971,6 +6976,7 @@ pub fn link_add(
         target: target.to_string(),
         edge_type: edge_type.to_string(),
         reason,
+        pinned,
     })
 }
 
@@ -7363,6 +7369,8 @@ pub struct LinkListEdge {
     pub direction: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
 }
 
 impl Output for LinkList {
@@ -7399,9 +7407,10 @@ impl Output for LinkList {
                 .as_ref()
                 .map(|r| format!(" \"{}\"", r))
                 .unwrap_or_default();
+            let pinned_str = if edge.pinned { " [pinned]" } else { "" };
             lines.push(format!(
-                "  {} {} {} ({}){}",
-                edge.source, arrow, edge.target, edge.edge_type, reason_str
+                "  {} {} {} ({}){}{}",
+                edge.source, arrow, edge.target, edge.edge_type, reason_str, pinned_str
             ));
         }
 
@@ -7435,6 +7444,7 @@ pub fn link_list(
                 edge_type: e.edge_type.to_string(),
                 direction: "outbound".to_string(),
                 reason: e.reason,
+                pinned: e.pinned,
             })
             .collect()
     } else if let Some(id) = entity_id {
@@ -7459,6 +7469,7 @@ pub fn link_list(
                     edge_type: he.edge.edge_type.to_string(),
                     direction: direction.to_string(),
                     reason: he.edge.reason,
+                    pinned: he.edge.pinned,
                 }
             })
             .collect()
@@ -15024,7 +15035,15 @@ mod tests {
         .unwrap();
 
         // Create an edge between them
-        link_add(temp.path(), &task_a.id, &task_b.id, "related_to", None).unwrap();
+        link_add(
+            temp.path(),
+            &task_a.id,
+            &task_b.id,
+            "related_to",
+            None,
+            false,
+        )
+        .unwrap();
 
         // Delete task B, leaving an orphaned edge
         task_delete(temp.path(), &task_b.id).unwrap();
@@ -15070,7 +15089,15 @@ mod tests {
         .unwrap();
 
         // Create an edge between them
-        link_add(temp.path(), &task_a.id, &task_b.id, "related_to", None).unwrap();
+        link_add(
+            temp.path(),
+            &task_a.id,
+            &task_b.id,
+            "related_to",
+            None,
+            false,
+        )
+        .unwrap();
 
         // Delete task A (source), leaving an orphaned edge
         task_delete(temp.path(), &task_a.id).unwrap();
@@ -17436,6 +17463,7 @@ mod tests {
             &task2.id,
             "depends_on",
             Some("Testing".to_string()),
+            false,
         )
         .unwrap();
 
@@ -17495,6 +17523,7 @@ mod tests {
             &task2.id,
             "depends_on",
             Some("test dependency".to_string()),
+            false,
         )
         .unwrap();
         link_add(
@@ -17503,6 +17532,7 @@ mod tests {
             &task2.id,
             "depends_on",
             Some("test dependency".to_string()),
+            false,
         )
         .unwrap();
 
@@ -17548,6 +17578,7 @@ mod tests {
             &task2.id,
             "depends_on",
             Some("test dependency".to_string()),
+            false,
         )
         .unwrap();
 
@@ -17589,9 +17620,10 @@ mod tests {
             &task2.id,
             "depends_on",
             Some("test dependency".to_string()),
+            false,
         )
         .unwrap();
-        link_add(temp.path(), &task1.id, &task2.id, "related_to", None).unwrap();
+        link_add(temp.path(), &task1.id, &task2.id, "related_to", None, false).unwrap();
 
         // Filter by type and source
         let result = search_link(temp.path(), Some("depends_on"), Some(&task1.id), None).unwrap();
@@ -17636,7 +17668,7 @@ mod tests {
         .unwrap();
 
         // depends_on without reason should fail
-        let result = link_add(temp.path(), &task1.id, &task2.id, "depends_on", None);
+        let result = link_add(temp.path(), &task1.id, &task2.id, "depends_on", None, false);
         assert!(result.is_err());
         assert!(
             result
@@ -17652,12 +17684,92 @@ mod tests {
             &task2.id,
             "depends_on",
             Some("Needs task2 to complete first".to_string()),
+            false,
         );
         assert!(result.is_ok());
 
         // other edge types don't require reason
-        let result = link_add(temp.path(), &task1.id, &task2.id, "related_to", None);
+        let result = link_add(temp.path(), &task1.id, &task2.id, "related_to", None, false);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_link_add_pinned_edge() {
+        let temp = setup();
+
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create a pinned edge
+        let result = link_add(temp.path(), &task1.id, &task2.id, "related_to", None, true).unwrap();
+        assert!(result.pinned);
+
+        // Verify the edge is stored as pinned
+        let list = link_list(temp.path(), Some(&task1.id), false, None).unwrap();
+        assert_eq!(list.edges.len(), 1);
+        assert!(list.edges[0].pinned);
+
+        // Human-readable output should show [pinned]
+        let human = list.to_human();
+        assert!(human.contains("[pinned]"));
+    }
+
+    #[test]
+    fn test_link_add_non_pinned_edge() {
+        let temp = setup();
+
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create a non-pinned edge (default)
+        let result =
+            link_add(temp.path(), &task1.id, &task2.id, "related_to", None, false).unwrap();
+        assert!(!result.pinned);
+
+        // Verify the edge is stored as non-pinned
+        let list = link_list(temp.path(), Some(&task1.id), false, None).unwrap();
+        assert_eq!(list.edges.len(), 1);
+        assert!(!list.edges[0].pinned);
+
+        // Human-readable output should not show [pinned]
+        let human = list.to_human();
+        assert!(!human.contains("[pinned]"));
     }
 
     #[test]
@@ -17691,6 +17803,7 @@ mod tests {
             &task2.id,
             "depends_on",
             Some("Important dependency".to_string()),
+            false,
         )
         .unwrap();
 
@@ -17924,6 +18037,7 @@ mod tests {
             &task2.id,
             "depends_on",
             Some("test dependency".to_string()),
+            false,
         )
         .unwrap();
 
@@ -18250,11 +18364,25 @@ mod tests {
         .unwrap();
 
         // First parent_of edge should succeed
-        let result = link_add(temp.path(), &parent1.id, &child.id, "parent_of", None);
+        let result = link_add(
+            temp.path(),
+            &parent1.id,
+            &child.id,
+            "parent_of",
+            None,
+            false,
+        );
         assert!(result.is_ok());
 
         // Second parent_of edge should fail
-        let result = link_add(temp.path(), &parent2.id, &child.id, "parent_of", None);
+        let result = link_add(
+            temp.path(),
+            &parent2.id,
+            &child.id,
+            "parent_of",
+            None,
+            false,
+        );
         assert!(result.is_err());
         let err_msg = result.err().map(|e| e.to_string()).unwrap_or_default();
         assert!(err_msg.contains("already has a parent"));
@@ -18298,11 +18426,11 @@ mod tests {
         .unwrap();
 
         // First child_of edge should succeed
-        let result = link_add(temp.path(), &child.id, &parent1.id, "child_of", None);
+        let result = link_add(temp.path(), &child.id, &parent1.id, "child_of", None, false);
         assert!(result.is_ok());
 
         // Second child_of edge should fail
-        let result = link_add(temp.path(), &child.id, &parent2.id, "child_of", None);
+        let result = link_add(temp.path(), &child.id, &parent2.id, "child_of", None, false);
         assert!(result.is_err());
         let err_msg = result.err().map(|e| e.to_string()).unwrap_or_default();
         assert!(err_msg.contains("already has a parent"));
@@ -18346,10 +18474,18 @@ mod tests {
         .unwrap();
 
         // Create parent_of edge
-        link_add(temp.path(), &parent1.id, &child.id, "parent_of", None).unwrap();
+        link_add(
+            temp.path(),
+            &parent1.id,
+            &child.id,
+            "parent_of",
+            None,
+            false,
+        )
+        .unwrap();
 
         // child_of edge from the same child should fail
-        let result = link_add(temp.path(), &child.id, &parent2.id, "child_of", None);
+        let result = link_add(temp.path(), &child.id, &parent2.id, "child_of", None, false);
         assert!(result.is_err());
         let err_msg = result.err().map(|e| e.to_string()).unwrap_or_default();
         assert!(err_msg.contains("already has a parent"));
@@ -18392,10 +18528,17 @@ mod tests {
         .unwrap();
 
         // Create child_of edge
-        link_add(temp.path(), &child.id, &parent1.id, "child_of", None).unwrap();
+        link_add(temp.path(), &child.id, &parent1.id, "child_of", None, false).unwrap();
 
         // parent_of edge to the same child should fail
-        let result = link_add(temp.path(), &parent2.id, &child.id, "parent_of", None);
+        let result = link_add(
+            temp.path(),
+            &parent2.id,
+            &child.id,
+            "parent_of",
+            None,
+            false,
+        );
         assert!(result.is_err());
         let err_msg = result.err().map(|e| e.to_string()).unwrap_or_default();
         assert!(err_msg.contains("already has a parent"));
@@ -18708,6 +18851,7 @@ mod tests {
             &task2.id,
             "depends_on",
             Some("dependency".to_string()),
+            false,
         )
         .unwrap();
 

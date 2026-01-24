@@ -993,6 +993,9 @@ pub enum LinkCommands {
         /// Reason for creating this relationship (required for depends_on)
         #[arg(long)]
         reason: Option<String>,
+        /// Pin this edge to a specific version (won't transfer when doc is updated)
+        #[arg(long)]
+        pinned: bool,
     },
 
     /// Remove a link between two entities

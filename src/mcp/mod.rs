@@ -415,7 +415,9 @@ impl McpServer {
                 let target = get_string_arg(args, "target")?;
                 let edge_type = get_string_arg(args, "edge_type")?;
                 let reason = get_optional_string(args, "reason");
-                let result = commands::link_add(repo, &source, &target, &edge_type, reason)?;
+                let pinned = get_optional_bool(args, "pinned").unwrap_or(false);
+                let result =
+                    commands::link_add(repo, &source, &target, &edge_type, reason, pinned)?;
                 Ok(result.to_json())
             }
             "bn_link_rm" => {
@@ -1384,6 +1386,10 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
                     "reason": {
                         "type": "string",
                         "description": "Reason for creating this link (required for depends_on)"
+                    },
+                    "pinned": {
+                        "type": "boolean",
+                        "description": "Pin this edge to a specific version (won't transfer when doc is updated)"
                     }
                 },
                 "required": ["source", "target", "edge_type"]

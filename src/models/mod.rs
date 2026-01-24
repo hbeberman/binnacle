@@ -1409,6 +1409,15 @@ pub struct Edge {
     /// Who created the edge (user or agent)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
+
+    /// Whether this edge is pinned to a specific version.
+    /// Pinned edges don't transfer when a doc is updated - allows pointing to specific doc versions.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 fn default_weight() -> f64 {
@@ -1428,6 +1437,7 @@ impl Edge {
             reason: None,
             created_at: Utc::now(),
             created_by: None,
+            pinned: false,
         }
     }
 
@@ -1453,7 +1463,13 @@ impl Edge {
             reason: self.reason.clone(),
             created_at: self.created_at,
             created_by: self.created_by.clone(),
+            pinned: self.pinned,
         }
+    }
+
+    /// Returns true if this edge is pinned to a specific version.
+    pub fn is_pinned(&self) -> bool {
+        self.pinned
     }
 }
 

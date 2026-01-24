@@ -666,8 +666,10 @@ fn run_command(
                 target,
                 edge_type,
                 reason,
+                pinned,
             } => {
-                let result = commands::link_add(repo_path, &source, &target, &edge_type, reason)?;
+                let result =
+                    commands::link_add(repo_path, &source, &target, &edge_type, reason, pinned)?;
                 output(&result, human);
             }
             LinkCommands::Rm {
@@ -1920,6 +1922,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 target,
                 edge_type,
                 reason,
+                pinned,
             } => (
                 "link add".to_string(),
                 serde_json::json!({
@@ -1927,6 +1930,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "target": target,
                     "edge_type": edge_type,
                     "reason": reason,
+                    "pinned": pinned,
                 }),
             ),
             LinkCommands::Rm {
