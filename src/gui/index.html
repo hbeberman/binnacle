@@ -1592,6 +1592,53 @@
             font-weight: 600;
         }
 
+        .node-filter-row {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            width: 100%;
+        }
+
+        .node-filter-row .node-filter-btn {
+            flex: 1;
+        }
+
+        .node-visibility-btn {
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            font-size: 0.85rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.5;
+        }
+
+        .node-visibility-btn:hover {
+            border-color: var(--accent-blue);
+            opacity: 0.8;
+        }
+
+        .node-visibility-btn.active {
+            background: var(--info);
+            border-color: var(--info);
+            color: white;
+            opacity: 1;
+        }
+
+        .node-filter-all {
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 0.25rem;
+            padding-bottom: 0.5rem;
+        }
+
         /* Edge filter dropdown */
         .edge-filters {
             position: relative;
@@ -1770,6 +1817,11 @@
             display: flex;
             flex-direction: column;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .filters-row {
+            display: flex;
+            gap: 0.5rem;
         }
 
         .zoom-btn {
@@ -2994,27 +3046,24 @@
                 </div>
                 <canvas id="graph-canvas"></canvas>
                 <div class="graph-filters">
-                    <div class="node-filters" id="node-filters">
-                        <button class="node-filters-btn" id="node-filters-btn">
-                            <span>Node Types</span>
-                            <span class="arrow">▼</span>
-                        </button>
-                        <div class="node-filters-dropdown" id="node-filter-group">
-                            <button class="node-filter-btn" id="stat-bugs" data-filter="bugs">🐛 <span class="count">0</span> bugs</button>
-                            <button class="node-filter-btn" id="stat-blocked" data-filter="blocked">❌ <span class="count">0</span> blocked</button>
-                            <button class="node-filter-btn" id="stat-ready" data-filter="ready">✅ <span class="count">0</span> ready</button>
-                            <button class="node-filter-btn" id="stat-ideas" data-filter="ideas">💭 <span class="count">0</span> ideas</button>
-                            <button class="node-filter-btn" id="stat-milestones" data-filter="milestones">🏁 <span class="count">0</span> milestones</button>
-                            <button class="node-filter-btn" id="stat-queued" data-filter="queued">⬡ <span class="count">0</span> queued</button>
+                    <div class="filters-row">
+                        <div class="node-filters" id="node-filters">
+                            <button class="node-filters-btn" id="node-filters-btn">
+                                <span>Nodes</span>
+                                <span class="arrow">▼</span>
+                            </button>
+                            <div class="node-filters-dropdown" id="node-filter-group">
+                                <!-- Node type filter buttons will be populated dynamically -->
+                            </div>
                         </div>
-                    </div>
-                    <div class="edge-filters" id="edge-filters">
-                        <button class="edge-filters-btn" id="edge-filters-btn">
-                            <span>Edge Types</span>
-                            <span class="arrow">▼</span>
-                        </button>
-                        <div class="edge-filters-dropdown" id="edge-filter-group">
-                            <!-- Filter buttons will be populated dynamically -->
+                        <div class="edge-filters" id="edge-filters">
+                            <button class="edge-filters-btn" id="edge-filters-btn">
+                                <span>Edges</span>
+                                <span class="arrow">▼</span>
+                            </button>
+                            <div class="edge-filters-dropdown" id="edge-filter-group">
+                                <!-- Edge type filter buttons will be populated dynamically -->
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3415,6 +3464,40 @@
             worked_on: { name: 'Worked On', category: 'agent', defaultVisible: false }
         };
 
+        // Node types for visibility filtering
+        const NODE_TYPES = {
+            task: { name: 'Tasks', emoji: '📋', defaultVisible: true },
+            bug: { name: 'Bugs', emoji: '🐛', defaultVisible: true },
+            idea: { name: 'Ideas', emoji: '💭', defaultVisible: true },
+            milestone: { name: 'Milestones', emoji: '🏁', defaultVisible: true },
+            queue: { name: 'Queue', emoji: '⬡', defaultVisible: true },
+            agent: { name: 'Agents', emoji: '🤖', defaultVisible: true },
+            doc: { name: 'Docs', emoji: '📄', defaultVisible: true }
+        };
+
+        // Load node type filter state from localStorage
+        function loadNodeTypeFilters() {
+            const saved = localStorage.getItem('binnacle_node_type_filters');
+            if (saved) {
+                try {
+                    return JSON.parse(saved);
+                } catch (e) {
+                    // Fall back to defaults
+                }
+            }
+            // Default: all node types visible
+            const defaults = {};
+            for (const [type, info] of Object.entries(NODE_TYPES)) {
+                defaults[type] = info.defaultVisible;
+            }
+            return defaults;
+        }
+
+        // Save node type filter state to localStorage
+        function saveNodeTypeFilters(filters) {
+            localStorage.setItem('binnacle_node_type_filters', JSON.stringify(filters));
+        }
+
         // Load edge filter state from localStorage
         function loadEdgeFilters() {
             const saved = localStorage.getItem('binnacle_edge_filters');
@@ -3474,6 +3557,7 @@
             edges: [], // Raw edges from API
             edgeFilters: loadEdgeFilters(), // Which edge types are visible
             edgeSpringFilters: loadEdgeSpringFilters(), // Which edge types have spring physics
+            nodeTypeFilters: loadNodeTypeFilters(), // Which node types are visible
             ws: null,
             graph: {
                 nodes: [],
@@ -3840,27 +3924,8 @@
         }
 
         function updateStatsOverlay() {
-            // Count entities by type and status (open items only for bugs/milestones)
-            const openStatuses = ['pending', 'in_progress', 'blocked'];
-            // Ideas have a different status lifecycle: seed/germinating are open, promoted/discarded are closed
-            const openIdeaStatuses = ['seed', 'germinating'];
-            const bugCount = state.tasks.filter(t => t.type === 'bug' && openStatuses.includes(t.status)).length;
-            const blockedCount = state.tasks.filter(t => t.status === 'blocked').length;
-            const readyCount = state.ready ? state.ready.length : 0;
-            const ideaCount = state.tasks.filter(t => t.type === 'idea' && openIdeaStatuses.includes(t.status)).length;
-            const milestoneCount = state.tasks.filter(t => t.type === 'milestone' && openStatuses.includes(t.status)).length;
-            const queuedCount = state.tasks.filter(t => t.type !== 'queue' && t.type !== 'agent' && isNodeQueued(t.id)).length;
-
-            // Update DOM elements - using innerHTML to update count span
-            document.getElementById('stat-bugs').innerHTML = `🐛 <span class="count">${bugCount}</span> bug${bugCount !== 1 ? 's' : ''}`;
-            document.getElementById('stat-blocked').innerHTML = `❌ <span class="count">${blockedCount}</span> blocked`;
-            document.getElementById('stat-ready').innerHTML = `✅ <span class="count">${readyCount}</span> ready`;
-            document.getElementById('stat-ideas').innerHTML = `💭 <span class="count">${ideaCount}</span> idea${ideaCount !== 1 ? 's' : ''}`;
-            document.getElementById('stat-milestones').innerHTML = `🏁 <span class="count">${milestoneCount}</span> milestone${milestoneCount !== 1 ? 's' : ''}`;
-            document.getElementById('stat-queued').innerHTML = `⬡ <span class="count">${queuedCount}</span> queued`;
-            
-            // Update active state for stat filters
-            updateStatFilterHighlights();
+            // Stats are no longer displayed in filter dropdown - node type filters handle visibility
+            // Just trigger update of active task pane and recently completed
         }
         
         function updateActiveTaskPane() {
@@ -3983,10 +4048,107 @@
             return div.innerHTML;
         }
         
-        // Initialize clickable stat filters and dropdown toggle
-        function initializeStatFilters() {
+        // Initialize node type visibility filters (with eye icons like edge filters)
+        function initializeNodeTypeFilters() {
+            const container = document.getElementById('node-filter-group');
             const dropdownBtn = document.getElementById('node-filters-btn');
             const filtersPanel = document.getElementById('node-filters');
+            
+            // Create filter buttons for each node type
+            container.innerHTML = '';
+            
+            // Add "All" toggle button first
+            const allBtn = document.createElement('button');
+            allBtn.className = 'node-filter-btn node-filter-all';
+            allBtn.textContent = 'All';
+            allBtn.title = 'Toggle all node types';
+            
+            const updateAllBtnState = () => {
+                const allActive = Object.keys(NODE_TYPES).every(type => state.nodeTypeFilters[type]);
+                allBtn.classList.toggle('active', allActive);
+            };
+            
+            allBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const allActive = Object.keys(NODE_TYPES).every(type => state.nodeTypeFilters[type]);
+                const newState = !allActive;
+                
+                for (const type of Object.keys(NODE_TYPES)) {
+                    state.nodeTypeFilters[type] = newState;
+                }
+                
+                // Update all visibility button states
+                container.querySelectorAll('.node-visibility-btn').forEach(visBtn => {
+                    const type = visBtn.dataset.nodeType;
+                    if (type) {
+                        visBtn.classList.toggle('active', newState);
+                        visBtn.title = newState 
+                            ? `Hide ${NODE_TYPES[type].name}`
+                            : `Show ${NODE_TYPES[type].name}`;
+                    }
+                });
+                updateAllBtnState();
+                saveNodeTypeFilters(state.nodeTypeFilters);
+                startAnimation();  // Restart animation to apply filter
+            });
+            
+            container.appendChild(allBtn);
+            
+            for (const [type, info] of Object.entries(NODE_TYPES)) {
+                // Create row container: [eye visibility] [emoji label]
+                const row = document.createElement('div');
+                row.className = 'node-filter-row';
+                
+                // Create eye visibility button
+                const visBtn = document.createElement('button');
+                visBtn.className = 'node-visibility-btn' + (state.nodeTypeFilters[type] ? ' active' : '');
+                visBtn.dataset.nodeType = type;
+                visBtn.innerHTML = '👁';
+                visBtn.title = state.nodeTypeFilters[type] 
+                    ? `Hide ${info.name}`
+                    : `Show ${info.name}`;
+                
+                // Create label button
+                const btn = document.createElement('button');
+                btn.className = 'node-filter-btn' + (state.nodeTypeFilters[type] ? ' active' : '');
+                btn.dataset.nodeType = type;
+                btn.innerHTML = `${info.emoji} ${info.name}`;
+                btn.title = `Toggle ${info.name} visibility`;
+                
+                // Eye button: toggle visibility
+                visBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    state.nodeTypeFilters[type] = !state.nodeTypeFilters[type];
+                    visBtn.classList.toggle('active', state.nodeTypeFilters[type]);
+                    btn.classList.toggle('active', state.nodeTypeFilters[type]);
+                    visBtn.title = state.nodeTypeFilters[type] 
+                        ? `Hide ${info.name}`
+                        : `Show ${info.name}`;
+                    updateAllBtnState();
+                    saveNodeTypeFilters(state.nodeTypeFilters);
+                    startAnimation();
+                });
+                
+                // Label button: also toggles visibility
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    state.nodeTypeFilters[type] = !state.nodeTypeFilters[type];
+                    visBtn.classList.toggle('active', state.nodeTypeFilters[type]);
+                    btn.classList.toggle('active', state.nodeTypeFilters[type]);
+                    visBtn.title = state.nodeTypeFilters[type] 
+                        ? `Hide ${info.name}`
+                        : `Show ${info.name}`;
+                    updateAllBtnState();
+                    saveNodeTypeFilters(state.nodeTypeFilters);
+                    startAnimation();
+                });
+                
+                row.appendChild(visBtn);
+                row.appendChild(btn);
+                container.appendChild(row);
+            }
+            
+            updateAllBtnState();
             
             // Toggle dropdown open/close when button is clicked
             if (dropdownBtn && filtersPanel) {
@@ -4007,28 +4169,14 @@
                     }
                 });
             }
-            
-            const filterMap = {
-                'stat-bugs': 'bugs',
-                'stat-blocked': 'blocked',
-                'stat-ready': 'ready',
-                'stat-ideas': 'ideas',
-                'stat-milestones': 'milestones',
-                'stat-queued': 'queued'
-            };
-            
-            for (const [elementId, filterName] of Object.entries(filterMap)) {
-                const element = document.getElementById(elementId);
-                if (element) {
-                    element.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        toggleStatFilter(filterName);
-                    });
-                }
-            }
         }
         
-        // Toggle stat filter on/off
+        // Legacy function name for compatibility
+        function initializeStatFilters() {
+            initializeNodeTypeFilters();
+        }
+        
+        // Toggle stat filter on/off (kept for highlight filter compatibility)
         function toggleStatFilter(filterName) {
             if (state.graph.highlightFilter === filterName) {
                 // Clear filter if clicking same one
@@ -4043,48 +4191,13 @@
         
         // Update visual state of stat filter buttons
         function updateStatFilterHighlights() {
-            const filterMap = {
-                'bugs': 'stat-bugs',
-                'blocked': 'stat-blocked',
-                'ready': 'stat-ready',
-                'ideas': 'stat-ideas',
-                'milestones': 'stat-milestones',
-                'queued': 'stat-queued'
-            };
-            
-            for (const [filter, elementId] of Object.entries(filterMap)) {
-                const element = document.getElementById(elementId);
-                if (element) {
-                    element.classList.toggle('active', state.graph.highlightFilter === filter);
-                }
-            }
+            // No longer needed - node type filters handle visibility directly
         }
         
-        // Check if a node matches the current highlight filter
+        // Check if a node matches the current highlight filter (deprecated - kept for compatibility)
         function nodeMatchesFilter(node) {
-            const filter = state.graph.highlightFilter;
-            if (!filter) return true; // No filter = all match
-            
-            const openStatuses = ['pending', 'in_progress', 'blocked'];
-            const readyIds = state.ready ? new Set(state.ready.map(t => t.id)) : new Set();
-            
-            switch (filter) {
-                case 'bugs':
-                    return node.type === 'bug' && openStatuses.includes(node.status);
-                case 'blocked':
-                    return node.status === 'blocked';
-                case 'ready':
-                    return readyIds.has(node.id);
-                case 'ideas':
-                    // Ideas have different status lifecycle: seed/germinating are open
-                    return node.type === 'idea' && ['seed', 'germinating'].includes(node.status);
-                case 'milestones':
-                    return node.type === 'milestone' && openStatuses.includes(node.status);
-                case 'queued':
-                    return node.type !== 'queue' && node.type !== 'agent' && isNodeQueued(node.id);
-                default:
-                    return true;
-            }
+            // With node type filters, all visible nodes match
+            return true;
         }
 
         // View switching
@@ -5738,8 +5851,11 @@
          * - EXCEPT those completed within the last 5 minutes (shown with fade-out)
          */
         function getVisibleNodes(nodes) {
-            // If hideCompleted is not enabled, start with all nodes
-            let visible = nodes;
+            // First, filter by node type visibility
+            let visible = nodes.filter(node => {
+                const nodeType = node.type || 'task';
+                return state.nodeTypeFilters[nodeType] !== false;
+            });
 
             if (state.graph.hideCompleted) {
                 // Build active node set and prepare edges for chain detection
@@ -5747,7 +5863,7 @@
                 const edges = state.graph.edges;
 
                 // Filter nodes: keep if not completed, or if in active chain, or if recently completed
-                visible = nodes.filter(node => {
+                visible = visible.filter(node => {
                     const isCompleted = node.status === 'done' || node.status === 'cancelled';
 
                     // If not completed, always show it
