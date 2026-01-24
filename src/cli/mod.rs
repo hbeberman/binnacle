@@ -382,6 +382,10 @@ pub enum BugCommands {
         /// Bug title
         title: String,
 
+        /// Short display name (shown in GUI instead of ID)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
         /// Priority (0-4, lower is higher priority)
         #[arg(short, long)]
         priority: Option<u8>,
@@ -448,6 +452,10 @@ pub enum BugCommands {
         /// New title
         #[arg(long)]
         title: Option<String>,
+
+        /// New short display name for GUI (recommended: 1-2 words, ~12 chars max)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
 
         /// New description
         #[arg(long)]
@@ -525,6 +533,10 @@ pub enum IdeaCommands {
         /// Idea title
         title: String,
 
+        /// Short display name (shown in GUI instead of ID)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
         /// Tags for the idea
         #[arg(short, long)]
         tag: Vec<String>,
@@ -559,6 +571,10 @@ pub enum IdeaCommands {
         /// New title
         #[arg(long)]
         title: Option<String>,
+
+        /// New short display name for GUI (recommended: 1-2 words, ~12 chars max)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
 
         /// New description
         #[arg(long)]
@@ -622,6 +638,10 @@ pub enum MilestoneCommands {
         /// Milestone title
         title: String,
 
+        /// Short display name (shown in GUI instead of ID)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
         /// Priority (0-4, lower is higher priority)
         #[arg(short, long)]
         priority: Option<u8>,
@@ -672,6 +692,10 @@ pub enum MilestoneCommands {
         /// New title
         #[arg(long)]
         title: Option<String>,
+
+        /// New short display name for GUI (recommended: 1-2 words, ~12 chars max)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
 
         /// New description
         #[arg(long)]
