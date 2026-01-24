@@ -158,6 +158,95 @@
             padding: 0.15rem 0.5rem;
         }
 
+        /* Recently completed pane */
+        .recently-completed-pane {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            min-width: 280px;
+            max-width: 400px;
+            margin-left: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .recently-completed-pane.empty {
+            opacity: 0.5;
+        }
+
+        .recently-completed-pane-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .recently-completed-pane-header .indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+        }
+
+        .recently-completed-pane.empty .indicator {
+            background: var(--text-secondary);
+        }
+
+        .recently-completed-list {
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .recently-completed-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0;
+            border-bottom: 1px solid var(--border-color);
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+
+        .recently-completed-item:last-child {
+            border-bottom: none;
+        }
+
+        .recently-completed-item.fading {
+            opacity: 0.5;
+        }
+
+        .recently-completed-id {
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--accent-light);
+            flex-shrink: 0;
+        }
+
+        .recently-completed-title {
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
+
+        .recently-completed-ago {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            flex-shrink: 0;
+        }
+
+        .recently-completed-empty {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
         h1 {
             font-size: 1.8rem;
             font-weight: 600;
@@ -2210,6 +2299,15 @@
                 <div class="active-task-title" id="active-task-title"></div>
                 <div class="active-task-meta" id="active-task-meta"></div>
             </div>
+            <div class="recently-completed-pane empty" id="recently-completed-pane">
+                <div class="recently-completed-pane-header">
+                    <span class="indicator"></span>
+                    <span>Recently Completed</span>
+                </div>
+                <div class="recently-completed-list" id="recently-completed-list">
+                    <div class="recently-completed-empty">No recent completions</div>
+                </div>
+            </div>
         </header>
 
         <main>
@@ -2944,6 +3042,7 @@
             updateFollowSelector();
             updateStatsOverlay();
             updateActiveTaskPane();
+            updateRecentlyCompletedPane();
             renderCurrentView();
         }
 
@@ -3004,6 +3103,91 @@
                 titleEl.title = '';
                 metaEl.innerHTML = '';
             }
+        }
+        
+        /**
+         * Update the recently completed pane in the header.
+         * Shows tasks/bugs/ideas completed within the configurable time window.
+         */
+        function updateRecentlyCompletedPane() {
+            const pane = document.getElementById('recently-completed-pane');
+            const list = document.getElementById('recently-completed-list');
+            
+            const now = Date.now();
+            
+            // Find all items that were closed recently (within the pane window)
+            const recentlyCompleted = state.tasks
+                .filter(item => {
+                    // Must have a closed_at timestamp
+                    if (!item.closed_at) return false;
+                    // Must be in a completed state
+                    if (item.status !== 'done' && item.status !== 'cancelled' && item.status !== 'discarded') return false;
+                    // Must be within the time window
+                    const closedTime = new Date(item.closed_at).getTime();
+                    const age = now - closedTime;
+                    return age < RECENTLY_COMPLETED_PANE_WINDOW_MS;
+                })
+                // Sort by most recently closed first
+                .sort((a, b) => new Date(b.closed_at).getTime() - new Date(a.closed_at).getTime())
+                // Limit to 5 items to keep the pane compact
+                .slice(0, 5);
+            
+            if (recentlyCompleted.length === 0) {
+                pane.classList.add('empty');
+                list.innerHTML = '<div class="recently-completed-empty">No recent completions</div>';
+                return;
+            }
+            
+            pane.classList.remove('empty');
+            
+            // Build the list HTML
+            list.innerHTML = recentlyCompleted.map(item => {
+                const closedTime = new Date(item.closed_at).getTime();
+                const age = now - closedTime;
+                const ago = formatTimeAgo(age);
+                
+                // Determine if the item is fading (older than half the window)
+                const isFading = age > RECENTLY_COMPLETED_PANE_WINDOW_MS / 2;
+                
+                // Get display title (use short_name if available, fall back to title)
+                const title = item.short_name || item.title || 'Untitled';
+                
+                // Get type icon
+                let icon = '';
+                if (item.type === 'bug') icon = '🐛 ';
+                else if (item.type === 'idea') icon = '💭 ';
+                
+                return `
+                    <div class="recently-completed-item${isFading ? ' fading' : ''}" title="${title}">
+                        <span class="recently-completed-id">${item.id}</span>
+                        <span class="recently-completed-title">${icon}${escapeHtml(title)}</span>
+                        <span class="recently-completed-ago">${ago}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        /**
+         * Format a time duration in ms to a human-readable "X ago" string.
+         */
+        function formatTimeAgo(ms) {
+            const seconds = Math.floor(ms / 1000);
+            if (seconds < 60) return `${seconds}s ago`;
+            
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `${minutes}m ago`;
+            
+            const hours = Math.floor(minutes / 60);
+            return `${hours}h ago`;
+        }
+        
+        /**
+         * Escape HTML special characters to prevent XSS.
+         */
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
         
         // Initialize clickable stat filters
@@ -4578,6 +4762,12 @@
          * Time window (in ms) for showing recently completed nodes before they fade out completely.
          */
         const RECENTLY_COMPLETED_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+        /**
+         * Time window (in ms) for the recently completed pane in the header.
+         * Configurable - default is 15 minutes.
+         */
+        const RECENTLY_COMPLETED_PANE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
         /**
          * Check if a node was completed recently (within RECENTLY_COMPLETED_WINDOW_MS).
@@ -6412,6 +6602,11 @@
         updateHideCompletedDisplay();
         initializeGraphSearch();
         connectWebSocket();
+        
+        // Periodically refresh the recently completed pane to keep "time ago" display current
+        setInterval(() => {
+            updateRecentlyCompletedPane();
+        }, 30000); // Refresh every 30 seconds
     </script>
 </body>
 </html>
