@@ -2517,7 +2517,12 @@
                 visibleNodes: null,
                 visibleNodeIds: null,
                 // Animation time for continuous effects (ms)
-                animationTime: 0
+                animationTime: 0,
+                // Animation stability tracking (for performance optimization)
+                isAnimating: false,
+                stableFrameCount: 0,
+                STABLE_THRESHOLD: 0.01,  // Velocity threshold for "stable" detection
+                STABLE_FRAMES_REQUIRED: 30  // Number of consecutive stable frames before stopping
             }
         };
 
@@ -2854,6 +2859,7 @@
                 state.graph.highlightFilter = filterName;
             }
             updateStatFilterHighlights();
+            startAnimation();  // Restart animation to apply highlight filter
         }
         
         // Update visual state of stat filter buttons
@@ -2967,7 +2973,7 @@
             updateZoomDisplay();
 
             // Start animation loop
-            requestAnimationFrame(animateGraph);
+            startAnimation();
         }
 
         function setupGraphMouseHandlers(canvas) {
@@ -3093,6 +3099,7 @@
                     state.graph.panStartOffsetX = state.graph.viewport.panX;
                     state.graph.panStartOffsetY = state.graph.viewport.panY;
                     finalCanvas.style.cursor = 'grabbing';
+                    startAnimation();  // Restart animation on interaction
                     e.preventDefault();
                     return;
                 }
@@ -3122,6 +3129,7 @@
                         state.graph.dragLastX = mouseX;
                         state.graph.dragLastY = mouseY;
                         finalCanvas.classList.add('dragging');
+                        startAnimation();  // Restart animation on drag
                         e.preventDefault();
                     } else {
                         // No node found - pan the canvas (but not during auto-follow animation)
@@ -3137,6 +3145,7 @@
                         state.graph.panStartOffsetX = state.graph.viewport.panX;
                         state.graph.panStartOffsetY = state.graph.viewport.panY;
                         finalCanvas.style.cursor = 'grabbing';
+                        startAnimation();  // Restart animation on pan
                         e.preventDefault();
                     }
                 }
@@ -3302,6 +3311,7 @@
             state.graph.viewport.panX = 0;
             state.graph.viewport.panY = 0;
             updateZoomDisplay();
+            startAnimation();  // Restart animation to redraw
         });
 
         // Auto-follow toggle and agent selector
@@ -3413,6 +3423,7 @@
         document.getElementById('hide-completed-switch').addEventListener('click', () => {
             state.graph.hideCompleted = !state.graph.hideCompleted;
             updateHideCompletedDisplay();
+            startAnimation();  // Restart animation to apply filter
         });
 
         function updateHideCompletedDisplay() {
@@ -3458,6 +3469,7 @@
             chainLengthValue.textContent = value >= 5 ? '5+' : value;
             saveChainLengthFilter(value);
             updateChainLengthDisplay();
+            startAnimation();  // Restart animation to apply filter
         });
 
         function updateChainLengthDisplay() {
@@ -3483,6 +3495,7 @@
             // Note: We no longer need to clear selection/hover here since
             // non-matching nodes are now dimmed rather than hidden.
             // The visibleNodeIds check only applies to hideCompleted filtering.
+            startAnimation();  // Restart animation to apply search filter
         }
 
         function initializeGraphSearch() {
@@ -3577,6 +3590,9 @@
 
             // Update zoom level display
             updateZoomDisplay();
+            
+            // Restart animation to redraw with new zoom level
+            startAnimation();
         }
 
         function updateZoomDisplay() {
@@ -3642,6 +3658,9 @@
                 startTime: performance.now(),
                 duration
             };
+            
+            // Restart animation loop to run the camera animation
+            startAnimation();
         }
 
         // Pan camera smoothly to center on a node by ID, optionally zooming to 100%
@@ -4481,6 +4500,18 @@
             }));
         }
 
+        // Start or restart the animation loop (safe to call multiple times)
+        function startAnimation() {
+            // Reset stability counter when animation is explicitly started
+            state.graph.stableFrameCount = 0;
+            
+            // Only start if not already animating
+            if (!state.graph.isAnimating && state.currentView === 'graph') {
+                state.graph.isAnimating = true;
+                requestAnimationFrame(animateGraph);
+            }
+        }
+
         function animateGraph() {
             const canvas = document.getElementById('graph-canvas');
             const ctx = canvas.getContext('2d');
@@ -4512,9 +4543,8 @@
 
             if (visibleNodes.length === 0) {
                 renderEmptyState(ctx, 'No matching nodes');
-                if (state.currentView === 'graph') {
-                    requestAnimationFrame(animateGraph);
-                }
+                // Stop animation when no visible nodes
+                state.graph.isAnimating = false;
                 return;
             }
 
@@ -4549,8 +4579,38 @@
                 drawNode(ctx, node, canvas);
             });
 
+            // Check for stability (all nodes have very low velocity)
+            // Don't stabilize if dragging, panning, or pan animation is active
+            const hasActiveInteraction = state.graph.draggedNode || 
+                                          state.graph.isPanning || 
+                                          state.graph.followAnimation;
+            
+            if (!hasActiveInteraction) {
+                const isStable = visibleNodes.every(node => {
+                    const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+                    return speed < state.graph.STABLE_THRESHOLD;
+                });
+                
+                if (isStable) {
+                    state.graph.stableFrameCount++;
+                    if (state.graph.stableFrameCount >= state.graph.STABLE_FRAMES_REQUIRED) {
+                        // Graph is stable - stop animation to save CPU/GPU
+                        state.graph.isAnimating = false;
+                        return;
+                    }
+                } else {
+                    state.graph.stableFrameCount = 0;
+                }
+            } else {
+                // Reset stability counter during interactions
+                state.graph.stableFrameCount = 0;
+            }
+
+            // Continue animation if still on graph view
             if (state.currentView === 'graph') {
                 requestAnimationFrame(animateGraph);
+            } else {
+                state.graph.isAnimating = false;
             }
         }
 
@@ -5784,6 +5844,7 @@
                 });
                 updateAllBtnState();
                 saveEdgeFilters(state.edgeFilters);
+                startAnimation();  // Restart animation to apply edge filter
             });
             
             container.appendChild(allBtn);
@@ -5819,6 +5880,7 @@
                     updateSpringBtnState(springBtn, type);
                     updateAllBtnState();
                     saveEdgeFilters(state.edgeFilters);
+                    startAnimation();  // Restart animation to apply edge filter
                 });
                 
                 springBtn.addEventListener('click', (e) => {
@@ -5828,6 +5890,7 @@
                     springBtn.classList.toggle('active', state.edgeSpringFilters[type]);
                     updateSpringBtnState(springBtn, type);
                     saveEdgeSpringFilters(state.edgeSpringFilters);
+                    startAnimation();  // Restart animation to apply spring filter
                 });
                 
                 row.appendChild(btn);
