@@ -2535,6 +2535,7 @@
         let wasConnected = false;  // Track connection state for toast notifications
         let disconnectToast = null;  // Track active disconnect toast
         let initialLoadComplete = false;  // Track if we've done the initial data load
+        let initialLoadInProgress = false;  // Prevent reload processing during initial load
         const shownClosedToasts = new Set();  // Track task IDs that have shown "closed" notification
 
         function connectWebSocket() {
@@ -2554,7 +2555,10 @@
                 }
                 const isInitialLoad = !wasConnected;
                 wasConnected = true;
+                // Mark initial load in progress to prevent reload messages from racing
+                initialLoadInProgress = true;
                 await loadData();
+                initialLoadInProgress = false;
                 // On initial page load, snap to active task if auto-follow is enabled
                 if (isInitialLoad && state.graph.autoFollow) {
                     snapToActiveTask();
@@ -2564,6 +2568,9 @@
             state.ws.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 if (msg.type === 'reload') {
+                    // Skip reload processing if initial load is still in progress
+                    // This prevents race conditions where stale state is compared
+                    if (initialLoadInProgress) return;
                     // Debounce rapid reload messages
                     if (pendingReload) clearTimeout(pendingReload);
                     pendingReload = setTimeout(async () => {
