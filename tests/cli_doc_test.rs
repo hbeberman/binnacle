@@ -928,3 +928,145 @@ fn test_doc_update_invalid_editor_type() {
         .failure()
         .stderr(predicate::str::contains("Invalid editor type"));
 }
+
+// === Summary Dirty Detection Tests ===
+
+#[test]
+fn test_doc_update_sets_summary_dirty_when_content_changes_but_summary_doesnt() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc with summary section using stdin for proper newlines
+    let output = bn_in(&temp)
+        .args(["doc", "create", &task_id, "-T", "Dirty test doc", "--stdin"])
+        .write_stdin("# Summary\n\nOriginal summary\n\n# Details\n\nOriginal details")
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let original_id = json["id"].as_str().expect("No doc ID").to_string();
+
+    // Verify initial doc is not dirty
+    let output = bn_in(&temp)
+        .args(["doc", "show", &original_id])
+        .output()
+        .expect("Failed to show doc");
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    assert!(
+        !json["doc"]["summary_dirty"].as_bool().unwrap_or(true),
+        "Initial doc should not be dirty"
+    );
+
+    // Update content but NOT the summary section
+    let output = bn_in(&temp)
+        .args(["doc", "update", &original_id, "--stdin"])
+        .write_stdin(
+            "# Summary\n\nOriginal summary\n\n# Details\n\nUPDATED details - summary unchanged",
+        )
+        .output()
+        .expect("Failed to update doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let new_id = json["new_id"].as_str().expect("No new_id").to_string();
+
+    // Verify new version has summary_dirty = true
+    let output = bn_in(&temp)
+        .args(["doc", "show", &new_id])
+        .output()
+        .expect("Failed to show updated doc");
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    assert!(
+        json["doc"]["summary_dirty"].as_bool().unwrap_or(false),
+        "summary_dirty should be true when content changes but summary doesn't"
+    );
+}
+
+#[test]
+fn test_doc_update_clears_summary_dirty_when_summary_changes() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc with summary section using stdin for proper newlines
+    let output = bn_in(&temp)
+        .args(["doc", "create", &task_id, "-T", "Clean test doc", "--stdin"])
+        .write_stdin("# Summary\n\nOriginal summary\n\n# Details\n\nOriginal details")
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let original_id = json["id"].as_str().expect("No doc ID").to_string();
+
+    // Update both content AND summary using stdin
+    let output = bn_in(&temp)
+        .args(["doc", "update", &original_id, "--stdin"])
+        .write_stdin("# Summary\n\nUPDATED summary\n\n# Details\n\nUPDATED details")
+        .output()
+        .expect("Failed to update doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let new_id = json["new_id"].as_str().expect("No new_id").to_string();
+
+    // Verify new version has summary_dirty = false
+    let output = bn_in(&temp)
+        .args(["doc", "show", &new_id])
+        .output()
+        .expect("Failed to show updated doc");
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    assert!(
+        !json["doc"]["summary_dirty"].as_bool().unwrap_or(true),
+        "summary_dirty should be false when summary is also updated"
+    );
+}
+
+#[test]
+fn test_doc_update_clear_dirty_flag_overrides_detection() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc with summary section using stdin for proper newlines
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "Override test doc",
+            "--stdin",
+        ])
+        .write_stdin("# Summary\n\nOriginal summary\n\n# Details\n\nOriginal details")
+        .output()
+        .expect("Failed to create doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let original_id = json["id"].as_str().expect("No doc ID").to_string();
+
+    // Update content without changing summary, but use --clear-dirty flag
+    let output = bn_in(&temp)
+        .args(["doc", "update", &original_id, "--stdin", "--clear-dirty"])
+        .write_stdin(
+            "# Summary\n\nOriginal summary\n\n# Details\n\nUPDATED details but flag clears dirty",
+        )
+        .output()
+        .expect("Failed to update doc");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    let new_id = json["new_id"].as_str().expect("No new_id").to_string();
+
+    // Verify new version has summary_dirty = false (clear-dirty takes precedence)
+    let output = bn_in(&temp)
+        .args(["doc", "show", &new_id])
+        .output()
+        .expect("Failed to show updated doc");
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("Invalid JSON");
+    assert!(
+        !json["doc"]["summary_dirty"].as_bool().unwrap_or(true),
+        "summary_dirty should be false when --clear-dirty flag is used"
+    );
+}

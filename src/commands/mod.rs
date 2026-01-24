@@ -5537,15 +5537,30 @@ pub fn doc_update(
     if let Some(new_description) = description {
         new_doc.core.description = Some(new_description);
     }
-    if let Some(new_content) = content {
-        new_doc.content = new_content;
+    // Handle content update with summary dirty detection
+    if let Some(new_content) = &content {
+        // Get old decompressed content for comparison
+        let old_content = old_doc.get_content().unwrap_or_default();
+
+        // Detect if summary_dirty should be set
+        // This happens when content changes but the # Summary section doesn't
+        if Doc::is_summary_dirty(&old_content, new_content) {
+            new_doc.summary_dirty = true;
+        } else {
+            // Summary was updated or no meaningful change - clear the flag
+            new_doc.summary_dirty = false;
+        }
+
+        // Compress and set the new content
+        new_doc
+            .set_content(new_content)
+            .map_err(|e| Error::InvalidInput(e.to_string()))?;
     }
 
-    // Handle summary_dirty flag
+    // Handle explicit clear_dirty flag (takes precedence)
     if clear_dirty {
         new_doc.summary_dirty = false;
     }
-    // Note: Full summary_dirty detection (comparing content hashes) is a separate task (bn-1a43)
 
     // Add editor attribution if provided
     if let Some(editor_str) = editor {
