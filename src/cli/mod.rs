@@ -482,6 +482,10 @@ pub enum BugCommands {
         /// New affected component or area
         #[arg(long)]
         affected_component: Option<String>,
+
+        /// Force status update even if agent already has active tasks
+        #[arg(long)]
+        force: bool,
     },
 
     /// Close a bug (marks as done)

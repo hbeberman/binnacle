@@ -3676,6 +3676,7 @@ pub fn bug_update(
     assignee: Option<String>,
     reproduction_steps: Option<String>,
     affected_component: Option<String>,
+    force: bool,
 ) -> Result<BugUpdated> {
     let mut storage = Storage::open(repo_path)?;
     let mut bug = storage.get_bug(id)?;
@@ -3700,7 +3701,43 @@ pub fn bug_update(
     }
 
     if let Some(s) = status {
-        bug.status = parse_status(s)?;
+        let new_status = parse_status(s)?;
+
+        // If transitioning away from in_progress, remove agent task association
+        if bug.status == TaskStatus::InProgress && new_status != TaskStatus::InProgress {
+            let agent_pid = find_ancestor_agent(&storage)
+                .or_else(get_parent_pid)
+                .unwrap_or_else(std::process::id);
+            let _ = storage.agent_remove_task(agent_pid, id);
+        }
+
+        // If setting status to in_progress, track bug association for registered agents
+        if new_status == TaskStatus::InProgress {
+            let agent_pid = find_ancestor_agent(&storage)
+                .or_else(get_parent_pid)
+                .unwrap_or_else(std::process::id);
+            // Check if agent is registered and already has tasks
+            if let Ok(agent) = storage.get_agent(agent_pid)
+                && !agent.tasks.is_empty()
+                && !force
+            {
+                let existing_tasks = agent.tasks.join(", ");
+                return Err(Error::Other(format!(
+                    "Agent already has {} task(s) in progress: {}\n\n\
+                    Taking on multiple tasks may lead to context thrashing.\n\
+                    Complete your current task first, or use --force to override.\n\n\
+                    Hint: Run 'bn bug close {}' when done, or 'bn bug update {} --status in_progress --force'",
+                    agent.tasks.len(),
+                    existing_tasks,
+                    agent.tasks.first().unwrap_or(&String::new()),
+                    id
+                )));
+            }
+            // Silently ignore errors - agent tracking is optional
+            let _ = storage.agent_add_task(agent_pid, id);
+        }
+
+        bug.status = new_status;
         updated_fields.push("status".to_string());
     }
 
@@ -14063,6 +14100,7 @@ mod tests {
             Some("bob".to_string()),
             Some("Steps to reproduce".to_string()),
             Some("backend".to_string()),
+            false,
         )
         .unwrap();
 
@@ -14121,6 +14159,7 @@ mod tests {
             None,
             None,
             None,
+            false,
         )
         .unwrap();
 
@@ -14157,6 +14196,7 @@ mod tests {
             None,
             None,
             None,
+            false,
         )
         .unwrap();
 
@@ -14194,6 +14234,7 @@ mod tests {
             None,
             None,
             None,
+            false,
         );
         assert!(result.is_err());
         assert!(
@@ -14233,6 +14274,7 @@ mod tests {
             None,
             None,
             None,
+            false,
         );
         assert!(result.is_err());
         assert!(
@@ -14240,6 +14282,65 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("Priority must be 0-4")
+        );
+    }
+
+    #[test]
+    fn test_bug_update_in_progress_tracks_agent_association() {
+        let temp = setup();
+
+        // Register using parent PID since that's how agents are now identified
+        let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
+        let bn_pid = std::process::id();
+        let agent = Agent::new(
+            parent_pid,
+            bn_pid,
+            "test-agent".to_string(),
+            AgentType::Worker,
+        );
+        {
+            let mut storage = Storage::open(temp.path()).unwrap();
+            storage.register_agent(&agent).unwrap();
+        }
+
+        // Create a bug
+        let bug = bug_create(
+            temp.path(),
+            "Test bug".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Update bug to in_progress
+        let result = bug_update(
+            temp.path(),
+            &bug.id,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            None,
+            vec![],
+            vec![],
+            None,
+            None,
+            None,
+            false,
+        );
+        assert!(result.is_ok());
+
+        // Verify agent has the bug in its tasks list
+        let storage = Storage::open(temp.path()).unwrap();
+        let updated_agent = storage.get_agent(parent_pid).unwrap();
+        assert!(
+            updated_agent.tasks.contains(&bug.id),
+            "Agent should have the bug in its tasks list"
         );
     }
 

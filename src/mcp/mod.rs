@@ -752,6 +752,7 @@ impl McpServer {
                 let assignee = get_optional_string(args, "assignee");
                 let reproduction_steps = get_optional_string(args, "reproduction_steps");
                 let affected_component = get_optional_string(args, "affected_component");
+                let force = get_optional_bool(args, "force").unwrap_or(false);
                 let result = commands::bug_update(
                     repo,
                     &id,
@@ -765,6 +766,7 @@ impl McpServer {
                     assignee,
                     reproduction_steps,
                     affected_component,
+                    force,
                 )?;
                 Ok(result.to_json())
             }

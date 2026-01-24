@@ -295,6 +295,7 @@ fn run_command(
                 assignee,
                 reproduction_steps,
                 affected_component,
+                force,
             } => {
                 let result = commands::bug_update(
                     repo_path,
@@ -309,6 +310,7 @@ fn run_command(
                     assignee,
                     reproduction_steps,
                     affected_component,
+                    force,
                 )?;
                 output(&result, human);
             }
@@ -1347,6 +1349,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 assignee,
                 reproduction_steps,
                 affected_component,
+                force,
             } => (
                 "bug update".to_string(),
                 serde_json::json!({
@@ -1361,6 +1364,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "assignee": assignee,
                     "reproduction_steps": reproduction_steps,
                     "affected_component": affected_component,
+                    "force": force,
                 }),
             ),
             BugCommands::Close { id, reason, force } => (
