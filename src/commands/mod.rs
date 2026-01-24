@@ -89,6 +89,7 @@ pub struct InitResult {
     pub skills_file_created: bool,
     pub codex_skills_file_created: bool,
     pub copilot_prompts_created: bool,
+    pub hook_installed: bool,
 }
 
 impl Output for InitResult {
@@ -123,6 +124,9 @@ impl Output for InitResult {
                 "Created Copilot agents at .github/agents/ and .github/instructions/".to_string(),
             );
         }
+        if self.hook_installed {
+            lines.push("Installed commit-msg hook for co-author attribution.".to_string());
+        }
         lines.join("\n")
     }
 }
@@ -150,12 +154,16 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         false,
     );
 
+    // Prompt for commit-msg hook installation (default Yes)
+    let install_hook = prompt_yes_no("Install commit-msg hook for co-author attribution?", true);
+
     init_with_options(
         repo_path,
         update_agents_md,
         create_claude_skills,
         create_codex_skills,
         create_copilot_prompts,
+        install_hook,
     )
 }
 
@@ -167,6 +175,7 @@ pub fn init_non_interactive(
     write_claude_skills: bool,
     write_codex_skills: bool,
     write_copilot_prompts: bool,
+    install_hook: bool,
 ) -> Result<InitResult> {
     init_with_options(
         repo_path,
@@ -174,6 +183,7 @@ pub fn init_non_interactive(
         write_claude_skills,
         write_codex_skills,
         write_copilot_prompts,
+        install_hook,
     )
 }
 
@@ -185,6 +195,7 @@ fn init_with_options(
     create_claude_skills: bool,
     create_codex_skills: bool,
     create_copilot_prompts: bool,
+    install_hook: bool,
 ) -> Result<InitResult> {
     let already_exists = Storage::exists(repo_path)?;
     let storage = if already_exists {
@@ -221,6 +232,13 @@ fn init_with_options(
         false
     };
 
+    // Install commit-msg hook if requested
+    let hook_installed = if install_hook {
+        install_commit_msg_hook(repo_path)?
+    } else {
+        false
+    };
+
     Ok(InitResult {
         initialized: !already_exists,
         storage_path: storage.root().to_string_lossy().to_string(),
@@ -228,6 +246,7 @@ fn init_with_options(
         skills_file_created,
         codex_skills_file_created,
         copilot_prompts_created,
+        hook_installed,
     })
 }
 
@@ -856,6 +875,49 @@ const BINNACLE_SECTION_START: &str = "<!-- BEGIN BINNACLE SECTION -->";
 /// Marker used to detect the end of the binnacle section.
 const BINNACLE_SECTION_END: &str = "<!-- END BINNACLE SECTION -->";
 
+/// Marker used to detect the start of the binnacle hook section.
+const HOOK_SECTION_START: &str = "### BINNACLE HOOK START ###";
+/// Marker used to detect the end of the binnacle hook section.
+const HOOK_SECTION_END: &str = "### BINNACLE HOOK END ###";
+
+/// The commit-msg hook script content
+const COMMIT_MSG_HOOK_CONTENT: &str = r#"
+### BINNACLE HOOK START ###
+# Binnacle commit-msg hook
+# Automatically appends Co-authored-by trailer when an agent session is active
+
+# Check if co-author feature is enabled (default: true)
+enabled_value=$(bn config get co-author.enabled 2>/dev/null | grep -o '"value":[^,}]*' | cut -d':' -f2 | tr -d ' "' || echo "null")
+
+# If explicitly set to false/no/0, skip
+if [[ "$enabled_value" == "false" ]] || [[ "$enabled_value" == "no" ]] || [[ "$enabled_value" == "0" ]]; then
+    : # Skip binnacle co-author, continue to rest of hook
+else
+    # Check for active agent session via BN_AGENT_SESSION environment variable
+    if [[ -n "$BN_AGENT_SESSION" ]] && [[ "$BN_AGENT_SESSION" == "1" ]]; then
+        # Agent is active - append Co-authored-by trailer if not already present
+        co_author_name=$(bn config get co-author.name 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
+        if [[ -z "$co_author_name" ]] || [[ "$co_author_name" == "null" ]]; then
+            co_author_name="binnacle-bot"
+        fi
+
+        co_author_email=$(bn config get co-author.email 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
+        if [[ -z "$co_author_email" ]] || [[ "$co_author_email" == "null" ]]; then
+            co_author_email="noreply@binnacle.bot"
+        fi
+
+        trailer="Co-authored-by: $co_author_name <$co_author_email>"
+
+        # Check if trailer already exists (for amend case)
+        if ! grep -qF "$trailer" "$1" 2>/dev/null; then
+            echo "" >> "$1"
+            echo "$trailer" >> "$1"
+        fi
+    fi
+fi
+### BINNACLE HOOK END ###
+"#;
+
 /// Replace the binnacle section in the given content with the new blurb.
 /// Returns the new content with the section replaced.
 /// Assumes the content contains both BEGIN and END markers.
@@ -953,6 +1015,162 @@ fn update_agents_md(repo_path: &Path) -> Result<bool> {
             .map_err(|e| Error::Other(format!("Failed to create AGENTS.md: {}", e)))?;
         Ok(true)
     }
+}
+
+/// Install the commit-msg hook for co-author attribution.
+/// - If hook doesn't exist: create it with shebang + binnacle section
+/// - If hook exists with markers: do nothing (already installed)
+/// - If hook exists without markers: append binnacle section
+///
+/// Returns true if the hook was installed/updated.
+pub fn install_commit_msg_hook(repo_path: &Path) -> Result<bool> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let hooks_dir = repo_path.join(".git").join("hooks");
+    let hook_path = hooks_dir.join("commit-msg");
+
+    // Ensure hooks directory exists
+    if !hooks_dir.exists() {
+        fs::create_dir_all(&hooks_dir)
+            .map_err(|e| Error::Other(format!("Failed to create hooks directory: {}", e)))?;
+    }
+
+    if hook_path.exists() {
+        let contents = fs::read_to_string(&hook_path)
+            .map_err(|e| Error::Other(format!("Failed to read commit-msg hook: {}", e)))?;
+
+        // Check if binnacle section already exists
+        if contents.contains(HOOK_SECTION_START) {
+            // Already installed, nothing to do
+            return Ok(false);
+        }
+
+        // Append binnacle section to existing hook
+        let new_contents = format!("{}{}", contents, COMMIT_MSG_HOOK_CONTENT);
+        fs::write(&hook_path, new_contents)
+            .map_err(|e| Error::Other(format!("Failed to update commit-msg hook: {}", e)))?;
+    } else {
+        // Create new hook with shebang + binnacle section
+        let contents = format!("#!/usr/bin/env bash{}", COMMIT_MSG_HOOK_CONTENT);
+        fs::write(&hook_path, contents)
+            .map_err(|e| Error::Other(format!("Failed to create commit-msg hook: {}", e)))?;
+    }
+
+    // Ensure hook is executable
+    let mut perms = fs::metadata(&hook_path)
+        .map_err(|e| Error::Other(format!("Failed to get hook permissions: {}", e)))?
+        .permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&hook_path, perms)
+        .map_err(|e| Error::Other(format!("Failed to set hook permissions: {}", e)))?;
+
+    Ok(true)
+}
+
+/// Uninstall the commit-msg hook (remove binnacle section).
+/// - If hook doesn't exist: do nothing
+/// - If hook exists without markers: do nothing
+/// - If hook exists with only binnacle section: remove the file
+/// - If hook exists with binnacle section and other content: remove only binnacle section
+///
+/// Returns true if something was changed.
+pub fn uninstall_commit_msg_hook(repo_path: &Path) -> Result<bool> {
+    use std::fs;
+
+    let hook_path = repo_path.join(".git").join("hooks").join("commit-msg");
+
+    if !hook_path.exists() {
+        return Ok(false);
+    }
+
+    let contents = fs::read_to_string(&hook_path)
+        .map_err(|e| Error::Other(format!("Failed to read commit-msg hook: {}", e)))?;
+
+    // Check if binnacle section exists
+    let has_start = contents.contains(HOOK_SECTION_START);
+    let has_end = contents.contains(HOOK_SECTION_END);
+
+    if !has_start && !has_end {
+        // No binnacle section, nothing to do
+        return Ok(false);
+    }
+
+    if has_start != has_end {
+        // Malformed markers - warn and do nothing
+        eprintln!(
+            "Warning: commit-msg hook has {} but not {}. Manual cleanup required.",
+            if has_start {
+                "START marker"
+            } else {
+                "END marker"
+            },
+            if has_start {
+                "END marker"
+            } else {
+                "START marker"
+            }
+        );
+        return Ok(false);
+    }
+
+    // Find and remove the binnacle section
+    let start_idx = contents
+        .find(HOOK_SECTION_START)
+        .ok_or_else(|| Error::Other("HOOK START marker not found".to_string()))?;
+
+    // Find end marker - search AFTER start
+    let search_start = start_idx + HOOK_SECTION_START.len();
+    let end_marker_relative = contents[search_start..]
+        .find(HOOK_SECTION_END)
+        .ok_or_else(|| Error::Other("HOOK END marker not found".to_string()))?;
+    let end_idx = search_start + end_marker_relative + HOOK_SECTION_END.len();
+
+    // Build new content: before + after
+    let before = &contents[..start_idx];
+    let after = &contents[end_idx..];
+
+    // Also remove the leading newline before our section if present
+    let before = before.trim_end_matches('\n');
+    let new_contents = format!("{}{}", before, after);
+
+    // If the remaining content is just a shebang (or empty), remove the file
+    let trimmed = new_contents.trim();
+    if trimmed.is_empty() || trimmed == "#!/usr/bin/env bash" || trimmed == "#!/bin/bash" {
+        fs::remove_file(&hook_path)
+            .map_err(|e| Error::Other(format!("Failed to remove commit-msg hook: {}", e)))?;
+    } else {
+        fs::write(&hook_path, new_contents)
+            .map_err(|e| Error::Other(format!("Failed to update commit-msg hook: {}", e)))?;
+    }
+
+    Ok(true)
+}
+
+/// Result of hooks uninstall command
+#[derive(Debug, Serialize)]
+pub struct HooksUninstallResult {
+    pub commit_msg_removed: bool,
+}
+
+impl Output for HooksUninstallResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.commit_msg_removed {
+            "Removed binnacle section from commit-msg hook.".to_string()
+        } else {
+            "No binnacle hooks found to uninstall.".to_string()
+        }
+    }
+}
+
+/// Uninstall binnacle hooks from the repository.
+pub fn hooks_uninstall(repo_path: &Path) -> Result<HooksUninstallResult> {
+    let commit_msg_removed = uninstall_commit_msg_hook(repo_path)?;
+    Ok(HooksUninstallResult { commit_msg_removed })
 }
 
 // === Orient Command ===
@@ -9555,7 +9773,7 @@ mod tests {
     #[test]
     fn test_init_new() {
         let env = TestEnv::new_with_env();
-        let result = init_with_options(env.path(), false, false, false, false).unwrap();
+        let result = init_with_options(env.path(), false, false, false, false, false).unwrap();
         assert!(result.initialized);
     }
 
@@ -9563,7 +9781,7 @@ mod tests {
     fn test_init_existing() {
         let env = TestEnv::new_with_env();
         Storage::init(env.path()).unwrap();
-        let result = init_with_options(env.path(), false, false, false, false).unwrap();
+        let result = init_with_options(env.path(), false, false, false, false, false).unwrap();
         assert!(!result.initialized);
     }
 
@@ -11287,7 +11505,7 @@ mod tests {
         assert!(!agents_path.exists());
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
         assert!(!result.skills_file_created);
@@ -11308,7 +11526,7 @@ mod tests {
         std::fs::write(&agents_path, "# My Existing Agents\n\nSome content here.\n").unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
 
@@ -11331,7 +11549,7 @@ mod tests {
         .unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated); // Should be updated to add markers
 
@@ -11347,8 +11565,8 @@ mod tests {
         let temp = TestEnv::new_with_env();
 
         // Run init twice with AGENTS.md enabled
-        init_with_options(temp.path(), true, false, false, false).unwrap();
-        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
+        init_with_options(temp.path(), true, false, false, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
 
         // Second run should not update AGENTS.md (content unchanged)
         assert!(!result.initialized); // binnacle already exists
@@ -11367,7 +11585,7 @@ mod tests {
         Storage::init(temp.path()).unwrap();
 
         // Now run init with AGENTS.md update - should detect no change needed
-        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
         assert!(!result.initialized); // binnacle already exists
         assert!(!result.agents_md_updated); // Content already matches exactly
 
@@ -11389,7 +11607,7 @@ mod tests {
         .unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false, false).unwrap();
+        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated); // Section was replaced with standard content
 
@@ -11407,12 +11625,165 @@ mod tests {
         let agents_path = temp.path().join("AGENTS.md");
 
         // Run init with AGENTS.md update enabled
-        init_with_options(temp.path(), true, false, false, false).unwrap();
+        init_with_options(temp.path(), true, false, false, false, false).unwrap();
 
         // Verify AGENTS.md contains HTML markers
         let contents = std::fs::read_to_string(&agents_path).unwrap();
         assert!(contents.contains("<!-- BEGIN BINNACLE SECTION -->"));
         assert!(contents.contains("<!-- END BINNACLE SECTION -->"));
+    }
+
+    // === Commit-msg Hook Tests ===
+
+    #[test]
+    fn test_hook_install_creates_hook_file() {
+        let temp = TestEnv::new_with_env();
+        // Create .git/hooks directory
+        std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
+
+        let result = install_commit_msg_hook(temp.path()).unwrap();
+        assert!(result); // Hook was installed
+
+        let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");
+        assert!(hook_path.exists());
+
+        let contents = std::fs::read_to_string(&hook_path).unwrap();
+        assert!(contents.contains("#!/usr/bin/env bash"));
+        assert!(contents.contains("### BINNACLE HOOK START ###"));
+        assert!(contents.contains("### BINNACLE HOOK END ###"));
+        assert!(contents.contains("Co-authored-by"));
+    }
+
+    #[test]
+    fn test_hook_install_appends_to_existing_hook() {
+        let temp = TestEnv::new_with_env();
+        let hooks_dir = temp.path().join(".git").join("hooks");
+        std::fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Create an existing hook
+        let hook_path = hooks_dir.join("commit-msg");
+        std::fs::write(&hook_path, "#!/bin/bash\necho 'existing hook'\n").unwrap();
+
+        let result = install_commit_msg_hook(temp.path()).unwrap();
+        assert!(result); // Hook was updated
+
+        let contents = std::fs::read_to_string(&hook_path).unwrap();
+        assert!(contents.contains("existing hook")); // Original content preserved
+        assert!(contents.contains("### BINNACLE HOOK START ###")); // Binnacle added
+    }
+
+    #[test]
+    fn test_hook_install_idempotent() {
+        let temp = TestEnv::new_with_env();
+        std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
+
+        // Install hook first time
+        let result1 = install_commit_msg_hook(temp.path()).unwrap();
+        assert!(result1); // Installed
+
+        // Install hook second time - should be idempotent
+        let result2 = install_commit_msg_hook(temp.path()).unwrap();
+        assert!(!result2); // Already installed, no change
+
+        // Verify only one binnacle section
+        let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");
+        let contents = std::fs::read_to_string(&hook_path).unwrap();
+        assert_eq!(contents.matches("### BINNACLE HOOK START ###").count(), 1);
+    }
+
+    #[test]
+    fn test_hook_uninstall_removes_binnacle_section() {
+        let temp = TestEnv::new_with_env();
+        let hooks_dir = temp.path().join(".git").join("hooks");
+        std::fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Create hook with existing content + binnacle section
+        let hook_path = hooks_dir.join("commit-msg");
+        std::fs::write(&hook_path, "#!/bin/bash\necho 'existing hook'\n").unwrap();
+        install_commit_msg_hook(temp.path()).unwrap();
+
+        // Uninstall
+        let result = uninstall_commit_msg_hook(temp.path()).unwrap();
+        assert!(result); // Something was removed
+
+        // Verify original content remains, binnacle removed
+        let contents = std::fs::read_to_string(&hook_path).unwrap();
+        assert!(contents.contains("existing hook"));
+        assert!(!contents.contains("### BINNACLE HOOK START ###"));
+    }
+
+    #[test]
+    fn test_hook_uninstall_removes_file_if_only_binnacle() {
+        let temp = TestEnv::new_with_env();
+        std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
+
+        // Install hook (creates new file)
+        install_commit_msg_hook(temp.path()).unwrap();
+
+        let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");
+        assert!(hook_path.exists());
+
+        // Uninstall
+        let result = uninstall_commit_msg_hook(temp.path()).unwrap();
+        assert!(result);
+
+        // File should be removed since it only contained binnacle
+        assert!(!hook_path.exists());
+    }
+
+    #[test]
+    fn test_hook_uninstall_noop_when_no_hook() {
+        let temp = TestEnv::new_with_env();
+        std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
+
+        // Uninstall when no hook exists
+        let result = uninstall_commit_msg_hook(temp.path()).unwrap();
+        assert!(!result); // Nothing to do
+    }
+
+    #[test]
+    fn test_hook_uninstall_noop_when_no_binnacle_section() {
+        let temp = TestEnv::new_with_env();
+        let hooks_dir = temp.path().join(".git").join("hooks");
+        std::fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Create hook without binnacle section
+        let hook_path = hooks_dir.join("commit-msg");
+        std::fs::write(&hook_path, "#!/bin/bash\necho 'other hook'\n").unwrap();
+
+        // Uninstall should be noop
+        let result = uninstall_commit_msg_hook(temp.path()).unwrap();
+        assert!(!result);
+
+        // Original content unchanged
+        let contents = std::fs::read_to_string(&hook_path).unwrap();
+        assert!(contents.contains("other hook"));
+    }
+
+    #[test]
+    fn test_init_with_hook_flag() {
+        let temp = TestEnv::new_with_env();
+        std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
+
+        // Init with hook installation
+        let result = init_with_options(temp.path(), false, false, false, false, true).unwrap();
+        assert!(result.hook_installed);
+
+        let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");
+        assert!(hook_path.exists());
+    }
+
+    #[test]
+    fn test_init_without_hook_flag() {
+        let temp = TestEnv::new_with_env();
+        std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
+
+        // Init without hook installation
+        let result = init_with_options(temp.path(), false, false, false, false, false).unwrap();
+        assert!(!result.hook_installed);
+
+        let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");
+        assert!(!hook_path.exists());
     }
 
     // === Orient Command Tests ===
