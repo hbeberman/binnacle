@@ -58,9 +58,12 @@ fn run_hook_with_session(
         .env("BN_DATA_DIR", env.data_path())
         .env("PATH", new_path);
 
-    // Set BN_AGENT_SESSION if running under agent session
+    // Set or remove BN_AGENT_SESSION based on agent_session flag
+    // Must explicitly remove to prevent inheritance from parent shell
     if agent_session {
         cmd.env("BN_AGENT_SESSION", "1");
+    } else {
+        cmd.env_remove("BN_AGENT_SESSION");
     }
 
     let output = cmd.output().expect("Failed to run hook");
