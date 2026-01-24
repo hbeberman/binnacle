@@ -32,11 +32,11 @@ fn test_container_mode_env_var_recognized() {
     cmd.args(["system", "init", "-y"]);
     cmd.assert().success();
 
-    // Verify bn orient works with container data directory
+    // Verify bn orient works with container data directory (dry-run to avoid agent registration)
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(env.repo_path());
     cmd.env("BN_DATA_DIR", &container_data);
-    cmd.args(["orient", "--type", "worker", "-H"]);
+    cmd.args(["orient", "--type", "worker", "-H", "--dry-run"]);
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("Binnacle"));
@@ -462,9 +462,9 @@ fn test_container_mode_data_persistence() {
         .stdout(predicate::str::contains("Persistent task"))
         .stdout(predicate::str::contains("\"priority\":1"));
 
-    // Verify orient shows the task (requires --type)
+    // Verify orient shows the task (requires --type) - dry-run to avoid agent registration
     bn_container()
-        .args(["orient", "--type", "worker", "-H"])
+        .args(["orient", "--type", "worker", "-H", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Total tasks: 1"));

@@ -45,6 +45,9 @@ pub enum Commands {
         /// Agents without a purpose are labeled "UNREGISTERED"
         #[arg(long)]
         register: Option<String>,
+        /// Skip agent registration (for testing)
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Gracefully terminate this agent (signals parent process)

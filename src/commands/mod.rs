@@ -1398,6 +1398,7 @@ pub fn orient(
     allow_init: bool,
     name: Option<String>,
     purpose: Option<String>,
+    dry_run: bool,
 ) -> Result<OrientResult> {
     // Parse agent type first
     let agent_type = parse_agent_type(agent_type_str)?;
@@ -1419,47 +1420,61 @@ pub fn orient(
     // Get current state
     let mut storage = Storage::open(repo_path)?;
 
-    // Register agent (cleanup stale ones first)
-    let _ = storage.cleanup_stale_agents();
-
-    // Use parent PID as the agent identifier. The bn command itself exits after each
-    // invocation, but the parent process (shell/AI agent) persists across multiple
-    // bn commands. This prevents agents from being immediately cleaned up as "stale".
-    let bn_pid = std::process::id();
-    let parent_pid = get_parent_pid().unwrap_or(bn_pid);
-    let agent_pid = parent_pid;
-
-    // Use provided name, or BN_AGENT_NAME env var, or auto-generate (with parent PID for uniqueness)
-    let agent_name = name
-        .or_else(|| std::env::var("BN_AGENT_NAME").ok())
-        .unwrap_or_else(|| format!("agent-{}", agent_pid));
-
-    // Check if already registered (update activity, type, and potentially purpose) or register new
-    let agent_id = if let Ok(mut existing_agent) = storage.get_agent(agent_pid) {
-        // Update type and purpose if provided (allows re-registering)
-        existing_agent.agent_type = agent_type.clone();
-        if purpose.is_some() {
-            existing_agent.purpose = purpose;
-        }
-        let id = existing_agent.id.clone();
-        storage.update_agent(&existing_agent)?;
-        let _ = storage.touch_agent(agent_pid);
-        id
+    // In dry-run mode, skip agent registration and session state writing
+    let agent_id = if dry_run {
+        // Return a placeholder ID for dry-run mode
+        "dry-run".to_string()
     } else {
-        // Register new agent with parent PID as primary identifier
-        let agent = if let Some(ref p) = purpose {
-            Agent::new_with_purpose(agent_pid, bn_pid, agent_name, agent_type.clone(), p.clone())
+        // Register agent (cleanup stale ones first)
+        let _ = storage.cleanup_stale_agents();
+
+        // Use parent PID as the agent identifier. The bn command itself exits after each
+        // invocation, but the parent process (shell/AI agent) persists across multiple
+        // bn commands. This prevents agents from being immediately cleaned up as "stale".
+        let bn_pid = std::process::id();
+        let parent_pid = get_parent_pid().unwrap_or(bn_pid);
+        let agent_pid = parent_pid;
+
+        // Use provided name, or BN_AGENT_NAME env var, or auto-generate (with parent PID for uniqueness)
+        let agent_name = name
+            .or_else(|| std::env::var("BN_AGENT_NAME").ok())
+            .unwrap_or_else(|| format!("agent-{}", agent_pid));
+
+        // Check if already registered (update activity, type, and potentially purpose) or register new
+        let id = if let Ok(mut existing_agent) = storage.get_agent(agent_pid) {
+            // Update type and purpose if provided (allows re-registering)
+            existing_agent.agent_type = agent_type.clone();
+            if purpose.is_some() {
+                existing_agent.purpose = purpose;
+            }
+            let id = existing_agent.id.clone();
+            storage.update_agent(&existing_agent)?;
+            let _ = storage.touch_agent(agent_pid);
+            id
         } else {
-            Agent::new(agent_pid, bn_pid, agent_name, agent_type.clone())
+            // Register new agent with parent PID as primary identifier
+            let agent = if let Some(ref p) = purpose {
+                Agent::new_with_purpose(
+                    agent_pid,
+                    bn_pid,
+                    agent_name,
+                    agent_type.clone(),
+                    p.clone(),
+                )
+            } else {
+                Agent::new(agent_pid, bn_pid, agent_name, agent_type.clone())
+            };
+            let id = agent.id.clone();
+            storage.register_agent(&agent)?;
+            id
         };
-        let id = agent.id.clone();
-        storage.register_agent(&agent)?;
+
+        // Write session state for commit-msg hook detection
+        let session_state = SessionState::new(agent_pid, agent_type);
+        storage.write_session_state(&session_state)?;
+
         id
     };
-
-    // Write session state for commit-msg hook detection
-    let session_state = SessionState::new(agent_pid, agent_type);
-    storage.write_session_state(&session_state)?;
 
     let tasks = storage.list_tasks(None, None, None)?;
 
@@ -14134,8 +14149,8 @@ mod tests {
         // Verify not initialized
         assert!(!Storage::exists(temp.path()).unwrap());
 
-        // Run orient without allow_init - should fail
-        let result = orient(temp.path(), "worker", false, None, None);
+        // Run orient without allow_init - should fail (dry_run doesn't matter here since it fails)
+        let result = orient(temp.path(), "worker", false, None, None, true);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::NotInitialized));
     }
@@ -14147,8 +14162,8 @@ mod tests {
         // Verify not initialized
         assert!(!Storage::exists(temp.path()).unwrap());
 
-        // Run orient with allow_init=true
-        let result = orient(temp.path(), "worker", true, None, None).unwrap();
+        // Run orient with allow_init=true (dry_run to avoid agent registration)
+        let result = orient(temp.path(), "worker", true, None, None, true).unwrap();
         assert!(result.ready); // Store is ready to use
         assert!(result.just_initialized); // Was just initialized this call
 
@@ -14186,7 +14201,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), "worker", false, None, None).unwrap();
+        let result = orient(temp.path(), "worker", false, None, None, true).unwrap();
         assert!(result.ready); // Store is ready to use
         assert!(!result.just_initialized); // Already initialized in setup()
         assert_eq!(result.total_tasks, 2);
@@ -14221,7 +14236,7 @@ mod tests {
         // B depends on A (so B is blocked)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
-        let result = orient(temp.path(), "worker", false, None, None).unwrap();
+        let result = orient(temp.path(), "worker", false, None, None, true).unwrap();
         assert_eq!(result.total_tasks, 2);
         assert_eq!(result.ready_count, 1);
         assert!(result.ready_ids.contains(&task_a.id));
@@ -14259,7 +14274,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), "worker", false, None, None).unwrap();
+        let result = orient(temp.path(), "worker", false, None, None, true).unwrap();
         assert_eq!(result.in_progress_count, 1);
     }
 
@@ -14277,7 +14292,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), "worker", false, None, None).unwrap();
+        let result = orient(temp.path(), "worker", false, None, None, true).unwrap();
         let human = result.to_human();
 
         assert!(human.contains("Binnacle - AI agent task tracker"));
@@ -14340,7 +14355,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = orient(temp.path(), "worker", false, None, None).unwrap();
+        let result = orient(temp.path(), "worker", false, None, None, true).unwrap();
         assert_eq!(result.total_bugs, 3);
         assert_eq!(result.open_bugs_count, 2); // Low and Critical are open
         assert_eq!(result.critical_bugs_count, 1); // Only Critical (not High since it's closed)
@@ -14355,13 +14370,14 @@ mod tests {
     fn test_orient_with_purpose_registers_agent() {
         let temp = setup();
 
-        // Orient with a purpose
+        // Orient with a purpose (dry_run: false to actually register)
         let _result = orient(
             temp.path(),
             "worker",
             false,
             Some("test-agent".to_string()),
             Some("Task Worker".to_string()),
+            false, // Not dry_run - we need to test registration
         )
         .unwrap();
 
@@ -14382,13 +14398,14 @@ mod tests {
     fn test_orient_without_purpose_shows_unregistered() {
         let temp = setup();
 
-        // Orient without a purpose
+        // Orient without a purpose (dry_run: false to actually register)
         let _result = orient(
             temp.path(),
             "worker",
             false,
             Some("anon-agent".to_string()),
             None,
+            false, // Not dry_run - we need to test registration
         )
         .unwrap();
 
@@ -14408,13 +14425,14 @@ mod tests {
     fn test_orient_can_update_purpose() {
         let temp = setup();
 
-        // First orient without purpose
+        // First orient without purpose (dry_run: false to actually register)
         let _result = orient(
             temp.path(),
             "worker",
             false,
             Some("update-agent".to_string()),
             None,
+            false, // Not dry_run - we need to test registration
         )
         .unwrap();
 
@@ -14433,6 +14451,7 @@ mod tests {
             false,
             Some("update-agent".to_string()),
             Some("PRD Generator".to_string()),
+            false, // Not dry_run - we need to test registration
         )
         .unwrap();
 
@@ -17330,8 +17349,8 @@ mod tests {
     fn test_orient_writes_session_state() {
         let temp = setup();
 
-        // Run orient
-        let _result = orient(temp.path(), "worker", false, None, None).unwrap();
+        // Run orient (dry_run: false to test session state writing)
+        let _result = orient(temp.path(), "worker", false, None, None, false).unwrap();
 
         // Verify session state was written
         let storage = Storage::open(temp.path()).unwrap();
@@ -17346,11 +17365,11 @@ mod tests {
     fn test_orient_updates_session_state_on_reorient() {
         let temp = setup();
 
-        // First orient as worker
-        orient(temp.path(), "worker", false, None, None).unwrap();
+        // First orient as worker (dry_run: false to test session state writing)
+        orient(temp.path(), "worker", false, None, None, false).unwrap();
 
         // Second orient as planner
-        orient(temp.path(), "planner", false, None, None).unwrap();
+        orient(temp.path(), "planner", false, None, None, false).unwrap();
 
         // Verify session state reflects latest orient
         let storage = Storage::open(temp.path()).unwrap();

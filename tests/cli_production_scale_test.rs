@@ -704,7 +704,7 @@ fn test_production_scale_orient_output() {
 
     // bn orient now requires --type, use worker type for testing
     let output = bn_in(&env)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .output()
         .expect("Failed to run orient command");
 

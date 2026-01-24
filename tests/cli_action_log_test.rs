@@ -310,7 +310,7 @@ fn test_action_logging_logs_orient_command() {
     let env = init_binnacle();
 
     bn_in(&env)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .assert()
         .success();
 

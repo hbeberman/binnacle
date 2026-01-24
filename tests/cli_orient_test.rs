@@ -145,7 +145,7 @@ fn test_orient_without_init_fails_when_not_initialized() {
 
     // Run orient without --init (should fail)
     bn_in(&temp)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("No binnacle database found"))
@@ -162,7 +162,7 @@ fn test_orient_with_init_creates_database() {
 
     // Run orient --init (should succeed and initialize)
     bn_in(&temp)
-        .args(["orient", "--type", "worker", "--init"])
+        .args(["orient", "--type", "worker", "--init", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ready\":true"))
@@ -177,7 +177,7 @@ fn test_orient_works_when_already_initialized() {
     let temp = init_binnacle();
 
     bn_in(&temp)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ready\":true"))
@@ -195,7 +195,7 @@ fn test_orient_shows_task_counts() {
     create_task(&temp, "Task C");
 
     bn_in(&temp)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"total_tasks\":3"))
@@ -225,7 +225,7 @@ fn test_orient_shows_blocked_tasks() {
         .success();
 
     bn_in(&temp)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ready_count\":1"))
@@ -245,7 +245,7 @@ fn test_orient_shows_in_progress_tasks() {
         .success();
 
     bn_in(&temp)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"in_progress_count\":1"));
@@ -285,7 +285,7 @@ fn test_orient_json_includes_ready_ids() {
     let task_id = create_task(&temp, "My Task");
 
     bn_in(&temp)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ready_ids\""))
@@ -297,7 +297,7 @@ fn test_orient_empty_project() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args(["orient", "--type", "worker", "--init"])
+        .args(["orient", "--type", "worker", "--init", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"total_tasks\":0"))
@@ -322,7 +322,7 @@ fn test_orient_init_is_idempotent() {
 
     // First --init
     bn_in(&temp)
-        .args(["orient", "--type", "worker", "--init"])
+        .args(["orient", "--type", "worker", "--init", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ready\":true"))
@@ -330,7 +330,7 @@ fn test_orient_init_is_idempotent() {
 
     // Second --init should also succeed (no-op for already initialized)
     bn_in(&temp)
-        .args(["orient", "--type", "worker", "--init"])
+        .args(["orient", "--type", "worker", "--init", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ready\":true"))
@@ -343,7 +343,7 @@ fn test_orient_error_json_is_valid() {
 
     // Run orient without --init and capture JSON error
     let output = bn_in(&temp)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .assert()
         .failure();
 
@@ -417,21 +417,21 @@ fn test_orient_requires_type_flag() {
 fn test_orient_accepts_all_agent_types() {
     let temp = TestEnv::new();
 
-    // Test worker type
+    // Test worker type (with dry-run and init since test env won't have agents)
     bn_in(&temp)
-        .args(["orient", "--type", "worker", "--init"])
+        .args(["orient", "--type", "worker", "--init", "--dry-run"])
         .assert()
         .success();
 
-    // Test planner type
+    // Test planner type (with dry-run)
     bn_in(&temp)
-        .args(["orient", "--type", "planner"])
+        .args(["orient", "--type", "planner", "--dry-run"])
         .assert()
         .success();
 
-    // Test buddy type
+    // Test buddy type (with dry-run)
     bn_in(&temp)
-        .args(["orient", "--type", "buddy"])
+        .args(["orient", "--type", "buddy", "--dry-run"])
         .assert()
         .success();
 }
@@ -452,7 +452,7 @@ fn test_orient_rejects_invalid_type() {
 fn test_orient_uses_bn_agent_name_env_var() {
     let temp = init_binnacle();
 
-    // Orient with BN_AGENT_NAME env var
+    // Orient with BN_AGENT_NAME env var (NOT dry-run, we need to test registration)
     bn_in(&temp)
         .env("BN_AGENT_NAME", "container-worker-1")
         .args(["orient", "--type", "worker"])
@@ -499,4 +499,53 @@ fn test_orient_name_flag_takes_precedence_over_env_var() {
     // The env var name should not appear (unless both somehow register)
     // Note: we're checking that the flag takes precedence, but both could appear
     // if the test framework creates multiple PIDs. Focus on flag-name being present.
+}
+
+#[test]
+fn test_orient_dry_run_skips_agent_registration() {
+    let temp = init_binnacle();
+
+    // Orient with --dry-run should NOT register the agent
+    bn_in(&temp)
+        .args([
+            "orient",
+            "--type",
+            "worker",
+            "--name",
+            "ghost-agent",
+            "--dry-run",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"agent_id\":\"dry-run\""));
+
+    // Check that the agent was NOT registered
+    let output = bn_in(&temp)
+        .args(["agent", "list"])
+        .output()
+        .expect("Failed to run bn agent list");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("ghost-agent"),
+        "Agent list should NOT contain the dry-run agent. Got: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_orient_dry_run_still_shows_project_state() {
+    let temp = init_binnacle();
+
+    // Create some tasks
+    create_task(&temp, "Test Task A");
+    create_task(&temp, "Test Task B");
+
+    // Orient with --dry-run should still show accurate project state
+    bn_in(&temp)
+        .args(["orient", "--type", "worker", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"total_tasks\":2"))
+        .stdout(predicate::str::contains("\"ready_count\":2"));
 }

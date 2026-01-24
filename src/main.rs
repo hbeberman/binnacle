@@ -107,8 +107,9 @@ fn run_command(
             init,
             name,
             register,
+            dry_run,
         }) => {
-            match commands::orient(repo_path, &agent_type, init, name, register) {
+            match commands::orient(repo_path, &agent_type, init, name, register, dry_run) {
                 Ok(result) => output(&result, human),
                 Err(binnacle::Error::NotInitialized) => {
                     // Provide helpful error message for uninitialized database
@@ -1261,9 +1262,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             init,
             name,
             register,
+            dry_run,
         }) => (
             "orient".to_string(),
-            serde_json::json!({ "agent_type": agent_type, "init": init, "name": name, "register": register }),
+            serde_json::json!({ "agent_type": agent_type, "init": init, "name": name, "register": register, "dry_run": dry_run }),
         ),
 
         Some(Commands::Goodbye {

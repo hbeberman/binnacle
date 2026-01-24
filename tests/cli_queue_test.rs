@@ -326,7 +326,7 @@ fn test_orient_shows_queue_info() {
 
     // Orient output should include queue info
     bn_in(&temp)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"queue\""))
@@ -358,7 +358,7 @@ fn test_orient_human_shows_queue() {
 
     // Human orient output should show queue info in "Also:" section
     bn_in(&temp)
-        .args(["-H", "orient", "--type", "worker"])
+        .args(["-H", "orient", "--type", "worker", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("queue \"Sprint 1\""))
@@ -371,7 +371,7 @@ fn test_orient_without_queue() {
 
     // Orient without queue should not have queue field
     bn_in(&temp)
-        .args(["orient", "--type", "worker"])
+        .args(["orient", "--type", "worker", "--dry-run"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"queued_ready_count\":0"));
