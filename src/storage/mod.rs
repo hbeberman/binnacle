@@ -517,7 +517,7 @@ impl Storage {
                     continue;
                 }
                 if let Ok(bug) = serde_json::from_str::<Bug>(&line)
-                    && bug.entity_type == "bug"
+                    && bug.core.entity_type == "bug"
                 {
                     self.cache_bug(&bug)?;
                 }
@@ -536,7 +536,7 @@ impl Storage {
                     continue;
                 }
                 if let Ok(idea) = serde_json::from_str::<Idea>(&line)
-                    && idea.entity_type == "idea"
+                    && idea.core.entity_type == "idea"
                 {
                     self.cache_idea(&idea)?;
                 }
@@ -555,7 +555,7 @@ impl Storage {
                     continue;
                 }
                 if let Ok(milestone) = serde_json::from_str::<Milestone>(&line)
-                    && milestone.entity_type == "milestone"
+                    && milestone.core.entity_type == "milestone"
                 {
                     self.cache_milestone(&milestone)?;
                 }
@@ -636,16 +636,16 @@ impl Storage {
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
             "#,
             params![
-                task.id,
-                task.title,
-                task.short_name,
-                task.description,
+                task.core.id,
+                task.core.title,
+                task.core.short_name,
+                task.core.description,
                 task.priority,
                 serde_json::to_string(&task.status)?.trim_matches('"'),
                 task.parent,
                 task.assignee,
-                task.created_at.to_rfc3339(),
-                task.updated_at.to_rfc3339(),
+                task.core.created_at.to_rfc3339(),
+                task.core.updated_at.to_rfc3339(),
                 task.closed_at.map(|t| t.to_rfc3339()),
                 task.closed_reason,
             ],
@@ -653,23 +653,23 @@ impl Storage {
 
         // Update tags
         self.conn
-            .execute("DELETE FROM task_tags WHERE task_id = ?1", [&task.id])?;
-        for tag in &task.tags {
+            .execute("DELETE FROM task_tags WHERE task_id = ?1", [&task.core.id])?;
+        for tag in &task.core.tags {
             self.conn.execute(
                 "INSERT INTO task_tags (task_id, tag) VALUES (?1, ?2)",
-                params![task.id, tag],
+                params![task.core.id, tag],
             )?;
         }
 
         // Update dependencies
         self.conn.execute(
             "DELETE FROM task_dependencies WHERE child_id = ?1",
-            [&task.id],
+            [&task.core.id],
         )?;
         for parent_id in &task.depends_on {
             self.conn.execute(
                 "INSERT INTO task_dependencies (child_id, parent_id) VALUES (?1, ?2)",
-                params![task.id, parent_id],
+                params![task.core.id, parent_id],
             )?;
         }
 
@@ -686,39 +686,39 @@ impl Storage {
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             "#,
             params![
-                bug.id,
-                bug.title,
-                bug.description,
+                bug.core.id,
+                bug.core.title,
+                bug.core.description,
                 bug.priority,
                 serde_json::to_string(&bug.status)?.trim_matches('"'),
                 serde_json::to_string(&bug.severity)?.trim_matches('"'),
                 bug.reproduction_steps,
                 bug.affected_component,
                 bug.assignee,
-                bug.created_at.to_rfc3339(),
-                bug.updated_at.to_rfc3339(),
+                bug.core.created_at.to_rfc3339(),
+                bug.core.updated_at.to_rfc3339(),
                 bug.closed_at.map(|t| t.to_rfc3339()),
                 bug.closed_reason,
             ],
         )?;
 
         self.conn
-            .execute("DELETE FROM bug_tags WHERE bug_id = ?1", [&bug.id])?;
-        for tag in &bug.tags {
+            .execute("DELETE FROM bug_tags WHERE bug_id = ?1", [&bug.core.id])?;
+        for tag in &bug.core.tags {
             self.conn.execute(
                 "INSERT INTO bug_tags (bug_id, tag) VALUES (?1, ?2)",
-                params![bug.id, tag],
+                params![bug.core.id, tag],
             )?;
         }
 
         self.conn.execute(
             "DELETE FROM bug_dependencies WHERE child_id = ?1",
-            [&bug.id],
+            [&bug.core.id],
         )?;
         for parent_id in &bug.depends_on {
             self.conn.execute(
                 "INSERT INTO bug_dependencies (child_id, parent_id) VALUES (?1, ?2)",
-                params![bug.id, parent_id],
+                params![bug.core.id, parent_id],
             )?;
         }
 
@@ -781,7 +781,7 @@ impl Storage {
                 continue;
             }
             if let Ok(task) = serde_json::from_str::<Task>(&line)
-                && task.id == id
+                && task.core.id == id
             {
                 latest = Some(task);
             }
@@ -843,7 +843,7 @@ impl Storage {
     /// Update a task.
     pub fn update_task(&mut self, task: &Task) -> Result<()> {
         // Verify task exists
-        self.get_task(&task.id)?;
+        self.get_task(&task.core.id)?;
 
         // Append updated version to JSONL
         let tasks_path = self.root.join("tasks.jsonl");
@@ -911,7 +911,7 @@ impl Storage {
                 continue;
             }
             if let Ok(bug) = serde_json::from_str::<Bug>(&line)
-                && bug.id == id
+                && bug.core.id == id
             {
                 latest = Some(bug);
             }
@@ -975,7 +975,7 @@ impl Storage {
 
     /// Update a bug.
     pub fn update_bug(&mut self, bug: &Bug) -> Result<()> {
-        self.get_bug(&bug.id)?;
+        self.get_bug(&bug.core.id)?;
 
         let bugs_path = self.root.join("bugs.jsonl");
         let mut file = OpenOptions::new().append(true).open(&bugs_path)?;
@@ -1052,7 +1052,7 @@ impl Storage {
                 continue;
             }
             if let Ok(idea) = serde_json::from_str::<Idea>(&line)
-                && idea.id == id
+                && idea.core.id == id
             {
                 latest = Some(idea);
             }
@@ -1102,7 +1102,7 @@ impl Storage {
 
     /// Update an idea.
     pub fn update_idea(&mut self, idea: &Idea) -> Result<()> {
-        self.get_idea(&idea.id)?;
+        self.get_idea(&idea.core.id)?;
 
         let ideas_path = self.root.join("ideas.jsonl");
         let mut file = OpenOptions::new().append(true).open(&ideas_path)?;
@@ -1139,23 +1139,23 @@ impl Storage {
             "INSERT OR REPLACE INTO ideas (id, title, description, status, promoted_to, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
             params![
-                &idea.id,
-                &idea.title,
-                &idea.description,
+                &idea.core.id,
+                &idea.core.title,
+                &idea.core.description,
                 status,
                 &idea.promoted_to,
-                idea.created_at.to_rfc3339(),
-                idea.updated_at.to_rfc3339(),
+                idea.core.created_at.to_rfc3339(),
+                idea.core.updated_at.to_rfc3339(),
             ],
         )?;
 
         // Update tags
         self.conn
-            .execute("DELETE FROM idea_tags WHERE idea_id = ?", [&idea.id])?;
-        for tag in &idea.tags {
+            .execute("DELETE FROM idea_tags WHERE idea_id = ?", [&idea.core.id])?;
+        for tag in &idea.core.tags {
             self.conn.execute(
                 "INSERT INTO idea_tags (idea_id, tag) VALUES (?, ?)",
-                [&idea.id, tag],
+                [&idea.core.id, tag],
             )?;
         }
 
@@ -1370,7 +1370,7 @@ impl Storage {
                 continue;
             }
             if let Ok(milestone) = serde_json::from_str::<Milestone>(&line)
-                && milestone.id == id
+                && milestone.core.id == id
             {
                 latest = Some(milestone);
             }
@@ -1429,7 +1429,7 @@ impl Storage {
 
     /// Update a milestone.
     pub fn update_milestone(&mut self, milestone: &Milestone) -> Result<()> {
-        self.get_milestone(&milestone.id)?;
+        self.get_milestone(&milestone.core.id)?;
 
         let milestones_path = self.root.join("milestones.jsonl");
         let mut file = OpenOptions::new().append(true).open(&milestones_path)?;
@@ -1492,15 +1492,15 @@ impl Storage {
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             "#,
             params![
-                milestone.id,
-                milestone.title,
-                milestone.description,
+                milestone.core.id,
+                milestone.core.title,
+                milestone.core.description,
                 milestone.priority,
                 serde_json::to_string(&milestone.status)?.trim_matches('"'),
                 milestone.due_date.map(|t| t.to_rfc3339()),
                 milestone.assignee,
-                milestone.created_at.to_rfc3339(),
-                milestone.updated_at.to_rfc3339(),
+                milestone.core.created_at.to_rfc3339(),
+                milestone.core.updated_at.to_rfc3339(),
                 milestone.closed_at.map(|t| t.to_rfc3339()),
                 milestone.closed_reason,
             ],
@@ -1508,12 +1508,12 @@ impl Storage {
 
         self.conn.execute(
             "DELETE FROM milestone_tags WHERE milestone_id = ?1",
-            [&milestone.id],
+            [&milestone.core.id],
         )?;
-        for tag in &milestone.tags {
+        for tag in &milestone.core.tags {
             self.conn.execute(
                 "INSERT INTO milestone_tags (milestone_id, tag) VALUES (?1, ?2)",
-                params![milestone.id, tag],
+                params![milestone.core.id, tag],
             )?;
         }
 
@@ -1553,7 +1553,7 @@ impl Storage {
 
         // Update the task's depends_on list and status, then persist.
         child.depends_on.push(parent_id.to_string());
-        child.updated_at = chrono::Utc::now();
+        child.core.updated_at = chrono::Utc::now();
 
         let parent_incomplete = !matches!(parent.status, TaskStatus::Done | TaskStatus::Cancelled);
         if child.status == TaskStatus::Done && parent_incomplete {
@@ -1596,7 +1596,7 @@ impl Storage {
         // Update the task's depends_on list and append to JSONL
         let mut task = self.get_task(child_id)?;
         task.depends_on.retain(|id| id != parent_id);
-        task.updated_at = chrono::Utc::now();
+        task.core.updated_at = chrono::Utc::now();
 
         let tasks_path = self.root.join("tasks.jsonl");
         let mut file = OpenOptions::new().append(true).open(&tasks_path)?;
@@ -1686,7 +1686,9 @@ impl Storage {
                             .all(|dep_id| self.is_entity_done(dep_id));
 
                     // Check edge-based dependencies
-                    let edge_deps = self.get_edge_dependencies(&task.id).unwrap_or_default();
+                    let edge_deps = self
+                        .get_edge_dependencies(&task.core.id)
+                        .unwrap_or_default();
                     let edge_deps_done = edge_deps.is_empty()
                         || edge_deps.iter().all(|dep_id| self.is_entity_done(dep_id));
 
@@ -1717,7 +1719,7 @@ impl Storage {
                             .all(|dep_id| self.is_entity_done(dep_id));
 
                     // Check edge-based dependencies
-                    let edge_deps = self.get_edge_dependencies(&bug.id).unwrap_or_default();
+                    let edge_deps = self.get_edge_dependencies(&bug.core.id).unwrap_or_default();
                     let edge_deps_done = edge_deps.is_empty()
                         || edge_deps.iter().all(|dep_id| self.is_entity_done(dep_id));
 
@@ -1760,7 +1762,9 @@ impl Storage {
                             .any(|dep_id| !self.is_entity_done(dep_id));
 
                     // Check edge-based dependencies
-                    let edge_deps = self.get_edge_dependencies(&task.id).unwrap_or_default();
+                    let edge_deps = self
+                        .get_edge_dependencies(&task.core.id)
+                        .unwrap_or_default();
                     let has_open_edge_deps = !edge_deps.is_empty()
                         && edge_deps.iter().any(|dep_id| !self.is_entity_done(dep_id));
 
@@ -1801,7 +1805,7 @@ impl Storage {
                             .any(|dep_id| !self.is_entity_done(dep_id));
 
                     // Check edge-based dependencies
-                    let edge_deps = self.get_edge_dependencies(&bug.id).unwrap_or_default();
+                    let edge_deps = self.get_edge_dependencies(&bug.core.id).unwrap_or_default();
                     let has_open_edge_deps = !edge_deps.is_empty()
                         && edge_deps.iter().any(|dep_id| !self.is_entity_done(dep_id));
 
@@ -2189,16 +2193,16 @@ impl Storage {
 
             // Try to parse as Task
             if let Ok(task) = serde_json::from_str::<Task>(&line)
-                && task.entity_type == "task"
+                && task.core.entity_type == "task"
             {
                 // Filter by task_id if provided
                 if let Some(filter_id) = task_id
-                    && task.id != filter_id
+                    && task.core.id != filter_id
                 {
                     continue;
                 }
 
-                let action = if seen_tasks.contains_key(&task.id) {
+                let action = if seen_tasks.contains_key(&task.core.id) {
                     // Determine what kind of update
                     if task.status == TaskStatus::Done && task.closed_at.is_some() {
                         "closed"
@@ -2218,14 +2222,14 @@ impl Storage {
                 };
 
                 entries.push(crate::commands::LogEntry {
-                    timestamp: task.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    timestamp: task.core.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
                     entity_type: "task".to_string(),
-                    entity_id: task.id.clone(),
+                    entity_id: task.core.id.clone(),
                     action: action.to_string(),
                     details,
                 });
 
-                seen_tasks.insert(task.id.clone(), task.updated_at);
+                seen_tasks.insert(task.core.id.clone(), task.core.updated_at);
             }
 
             // Try to parse as TestNode
@@ -2646,7 +2650,7 @@ impl Storage {
                 if task.status == TaskStatus::Done {
                     task.status = TaskStatus::Reopened;
                     task.closed_at = None;
-                    task.updated_at = Utc::now();
+                    task.core.updated_at = Utc::now();
                     self.update_task(&task)?;
                     reopened.push(task_id.clone());
                 }
@@ -3446,12 +3450,12 @@ mod tests {
 
         // Verify we can create a task with short_name
         let mut task = Task::new("bn-test".to_string(), "Test".to_string());
-        task.short_name = Some("Short".to_string());
+        task.core.short_name = Some("Short".to_string());
         storage2.create_task(&task).unwrap();
 
         // Verify we can retrieve it with short_name intact
         let retrieved = storage2.get_task("bn-test").unwrap();
-        assert_eq!(retrieved.short_name, Some("Short".to_string()));
+        assert_eq!(retrieved.core.short_name, Some("Short".to_string()));
     }
 
     #[test]
@@ -3534,8 +3538,8 @@ mod tests {
         storage.create_task(&task).unwrap();
 
         let retrieved = storage.get_task("bn-test").unwrap();
-        assert_eq!(retrieved.id, "bn-test");
-        assert_eq!(retrieved.title, "Test task");
+        assert_eq!(retrieved.core.id, "bn-test");
+        assert_eq!(retrieved.core.title, "Test task");
     }
 
     #[test]
@@ -3546,8 +3550,8 @@ mod tests {
         storage.add_bug(&bug).unwrap();
 
         let retrieved = storage.get_bug("bn-bug").unwrap();
-        assert_eq!(retrieved.id, "bn-bug");
-        assert_eq!(retrieved.title, "Test bug");
+        assert_eq!(retrieved.core.id, "bn-bug");
+        assert_eq!(retrieved.core.title, "Test bug");
         assert_eq!(retrieved.severity, BugSeverity::Triage);
     }
 
@@ -3573,12 +3577,12 @@ mod tests {
 
         let mut task1 = Task::new("bn-0001".to_string(), "Task 1".to_string());
         task1.priority = 1;
-        task1.tags = vec!["backend".to_string()];
+        task1.core.tags = vec!["backend".to_string()];
         storage.create_task(&task1).unwrap();
 
         let mut task2 = Task::new("bn-0002".to_string(), "Task 2".to_string());
         task2.priority = 2;
-        task2.tags = vec!["frontend".to_string()];
+        task2.core.tags = vec!["frontend".to_string()];
         storage.create_task(&task2).unwrap();
 
         // List all
@@ -3588,12 +3592,12 @@ mod tests {
         // Filter by priority
         let p1 = storage.list_tasks(None, Some(1), None).unwrap();
         assert_eq!(p1.len(), 1);
-        assert_eq!(p1[0].id, "bn-0001");
+        assert_eq!(p1[0].core.id, "bn-0001");
 
         // Filter by tag
         let backend = storage.list_tasks(None, None, Some("backend")).unwrap();
         assert_eq!(backend.len(), 1);
-        assert_eq!(backend[0].id, "bn-0001");
+        assert_eq!(backend[0].core.id, "bn-0001");
     }
 
     #[test]
@@ -3603,12 +3607,12 @@ mod tests {
         let mut task = Task::new("bn-test".to_string(), "Original".to_string());
         storage.create_task(&task).unwrap();
 
-        task.title = "Updated".to_string();
+        task.core.title = "Updated".to_string();
         task.status = TaskStatus::InProgress;
         storage.update_task(&task).unwrap();
 
         let retrieved = storage.get_task("bn-test").unwrap();
-        assert_eq!(retrieved.title, "Updated");
+        assert_eq!(retrieved.core.title, "Updated");
         assert_eq!(retrieved.status, TaskStatus::InProgress);
     }
 
@@ -3784,7 +3788,7 @@ mod tests {
 
         let ready = storage.get_ready_tasks().unwrap();
         assert_eq!(ready.len(), 1);
-        assert_eq!(ready[0].id, "bn-aaaa");
+        assert_eq!(ready[0].core.id, "bn-aaaa");
     }
 
     #[test]
@@ -3803,7 +3807,7 @@ mod tests {
 
         let ready = storage.get_ready_tasks().unwrap();
         assert_eq!(ready.len(), 1);
-        assert_eq!(ready[0].id, "bn-bbbb");
+        assert_eq!(ready[0].core.id, "bn-bbbb");
     }
 
     #[test]
@@ -3827,7 +3831,7 @@ mod tests {
         let blocked = storage.get_blocked_tasks().unwrap();
         assert_eq!(blocked.len(), 2);
 
-        let blocked_ids: Vec<&str> = blocked.iter().map(|t| t.id.as_str()).collect();
+        let blocked_ids: Vec<&str> = blocked.iter().map(|t| t.core.id.as_str()).collect();
         assert!(blocked_ids.contains(&"bn-bbbb"));
         assert!(blocked_ids.contains(&"bn-cccc"));
     }

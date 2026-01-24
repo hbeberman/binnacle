@@ -57,6 +57,50 @@ impl<T: Serialize> CommandOutput<T> {
     }
 }
 
+// === Short Name Helpers ===
+
+/// Maximum length for short_name (2x display limit for GUI).
+const SHORT_NAME_MAX_LEN: usize = 30;
+
+/// Normalize a short_name for storage (truncate if needed).
+/// Used by create functions. Returns None if input is None.
+fn normalize_short_name(short_name: Option<String>) -> Option<String> {
+    short_name.map(|sn| {
+        if sn.chars().count() > SHORT_NAME_MAX_LEN {
+            eprintln!(
+                "Note: short_name truncated from {} to {} chars for GUI display.",
+                sn.chars().count(),
+                SHORT_NAME_MAX_LEN
+            );
+            sn.chars().take(SHORT_NAME_MAX_LEN).collect::<String>()
+        } else {
+            sn
+        }
+    })
+}
+
+/// Process short_name for update operations.
+/// - None: no change
+/// - Some("")/whitespace: clear the field
+/// - Some(value): set/truncate the value
+fn process_short_name_update(short_name: Option<String>) -> Option<Option<String>> {
+    short_name.map(|s| {
+        if s.trim().is_empty() {
+            // Empty or whitespace-only clears the short_name
+            None
+        } else if s.chars().count() > SHORT_NAME_MAX_LEN {
+            eprintln!(
+                "Note: short_name truncated from {} to {} chars for GUI display.",
+                s.chars().count(),
+                SHORT_NAME_MAX_LEN
+            );
+            Some(s.chars().take(SHORT_NAME_MAX_LEN).collect::<String>())
+        } else {
+            Some(s)
+        }
+    })
+}
+
 // === Init Command ===
 
 /// Prompt the user for a yes/no answer.
@@ -1407,7 +1451,9 @@ pub fn orient(
                     });
 
                 // Check edge-based dependencies
-                let edge_deps = storage.get_edge_dependencies(&task.id).unwrap_or_default();
+                let edge_deps = storage
+                    .get_edge_dependencies(&task.core.id)
+                    .unwrap_or_default();
                 let edge_deps_done = edge_deps.is_empty()
                     || edge_deps.iter().all(|dep_id| {
                         // Check if it's a task or bug
@@ -1421,7 +1467,7 @@ pub fn orient(
                     });
 
                 if legacy_deps_done && edge_deps_done {
-                    ready_ids.push(task.id.clone());
+                    ready_ids.push(task.core.id.clone());
                 } else {
                     blocked_count += 1;
                 }
@@ -1436,7 +1482,7 @@ pub fn orient(
     let (queue_info, queued_ready_count) = if let Ok(queue) = storage.get_queue() {
         let queued_tasks = storage.get_queued_tasks().unwrap_or_default();
         let queued_task_ids: std::collections::HashSet<_> =
-            queued_tasks.iter().map(|t| t.id.as_str()).collect();
+            queued_tasks.iter().map(|t| t.core.id.as_str()).collect();
 
         // Count how many ready tasks are queued
         let queued_ready = ready_ids
@@ -1838,10 +1884,10 @@ pub fn task_create_with_queue(
 
     let id = generate_id("bn", &title);
     let mut task = Task::new(id.clone(), title.clone());
-    task.short_name = short_name.clone();
-    task.description = description;
+    task.core.short_name = short_name.clone();
+    task.core.description = description;
     task.priority = priority.unwrap_or(2);
-    task.tags = tags;
+    task.core.tags = tags;
     task.assignee = assignee;
 
     storage.create_task(&task)?;
@@ -1868,19 +1914,19 @@ impl Output for Task {
 
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
-        lines.push(format!("{} {}", self.id, self.title));
-        if let Some(ref sn) = self.short_name {
+        lines.push(format!("{} {}", self.core.id, self.core.title));
+        if let Some(ref sn) = self.core.short_name {
             lines.push(format!("  Short Name: {}", sn));
         }
         lines.push(format!(
             "  Status: {:?}  Priority: {}",
             self.status, self.priority
         ));
-        if let Some(ref desc) = self.description {
+        if let Some(ref desc) = self.core.description {
             lines.push(format!("  Description: {}", desc));
         }
-        if !self.tags.is_empty() {
-            lines.push(format!("  Tags: {}", self.tags.join(", ")));
+        if !self.core.tags.is_empty() {
+            lines.push(format!("  Tags: {}", self.core.tags.join(", ")));
         }
         if let Some(ref assignee) = self.assignee {
             lines.push(format!("  Assignee: {}", assignee));
@@ -1890,11 +1936,11 @@ impl Output for Task {
         }
         lines.push(format!(
             "  Created: {}",
-            self.created_at.format("%Y-%m-%d %H:%M")
+            self.core.created_at.format("%Y-%m-%d %H:%M")
         ));
         lines.push(format!(
             "  Updated: {}",
-            self.updated_at.format("%Y-%m-%d %H:%M")
+            self.core.updated_at.format("%Y-%m-%d %H:%M")
         ));
         if let Some(closed) = self.closed_at {
             lines.push(format!("  Closed: {}", closed.format("%Y-%m-%d %H:%M")));
@@ -1958,22 +2004,22 @@ impl Output for TaskShowResult {
 
     fn to_human(&self) -> String {
         let mut lines = vec![
-            format!("Task: {}", self.task.id),
-            format!("Title: {}", self.task.title),
+            format!("Task: {}", self.task.core.id),
+            format!("Title: {}", self.task.core.title),
         ];
 
-        if let Some(ref sn) = self.task.short_name {
+        if let Some(ref sn) = self.task.core.short_name {
             lines.push(format!("Short Name: {}", sn));
         }
 
         lines.push(format!("Status: {:?}", self.task.status));
         lines.push(format!("Priority: P{}", self.task.priority));
 
-        if !self.task.tags.is_empty() {
-            lines.push(format!("Tags: {}", self.task.tags.join(", ")));
+        if !self.task.core.tags.is_empty() {
+            lines.push(format!("Tags: {}", self.task.core.tags.join(", ")));
         }
 
-        if let Some(ref desc) = self.task.description {
+        if let Some(ref desc) = self.task.core.description {
             lines.push(format!("Description: {}", desc));
         }
 
@@ -2142,8 +2188,8 @@ impl Output for EntityMismatchResult {
             lines.push(format!("Name: {}", test.name));
             lines.push(format!("Command: {}", test.command));
         } else if let Some(ref milestone) = self.milestone {
-            lines.push(format!("Milestone: {}", milestone.id));
-            lines.push(format!("Title: {}", milestone.title));
+            lines.push(format!("Milestone: {}", milestone.core.id));
+            lines.push(format!("Title: {}", milestone.core.title));
         }
 
         lines.join("\n")
@@ -2157,7 +2203,9 @@ fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
 
     // Combine legacy depends_on and edge-based dependencies
     let mut all_deps: Vec<String> = task.depends_on.clone();
-    let edge_deps = storage.get_edge_dependencies(&task.id).unwrap_or_default();
+    let edge_deps = storage
+        .get_edge_dependencies(&task.core.id)
+        .unwrap_or_default();
     for dep in edge_deps {
         if !all_deps.contains(&dep) {
             all_deps.push(dep);
@@ -2177,7 +2225,7 @@ fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
                 }
                 (
                     dep.status.clone(),
-                    dep.title.clone(),
+                    dep.core.title.clone(),
                     dep.assignee.clone(),
                     combined_deps,
                 )
@@ -2191,7 +2239,7 @@ fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
                 }
                 (
                     bug.status.clone(),
-                    bug.title.clone(),
+                    bug.core.title.clone(),
                     bug.assignee.clone(),
                     combined_deps,
                 )
@@ -2228,7 +2276,7 @@ fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
             if dep_blockers.is_empty() {
                 blocker_chain.push(format!(
                     "{} <- {} ({})",
-                    task.id,
+                    task.core.id,
                     dep_id,
                     format!("{:?}", dep_status).to_lowercase()
                 ));
@@ -2243,7 +2291,7 @@ fn analyze_blockers(storage: &Storage, task: &Task) -> Result<BlockingInfo> {
                     };
                     blocker_chain.push(format!(
                         "{} <- {} <- {} ({})",
-                        task.id, dep_id, blocker, blocker_status
+                        task.core.id, dep_id, blocker, blocker_status
                     ));
                 }
             }
@@ -2317,12 +2365,12 @@ pub fn task_show(repo_path: &Path, id: &str) -> Result<TaskShowResponse> {
                     let (related_title, related_status) =
                         if let Ok(t) = storage.get_task(&related_id) {
                             (
-                                Some(t.title),
+                                Some(t.core.title.clone()),
                                 Some(format!("{:?}", t.status).to_lowercase()),
                             )
                         } else if let Ok(b) = storage.get_bug(&related_id) {
                             (
-                                Some(b.title),
+                                Some(b.core.title.clone()),
                                 Some(format!("{:?}", b.status).to_lowercase()),
                             )
                         } else if let Ok(test) = storage.get_test(&related_id) {
@@ -2431,12 +2479,12 @@ fn build_edges_info(
 
             let (related_title, related_status) = if let Ok(t) = storage.get_task(&related_id) {
                 (
-                    Some(t.title),
+                    Some(t.core.title.clone()),
                     Some(format!("{:?}", t.status).to_lowercase()),
                 )
             } else if let Ok(b) = storage.get_bug(&related_id) {
                 (
-                    Some(b.title),
+                    Some(b.core.title.clone()),
                     Some(format!("{:?}", b.status).to_lowercase()),
                 )
             } else if let Ok(test) = storage.get_test(&related_id) {
@@ -2491,14 +2539,14 @@ impl Output for TaskList {
                 TaskStatus::Reopened => "?",
                 TaskStatus::Partial => "~",
             };
-            let tags = if task.tags.is_empty() {
+            let tags = if task.core.tags.is_empty() {
                 String::new()
             } else {
-                format!(" [{}]", task.tags.join(", "))
+                format!(" [{}]", task.core.tags.join(", "))
             };
             lines.push(format!(
                 "[{}] {} P{} {}{}",
-                status_char, task.id, task.priority, task.title, tags
+                status_char, task.core.id, task.priority, task.core.title, tags
             ));
         }
 
@@ -2566,14 +2614,14 @@ pub fn task_update(
     let mut setting_to_done = false;
 
     if let Some(t) = title {
-        task.title = t;
+        task.core.title = t;
         updated_fields.push("title".to_string());
     }
 
     if let Some(s) = short_name {
         // Empty or whitespace-only clears the short_name
         if s.trim().is_empty() {
-            task.short_name = None;
+            task.core.short_name = None;
         } else {
             // Auto-truncate very long short_name (2x display limit = 30 chars)
             let truncated = if s.chars().count() > 30 {
@@ -2585,13 +2633,13 @@ pub fn task_update(
             } else {
                 s
             };
-            task.short_name = Some(truncated);
+            task.core.short_name = Some(truncated);
         }
         updated_fields.push("short_name".to_string());
     }
 
     if let Some(d) = description {
-        task.description = Some(d);
+        task.core.description = Some(d);
         updated_fields.push("description".to_string());
     }
 
@@ -2673,15 +2721,15 @@ pub fn task_update(
 
     if !add_tags.is_empty() {
         for tag in add_tags {
-            if !task.tags.contains(&tag) {
-                task.tags.push(tag);
+            if !task.core.tags.contains(&tag) {
+                task.core.tags.push(tag);
             }
         }
         updated_fields.push("tags".to_string());
     }
 
     if !remove_tags.is_empty() {
-        task.tags.retain(|t| !remove_tags.contains(t));
+        task.core.tags.retain(|t| !remove_tags.contains(t));
         if !updated_fields.contains(&"tags".to_string()) {
             updated_fields.push("tags".to_string());
         }
@@ -2696,7 +2744,7 @@ pub fn task_update(
         return Err(Error::Other("No fields to update".to_string()));
     }
 
-    task.updated_at = Utc::now();
+    task.core.updated_at = Utc::now();
     storage.update_task(&task)?;
 
     // Validate linked commits exist when setting status to done
@@ -2814,9 +2862,9 @@ fn promote_partial_tasks(storage: &mut Storage) -> Result<Vec<String>> {
             if all_done {
                 task.status = TaskStatus::Done;
                 task.closed_at = Some(Utc::now());
-                task.updated_at = Utc::now();
+                task.core.updated_at = Utc::now();
                 storage.update_task(&task)?;
-                promoted.push(task.id.clone());
+                promoted.push(task.core.id.clone());
                 did_promote = true;
             }
         }
@@ -2854,7 +2902,7 @@ pub fn task_close(
             && dep.status != TaskStatus::Done
             && dep.status != TaskStatus::Cancelled
             // Avoid duplicates if dependency exists in both legacy and edge-based
-            && !incomplete_deps.iter().any(|d| d.id == dep.id)
+            && !incomplete_deps.iter().any(|d| d.core.id == dep.core.id)
         {
             incomplete_deps.push(dep);
         }
@@ -2867,8 +2915,8 @@ pub fn task_close(
             .map(|d| {
                 format!(
                     "{}: \"{}\" ({})",
-                    d.id,
-                    d.title,
+                    d.core.id,
+                    d.core.title,
                     format!("{:?}", d.status).to_lowercase()
                 )
             })
@@ -2910,7 +2958,7 @@ pub fn task_close(
     task.status = TaskStatus::Done;
     task.closed_at = Some(Utc::now());
     task.closed_reason = reason;
-    task.updated_at = Utc::now();
+    task.core.updated_at = Utc::now();
 
     storage.update_task(&task)?;
     promote_partial_tasks(&mut storage)?;
@@ -2993,7 +3041,7 @@ pub fn task_reopen(repo_path: &Path, id: &str) -> Result<TaskReopened> {
     task.status = TaskStatus::Reopened;
     task.closed_at = None;
     task.closed_reason = None;
-    task.updated_at = Utc::now();
+    task.core.updated_at = Utc::now();
 
     storage.update_task(&task)?;
 
@@ -3066,6 +3114,7 @@ impl Output for BugCreated {
 pub fn bug_create(
     repo_path: &Path,
     title: String,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     severity: Option<String>,
@@ -3077,6 +3126,7 @@ pub fn bug_create(
     bug_create_with_queue(
         repo_path,
         title,
+        short_name,
         description,
         priority,
         severity,
@@ -3093,6 +3143,7 @@ pub fn bug_create(
 pub fn bug_create_with_queue(
     repo_path: &Path,
     title: String,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     severity: Option<String>,
@@ -3112,14 +3163,15 @@ pub fn bug_create_with_queue(
 
     let id = generate_id("bn", &title);
     let mut bug = Bug::new(id.clone(), title.clone());
-    bug.description = description;
+    bug.core.short_name = normalize_short_name(short_name);
+    bug.core.description = description;
     bug.priority = priority.unwrap_or(2);
     bug.severity = severity
         .as_deref()
         .map(parse_severity)
         .transpose()?
         .unwrap_or_default();
-    bug.tags = tags;
+    bug.core.tags = tags;
     bug.assignee = assignee;
     bug.reproduction_steps = reproduction_steps;
     bug.affected_component = affected_component;
@@ -3147,12 +3199,12 @@ impl Output for Bug {
 
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
-        lines.push(format!("{} {}", self.id, self.title));
+        lines.push(format!("{} {}", self.core.id, self.core.title));
         lines.push(format!(
             "  Status: {:?}  Priority: {}  Severity: {:?}",
             self.status, self.priority, self.severity
         ));
-        if let Some(ref desc) = self.description {
+        if let Some(ref desc) = self.core.description {
             lines.push(format!("  Description: {}", desc));
         }
         if let Some(ref steps) = self.reproduction_steps {
@@ -3161,8 +3213,8 @@ impl Output for Bug {
         if let Some(ref component) = self.affected_component {
             lines.push(format!("  Affected component: {}", component));
         }
-        if !self.tags.is_empty() {
-            lines.push(format!("  Tags: {}", self.tags.join(", ")));
+        if !self.core.tags.is_empty() {
+            lines.push(format!("  Tags: {}", self.core.tags.join(", ")));
         }
         if let Some(ref assignee) = self.assignee {
             lines.push(format!("  Assignee: {}", assignee));
@@ -3172,11 +3224,11 @@ impl Output for Bug {
         }
         lines.push(format!(
             "  Created: {}",
-            self.created_at.format("%Y-%m-%d %H:%M")
+            self.core.created_at.format("%Y-%m-%d %H:%M")
         ));
         lines.push(format!(
             "  Updated: {}",
-            self.updated_at.format("%Y-%m-%d %H:%M")
+            self.core.updated_at.format("%Y-%m-%d %H:%M")
         ));
         if let Some(closed) = self.closed_at {
             lines.push(format!("  Closed: {}", closed.format("%Y-%m-%d %H:%M")));
@@ -3217,18 +3269,18 @@ impl Output for BugList {
                 TaskStatus::Reopened => "?",
                 TaskStatus::Partial => "~",
             };
-            let tags = if bug.tags.is_empty() {
+            let tags = if bug.core.tags.is_empty() {
                 String::new()
             } else {
-                format!(" [{}]", bug.tags.join(", "))
+                format!(" [{}]", bug.core.tags.join(", "))
             };
             lines.push(format!(
                 "[{}] {} P{} S:{} {}{}",
                 status_char,
-                bug.id,
+                bug.core.id,
                 bug.priority,
                 format!("{:?}", bug.severity).to_lowercase(),
-                bug.title,
+                bug.core.title,
                 tags
             ));
         }
@@ -3269,17 +3321,17 @@ impl Output for BugShowResult {
 
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
-        lines.push(format!("Bug: {}", self.bug.id));
-        lines.push(format!("Title: {}", self.bug.title));
+        lines.push(format!("Bug: {}", self.bug.core.id));
+        lines.push(format!("Title: {}", self.bug.core.title));
         lines.push(format!("Status: {:?}", self.bug.status));
         lines.push(format!("Priority: P{}", self.bug.priority));
         lines.push(format!("Severity: {:?}", self.bug.severity));
 
-        if !self.bug.tags.is_empty() {
-            lines.push(format!("Tags: {}", self.bug.tags.join(", ")));
+        if !self.bug.core.tags.is_empty() {
+            lines.push(format!("Tags: {}", self.bug.core.tags.join(", ")));
         }
 
-        if let Some(ref desc) = self.bug.description {
+        if let Some(ref desc) = self.bug.core.description {
             lines.push(format!("Description: {}", desc));
         }
 
@@ -3529,7 +3581,9 @@ fn analyze_bug_blockers(storage: &Storage, bug: &Bug) -> Result<BlockingInfo> {
 
     // Combine legacy depends_on and edge-based dependencies
     let mut all_deps: Vec<String> = bug.depends_on.clone();
-    let edge_deps = storage.get_edge_dependencies(&bug.id).unwrap_or_default();
+    let edge_deps = storage
+        .get_edge_dependencies(&bug.core.id)
+        .unwrap_or_default();
     for dep in edge_deps {
         if !all_deps.contains(&dep) {
             all_deps.push(dep);
@@ -3549,7 +3603,7 @@ fn analyze_bug_blockers(storage: &Storage, bug: &Bug) -> Result<BlockingInfo> {
                 }
                 (
                     dep.status.clone(),
-                    dep.title.clone(),
+                    dep.core.title.clone(),
                     dep.assignee.clone(),
                     combined_deps,
                 )
@@ -3563,7 +3617,7 @@ fn analyze_bug_blockers(storage: &Storage, bug: &Bug) -> Result<BlockingInfo> {
                 }
                 (
                     b.status.clone(),
-                    b.title.clone(),
+                    b.core.title.clone(),
                     b.assignee.clone(),
                     combined_deps,
                 )
@@ -3600,7 +3654,7 @@ fn analyze_bug_blockers(storage: &Storage, bug: &Bug) -> Result<BlockingInfo> {
             if dep_blockers.is_empty() {
                 blocker_chain.push(format!(
                     "{} <- {} ({})",
-                    bug.id,
+                    bug.core.id,
                     dep_id,
                     format!("{:?}", dep_status).to_lowercase()
                 ));
@@ -3615,7 +3669,7 @@ fn analyze_bug_blockers(storage: &Storage, bug: &Bug) -> Result<BlockingInfo> {
                     };
                     blocker_chain.push(format!(
                         "{} <- {} <- {} ({})",
-                        bug.id, dep_id, blocker, blocker_status
+                        bug.core.id, dep_id, blocker, blocker_status
                     ));
                 }
             }
@@ -3666,6 +3720,7 @@ pub fn bug_update(
     repo_path: &Path,
     id: &str,
     title: Option<String>,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     status: Option<&str>,
@@ -3682,12 +3737,17 @@ pub fn bug_update(
     let mut updated_fields = Vec::new();
 
     if let Some(t) = title {
-        bug.title = t;
+        bug.core.title = t;
         updated_fields.push("title".to_string());
     }
 
+    if let Some(new_short_name) = process_short_name_update(short_name) {
+        bug.core.short_name = new_short_name;
+        updated_fields.push("short_name".to_string());
+    }
+
     if let Some(d) = description {
-        bug.description = Some(d);
+        bug.core.description = Some(d);
         updated_fields.push("description".to_string());
     }
 
@@ -3747,15 +3807,15 @@ pub fn bug_update(
 
     if !add_tags.is_empty() {
         for tag in add_tags {
-            if !bug.tags.contains(&tag) {
-                bug.tags.push(tag);
+            if !bug.core.tags.contains(&tag) {
+                bug.core.tags.push(tag);
             }
         }
         updated_fields.push("tags".to_string());
     }
 
     if !remove_tags.is_empty() {
-        bug.tags.retain(|t| !remove_tags.contains(t));
+        bug.core.tags.retain(|t| !remove_tags.contains(t));
         if !updated_fields.contains(&"tags".to_string()) {
             updated_fields.push("tags".to_string());
         }
@@ -3780,7 +3840,7 @@ pub fn bug_update(
         return Err(Error::Other("No fields to update".to_string()));
     }
 
-    bug.updated_at = Utc::now();
+    bug.core.updated_at = Utc::now();
     storage.update_bug(&bug)?;
 
     Ok(BugUpdated {
@@ -3847,8 +3907,8 @@ pub fn bug_close(
             .map(|d| {
                 format!(
                     "{}: \"{}\" ({})",
-                    d.id,
-                    d.title,
+                    d.core.id,
+                    d.core.title,
                     format!("{:?}", d.status).to_lowercase()
                 )
             })
@@ -3874,7 +3934,7 @@ pub fn bug_close(
     bug.status = TaskStatus::Done;
     bug.closed_at = Some(Utc::now());
     bug.closed_reason = reason;
-    bug.updated_at = Utc::now();
+    bug.core.updated_at = Utc::now();
 
     storage.update_bug(&bug)?;
 
@@ -3947,7 +4007,7 @@ pub fn bug_reopen(repo_path: &Path, id: &str) -> Result<BugReopened> {
     bug.status = TaskStatus::Reopened;
     bug.closed_at = None;
     bug.closed_reason = None;
-    bug.updated_at = Utc::now();
+    bug.core.updated_at = Utc::now();
 
     storage.update_bug(&bug)?;
 
@@ -4002,6 +4062,7 @@ impl Output for IdeaCreated {
 pub fn idea_create(
     repo_path: &Path,
     title: String,
+    short_name: Option<String>,
     description: Option<String>,
     tags: Vec<String>,
 ) -> Result<IdeaCreated> {
@@ -4009,8 +4070,9 @@ pub fn idea_create(
 
     let id = generate_id("bn", &title);
     let mut idea = Idea::new(id.clone(), title.clone());
-    idea.description = description;
-    idea.tags = tags;
+    idea.core.short_name = normalize_short_name(short_name);
+    idea.core.description = description;
+    idea.core.tags = tags;
 
     storage.add_idea(&idea)?;
 
@@ -4030,23 +4092,26 @@ impl Output for Idea {
             IdeaStatus::Promoted => "promoted",
             IdeaStatus::Discarded => "discarded",
         };
-        lines.push(format!("{} [{}] {}", self.id, status_str, self.title));
-        if let Some(ref desc) = self.description {
+        lines.push(format!(
+            "{} [{}] {}",
+            self.core.id, status_str, self.core.title
+        ));
+        if let Some(ref desc) = self.core.description {
             lines.push(format!("  Description: {}", desc));
         }
-        if !self.tags.is_empty() {
-            lines.push(format!("  Tags: {}", self.tags.join(", ")));
+        if !self.core.tags.is_empty() {
+            lines.push(format!("  Tags: {}", self.core.tags.join(", ")));
         }
         if let Some(ref promoted_to) = self.promoted_to {
             lines.push(format!("  Promoted to: {}", promoted_to));
         }
         lines.push(format!(
             "  Created: {}",
-            self.created_at.format("%Y-%m-%d %H:%M")
+            self.core.created_at.format("%Y-%m-%d %H:%M")
         ));
         lines.push(format!(
             "  Updated: {}",
-            self.updated_at.format("%Y-%m-%d %H:%M")
+            self.core.updated_at.format("%Y-%m-%d %H:%M")
         ));
         lines.join("\n")
     }
@@ -4082,14 +4147,14 @@ impl Output for IdeaList {
                 IdeaStatus::Promoted => "✅",
                 IdeaStatus::Discarded => "❌",
             };
-            let tags_str = if idea.tags.is_empty() {
+            let tags_str = if idea.core.tags.is_empty() {
                 String::new()
             } else {
-                format!(" [{}]", idea.tags.join(", "))
+                format!(" [{}]", idea.core.tags.join(", "))
             };
             lines.push(format!(
                 "{} {} [{}] {}{}",
-                status_marker, idea.id, status_str, idea.title, tags_str
+                status_marker, idea.core.id, status_str, idea.core.title, tags_str
             ));
         }
         lines.join("\n")
@@ -4132,10 +4197,12 @@ impl Output for IdeaUpdated {
 }
 
 /// Update an idea.
+#[allow(clippy::too_many_arguments)]
 pub fn idea_update(
     repo_path: &Path,
     id: &str,
     title: Option<String>,
+    short_name: Option<String>,
     description: Option<String>,
     status: Option<&str>,
     add_tags: Vec<String>,
@@ -4146,12 +4213,17 @@ pub fn idea_update(
     let mut updated_fields = Vec::new();
 
     if let Some(t) = title {
-        idea.title = t;
+        idea.core.title = t;
         updated_fields.push("title".to_string());
     }
 
+    if let Some(new_short_name) = process_short_name_update(short_name) {
+        idea.core.short_name = new_short_name;
+        updated_fields.push("short_name".to_string());
+    }
+
     if let Some(d) = description {
-        idea.description = Some(d);
+        idea.core.description = Some(d);
         updated_fields.push("description".to_string());
     }
 
@@ -4162,21 +4234,21 @@ pub fn idea_update(
 
     if !add_tags.is_empty() {
         for tag in add_tags {
-            if !idea.tags.contains(&tag) {
-                idea.tags.push(tag);
+            if !idea.core.tags.contains(&tag) {
+                idea.core.tags.push(tag);
             }
         }
         updated_fields.push("tags".to_string());
     }
 
     if !remove_tags.is_empty() {
-        idea.tags.retain(|t| !remove_tags.contains(t));
+        idea.core.tags.retain(|t| !remove_tags.contains(t));
         if !updated_fields.contains(&"tags".to_string()) {
             updated_fields.push("tags".to_string());
         }
     }
 
-    idea.updated_at = Utc::now();
+    idea.core.updated_at = Utc::now();
     storage.update_idea(&idea)?;
 
     Ok(IdeaUpdated {
@@ -4224,7 +4296,7 @@ pub fn idea_close(repo_path: &Path, id: &str, reason: Option<String>) -> Result<
     let mut idea = storage.get_idea(id)?;
 
     idea.status = IdeaStatus::Discarded;
-    idea.updated_at = Utc::now();
+    idea.core.updated_at = Utc::now();
     storage.update_idea(&idea)?;
 
     Ok(IdeaClosed {
@@ -4308,6 +4380,7 @@ pub fn idea_promote(
     if as_prd {
         // Generate PRD file
         let title_slug = idea
+            .core
             .title
             .to_uppercase()
             .chars()
@@ -4340,9 +4413,10 @@ pub fn idea_promote(
 
         // Generate PRD content from template
         let origin_desc = idea
+            .core
             .description
             .clone()
-            .unwrap_or_else(|| idea.title.clone());
+            .unwrap_or_else(|| idea.core.title.clone());
         let prd_content = format!(
             r#"# PRD: {}
 
@@ -4360,7 +4434,7 @@ pub fn idea_promote(
 ## Implementation Plan
 [TODO: Break into tasks]
 "#,
-            idea.title,
+            idea.core.title,
             id,
             chrono::Utc::now().format("%Y-%m-%d"),
             origin_desc
@@ -4372,7 +4446,7 @@ pub fn idea_promote(
         let prd_path_str = prd_path.to_string_lossy().to_string();
         idea.status = IdeaStatus::Promoted;
         idea.promoted_to = Some(prd_path_str.clone());
-        idea.updated_at = Utc::now();
+        idea.core.updated_at = Utc::now();
         storage.update_idea(&idea)?;
 
         Ok(IdeaPromoted {
@@ -4382,10 +4456,10 @@ pub fn idea_promote(
         })
     } else {
         // Create a task from the idea
-        let task_id = generate_id("bn", &idea.title);
-        let mut task = Task::new(task_id.clone(), idea.title.clone());
-        task.description = idea.description.clone();
-        task.tags = idea.tags.clone();
+        let task_id = generate_id("bn", &idea.core.title);
+        let mut task = Task::new(task_id.clone(), idea.core.title.clone());
+        task.core.description = idea.core.description.clone();
+        task.core.tags = idea.core.tags.clone();
         task.priority = priority.unwrap_or(2);
 
         storage.create_task(&task)?;
@@ -4393,7 +4467,7 @@ pub fn idea_promote(
         // Update idea
         idea.status = IdeaStatus::Promoted;
         idea.promoted_to = Some(task_id.clone());
-        idea.updated_at = Utc::now();
+        idea.core.updated_at = Utc::now();
         storage.update_idea(&idea)?;
 
         Ok(IdeaPromoted {
@@ -4439,7 +4513,7 @@ pub fn idea_germinate(repo_path: &Path, id: &str) -> Result<IdeaGerminated> {
     }
 
     idea.status = IdeaStatus::Germinating;
-    idea.updated_at = Utc::now();
+    idea.core.updated_at = Utc::now();
     storage.update_idea(&idea)?;
 
     Ok(IdeaGerminated { id: id.to_string() })
@@ -4466,9 +4540,11 @@ impl Output for MilestoneCreated {
 }
 
 /// Create a new milestone.
+#[allow(clippy::too_many_arguments)]
 pub fn milestone_create(
     repo_path: &Path,
     title: String,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     tags: Vec<String>,
@@ -4485,9 +4561,10 @@ pub fn milestone_create(
 
     let id = generate_id("bn", &title);
     let mut milestone = Milestone::new(id.clone(), title.clone());
-    milestone.description = description;
+    milestone.core.short_name = normalize_short_name(short_name);
+    milestone.core.description = description;
     milestone.priority = priority.unwrap_or(2);
-    milestone.tags = tags;
+    milestone.core.tags = tags;
     milestone.assignee = assignee;
     milestone.due_date = due_date
         .map(|d| chrono::DateTime::parse_from_rfc3339(&d))
@@ -4512,30 +4589,30 @@ impl Output for Milestone {
 
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
-        lines.push(format!("{} {}", self.id, self.title));
+        lines.push(format!("{} {}", self.core.id, self.core.title));
         lines.push(format!(
             "  Status: {:?}  Priority: {}",
             self.status, self.priority
         ));
-        if let Some(ref desc) = self.description {
+        if let Some(ref desc) = self.core.description {
             lines.push(format!("  Description: {}", desc));
         }
         if let Some(due) = self.due_date {
             lines.push(format!("  Due date: {}", due.format("%Y-%m-%d")));
         }
-        if !self.tags.is_empty() {
-            lines.push(format!("  Tags: {}", self.tags.join(", ")));
+        if !self.core.tags.is_empty() {
+            lines.push(format!("  Tags: {}", self.core.tags.join(", ")));
         }
         if let Some(ref assignee) = self.assignee {
             lines.push(format!("  Assignee: {}", assignee));
         }
         lines.push(format!(
             "  Created: {}",
-            self.created_at.format("%Y-%m-%d %H:%M")
+            self.core.created_at.format("%Y-%m-%d %H:%M")
         ));
         lines.push(format!(
             "  Updated: {}",
-            self.updated_at.format("%Y-%m-%d %H:%M")
+            self.core.updated_at.format("%Y-%m-%d %H:%M")
         ));
         if let Some(closed) = self.closed_at {
             lines.push(format!("  Closed: {}", closed.format("%Y-%m-%d %H:%M")));
@@ -4576,10 +4653,10 @@ impl Output for MilestoneList {
                 TaskStatus::Reopened => "?",
                 TaskStatus::Partial => "~",
             };
-            let tags = if milestone.tags.is_empty() {
+            let tags = if milestone.core.tags.is_empty() {
                 String::new()
             } else {
-                format!(" [{}]", milestone.tags.join(", "))
+                format!(" [{}]", milestone.core.tags.join(", "))
             };
             let due = milestone
                 .due_date
@@ -4587,7 +4664,7 @@ impl Output for MilestoneList {
                 .unwrap_or_default();
             lines.push(format!(
                 "[{}] {} P{} {}{}{}",
-                status_char, milestone.id, milestone.priority, milestone.title, tags, due
+                status_char, milestone.core.id, milestone.priority, milestone.core.title, tags, due
             ));
         }
 
@@ -4634,7 +4711,7 @@ impl Output for MilestoneShowResult {
         if !self.edges.is_empty() {
             lines.push("  Relationships:".to_string());
             for edge in &self.edges {
-                let direction = if edge.source == self.milestone.id {
+                let direction = if edge.source == self.milestone.core.id {
                     format!("{} → {}", edge.edge_type, edge.target)
                 } else {
                     format!("{} ← {}", edge.edge_type, edge.source)
@@ -4690,6 +4767,7 @@ pub fn milestone_update(
     repo_path: &Path,
     id: &str,
     title: Option<String>,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     status: Option<&str>,
@@ -4703,12 +4781,17 @@ pub fn milestone_update(
     let mut updated_fields = Vec::new();
 
     if let Some(t) = title {
-        milestone.title = t;
+        milestone.core.title = t;
         updated_fields.push("title".to_string());
     }
 
+    if let Some(new_short_name) = process_short_name_update(short_name) {
+        milestone.core.short_name = new_short_name;
+        updated_fields.push("short_name".to_string());
+    }
+
     if let Some(d) = description {
-        milestone.description = Some(d);
+        milestone.core.description = Some(d);
         updated_fields.push("description".to_string());
     }
 
@@ -4726,15 +4809,15 @@ pub fn milestone_update(
     }
 
     for tag in add_tags {
-        if !milestone.tags.contains(&tag) {
-            milestone.tags.push(tag.clone());
+        if !milestone.core.tags.contains(&tag) {
+            milestone.core.tags.push(tag.clone());
             updated_fields.push(format!("added tag: {}", tag));
         }
     }
 
     for tag in remove_tags {
-        if let Some(pos) = milestone.tags.iter().position(|t| t == &tag) {
-            milestone.tags.remove(pos);
+        if let Some(pos) = milestone.core.tags.iter().position(|t| t == &tag) {
+            milestone.core.tags.remove(pos);
             updated_fields.push(format!("removed tag: {}", tag));
         }
     }
@@ -4762,7 +4845,7 @@ pub fn milestone_update(
         return Err(Error::Other("No updates specified".to_string()));
     }
 
-    milestone.updated_at = chrono::Utc::now();
+    milestone.core.updated_at = chrono::Utc::now();
     storage.update_milestone(&milestone)?;
 
     Ok(MilestoneUpdated {
@@ -4819,7 +4902,7 @@ pub fn milestone_close(
     milestone.status = TaskStatus::Done;
     milestone.closed_at = Some(chrono::Utc::now());
     milestone.closed_reason = reason.clone();
-    milestone.updated_at = chrono::Utc::now();
+    milestone.core.updated_at = chrono::Utc::now();
 
     storage.update_milestone(&milestone)?;
 
@@ -4859,7 +4942,7 @@ pub fn milestone_reopen(repo_path: &Path, id: &str) -> Result<MilestoneReopened>
     milestone.status = TaskStatus::Reopened;
     milestone.closed_at = None;
     milestone.closed_reason = None;
-    milestone.updated_at = chrono::Utc::now();
+    milestone.core.updated_at = chrono::Utc::now();
 
     storage.update_milestone(&milestone)?;
 
@@ -4977,13 +5060,13 @@ impl Output for QueueShowResult {
             for task in &self.tasks {
                 lines.push(format!(
                     "    [P{}] {}: {}",
-                    task.priority, task.id, task.title
+                    task.priority, task.core.id, task.core.title
                 ));
             }
             for bug in &self.bugs {
                 lines.push(format!(
                     "    [P{}] {}: {} (bug)",
-                    bug.priority, bug.id, bug.title
+                    bug.priority, bug.core.id, bug.core.title
                 ));
             }
         }
@@ -5197,12 +5280,12 @@ pub fn status(repo_path: &Path) -> Result<StatusSummary> {
 
     for task in &tasks {
         match task.status {
-            TaskStatus::InProgress => in_progress.push(task.id.clone()),
-            TaskStatus::Blocked => blocked.push(task.id.clone()),
+            TaskStatus::InProgress => in_progress.push(task.core.id.clone()),
+            TaskStatus::Blocked => blocked.push(task.core.id.clone()),
             TaskStatus::Pending | TaskStatus::Reopened => {
                 // Check if all dependencies are done
                 if task.depends_on.is_empty() {
-                    ready.push(task.id.clone());
+                    ready.push(task.core.id.clone());
                 } else {
                     let all_done = task.depends_on.iter().all(|dep_id| {
                         storage
@@ -5211,9 +5294,9 @@ pub fn status(repo_path: &Path) -> Result<StatusSummary> {
                             .unwrap_or(false)
                     });
                     if all_done {
-                        ready.push(task.id.clone());
+                        ready.push(task.core.id.clone());
                     } else {
-                        blocked.push(task.id.clone());
+                        blocked.push(task.core.id.clone());
                     }
                 }
             }
@@ -6057,16 +6140,16 @@ pub fn graph_components(repo_path: &Path) -> Result<GraphComponentsResult> {
 
     // Add all entities
     for task in &tasks {
-        uf.make_set(task.id.clone());
+        uf.make_set(task.core.id.clone());
     }
     for bug in &bugs {
-        uf.make_set(bug.id.clone());
+        uf.make_set(bug.core.id.clone());
     }
     for milestone in &milestones {
-        uf.make_set(milestone.id.clone());
+        uf.make_set(milestone.core.id.clone());
     }
     for idea in &ideas {
-        uf.make_set(idea.id.clone());
+        uf.make_set(idea.core.id.clone());
     }
 
     // Union connected entities via edges (treating edges as undirected)
@@ -6322,16 +6405,16 @@ impl Output for ReadyTasks {
                 lines.push("  [QUEUED]".to_string());
                 for item in &queued_bugs {
                     let bug = &item.bug;
-                    let tags = if bug.tags.is_empty() {
+                    let tags = if bug.core.tags.is_empty() {
                         String::new()
                     } else {
-                        format!(" [{}]", bug.tags.join(", "))
+                        format!(" [{}]", bug.core.tags.join(", "))
                     };
                     lines.push(format!(
                         "    {} P{} {} ({}){}",
-                        bug.id,
+                        bug.core.id,
                         bug.priority,
-                        bug.title,
+                        bug.core.title,
                         format!("{:?}", bug.severity).to_lowercase(),
                         tags
                     ));
@@ -6348,18 +6431,18 @@ impl Output for ReadyTasks {
                 }
                 for item in &other_bugs {
                     let bug = &item.bug;
-                    let tags = if bug.tags.is_empty() {
+                    let tags = if bug.core.tags.is_empty() {
                         String::new()
                     } else {
-                        format!(" [{}]", bug.tags.join(", "))
+                        format!(" [{}]", bug.core.tags.join(", "))
                     };
                     let indent = if queued_bugs.is_empty() { "  " } else { "    " };
                     lines.push(format!(
                         "{}{} P{} {} ({}){}",
                         indent,
-                        bug.id,
+                        bug.core.id,
                         bug.priority,
-                        bug.title,
+                        bug.core.title,
                         format!("{:?}", bug.severity).to_lowercase(),
                         tags
                     ));
@@ -6383,14 +6466,14 @@ impl Output for ReadyTasks {
                 lines.push("  [QUEUED]".to_string());
                 for item in &queued_tasks {
                     let task = &item.task;
-                    let tags = if task.tags.is_empty() {
+                    let tags = if task.core.tags.is_empty() {
                         String::new()
                     } else {
-                        format!(" [{}]", task.tags.join(", "))
+                        format!(" [{}]", task.core.tags.join(", "))
                     };
                     lines.push(format!(
                         "    {} P{} {}{}",
-                        task.id, task.priority, task.title, tags
+                        task.core.id, task.priority, task.core.title, tags
                     ));
                 }
                 if !other_tasks.is_empty() {
@@ -6405,10 +6488,10 @@ impl Output for ReadyTasks {
                 }
                 for item in &other_tasks {
                     let task = &item.task;
-                    let tags = if task.tags.is_empty() {
+                    let tags = if task.core.tags.is_empty() {
                         String::new()
                     } else {
-                        format!(" [{}]", task.tags.join(", "))
+                        format!(" [{}]", task.core.tags.join(", "))
                     };
                     let indent = if queued_tasks.is_empty() {
                         "  "
@@ -6417,7 +6500,7 @@ impl Output for ReadyTasks {
                     };
                     lines.push(format!(
                         "{}{} P{} {}{}",
-                        indent, task.id, task.priority, task.title, tags
+                        indent, task.core.id, task.priority, task.core.title, tags
                     ));
                 }
             }
@@ -6453,18 +6536,18 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
     // Get queued task IDs for membership check
     let queued_tasks = storage.get_queued_tasks().unwrap_or_default();
     let queued_task_ids: std::collections::HashSet<_> =
-        queued_tasks.iter().map(|t| t.id.as_str()).collect();
+        queued_tasks.iter().map(|t| t.core.id.as_str()).collect();
 
     // Get queued bug IDs (bugs can also be queued)
     let queued_bugs = storage.get_queued_bugs().unwrap_or_default();
     let queued_bug_ids: std::collections::HashSet<_> =
-        queued_bugs.iter().map(|b| b.id.as_str()).collect();
+        queued_bugs.iter().map(|b| b.core.id.as_str()).collect();
 
     // Wrap tasks with queue membership status
     let mut task_items: Vec<ReadyTaskItem> = tasks
         .into_iter()
         .map(|task| {
-            let queued = queued_task_ids.contains(task.id.as_str());
+            let queued = queued_task_ids.contains(task.core.id.as_str());
             ReadyTaskItem { task, queued }
         })
         .collect();
@@ -6478,7 +6561,7 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
                 // Same queue status: sort by priority (lower = higher priority)
                 a.task.priority.cmp(&b.task.priority).then_with(|| {
                     // Then by creation date (older first)
-                    a.task.created_at.cmp(&b.task.created_at)
+                    a.task.core.created_at.cmp(&b.task.core.created_at)
                 })
             }
         }
@@ -6488,7 +6571,7 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
     let mut bug_items: Vec<ReadyBugItem> = bugs
         .into_iter()
         .map(|bug| {
-            let queued = queued_bug_ids.contains(bug.id.as_str());
+            let queued = queued_bug_ids.contains(bug.core.id.as_str());
             ReadyBugItem { bug, queued }
         })
         .collect();
@@ -6501,7 +6584,7 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
             .bug
             .priority
             .cmp(&b.bug.priority)
-            .then_with(|| a.bug.created_at.cmp(&b.bug.created_at)),
+            .then_with(|| a.bug.core.created_at.cmp(&b.bug.core.created_at)),
     });
 
     let count = task_items.len();
@@ -6562,9 +6645,9 @@ impl Output for BlockedTasks {
                 };
                 lines.push(format!(
                     "  {} P{} {} ({}){}",
-                    bug.id,
+                    bug.core.id,
                     bug.priority,
-                    bug.title,
+                    bug.core.title,
                     format!("{:?}", bug.severity).to_lowercase(),
                     blockers
                 ));
@@ -6588,7 +6671,7 @@ impl Output for BlockedTasks {
                 };
                 lines.push(format!(
                     "  {} P{} {}{}",
-                    task.id, task.priority, task.title, blockers
+                    task.core.id, task.priority, task.core.title, blockers
                 ));
             }
         }
@@ -6619,7 +6702,7 @@ pub fn blocked(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Bl
                 .collect();
 
             // Also include edge-based dependencies that are blocking
-            if let Ok(edge_deps) = storage.get_edge_dependencies(&task.id) {
+            if let Ok(edge_deps) = storage.get_edge_dependencies(&task.core.id) {
                 for dep_id in edge_deps {
                     if !storage.is_entity_done(&dep_id) && !blocking.contains(&dep_id) {
                         blocking.push(dep_id);
@@ -6648,7 +6731,7 @@ pub fn blocked(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Bl
                 .collect();
 
             // Also include edge-based dependencies that are blocking
-            if let Ok(edge_deps) = storage.get_edge_dependencies(&bug.id) {
+            if let Ok(edge_deps) = storage.get_edge_dependencies(&bug.core.id) {
                 for dep_id in edge_deps {
                     if !storage.is_entity_done(&dep_id) && !blocking.contains(&dep_id) {
                         blocking.push(dep_id);
@@ -7230,7 +7313,7 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                     severity: "error".to_string(),
                     category: "orphan".to_string(),
                     message: format!("Task depends on non-existent task {}", dep_id),
-                    entity_id: Some(task.id.clone()),
+                    entity_id: Some(task.core.id.clone()),
                 });
             }
         }
@@ -7246,7 +7329,7 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                     severity: "error".to_string(),
                     category: "orphan".to_string(),
                     message: format!("Bug depends on non-existent entity {}", dep_id),
-                    entity_id: Some(bug.id.clone()),
+                    entity_id: Some(bug.core.id.clone()),
                 });
             }
         }
@@ -7279,7 +7362,7 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                         severity: "warning".to_string(),
                         category: "consistency".to_string(),
                         message: format!("Task is done but depends on incomplete task {}", dep_id),
-                        entity_id: Some(task.id.clone()),
+                        entity_id: Some(task.core.id.clone()),
                     });
                 }
             }
@@ -7291,7 +7374,7 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                 severity: "info".to_string(),
                 category: "consistency".to_string(),
                 message: "Task is done but has no closed_at timestamp".to_string(),
-                entity_id: Some(task.id.clone()),
+                entity_id: Some(task.core.id.clone()),
             });
         }
     }
@@ -7315,7 +7398,7 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                         severity: "warning".to_string(),
                         category: "consistency".to_string(),
                         message: format!("Bug is done but depends on incomplete entity {}", dep_id),
-                        entity_id: Some(bug.id.clone()),
+                        entity_id: Some(bug.core.id.clone()),
                     });
                 }
             }
@@ -7327,7 +7410,7 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                 severity: "info".to_string(),
                 category: "consistency".to_string(),
                 message: "Bug is done but has no closed_at timestamp".to_string(),
-                entity_id: Some(bug.id.clone()),
+                entity_id: Some(bug.core.id.clone()),
             });
         }
     }
@@ -7376,7 +7459,10 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
 
     // Check for legacy bni- prefixed ideas (should use bn- prefix)
     let ideas = storage.list_ideas(None, None)?;
-    let legacy_prefix_count = ideas.iter().filter(|i| i.id.starts_with("bni-")).count();
+    let legacy_prefix_count = ideas
+        .iter()
+        .filter(|i| i.core.id.starts_with("bni-"))
+        .count();
     if legacy_prefix_count > 0 {
         issues.push(DoctorIssue {
             severity: "warning".to_string(),
@@ -7497,13 +7583,13 @@ pub fn doctor_fix(repo_path: &Path) -> Result<DoctorFixResult> {
     let ideas = storage.list_ideas(None, None)?;
     let legacy_ideas: Vec<_> = ideas
         .into_iter()
-        .filter(|i| i.id.starts_with("bni-"))
+        .filter(|i| i.core.id.starts_with("bni-"))
         .collect();
     for mut idea in legacy_ideas {
-        let old_id = idea.id.clone();
+        let old_id = idea.core.id.clone();
         // Generate new bn- prefixed ID (replace bni- with bn-)
         let new_id = format!("bn-{}", &old_id[4..]);
-        idea.id = new_id.clone();
+        idea.core.id = new_id.clone();
 
         // Add the idea with new ID (this writes to JSONL and updates cache)
         storage.add_idea(&idea)?;
@@ -7621,27 +7707,38 @@ pub fn doctor_migrate_edges(
         for dep_id in &task.depends_on {
             // Check if edge already exists
             let existing =
-                storage.list_edges(Some(EdgeType::DependsOn), Some(&task.id), Some(dep_id))?;
+                storage.list_edges(Some(EdgeType::DependsOn), Some(&task.core.id), Some(dep_id))?;
 
             if !existing.is_empty() {
                 edges_skipped += 1;
-                details.push(format!("Skipped: {} -> {} (edge exists)", task.id, dep_id));
+                details.push(format!(
+                    "Skipped: {} -> {} (edge exists)",
+                    task.core.id, dep_id
+                ));
                 continue;
             }
 
             // Create new edge
             if !dry_run {
-                let id = storage.generate_edge_id(&task.id, dep_id, EdgeType::DependsOn);
-                let mut edge = Edge::new(id, task.id.clone(), dep_id.clone(), EdgeType::DependsOn);
+                let id = storage.generate_edge_id(&task.core.id, dep_id, EdgeType::DependsOn);
+                let mut edge = Edge::new(
+                    id,
+                    task.core.id.clone(),
+                    dep_id.clone(),
+                    EdgeType::DependsOn,
+                );
                 edge.reason = Some("Migrated from task.depends_on".to_string());
                 storage.add_edge(&edge)?;
             }
             edges_created += 1;
-            details.push(format!("Created: {} -> {} (depends_on)", task.id, dep_id));
+            details.push(format!(
+                "Created: {} -> {} (depends_on)",
+                task.core.id, dep_id
+            ));
         }
 
         if clean_unused && !task.depends_on.is_empty() {
-            tasks_to_clear.push(task.id.clone());
+            tasks_to_clear.push(task.core.id.clone());
         }
     }
 
@@ -7654,27 +7751,34 @@ pub fn doctor_migrate_edges(
         for dep_id in &bug.depends_on {
             // Check if edge already exists
             let existing =
-                storage.list_edges(Some(EdgeType::DependsOn), Some(&bug.id), Some(dep_id))?;
+                storage.list_edges(Some(EdgeType::DependsOn), Some(&bug.core.id), Some(dep_id))?;
 
             if !existing.is_empty() {
                 edges_skipped += 1;
-                details.push(format!("Skipped: {} -> {} (edge exists)", bug.id, dep_id));
+                details.push(format!(
+                    "Skipped: {} -> {} (edge exists)",
+                    bug.core.id, dep_id
+                ));
                 continue;
             }
 
             // Create new edge
             if !dry_run {
-                let id = storage.generate_edge_id(&bug.id, dep_id, EdgeType::DependsOn);
-                let mut edge = Edge::new(id, bug.id.clone(), dep_id.clone(), EdgeType::DependsOn);
+                let id = storage.generate_edge_id(&bug.core.id, dep_id, EdgeType::DependsOn);
+                let mut edge =
+                    Edge::new(id, bug.core.id.clone(), dep_id.clone(), EdgeType::DependsOn);
                 edge.reason = Some("Migrated from bug.depends_on".to_string());
                 storage.add_edge(&edge)?;
             }
             edges_created += 1;
-            details.push(format!("Created: {} -> {} (depends_on)", bug.id, dep_id));
+            details.push(format!(
+                "Created: {} -> {} (depends_on)",
+                bug.core.id, dep_id
+            ));
         }
 
         if clean_unused && !bug.depends_on.is_empty() {
-            bugs_to_clear.push(bug.id.clone());
+            bugs_to_clear.push(bug.core.id.clone());
         }
     }
 
@@ -7683,7 +7787,7 @@ pub fn doctor_migrate_edges(
         for task_id in &tasks_to_clear {
             if let Ok(mut task) = storage.get_task(task_id) {
                 task.depends_on.clear();
-                task.updated_at = Utc::now();
+                task.core.updated_at = Utc::now();
                 storage.update_task(&task)?;
                 depends_on_cleared += 1;
             }
@@ -7692,7 +7796,7 @@ pub fn doctor_migrate_edges(
         for bug_id in &bugs_to_clear {
             if let Ok(mut bug) = storage.get_bug(bug_id) {
                 bug.depends_on.clear();
-                bug.updated_at = Utc::now();
+                bug.core.updated_at = Utc::now();
                 storage.update_bug(&bug)?;
                 depends_on_cleared += 1;
             }
@@ -8782,13 +8886,13 @@ pub fn system_store_import(
         std::collections::HashMap::new();
     let existing_tasks = storage.list_tasks(None, None, None)?;
     let existing_ids: std::collections::HashSet<String> =
-        existing_tasks.iter().map(|t| t.id.clone()).collect();
+        existing_tasks.iter().map(|t| t.core.id.clone()).collect();
 
     for task in &imported_tasks {
-        if existing_ids.contains(&task.id) {
+        if existing_ids.contains(&task.core.id) {
             // Generate new ID using task title as seed
-            let new_id = crate::storage::generate_id("bn", &task.title);
-            id_remappings.insert(task.id.clone(), new_id);
+            let new_id = crate::storage::generate_id("bn", &task.core.title);
+            id_remappings.insert(task.core.id.clone(), new_id);
         }
     }
 
@@ -8818,8 +8922,8 @@ pub fn system_store_import(
 
     for mut task in imported_tasks {
         // Remap task ID if needed
-        if let Some(new_id) = id_remappings.get(&task.id) {
-            task.id = new_id.clone();
+        if let Some(new_id) = id_remappings.get(&task.core.id) {
+            task.core.id = new_id.clone();
         }
 
         // Remap dependencies and save for later
@@ -8834,7 +8938,7 @@ pub fn system_store_import(
 
         // Store dependencies for pass 2
         if !new_depends_on.is_empty() {
-            task_dependencies.push((task.id.clone(), new_depends_on));
+            task_dependencies.push((task.core.id.clone(), new_depends_on));
         }
 
         // Clear dependencies for initial insert to avoid FK errors
@@ -8855,7 +8959,7 @@ pub fn system_store_import(
     let imported_task_ids: std::collections::HashSet<String> = storage
         .list_tasks(None, None, None)?
         .iter()
-        .map(|t| t.id.clone())
+        .map(|t| t.core.id.clone())
         .collect();
 
     for (task_id, depends_on) in task_dependencies {
@@ -8872,7 +8976,7 @@ pub fn system_store_import(
         // Get the task from storage
         if let Ok(mut task) = storage.get_task(&task_id) {
             task.depends_on = valid_deps;
-            task.updated_at = Utc::now();
+            task.core.updated_at = Utc::now();
             storage.update_task(&task)?;
         }
     }
@@ -9055,13 +9159,13 @@ fn system_store_import_from_folder(
         std::collections::HashMap::new();
     let existing_tasks = storage.list_tasks(None, None, None)?;
     let existing_ids: std::collections::HashSet<String> =
-        existing_tasks.iter().map(|t| t.id.clone()).collect();
+        existing_tasks.iter().map(|t| t.core.id.clone()).collect();
 
     for task in &imported_tasks {
-        if existing_ids.contains(&task.id) {
+        if existing_ids.contains(&task.core.id) {
             // Generate new ID using task title as seed
-            let new_id = crate::storage::generate_id("bn", &task.title);
-            id_remappings.insert(task.id.clone(), new_id);
+            let new_id = crate::storage::generate_id("bn", &task.core.title);
+            id_remappings.insert(task.core.id.clone(), new_id);
         }
     }
 
@@ -9113,8 +9217,8 @@ fn system_store_import_from_folder(
 
     for mut task in imported_tasks {
         // Remap task ID if needed
-        if let Some(new_id) = id_remappings.get(&task.id) {
-            task.id = new_id.clone();
+        if let Some(new_id) = id_remappings.get(&task.core.id) {
+            task.core.id = new_id.clone();
         }
 
         // Remap dependencies and save for later
@@ -9129,7 +9233,7 @@ fn system_store_import_from_folder(
 
         // Store dependencies for pass 2
         if !new_depends_on.is_empty() {
-            task_dependencies.push((task.id.clone(), new_depends_on));
+            task_dependencies.push((task.core.id.clone(), new_depends_on));
         }
 
         // Clear dependencies for initial insert to avoid FK errors
@@ -9150,7 +9254,7 @@ fn system_store_import_from_folder(
     let imported_task_ids: std::collections::HashSet<String> = storage
         .list_tasks(None, None, None)?
         .iter()
-        .map(|t| t.id.clone())
+        .map(|t| t.core.id.clone())
         .collect();
 
     for (task_id, depends_on) in task_dependencies {
@@ -9167,7 +9271,7 @@ fn system_store_import_from_folder(
         // Get the task from storage
         if let Ok(mut task) = storage.get_task(&task_id) {
             task.depends_on = valid_deps;
-            task.updated_at = Utc::now();
+            task.core.updated_at = Utc::now();
             storage.update_task(&task)?;
         }
     }
@@ -9700,14 +9804,15 @@ pub fn migrate_bugs(
 
     for task in &tasks {
         // Generate a new bug ID based on the task title (ensures unique ID)
-        let bug_id = generate_id("bn", &format!("bug-{}", task.title));
+        let bug_id = generate_id("bn", &format!("bug-{}", task.core.title));
 
         // Create the bug entity
-        let mut bug = Bug::new(bug_id.clone(), task.title.clone());
-        bug.description = task.description.clone();
+        let mut bug = Bug::new(bug_id.clone(), task.core.title.clone());
+        bug.core.description = task.core.description.clone();
         bug.priority = task.priority;
         bug.status = task.status.clone();
-        bug.tags = task
+        bug.core.tags = task
+            .core
             .tags
             .iter()
             .filter(|t| *t != "bug") // Don't copy the 'bug' tag to the Bug entity
@@ -9715,8 +9820,8 @@ pub fn migrate_bugs(
             .collect();
         bug.assignee = task.assignee.clone();
         bug.depends_on = task.depends_on.clone();
-        bug.created_at = task.created_at;
-        bug.updated_at = task.updated_at;
+        bug.core.created_at = task.core.created_at;
+        bug.core.updated_at = task.core.updated_at;
         bug.closed_at = task.closed_at;
         bug.closed_reason = task.closed_reason.clone();
 
@@ -9727,16 +9832,16 @@ pub fn migrate_bugs(
             // Optionally remove the 'bug' tag from the original task
             if remove_tag {
                 let mut updated_task = task.clone();
-                updated_task.tags.retain(|t| t != "bug");
-                updated_task.updated_at = chrono::Utc::now();
+                updated_task.core.tags.retain(|t| t != "bug");
+                updated_task.core.updated_at = chrono::Utc::now();
                 storage.update_task(&updated_task)?;
             }
         }
 
         migrated.push(MigratedTask {
-            old_task_id: task.id.clone(),
+            old_task_id: task.core.id.clone(),
             new_bug_id: bug_id,
-            title: task.title.clone(),
+            title: task.core.title.clone(),
         });
     }
 
@@ -11423,7 +11528,7 @@ mod tests {
         )
         .unwrap();
         let result = task_show(temp.path(), &created.id).unwrap().unwrap();
-        assert_eq!(result.task.id, created.id);
+        assert_eq!(result.task.core.id, created.id);
         assert!(result.blocking_info.is_none()); // No dependencies
     }
 
@@ -11488,7 +11593,7 @@ mod tests {
         assert!(updated.updated_fields.contains(&"priority".to_string()));
 
         let result = task_show(temp.path(), &created.id).unwrap().unwrap();
-        assert_eq!(result.task.title, "Updated");
+        assert_eq!(result.task.core.title, "Updated");
         assert_eq!(result.task.priority, 1);
     }
 
@@ -12519,7 +12624,7 @@ mod tests {
 
         let result = ready(temp.path(), false, false).unwrap();
         assert_eq!(result.count, 1);
-        assert_eq!(result.tasks[0].task.id, task_a.id);
+        assert_eq!(result.tasks[0].task.core.id, task_a.id);
     }
 
     #[test]
@@ -12551,7 +12656,7 @@ mod tests {
 
         let result = blocked(temp.path(), false, false).unwrap();
         assert_eq!(result.count, 1);
-        assert_eq!(result.tasks[0].task.id, task_b.id);
+        assert_eq!(result.tasks[0].task.core.id, task_b.id);
         assert!(result.tasks[0].blocking_tasks.contains(&task_a.id));
     }
 
@@ -12591,7 +12696,7 @@ mod tests {
         // Now B should be ready
         let ready_result = ready(temp.path(), false, false).unwrap();
         assert_eq!(ready_result.count, 1);
-        assert_eq!(ready_result.tasks[0].task.id, task_b.id);
+        assert_eq!(ready_result.tasks[0].task.core.id, task_b.id);
 
         // And B should not be blocked anymore
         let blocked_result = blocked(temp.path(), false, false).unwrap();
@@ -12969,6 +13074,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -12978,6 +13084,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Bug 2".to_string(),
+            None,
             None,
             None,
             None,
@@ -13004,6 +13111,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -13014,6 +13122,7 @@ mod tests {
         let bug_a = bug_create(
             temp.path(),
             "Bug A".to_string(),
+            None,
             None,
             None,
             None,
@@ -13028,7 +13137,7 @@ mod tests {
         let mut storage = Storage::open(temp.path()).unwrap();
         let mut bug_a_entity = storage.get_bug(&bug_a.id).unwrap();
         bug_a_entity.depends_on.push(bug_b.id.clone());
-        bug_a_entity.updated_at = chrono::Utc::now();
+        bug_a_entity.core.updated_at = chrono::Utc::now();
         storage.update_bug(&bug_a_entity).unwrap();
         drop(storage);
 
@@ -13265,6 +13374,7 @@ mod tests {
         assert_eq!(result.value, Some("value2".to_string()));
     }
 
+    // === Init AGENTS.md Tests ===
     // === Init AGENTS.md Tests ===
 
     #[test]
@@ -13728,6 +13838,7 @@ mod tests {
             "Low bug".to_string(),
             None,
             None,
+            None,
             Some("low".to_string()),
             vec![],
             None,
@@ -13741,6 +13852,7 @@ mod tests {
             "Critical bug".to_string(),
             None,
             None,
+            None,
             Some("critical".to_string()),
             vec![],
             None,
@@ -13752,6 +13864,7 @@ mod tests {
         let closed_bug = bug_create(
             temp.path(),
             "Closed bug".to_string(),
+            None,
             None,
             None,
             Some("high".to_string()),
@@ -14640,6 +14753,7 @@ mod tests {
         let result = bug_create(
             temp.path(),
             "Test bug".to_string(),
+            None,
             Some("Description".to_string()),
             Some(1),
             Some("high".to_string()),
@@ -14662,6 +14776,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -14672,8 +14787,8 @@ mod tests {
         let result = bug_show(temp.path(), &result.id).unwrap().unwrap();
         assert_eq!(result.bug.priority, 2); // default priority
         assert_eq!(result.bug.severity, BugSeverity::Triage); // default severity
-        assert!(result.bug.description.is_none());
-        assert!(result.bug.tags.is_empty());
+        assert!(result.bug.core.description.is_none());
+        assert!(result.bug.core.tags.is_empty());
     }
 
     #[test]
@@ -14682,6 +14797,7 @@ mod tests {
         let result = bug_create(
             temp.path(),
             "Bad priority".to_string(),
+            None,
             None,
             Some(5), // invalid: must be 0-4
             None,
@@ -14705,6 +14821,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Test bug".to_string(),
+            None,
             Some("Bug description".to_string()),
             Some(1),
             Some("critical".to_string()),
@@ -14716,12 +14833,15 @@ mod tests {
         .unwrap();
 
         let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
-        assert_eq!(result.bug.id, created.id);
-        assert_eq!(result.bug.title, "Test bug");
-        assert_eq!(result.bug.description, Some("Bug description".to_string()));
+        assert_eq!(result.bug.core.id, created.id);
+        assert_eq!(result.bug.core.title, "Test bug");
+        assert_eq!(
+            result.bug.core.description,
+            Some("Bug description".to_string())
+        );
         assert_eq!(result.bug.priority, 1);
         assert_eq!(result.bug.severity, BugSeverity::Critical);
-        assert!(result.bug.tags.contains(&"security".to_string()));
+        assert!(result.bug.core.tags.contains(&"security".to_string()));
     }
 
     #[test]
@@ -14738,6 +14858,7 @@ mod tests {
             temp.path(),
             "Bug 1".to_string(),
             None,
+            None,
             Some(1),
             Some("high".to_string()),
             vec![],
@@ -14749,6 +14870,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Bug 2".to_string(),
+            None,
             None,
             Some(2),
             Some("low".to_string()),
@@ -14772,6 +14894,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -14781,6 +14904,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Bug 2".to_string(),
+            None,
             None,
             None,
             None,
@@ -14808,6 +14932,7 @@ mod tests {
             temp.path(),
             "High priority".to_string(),
             None,
+            None,
             Some(0),
             None,
             vec![],
@@ -14820,6 +14945,7 @@ mod tests {
             temp.path(),
             "Low priority".to_string(),
             None,
+            None,
             Some(3),
             None,
             vec![],
@@ -14831,7 +14957,7 @@ mod tests {
 
         let high_list = bug_list(temp.path(), None, Some(0), None, None).unwrap();
         assert_eq!(high_list.count, 1);
-        assert_eq!(high_list.bugs[0].title, "High priority");
+        assert_eq!(high_list.bugs[0].core.title, "High priority");
     }
 
     #[test]
@@ -14840,6 +14966,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Critical bug".to_string(),
+            None,
             None,
             None,
             Some("critical".to_string()),
@@ -14854,6 +14981,7 @@ mod tests {
             "Low severity".to_string(),
             None,
             None,
+            None,
             Some("low".to_string()),
             vec![],
             None,
@@ -14864,7 +14992,7 @@ mod tests {
 
         let critical_list = bug_list(temp.path(), None, None, Some("critical"), None).unwrap();
         assert_eq!(critical_list.count, 1);
-        assert_eq!(critical_list.bugs[0].title, "Critical bug");
+        assert_eq!(critical_list.bugs[0].core.title, "Critical bug");
     }
 
     #[test]
@@ -14873,6 +15001,7 @@ mod tests {
         bug_create(
             temp.path(),
             "UI bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -14888,6 +15017,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec!["api".to_string()],
             None,
             None,
@@ -14897,7 +15027,7 @@ mod tests {
 
         let ui_list = bug_list(temp.path(), None, None, None, Some("ui")).unwrap();
         assert_eq!(ui_list.count, 1);
-        assert_eq!(ui_list.bugs[0].title, "UI bug");
+        assert_eq!(ui_list.bugs[0].core.title, "UI bug");
     }
 
     #[test]
@@ -14906,6 +15036,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Original bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -14920,6 +15051,7 @@ mod tests {
             temp.path(),
             &created.id,
             Some("Updated bug".to_string()),
+            None,
             Some("New description".to_string()),
             Some(1),
             None,
@@ -14951,11 +15083,14 @@ mod tests {
         );
 
         let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
-        assert_eq!(result.bug.title, "Updated bug");
-        assert_eq!(result.bug.description, Some("New description".to_string()));
+        assert_eq!(result.bug.core.title, "Updated bug");
+        assert_eq!(
+            result.bug.core.description,
+            Some("New description".to_string())
+        );
         assert_eq!(result.bug.priority, 1);
         assert_eq!(result.bug.severity, BugSeverity::High);
-        assert!(result.bug.tags.contains(&"new-tag".to_string()));
+        assert!(result.bug.core.tags.contains(&"new-tag".to_string()));
         assert_eq!(result.bug.assignee, Some("bob".to_string()));
     }
 
@@ -14965,6 +15100,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -14978,6 +15114,7 @@ mod tests {
         bug_update(
             temp.path(),
             &created.id,
+            None,
             None,
             None,
             None,
@@ -15005,6 +15142,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec!["old-tag".to_string()],
             None,
             None,
@@ -15020,6 +15158,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec!["new-tag".to_string()],
             vec!["old-tag".to_string()],
             None,
@@ -15030,8 +15169,8 @@ mod tests {
         .unwrap();
 
         let result = bug_show(temp.path(), &created.id).unwrap().unwrap();
-        assert!(result.bug.tags.contains(&"new-tag".to_string()));
-        assert!(!result.bug.tags.contains(&"old-tag".to_string()));
+        assert!(result.bug.core.tags.contains(&"new-tag".to_string()));
+        assert!(!result.bug.core.tags.contains(&"old-tag".to_string()));
     }
 
     #[test]
@@ -15040,6 +15179,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -15053,6 +15193,7 @@ mod tests {
         let result = bug_update(
             temp.path(),
             &created.id,
+            None,
             None,
             None,
             None,
@@ -15083,6 +15224,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -15093,6 +15235,7 @@ mod tests {
         let result = bug_update(
             temp.path(),
             &created.id,
+            None,
             None,
             None,
             Some(5), // invalid
@@ -15139,6 +15282,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -15150,6 +15294,7 @@ mod tests {
         let result = bug_update(
             temp.path(),
             &bug.id,
+            None,
             None,
             None,
             None,
@@ -15179,6 +15324,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -15217,6 +15363,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -15241,6 +15388,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -15274,6 +15422,7 @@ mod tests {
                 format!("Bug with {} severity", severity_str),
                 None,
                 None,
+                None,
                 Some(severity_str.to_string()),
                 vec![],
                 None,
@@ -15293,6 +15442,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Test bug".to_string(),
+            None,
             Some("Description".to_string()),
             Some(1),
             Some("high".to_string()),
@@ -15323,6 +15473,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Bug 1".to_string(),
+            None,
             None,
             Some(0),
             Some("critical".to_string()),
@@ -15738,7 +15889,7 @@ mod tests {
         // Manually add legacy depends_on to task1
         let mut task = storage.get_task(&task1.id).unwrap();
         task.depends_on.push(task2.id.clone());
-        task.updated_at = chrono::Utc::now();
+        task.core.updated_at = chrono::Utc::now();
         storage.update_task(&task).unwrap();
 
         // Run migration
@@ -15787,7 +15938,7 @@ mod tests {
         // Manually add legacy depends_on
         let mut task = storage.get_task(&task1.id).unwrap();
         task.depends_on.push(task2.id.clone());
-        task.updated_at = chrono::Utc::now();
+        task.core.updated_at = chrono::Utc::now();
         storage.update_task(&task).unwrap();
 
         // Run dry run
@@ -15834,7 +15985,7 @@ mod tests {
         // Manually add legacy depends_on
         let mut task = storage.get_task(&task1.id).unwrap();
         task.depends_on.push(task2.id.clone());
-        task.updated_at = chrono::Utc::now();
+        task.core.updated_at = chrono::Utc::now();
         storage.update_task(&task).unwrap();
 
         // Run migration with clean_unused
@@ -15889,7 +16040,7 @@ mod tests {
         // Also add legacy depends_on for the same relationship
         let mut task = storage.get_task(&task1.id).unwrap();
         task.depends_on.push(task2.id.clone());
-        task.updated_at = chrono::Utc::now();
+        task.core.updated_at = chrono::Utc::now();
         storage.update_task(&task).unwrap();
 
         // Run migration
@@ -15938,6 +16089,7 @@ mod tests {
         let bug = bug_create(
             temp.path(),
             "Test Bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -16006,6 +16158,7 @@ mod tests {
         let bug = bug_create(
             temp.path(),
             "Test Bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -16777,7 +16930,7 @@ mod tests {
 
         // Partial tasks should not appear in ready
         let result = ready(temp.path(), false, false).unwrap();
-        assert!(!result.tasks.iter().any(|t| t.task.id == task_b.id));
+        assert!(!result.tasks.iter().any(|t| t.task.core.id == task_b.id));
     }
 
     #[test]
@@ -16814,7 +16967,7 @@ mod tests {
 
         // Partial tasks should appear in blocked
         let result = blocked(temp.path(), false, false).unwrap();
-        assert!(result.tasks.iter().any(|t| t.task.id == task_b.id));
+        assert!(result.tasks.iter().any(|t| t.task.core.id == task_b.id));
     }
 
     #[test]

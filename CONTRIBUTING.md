@@ -5,6 +5,7 @@ Thank you for contributing to binnacle! This guide will help you get started.
 ## Development Setup
 
 1. **Clone and build**
+
    ```bash
    git clone https://github.com/yourusername/binnacle.git
    cd binnacle
@@ -12,11 +13,13 @@ Thank you for contributing to binnacle! This guide will help you get started.
    ```
 
 2. **Install cargo-audit** (required for pre-commit hook)
+
    ```bash
    cargo install cargo-audit
    ```
 
 3. **Enable git hooks**
+
    ```bash
    git config core.hooksPath hooks
    ```
@@ -58,6 +61,7 @@ cargo test --all-features
 ### Commit Messages
 
 We use conventional commit style:
+
 - `feat:` for new features
 - `fix:` for bug fixes
 - `docs:` for documentation changes
@@ -68,11 +72,13 @@ We use conventional commit style:
 ### Testing
 
 Run the full test suite:
+
 ```bash
 cargo test --all-features
 ```
 
 For GUI-specific tests:
+
 ```bash
 cargo test --features gui
 ```
@@ -127,6 +133,7 @@ Before publishing releases, repository maintainers must configure:
 3. Create a GitHub Release with tag `vX.Y.Z` (must match Cargo.toml version)
 
 The CD workflow will:
+
 - Verify tag matches Cargo.toml version
 - Run preflight checks (fmt, clippy, tests)
 - Build and upload binaries to the release
@@ -143,8 +150,9 @@ When adding a new entity type to binnacle (like Task, Bug, Idea, etc.), you must
 ### Checklist
 
 1. **Define the model** (`src/models/mod.rs`)
-   - [ ] Create the struct with `entity_type` field
-   - [ ] Implement serialization/deserialization
+   - [ ] Create the struct embedding `EntityCore` via `#[serde(flatten)]`
+   - [ ] Implement the `Entity` trait (delegate to `self.core`)
+   - [ ] Add entity-specific fields after the `core` field
    - [ ] Add to `EntityType` enum if needed
 
 2. **Update storage schema** (`src/storage/mod.rs`)
@@ -169,8 +177,43 @@ When adding a new entity type to binnacle (like Task, Bug, Idea, etc.), you must
 ### Why This Matters
 
 The `rebuild_cache()` function reconstructs the SQLite cache from JSONL files. If a new entity type is not added to this function:
+
 - The cache will be missing data after `bn compact` runs
 - Entity lookups will fail mysteriously
 - Data appears "lost" even though it exists in JSONL files
 
 The `test_compact_preserves_all_entity_types` test exists specifically to catch this bug early.
+
+### EntityCore Composition Pattern
+
+All primary entities (Task, Bug, Idea, Milestone) embed a common `EntityCore` struct to share fields and behavior:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MyEntity {
+    #[serde(flatten)]
+    pub core: EntityCore,  // Common fields: id, entity_type, title, short_name, description, tags, created_at, updated_at
+
+    // Entity-specific fields
+    pub status: String,
+    pub custom_field: Option<String>,
+}
+
+impl Entity for MyEntity {
+    fn id(&self) -> &str { self.core.id() }
+    fn entity_type(&self) -> &str { self.core.entity_type() }
+    fn title(&self) -> &str { self.core.title() }
+    fn short_name(&self) -> Option<&str> { self.core.short_name() }
+    fn description(&self) -> Option<&str> { self.core.description() }
+    fn created_at(&self) -> &str { self.core.created_at() }
+    fn updated_at(&self) -> Option<&str> { self.core.updated_at() }
+    fn tags(&self) -> &[String] { self.core.tags() }
+}
+```
+
+**Key points:**
+
+- Use `#[serde(flatten)]` to serialize EntityCore fields at the top level (maintains backward-compatible JSON)
+- Access common fields via `entity.core.field` (e.g., `task.core.id`)
+- The `Entity` trait provides a uniform interface; implementations delegate to `self.core`
+- Use `EntityCore::new(entity_type, id, title)` to create the core, then set optional fields

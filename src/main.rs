@@ -242,6 +242,7 @@ fn run_command(
         Some(Commands::Bug { command }) => match command {
             BugCommands::Create {
                 title,
+                short_name,
                 priority,
                 severity,
                 tag,
@@ -254,6 +255,7 @@ fn run_command(
                 let result = commands::bug_create_with_queue(
                     repo_path,
                     title,
+                    short_name,
                     description,
                     priority,
                     severity,
@@ -287,6 +289,7 @@ fn run_command(
             BugCommands::Update {
                 id,
                 title,
+                short_name,
                 description,
                 priority,
                 status,
@@ -302,6 +305,7 @@ fn run_command(
                     repo_path,
                     &id,
                     title,
+                    short_name,
                     description,
                     priority,
                     status.as_deref(),
@@ -332,10 +336,11 @@ fn run_command(
         Some(Commands::Idea { command }) => match command {
             IdeaCommands::Create {
                 title,
+                short_name,
                 tag,
                 description,
             } => {
-                let result = commands::idea_create(repo_path, title, description, tag)?;
+                let result = commands::idea_create(repo_path, title, short_name, description, tag)?;
                 output(&result, human);
             }
             IdeaCommands::List { status, tag } => {
@@ -349,6 +354,7 @@ fn run_command(
             IdeaCommands::Update {
                 id,
                 title,
+                short_name,
                 description,
                 status,
                 add_tag,
@@ -358,6 +364,7 @@ fn run_command(
                     repo_path,
                     &id,
                     title,
+                    short_name,
                     description,
                     status.as_deref(),
                     add_tag,
@@ -390,6 +397,7 @@ fn run_command(
         Some(Commands::Milestone { command }) => match command {
             MilestoneCommands::Create {
                 title,
+                short_name,
                 priority,
                 tag,
                 assignee,
@@ -399,6 +407,7 @@ fn run_command(
                 let result = commands::milestone_create(
                     repo_path,
                     title,
+                    short_name,
                     description,
                     priority,
                     tag,
@@ -427,6 +436,7 @@ fn run_command(
             MilestoneCommands::Update {
                 id,
                 title,
+                short_name,
                 description,
                 priority,
                 status,
@@ -439,6 +449,7 @@ fn run_command(
                     repo_path,
                     &id,
                     title,
+                    short_name,
                     description,
                     priority,
                     status.as_deref(),
@@ -1343,6 +1354,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         Some(Commands::Bug { command }) => match command {
             BugCommands::Create {
                 title,
+                short_name,
                 priority,
                 severity,
                 tag,
@@ -1355,6 +1367,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 "bug create".to_string(),
                 serde_json::json!({
                     "title": title,
+                    "short_name": short_name,
                     "priority": priority,
                     "severity": severity,
                     "tag": tag,
@@ -1383,6 +1396,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             BugCommands::Update {
                 id,
                 title,
+                short_name,
                 description,
                 priority,
                 status,
@@ -1398,6 +1412,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 serde_json::json!({
                     "id": id,
                     "title": title,
+                    "short_name": short_name,
                     "description": description,
                     "priority": priority,
                     "status": status,
@@ -1429,12 +1444,14 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         Some(Commands::Idea { command }) => match command {
             IdeaCommands::Create {
                 title,
+                short_name,
                 tag,
                 description,
             } => (
                 "idea create".to_string(),
                 serde_json::json!({
                     "title": title,
+                    "short_name": short_name,
                     "tag": tag,
                     "description": description,
                 }),
@@ -1450,6 +1467,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             IdeaCommands::Update {
                 id,
                 title,
+                short_name,
                 description,
                 status,
                 add_tag,
@@ -1459,6 +1477,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 serde_json::json!({
                     "id": id,
                     "title": title,
+                    "short_name": short_name,
                     "description": description,
                     "status": status,
                     "add_tag": add_tag,
@@ -1496,6 +1515,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         Some(Commands::Milestone { command }) => match command {
             MilestoneCommands::Create {
                 title,
+                short_name,
                 priority,
                 tag,
                 assignee,
@@ -1505,6 +1525,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 "milestone create".to_string(),
                 serde_json::json!({
                     "title": title,
+                    "short_name": short_name,
                     "priority": priority,
                     "tag": tag,
                     "assignee": assignee,
@@ -1531,6 +1552,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             MilestoneCommands::Update {
                 id,
                 title,
+                short_name,
                 description,
                 priority,
                 status,
@@ -1543,6 +1565,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 serde_json::json!({
                     "id": id,
                     "title": title,
+                    "short_name": short_name,
                     "description": description,
                     "priority": priority,
                     "status": status,

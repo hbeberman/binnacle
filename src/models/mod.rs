@@ -60,17 +60,35 @@ pub enum IdeaStatus {
     Discarded,
 }
 
-/// A work item tracked by Binnacle.
+// =============================================================================
+// EntityCore - Common fields for all primary entities
+// =============================================================================
+
+/// Common fields shared by all primary entity types (Task, Bug, Idea, Milestone).
+///
+/// Use `#[serde(flatten)]` when embedding in entity structs to maintain
+/// flat JSON serialization. This struct reduces boilerplate when adding new
+/// entity types or new common fields.
+///
+/// # Example
+/// ```ignore
+/// #[derive(Debug, Clone, Serialize, Deserialize)]
+/// pub struct MyEntity {
+///     #[serde(flatten)]
+///     pub core: EntityCore,
+///     // Entity-specific fields...
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Task {
+pub struct EntityCore {
     /// Unique identifier (e.g., "bn-a1b2")
     pub id: String,
 
-    /// Entity type marker
+    /// Entity type marker (e.g., "task", "bug", "idea", "milestone")
     #[serde(rename = "type")]
     pub entity_type: String,
 
-    /// Task title
+    /// Entity title
     pub title: String,
 
     /// Optional short display name (shown in GUI instead of ID)
@@ -80,6 +98,118 @@ pub struct Task {
     /// Detailed description
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+
+    /// Tags for categorization
+    #[serde(default)]
+    pub tags: Vec<String>,
+
+    /// Creation timestamp
+    pub created_at: DateTime<Utc>,
+
+    /// Last update timestamp
+    pub updated_at: DateTime<Utc>,
+}
+
+impl EntityCore {
+    /// Create a new EntityCore with the given type, ID, and title.
+    ///
+    /// Sets `created_at` and `updated_at` to now, and all optional fields to None/empty.
+    pub fn new(entity_type: &str, id: String, title: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            entity_type: entity_type.to_string(),
+            title,
+            short_name: None,
+            description: None,
+            tags: Vec::new(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+// =============================================================================
+// Entity Trait - Consistent interface for primary entities
+// =============================================================================
+
+/// Core trait that all primary entities must implement.
+///
+/// This trait ensures consistency across entity types (Task, Bug, Idea, Milestone).
+/// If a new field like `short_name` is added to one entity, the compiler will
+/// require it on all entities that implement this trait.
+///
+/// # Example
+/// ```ignore
+/// let task: &dyn Entity = &my_task;
+/// println!("ID: {}, Title: {}", task.id(), task.title());
+/// if let Some(name) = task.short_name() {
+///     println!("Short name: {}", name);
+/// }
+/// ```
+pub trait Entity {
+    /// Returns the unique identifier (e.g., "bn-a1b2").
+    fn id(&self) -> &str;
+
+    /// Returns the entity type string (e.g., "task", "bug", "idea", "milestone").
+    fn entity_type(&self) -> &str;
+
+    /// Returns the entity's title.
+    fn title(&self) -> &str;
+
+    /// Returns the optional short display name.
+    fn short_name(&self) -> Option<&str>;
+
+    /// Returns the optional description.
+    fn description(&self) -> Option<&str>;
+
+    /// Returns the creation timestamp.
+    fn created_at(&self) -> DateTime<Utc>;
+
+    /// Returns the last update timestamp.
+    fn updated_at(&self) -> DateTime<Utc>;
+
+    /// Returns the tags for this entity.
+    fn tags(&self) -> &[String];
+}
+
+impl Entity for EntityCore {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn entity_type(&self) -> &str {
+        &self.entity_type
+    }
+    fn title(&self) -> &str {
+        &self.title
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.short_name.as_deref()
+    }
+    fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+    fn tags(&self) -> &[String] {
+        &self.tags
+    }
+}
+
+// =============================================================================
+// Task
+// =============================================================================
+
+/// A work item tracked by Binnacle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Task {
+    /// Common entity fields (id, type, title, short_name, description, tags, timestamps)
+    #[serde(flatten)]
+    pub core: EntityCore,
 
     /// Priority level (0-4, lower is higher priority)
     #[serde(default)]
@@ -93,10 +223,6 @@ pub struct Task {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
 
-    /// Tags for categorization
-    #[serde(default)]
-    pub tags: Vec<String>,
-
     /// Assigned user or agent
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
@@ -104,12 +230,6 @@ pub struct Task {
     /// Task IDs this task depends on
     #[serde(default)]
     pub depends_on: Vec<String>,
-
-    /// Creation timestamp
-    pub created_at: DateTime<Utc>,
-
-    /// Last update timestamp
-    pub updated_at: DateTime<Utc>,
 
     /// Closure timestamp
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,21 +248,13 @@ pub struct Task {
 impl Task {
     /// Create a new task with the given ID and title.
     pub fn new(id: String, title: String) -> Self {
-        let now = Utc::now();
         Self {
-            id,
-            entity_type: "task".to_string(),
-            title,
-            short_name: None,
-            description: None,
+            core: EntityCore::new("task", id, title),
             priority: 2, // Default middle priority
             status: TaskStatus::default(),
             parent: None,
-            tags: Vec::new(),
             assignee: None,
             depends_on: Vec::new(),
-            created_at: now,
-            updated_at: now,
             closed_at: None,
             closed_reason: None,
             imported_on: None,
@@ -150,22 +262,43 @@ impl Task {
     }
 }
 
+impl Entity for Task {
+    fn id(&self) -> &str {
+        self.core.id()
+    }
+    fn entity_type(&self) -> &str {
+        self.core.entity_type()
+    }
+    fn title(&self) -> &str {
+        self.core.title()
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.core.short_name()
+    }
+    fn description(&self) -> Option<&str> {
+        self.core.description()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.core.created_at()
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.core.updated_at()
+    }
+    fn tags(&self) -> &[String] {
+        self.core.tags()
+    }
+}
+
+// =============================================================================
+// Bug
+// =============================================================================
+
 /// A defect tracked by Binnacle.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bug {
-    /// Unique identifier (e.g., "bn-b1b2")
-    pub id: String,
-
-    /// Entity type marker
-    #[serde(rename = "type")]
-    pub entity_type: String,
-
-    /// Bug title
-    pub title: String,
-
-    /// Detailed description
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    /// Common entity fields (id, type, title, short_name, description, tags, timestamps)
+    #[serde(flatten)]
+    pub core: EntityCore,
 
     /// Priority level (0-4, lower is higher priority)
     #[serde(default)]
@@ -187,10 +320,6 @@ pub struct Bug {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub affected_component: Option<String>,
 
-    /// Tags for categorization
-    #[serde(default)]
-    pub tags: Vec<String>,
-
     /// Assigned user or agent
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
@@ -198,12 +327,6 @@ pub struct Bug {
     /// IDs this bug depends on
     #[serde(default)]
     pub depends_on: Vec<String>,
-
-    /// Creation timestamp
-    pub created_at: DateTime<Utc>,
-
-    /// Last update timestamp
-    pub updated_at: DateTime<Utc>,
 
     /// Closure timestamp
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -217,25 +340,45 @@ pub struct Bug {
 impl Bug {
     /// Create a new bug with the given ID and title.
     pub fn new(id: String, title: String) -> Self {
-        let now = Utc::now();
         Self {
-            id,
-            entity_type: "bug".to_string(),
-            title,
-            description: None,
+            core: EntityCore::new("bug", id, title),
             priority: 2,
             status: TaskStatus::default(),
             severity: BugSeverity::default(),
             reproduction_steps: None,
             affected_component: None,
-            tags: Vec::new(),
             assignee: None,
             depends_on: Vec::new(),
-            created_at: now,
-            updated_at: now,
             closed_at: None,
             closed_reason: None,
         }
+    }
+}
+
+impl Entity for Bug {
+    fn id(&self) -> &str {
+        self.core.id()
+    }
+    fn entity_type(&self) -> &str {
+        self.core.entity_type()
+    }
+    fn title(&self) -> &str {
+        self.core.title()
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.core.short_name()
+    }
+    fn description(&self) -> Option<&str> {
+        self.core.description()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.core.created_at()
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.core.updated_at()
+    }
+    fn tags(&self) -> &[String] {
+        self.core.tags()
     }
 }
 
@@ -244,23 +387,9 @@ impl Bug {
 /// that can be captured quickly and potentially grown into full PRDs or tasks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Idea {
-    /// Unique identifier (e.g., "bn-a1b2")
-    pub id: String,
-
-    /// Entity type marker
-    #[serde(rename = "type")]
-    pub entity_type: String,
-
-    /// Idea title
-    pub title: String,
-
-    /// Detailed description
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-
-    /// Tags for categorization
-    #[serde(default)]
-    pub tags: Vec<String>,
+    /// Common entity fields (id, type, title, short_name, description, tags, timestamps)
+    #[serde(flatten)]
+    pub core: EntityCore,
 
     /// Current status
     #[serde(default)]
@@ -269,48 +398,52 @@ pub struct Idea {
     /// Task ID if promoted (e.g., "bn-a1b2") or PRD path
     #[serde(skip_serializing_if = "Option::is_none")]
     pub promoted_to: Option<String>,
-
-    /// Creation timestamp
-    pub created_at: DateTime<Utc>,
-
-    /// Last update timestamp
-    pub updated_at: DateTime<Utc>,
 }
 
 impl Idea {
     /// Create a new idea with the given ID and title.
     pub fn new(id: String, title: String) -> Self {
-        let now = Utc::now();
         Self {
-            id,
-            entity_type: "idea".to_string(),
-            title,
-            description: None,
-            tags: Vec::new(),
+            core: EntityCore::new("idea", id, title),
             status: IdeaStatus::default(),
             promoted_to: None,
-            created_at: now,
-            updated_at: now,
         }
+    }
+}
+
+impl Entity for Idea {
+    fn id(&self) -> &str {
+        self.core.id()
+    }
+    fn entity_type(&self) -> &str {
+        self.core.entity_type()
+    }
+    fn title(&self) -> &str {
+        self.core.title()
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.core.short_name()
+    }
+    fn description(&self) -> Option<&str> {
+        self.core.description()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.core.created_at()
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.core.updated_at()
+    }
+    fn tags(&self) -> &[String] {
+        self.core.tags()
     }
 }
 
 /// A milestone for grouping and tracking progress of tasks and bugs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Milestone {
-    /// Unique identifier (e.g., "bn-m1b2")
-    pub id: String,
-
-    /// Entity type marker
-    #[serde(rename = "type")]
-    pub entity_type: String,
-
-    /// Milestone title
-    pub title: String,
-
-    /// Detailed description
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    /// Common entity fields (id, type, title, short_name, description, tags, timestamps)
+    #[serde(flatten)]
+    pub core: EntityCore,
 
     /// Priority level (0-4, lower is higher priority)
     #[serde(default)]
@@ -324,19 +457,9 @@ pub struct Milestone {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub due_date: Option<DateTime<Utc>>,
 
-    /// Tags for categorization
-    #[serde(default)]
-    pub tags: Vec<String>,
-
     /// Assigned user or agent
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
-
-    /// Creation timestamp
-    pub created_at: DateTime<Utc>,
-
-    /// Last update timestamp
-    pub updated_at: DateTime<Utc>,
 
     /// Closure timestamp
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -350,22 +473,42 @@ pub struct Milestone {
 impl Milestone {
     /// Create a new milestone with the given ID and title.
     pub fn new(id: String, title: String) -> Self {
-        let now = Utc::now();
         Self {
-            id,
-            entity_type: "milestone".to_string(),
-            title,
-            description: None,
+            core: EntityCore::new("milestone", id, title),
             priority: 2,
             status: TaskStatus::default(),
             due_date: None,
-            tags: Vec::new(),
             assignee: None,
-            created_at: now,
-            updated_at: now,
             closed_at: None,
             closed_reason: None,
         }
+    }
+}
+
+impl Entity for Milestone {
+    fn id(&self) -> &str {
+        self.core.id()
+    }
+    fn entity_type(&self) -> &str {
+        self.core.entity_type()
+    }
+    fn title(&self) -> &str {
+        self.core.title()
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.core.short_name()
+    }
+    fn description(&self) -> Option<&str> {
+        self.core.description()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.core.created_at()
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.core.updated_at()
+    }
+    fn tags(&self) -> &[String] {
+        self.core.tags()
     }
 }
 
@@ -964,8 +1107,8 @@ mod tests {
         let task = Task::new("bn-test".to_string(), "Test task".to_string());
         let json = serde_json::to_string(&task).unwrap();
         let deserialized: Task = serde_json::from_str(&json).unwrap();
-        assert_eq!(task.id, deserialized.id);
-        assert_eq!(task.title, deserialized.title);
+        assert_eq!(task.core.id, deserialized.core.id);
+        assert_eq!(task.core.title, deserialized.core.title);
     }
 
     #[test]
@@ -980,8 +1123,8 @@ mod tests {
         let bug = Bug::new("bn-bug".to_string(), "Test bug".to_string());
         let json = serde_json::to_string(&bug).unwrap();
         let deserialized: Bug = serde_json::from_str(&json).unwrap();
-        assert_eq!(bug.id, deserialized.id);
-        assert_eq!(bug.title, deserialized.title);
+        assert_eq!(bug.core.id, deserialized.core.id);
+        assert_eq!(bug.core.title, deserialized.core.title);
         assert_eq!(bug.severity, deserialized.severity);
     }
 
@@ -1000,6 +1143,201 @@ mod tests {
     }
 
     #[test]
+    fn test_bug_backward_compatibility() {
+        // This test verifies that pre-refactor Bug JSON (flat fields) parses correctly
+        // into the new EntityCore-based structure with #[serde(flatten)]
+        let pre_refactor_json = r#"{
+            "id": "bn-legacy",
+            "type": "bug",
+            "title": "Legacy Bug Title",
+            "short_name": "legacy-bug",
+            "description": "A bug created before EntityCore refactoring",
+            "tags": ["urgent", "backend"],
+            "priority": 1,
+            "status": "in_progress",
+            "severity": "high",
+            "reproduction_steps": "1. Do X\n2. See Y",
+            "affected_component": "api/auth",
+            "assignee": "alice",
+            "depends_on": ["bn-other"],
+            "created_at": "2026-01-15T10:30:00Z",
+            "updated_at": "2026-01-16T14:45:00Z",
+            "closed_at": null,
+            "closed_reason": null
+        }"#;
+
+        let bug: Bug = serde_json::from_str(pre_refactor_json).unwrap();
+
+        // Verify EntityCore fields are correctly populated
+        assert_eq!(bug.core.id, "bn-legacy");
+        assert_eq!(bug.core.entity_type, "bug");
+        assert_eq!(bug.core.title, "Legacy Bug Title");
+        assert_eq!(bug.core.short_name, Some("legacy-bug".to_string()));
+        assert_eq!(
+            bug.core.description,
+            Some("A bug created before EntityCore refactoring".to_string())
+        );
+        assert_eq!(bug.core.tags, vec!["urgent", "backend"]);
+        assert!(bug.core.created_at.to_rfc3339().starts_with("2026-01-15"));
+        assert!(bug.core.updated_at.to_rfc3339().starts_with("2026-01-16"));
+
+        // Verify Bug-specific fields are correctly populated
+        assert_eq!(bug.priority, 1);
+        assert_eq!(bug.status, TaskStatus::InProgress);
+        assert_eq!(bug.severity, BugSeverity::High);
+        assert_eq!(
+            bug.reproduction_steps,
+            Some("1. Do X\n2. See Y".to_string())
+        );
+        assert_eq!(bug.affected_component, Some("api/auth".to_string()));
+        assert_eq!(bug.assignee, Some("alice".to_string()));
+        assert_eq!(bug.depends_on, vec!["bn-other"]);
+        assert!(bug.closed_at.is_none());
+        assert!(bug.closed_reason.is_none());
+
+        // Verify serialization back to JSON maintains flat structure
+        let reserialized = serde_json::to_string(&bug).unwrap();
+        let reparsed: serde_json::Value = serde_json::from_str(&reserialized).unwrap();
+
+        // The JSON should have flat fields, not nested under "core"
+        assert!(reparsed.get("id").is_some());
+        assert!(reparsed.get("title").is_some());
+        assert!(reparsed.get("core").is_none()); // Should NOT have a "core" field
+    }
+
+    #[test]
+    fn test_task_backward_compatibility() {
+        // This test verifies that pre-refactor Task JSON (flat fields) parses correctly
+        // into the new EntityCore-based structure with #[serde(flatten)]
+        let pre_refactor_json = r#"{
+            "id": "bn-task1",
+            "type": "task",
+            "title": "Legacy Task Title",
+            "short_name": "legacy-task",
+            "description": "A task created before EntityCore refactoring",
+            "tags": ["feature", "v2"],
+            "priority": 0,
+            "status": "in_progress",
+            "parent": "bn-parent",
+            "assignee": "bob",
+            "depends_on": ["bn-dep1", "bn-dep2"],
+            "created_at": "2026-01-10T08:00:00Z",
+            "updated_at": "2026-01-12T16:30:00Z",
+            "closed_at": null,
+            "closed_reason": null,
+            "imported_on": null
+        }"#;
+
+        let task: Task = serde_json::from_str(pre_refactor_json).unwrap();
+
+        // Verify EntityCore fields
+        assert_eq!(task.core.id, "bn-task1");
+        assert_eq!(task.core.entity_type, "task");
+        assert_eq!(task.core.title, "Legacy Task Title");
+        assert_eq!(task.core.short_name, Some("legacy-task".to_string()));
+        assert_eq!(
+            task.core.description,
+            Some("A task created before EntityCore refactoring".to_string())
+        );
+        assert_eq!(task.core.tags, vec!["feature", "v2"]);
+
+        // Verify Task-specific fields
+        assert_eq!(task.priority, 0);
+        assert_eq!(task.status, TaskStatus::InProgress);
+        assert_eq!(task.parent, Some("bn-parent".to_string()));
+        assert_eq!(task.assignee, Some("bob".to_string()));
+        assert_eq!(task.depends_on, vec!["bn-dep1", "bn-dep2"]);
+
+        // Verify round-trip maintains flat structure
+        let reserialized = serde_json::to_string(&task).unwrap();
+        let reparsed: serde_json::Value = serde_json::from_str(&reserialized).unwrap();
+        assert!(reparsed.get("id").is_some());
+        assert!(reparsed.get("core").is_none());
+    }
+
+    #[test]
+    fn test_idea_backward_compatibility() {
+        // This test verifies that pre-refactor Idea JSON (flat fields) parses correctly
+        let pre_refactor_json = r#"{
+            "id": "bn-idea1",
+            "type": "idea",
+            "title": "Legacy Idea Title",
+            "description": "An idea captured before refactoring",
+            "tags": ["ux", "research"],
+            "status": "germinating",
+            "promoted_to": null,
+            "created_at": "2026-01-05T14:00:00Z",
+            "updated_at": "2026-01-06T09:15:00Z"
+        }"#;
+
+        let idea: Idea = serde_json::from_str(pre_refactor_json).unwrap();
+
+        // Verify EntityCore fields
+        assert_eq!(idea.core.id, "bn-idea1");
+        assert_eq!(idea.core.entity_type, "idea");
+        assert_eq!(idea.core.title, "Legacy Idea Title");
+        assert_eq!(
+            idea.core.description,
+            Some("An idea captured before refactoring".to_string())
+        );
+        assert_eq!(idea.core.tags, vec!["ux", "research"]);
+
+        // Verify Idea-specific fields
+        assert_eq!(idea.status, IdeaStatus::Germinating);
+        assert!(idea.promoted_to.is_none());
+
+        // Verify round-trip maintains flat structure
+        let reserialized = serde_json::to_string(&idea).unwrap();
+        let reparsed: serde_json::Value = serde_json::from_str(&reserialized).unwrap();
+        assert!(reparsed.get("id").is_some());
+        assert!(reparsed.get("core").is_none());
+    }
+
+    #[test]
+    fn test_milestone_backward_compatibility() {
+        // This test verifies that pre-refactor Milestone JSON (flat fields) parses correctly
+        let pre_refactor_json = r#"{
+            "id": "bn-mile1",
+            "type": "milestone",
+            "title": "Legacy Milestone",
+            "description": "Q1 2026 Release",
+            "tags": ["release", "q1"],
+            "priority": 1,
+            "status": "pending",
+            "due_date": "2026-03-31T23:59:59Z",
+            "assignee": "team-lead",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-02T12:00:00Z",
+            "closed_at": null,
+            "closed_reason": null
+        }"#;
+
+        let milestone: Milestone = serde_json::from_str(pre_refactor_json).unwrap();
+
+        // Verify EntityCore fields
+        assert_eq!(milestone.core.id, "bn-mile1");
+        assert_eq!(milestone.core.entity_type, "milestone");
+        assert_eq!(milestone.core.title, "Legacy Milestone");
+        assert_eq!(
+            milestone.core.description,
+            Some("Q1 2026 Release".to_string())
+        );
+        assert_eq!(milestone.core.tags, vec!["release", "q1"]);
+
+        // Verify Milestone-specific fields
+        assert_eq!(milestone.priority, 1);
+        assert_eq!(milestone.status, TaskStatus::Pending);
+        assert!(milestone.due_date.is_some());
+        assert_eq!(milestone.assignee, Some("team-lead".to_string()));
+
+        // Verify round-trip maintains flat structure
+        let reserialized = serde_json::to_string(&milestone).unwrap();
+        let reparsed: serde_json::Value = serde_json::from_str(&reserialized).unwrap();
+        assert!(reparsed.get("id").is_some());
+        assert!(reparsed.get("core").is_none());
+    }
+
+    #[test]
     fn test_partial_status_serialization() {
         let status = TaskStatus::Partial;
         let json = serde_json::to_string(&status).unwrap();
@@ -1015,9 +1353,9 @@ mod tests {
         let idea = Idea::new("bn-test".to_string(), "Test idea".to_string());
         let json = serde_json::to_string(&idea).unwrap();
         let deserialized: Idea = serde_json::from_str(&json).unwrap();
-        assert_eq!(idea.id, deserialized.id);
-        assert_eq!(idea.title, deserialized.title);
-        assert_eq!(idea.entity_type, "idea");
+        assert_eq!(idea.core.id, deserialized.core.id);
+        assert_eq!(idea.core.title, deserialized.core.title);
+        assert_eq!(idea.core.entity_type, "idea");
         assert_eq!(idea.status, IdeaStatus::Seed);
     }
 
@@ -1041,7 +1379,7 @@ mod tests {
         let json = r#"{"id":"bn-test","type":"idea","title":"Test","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#;
         let idea: Idea = serde_json::from_str(json).unwrap();
         assert_eq!(idea.status, IdeaStatus::Seed);
-        assert!(idea.tags.is_empty());
+        assert!(idea.core.tags.is_empty());
         assert!(idea.promoted_to.is_none());
     }
 
@@ -1050,9 +1388,9 @@ mod tests {
         let milestone = Milestone::new("bn-mile".to_string(), "Test milestone".to_string());
         let json = serde_json::to_string(&milestone).unwrap();
         let deserialized: Milestone = serde_json::from_str(&json).unwrap();
-        assert_eq!(milestone.id, deserialized.id);
-        assert_eq!(milestone.title, deserialized.title);
-        assert_eq!(milestone.entity_type, "milestone");
+        assert_eq!(milestone.core.id, deserialized.core.id);
+        assert_eq!(milestone.core.title, deserialized.core.title);
+        assert_eq!(milestone.core.entity_type, "milestone");
     }
 
     #[test]
@@ -1062,7 +1400,7 @@ mod tests {
         // serde(default) for u8 is 0; Milestone::new() uses 2 for creation
         assert_eq!(milestone.priority, 0);
         assert_eq!(milestone.status, TaskStatus::Pending);
-        assert!(milestone.tags.is_empty());
+        assert!(milestone.core.tags.is_empty());
     }
 
     #[test]
