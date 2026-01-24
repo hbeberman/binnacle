@@ -1508,6 +1508,90 @@
             color: var(--accent-light);
         }
 
+        /* Node filter dropdown */
+        .node-filters {
+            position: relative;
+        }
+
+        .node-filters-btn {
+            padding: 0.4rem 0.75rem;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s ease;
+        }
+
+        .node-filters-btn:hover {
+            border-color: var(--accent-blue);
+            color: var(--text-primary);
+        }
+
+        .node-filters-btn .arrow {
+            font-size: 0.6rem;
+            transition: transform 0.2s ease;
+        }
+
+        .node-filters.open .node-filters-btn .arrow {
+            transform: rotate(180deg);
+        }
+
+        .node-filters-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 0.25rem;
+            background: var(--overlay-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem;
+            z-index: 200;
+            display: none;
+            flex-direction: column;
+            gap: 0.25rem;
+            min-width: 140px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .node-filters.open .node-filters-dropdown {
+            display: flex;
+        }
+
+        .node-filter-btn {
+            padding: 0.35rem 0.5rem;
+            font-size: 0.75rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            width: 100%;
+            text-align: left;
+        }
+
+        .node-filter-btn:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .node-filter-btn.active {
+            background: #3a7bc8;
+            border-color: var(--accent-light);
+            color: white;
+        }
+
+        .node-filter-btn .count {
+            font-weight: 600;
+        }
+
         /* Edge filter dropdown */
         .edge-filters {
             position: relative;
@@ -1686,49 +1770,6 @@
             display: flex;
             flex-direction: column;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-        }
-
-        .stats-overlay {
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid var(--border-color);
-            margin-bottom: 0.5rem;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-        }
-
-        .stats-overlay .stat-group {
-            display: flex;
-            align-items: center;
-            gap: 0.35rem;
-            cursor: pointer;
-            padding: 0.25rem 0.5rem;
-            margin: -0.25rem -0.5rem;
-            border-radius: 4px;
-            transition: background-color 0.2s ease;
-        }
-
-        .stats-overlay .stat-group:hover {
-            background-color: var(--bg-tertiary);
-        }
-
-        .stats-overlay .stat-group.active {
-            background-color: var(--accent-blue);
-            color: var(--text-primary);
-        }
-
-        .stats-overlay .stat-separator {
-            color: var(--border-color);
-            font-weight: 300;
-        }
-
-        .stats-overlay .stat-detail {
-            font-size: 0.75rem;
-            opacity: 0.8;
         }
 
         .zoom-btn {
@@ -2953,18 +2994,19 @@
                 </div>
                 <canvas id="graph-canvas"></canvas>
                 <div class="graph-filters">
-                    <div class="stats-overlay" id="stats-overlay">
-                        <span class="stat-group" id="stat-bugs">🐛 0 bugs</span>
-                        <span class="stat-separator">|</span>
-                        <span class="stat-group" id="stat-blocked">❌ 0 blocked</span>
-                        <span class="stat-separator">|</span>
-                        <span class="stat-group" id="stat-ready">✅ 0 ready</span>
-                        <span class="stat-separator">|</span>
-                        <span class="stat-group" id="stat-ideas">💭 0 ideas</span>
-                        <span class="stat-separator">|</span>
-                        <span class="stat-group" id="stat-milestones">🏁 0 milestones</span>
-                        <span class="stat-separator">|</span>
-                        <span class="stat-group" id="stat-queued">⬡ 0 queued</span>
+                    <div class="node-filters" id="node-filters">
+                        <button class="node-filters-btn" id="node-filters-btn">
+                            <span>Node Types</span>
+                            <span class="arrow">▼</span>
+                        </button>
+                        <div class="node-filters-dropdown" id="node-filter-group">
+                            <button class="node-filter-btn" id="stat-bugs" data-filter="bugs">🐛 <span class="count">0</span> bugs</button>
+                            <button class="node-filter-btn" id="stat-blocked" data-filter="blocked">❌ <span class="count">0</span> blocked</button>
+                            <button class="node-filter-btn" id="stat-ready" data-filter="ready">✅ <span class="count">0</span> ready</button>
+                            <button class="node-filter-btn" id="stat-ideas" data-filter="ideas">💭 <span class="count">0</span> ideas</button>
+                            <button class="node-filter-btn" id="stat-milestones" data-filter="milestones">🏁 <span class="count">0</span> milestones</button>
+                            <button class="node-filter-btn" id="stat-queued" data-filter="queued">⬡ <span class="count">0</span> queued</button>
+                        </div>
                     </div>
                     <div class="edge-filters" id="edge-filters">
                         <button class="edge-filters-btn" id="edge-filters-btn">
@@ -3809,13 +3851,13 @@
             const milestoneCount = state.tasks.filter(t => t.type === 'milestone' && openStatuses.includes(t.status)).length;
             const queuedCount = state.tasks.filter(t => t.type !== 'queue' && t.type !== 'agent' && isNodeQueued(t.id)).length;
 
-            // Update DOM elements
-            document.getElementById('stat-bugs').textContent = `🐛 ${bugCount} bug${bugCount !== 1 ? 's' : ''}`;
-            document.getElementById('stat-blocked').textContent = `❌ ${blockedCount} blocked`;
-            document.getElementById('stat-ready').textContent = `✅ ${readyCount} ready`;
-            document.getElementById('stat-ideas').textContent = `💭 ${ideaCount} idea${ideaCount !== 1 ? 's' : ''}`;
-            document.getElementById('stat-milestones').textContent = `🏁 ${milestoneCount} milestone${milestoneCount !== 1 ? 's' : ''}`;
-            document.getElementById('stat-queued').textContent = `⬡ ${queuedCount} queued`;
+            // Update DOM elements - using innerHTML to update count span
+            document.getElementById('stat-bugs').innerHTML = `🐛 <span class="count">${bugCount}</span> bug${bugCount !== 1 ? 's' : ''}`;
+            document.getElementById('stat-blocked').innerHTML = `❌ <span class="count">${blockedCount}</span> blocked`;
+            document.getElementById('stat-ready').innerHTML = `✅ <span class="count">${readyCount}</span> ready`;
+            document.getElementById('stat-ideas').innerHTML = `💭 <span class="count">${ideaCount}</span> idea${ideaCount !== 1 ? 's' : ''}`;
+            document.getElementById('stat-milestones').innerHTML = `🏁 <span class="count">${milestoneCount}</span> milestone${milestoneCount !== 1 ? 's' : ''}`;
+            document.getElementById('stat-queued').innerHTML = `⬡ <span class="count">${queuedCount}</span> queued`;
             
             // Update active state for stat filters
             updateStatFilterHighlights();
@@ -3941,8 +3983,31 @@
             return div.innerHTML;
         }
         
-        // Initialize clickable stat filters
+        // Initialize clickable stat filters and dropdown toggle
         function initializeStatFilters() {
+            const dropdownBtn = document.getElementById('node-filters-btn');
+            const filtersPanel = document.getElementById('node-filters');
+            
+            // Toggle dropdown open/close when button is clicked
+            if (dropdownBtn && filtersPanel) {
+                dropdownBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    filtersPanel.classList.toggle('open');
+                    // Close edge filters if open
+                    const edgeFilters = document.getElementById('edge-filters');
+                    if (edgeFilters && edgeFilters.classList.contains('open')) {
+                        edgeFilters.classList.remove('open');
+                    }
+                });
+                
+                // Close dropdown when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!filtersPanel.contains(e.target)) {
+                        filtersPanel.classList.remove('open');
+                    }
+                });
+            }
+            
             const filterMap = {
                 'stat-bugs': 'bugs',
                 'stat-blocked': 'blocked',
@@ -3955,7 +4020,8 @@
             for (const [elementId, filterName] of Object.entries(filterMap)) {
                 const element = document.getElementById(elementId);
                 if (element) {
-                    element.addEventListener('click', () => {
+                    element.addEventListener('click', (e) => {
+                        e.stopPropagation();
                         toggleStatFilter(filterName);
                     });
                 }
@@ -8006,6 +8072,11 @@
             dropdownBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 filtersPanel.classList.toggle('open');
+                // Close node filters if open
+                const nodeFilters = document.getElementById('node-filters');
+                if (nodeFilters && nodeFilters.classList.contains('open')) {
+                    nodeFilters.classList.remove('open');
+                }
             });
             
             // Close dropdown when clicking outside
@@ -8038,6 +8109,13 @@
                 const edgeFilters = document.querySelector('.edge-filters.open');
                 if (edgeFilters) {
                     edgeFilters.classList.remove('open');
+                    e.preventDefault();
+                    return;
+                }
+                // Close node filters dropdown if open
+                const nodeFilters = document.querySelector('.node-filters.open');
+                if (nodeFilters) {
+                    nodeFilters.classList.remove('open');
                     e.preventDefault();
                 }
             }
