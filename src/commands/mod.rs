@@ -959,7 +959,12 @@ fn update_agents_md(repo_path: &Path) -> Result<bool> {
 
 #[derive(Debug, Serialize)]
 pub struct OrientResult {
-    pub initialized: bool,
+    /// Always true when orient succeeds - indicates the store is ready to use.
+    /// Agents should proceed with task management commands.
+    pub ready: bool,
+    /// True only if this call just initialized the store (first time setup).
+    /// False if the store was already initialized before this call.
+    pub just_initialized: bool,
     pub total_tasks: usize,
     pub ready_count: usize,
     pub ready_ids: Vec<String>,
@@ -1076,8 +1081,8 @@ pub fn orient(
     // Parse agent type first
     let agent_type = parse_agent_type(agent_type_str)?;
 
-    // Check if initialized
-    let initialized = if !Storage::exists(repo_path)? {
+    // Check if we need to initialize the store
+    let just_initialized = if !Storage::exists(repo_path)? {
         if allow_init {
             Storage::init(repo_path)?;
             // Auto-update AGENTS.md (idempotent)
@@ -1200,7 +1205,8 @@ pub fn orient(
     };
 
     Ok(OrientResult {
-        initialized,
+        ready: true, // Always true when orient succeeds - store is ready to use
+        just_initialized,
         total_tasks: tasks.len(),
         ready_count,
         ready_ids,
@@ -11433,7 +11439,8 @@ mod tests {
 
         // Run orient with allow_init=true
         let result = orient(temp.path(), "worker", true, None, None).unwrap();
-        assert!(result.initialized);
+        assert!(result.ready); // Store is ready to use
+        assert!(result.just_initialized); // Was just initialized this call
 
         // Verify now initialized
         assert!(Storage::exists(temp.path()).unwrap());
@@ -11470,7 +11477,8 @@ mod tests {
         .unwrap();
 
         let result = orient(temp.path(), "worker", false, None, None).unwrap();
-        assert!(!result.initialized); // Already initialized in setup()
+        assert!(result.ready); // Store is ready to use
+        assert!(!result.just_initialized); // Already initialized in setup()
         assert_eq!(result.total_tasks, 2);
         assert_eq!(result.ready_count, 2); // Both pending tasks are ready
     }
