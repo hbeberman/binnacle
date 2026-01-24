@@ -129,6 +129,9 @@ IMPORTANT - Use the correct entity type:
 
 When the user says "idea", "thought", "what if", "maybe we could", "explore", or similar exploratory language, ALWAYS use `bn idea create`. Ideas are low-stakes and can be promoted to tasks later.
 
+CRITICAL - Always check the graph for latest state:
+When answering questions about bugs, tasks, or ideas (even ones you created earlier in this session), ALWAYS run `bn show <id>` to check the current state. Never assume an entity is still open just because you created it - another agent or human may have closed it. The graph is the source of truth, not your session memory.
+
 Run `bn goodbye "session complete"` to gracefully terminate your agent session when the user is done.'
         TOOLS=("${TOOLS_BUDDY[@]}")
         ;;
