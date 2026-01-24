@@ -29,9 +29,10 @@ gui:
     
     just install
     # Copy to temp location so builds can replace the original while GUI runs
-    CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/binnacle"
-    mkdir -p "$CACHE_DIR"
-    GUI_BIN="$CACHE_DIR/bn-gui"
+    # Use XDG_RUNTIME_DIR (tmpfs, session-scoped) with fallback to cache
+    RUNTIME_DIR="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/binnacle"
+    mkdir -p "$RUNTIME_DIR"
+    GUI_BIN="$RUNTIME_DIR/bn-gui"
     # Kill any process using the cached binary (could be from any repo)
     if [ -f "$GUI_BIN" ]; then
         PIDS=$(fuser "$GUI_BIN" 2>/dev/null | tr -s ' ') || true
