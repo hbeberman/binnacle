@@ -328,6 +328,176 @@
             cursor: not-allowed;
         }
 
+        /* Card actions container for buttons */
+        .card-actions {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        /* Jump to node button */
+        .card-jump-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .card-jump-btn:hover {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+        }
+
+        /* Blocked card styling */
+        .card-blocked {
+            border-color: var(--danger);
+            opacity: 0.8;
+        }
+
+        .blocked-banner {
+            background: var(--danger);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-radius: 4px 4px 0 0;
+            margin: -0.75rem -0.75rem 0.5rem -0.75rem;
+            text-align: center;
+        }
+
+        /* Agents sidebar on graph view */
+        .agents-sidebar {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 220px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            transition: transform 0.2s ease;
+        }
+
+        .agents-sidebar.collapsed {
+            transform: translateX(-180px);
+        }
+
+        .agents-sidebar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+        }
+
+        .agents-sidebar-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .agents-sidebar-toggle {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .agents-sidebar-toggle:hover {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .agents-sidebar.collapsed .agents-sidebar-toggle {
+            transform: rotate(180deg);
+        }
+
+        .agents-sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+
+        .agents-sidebar-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .agents-sidebar-item {
+            padding: 0.5rem;
+            border-radius: 6px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .agents-sidebar-item:hover {
+            border-color: var(--agent-active);
+            background: var(--bg-tertiary);
+        }
+
+        .agents-sidebar-item.active {
+            border-color: var(--agent-active);
+        }
+
+        .agents-sidebar-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.25rem;
+        }
+
+        .agents-sidebar-item-name {
+            font-weight: 600;
+            font-size: 0.85rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
+
+        .agents-sidebar-item-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .agents-sidebar-item-status.active { background: var(--agent-active); }
+        .agents-sidebar-item-status.idle { background: var(--agent-idle); }
+        .agents-sidebar-item-status.stale { background: var(--agent-stale); }
+
+        .agents-sidebar-item-task {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .agents-sidebar-empty {
+            padding: 1rem;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
         .badge {
             padding: 0.25rem 0.75rem;
             border-radius: 4px;
@@ -2041,7 +2211,7 @@
                 <p class="subtitle">Project State Tracker</p>
                 <nav>
                     <button class="nav-btn active" data-view="graph">Graph</button>
-                    <button class="nav-btn" data-view="ready">Ready Tasks</button>
+                    <button class="nav-btn" data-view="ready">Tasks</button>
                     <button class="nav-btn" data-view="ideas">Ideas</button>
                     <button class="nav-btn" data-view="tests">Tests</button>
                     <button class="nav-btn" data-view="agents">Agents</button>
@@ -2061,6 +2231,15 @@
 
         <main>
             <div id="graph-view" class="view active">
+                <div class="agents-sidebar" id="agents-sidebar">
+                    <div class="agents-sidebar-header">
+                        <span class="agents-sidebar-title">🤖 Agents</span>
+                        <button class="agents-sidebar-toggle" id="agents-sidebar-toggle" title="Toggle agents panel">◀</button>
+                    </div>
+                    <div class="agents-sidebar-content" id="agents-sidebar-content">
+                        <div class="agents-sidebar-list" id="agents-sidebar-list"></div>
+                    </div>
+                </div>
                 <canvas id="graph-canvas"></canvas>
                 <div class="graph-filters">
                     <div class="stats-overlay" id="stats-overlay">
@@ -2973,6 +3152,7 @@
             switch (state.currentView) {
                 case 'graph':
                     renderGraph();
+                    renderAgentsSidebar();  // Update agents sidebar on graph view
                     break;
                 case 'ready':
                     renderReady();
@@ -5385,25 +5565,51 @@
 
         function renderReady() {
             const list = document.getElementById('ready-list');
-            if (state.ready.length === 0) {
-                list.innerHTML = '<div class="empty-state">No ready tasks</div>';
+            // Get all unclosed tasks and bugs (not done, not cancelled)
+            const unclosedTasks = (state.tasks || []).filter(t => 
+                (t.type === 'task' || t.type === 'bug') && 
+                t.status !== 'done' && 
+                t.status !== 'cancelled'
+            );
+            
+            // Sort: ready tasks first, then by priority, then by ID
+            const readyIds = new Set((state.ready || []).map(t => t.id));
+            unclosedTasks.sort((a, b) => {
+                const aReady = readyIds.has(a.id);
+                const bReady = readyIds.has(b.id);
+                if (aReady !== bReady) return bReady - aReady;  // Ready first
+                if (a.priority !== b.priority) return a.priority - b.priority;  // Lower priority number first
+                return a.id.localeCompare(b.id);
+            });
+            
+            if (unclosedTasks.length === 0) {
+                list.innerHTML = '<div class="empty-state">No open tasks</div>';
                 return;
             }
-            list.innerHTML = state.ready.map(task => {
+            list.innerHTML = unclosedTasks.map(task => {
                 const isQueued = isNodeQueued(task.id);
+                const isReady = readyIds.has(task.id);
+                const isBlocked = task.status === 'blocked' || !isReady;
+                const isBug = task.type === 'bug';
                 return `
-                <div class="card">
+                <div class="card ${isBlocked ? 'card-blocked' : ''}">
+                    ${isBlocked ? '<div class="blocked-banner">🚫 Blocked</div>' : ''}
                     <div class="card-header">
-                        <div class="card-title">${escapeHtml(task.title)}</div>
-                        <button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
-                                data-task-id="${task.id}" 
-                                title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
-                        </button>
+                        <div class="card-title">${isBug ? '🐛 ' : ''}${escapeHtml(task.title)}</div>
+                        <div class="card-actions">
+                            <button class="card-jump-btn" data-task-id="${task.id}" title="Jump to node on graph">
+                                📍
+                            </button>
+                            <button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
+                                    data-task-id="${task.id}" 
+                                    title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
+                            </button>
+                        </div>
                     </div>
                     <div class="card-meta">
                         <span class="badge badge-priority-${task.priority}">P${task.priority}</span>
                         <span class="badge" style="background: var(--bg-tertiary)">${task.id}</span>
-                        ${task.tags.map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+                        ${(task.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
                     </div>
                 </div>
             `}).join('');
@@ -5411,6 +5617,22 @@
             // Attach event handlers to queue toggle buttons
             list.querySelectorAll('.card-queue-toggle').forEach(btn => {
                 btn.addEventListener('click', handleCardQueueToggle);
+            });
+            
+            // Attach event handlers to jump buttons
+            list.querySelectorAll('.card-jump-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const taskId = e.currentTarget.getAttribute('data-task-id');
+                    // Switch to graph view and pan to the node
+                    switchView('graph');
+                    panToNode(taskId, true);
+                    // Select the node
+                    const node = state.graph.nodes.find(n => n.id === taskId);
+                    if (node) {
+                        state.graph.selectedNode = node;
+                        showInfoPanel(node);
+                    }
+                });
             });
         }
 
@@ -5581,7 +5803,53 @@
                     `;
                 }).join('');
             }
+            
+            // Also update the sidebar on graph view
+            renderAgentsSidebar();
         }
+        
+        // Render agents in the graph sidebar
+        function renderAgentsSidebar() {
+            const list = document.getElementById('agents-sidebar-list');
+            const workerAgents = (state.agents || []).filter(a => a.agent_type === 'worker');
+            
+            if (workerAgents.length === 0) {
+                list.innerHTML = '<div class="agents-sidebar-empty">No active agents</div>';
+                return;
+            }
+            
+            list.innerHTML = workerAgents.map(agent => {
+                const agentId = agent.id || `agent-${agent.pid}`;
+                const currentTask = agent.tasks && agent.tasks.length > 0 ? agent.tasks[0] : null;
+                return `
+                <div class="agents-sidebar-item" data-agent-id="${agentId}" title="${escapeHtml(agent.name)}">
+                    <div class="agents-sidebar-item-header">
+                        <span class="agents-sidebar-item-name">${escapeHtml(agent.name)}</span>
+                        <span class="agents-sidebar-item-status ${agent.status}"></span>
+                    </div>
+                    ${currentTask ? `<div class="agents-sidebar-item-task">→ ${escapeHtml(currentTask)}</div>` : ''}
+                </div>
+            `}).join('');
+            
+            // Add click handlers to pan to agent on graph
+            list.querySelectorAll('.agents-sidebar-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const agentId = item.dataset.agentId;
+                    panToNode(agentId, true);
+                    const node = state.graph.nodes.find(n => n.id === agentId);
+                    if (node) {
+                        state.graph.selectedNode = node;
+                        showInfoPanel(node);
+                    }
+                });
+            });
+        }
+        
+        // Toggle agents sidebar
+        document.getElementById('agents-sidebar-toggle').addEventListener('click', () => {
+            const sidebar = document.getElementById('agents-sidebar');
+            sidebar.classList.toggle('collapsed');
+        });
 
         // Event delegation for agent card interactive elements
         document.getElementById('agents-list').addEventListener('click', (e) => {
