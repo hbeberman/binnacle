@@ -3,8 +3,8 @@
 use binnacle::action_log;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, EmitTemplate,
-    GraphCommands, IdeaCommands, LinkCommands, McpCommands, MilestoneCommands, QueueCommands,
-    SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
+    GraphCommands, HooksCommands, IdeaCommands, LinkCommands, McpCommands, MilestoneCommands,
+    QueueCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -640,6 +640,7 @@ fn run_command(
                 write_agents_md,
                 write_claude_skills,
                 write_codex_skills,
+                install_hook,
                 yes,
             } => {
                 let result = if yes {
@@ -649,14 +650,20 @@ fn run_command(
                         write_agents_md,
                         write_claude_skills,
                         write_codex_skills,
+                        install_hook,
                     )?
-                } else if write_agents_md || write_claude_skills || write_codex_skills {
+                } else if write_agents_md
+                    || write_claude_skills
+                    || write_codex_skills
+                    || install_hook
+                {
                     // Flags provided without -y: use flags as the options
                     commands::init_non_interactive(
                         repo_path,
                         write_agents_md,
                         write_claude_skills,
                         write_codex_skills,
+                        install_hook,
                     )?
                 } else {
                     // Interactive mode (default)
@@ -712,6 +719,12 @@ fn run_command(
                 let result = commands::migrate_storage(repo_path, &to, dry_run)?;
                 output(&result, human);
             }
+            SystemCommands::Hooks { command } => match command {
+                HooksCommands::Uninstall => {
+                    let result = commands::hooks_uninstall(repo_path)?;
+                    output(&result, human);
+                }
+            },
         },
         Some(Commands::Agent { command }) => match command {
             AgentCommands::List { status } => {
@@ -1675,6 +1688,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 write_agents_md,
                 write_claude_skills,
                 write_codex_skills,
+                install_hook,
                 yes,
             } => (
                 "system init".to_string(),
@@ -1682,6 +1696,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "write_agents_md": write_agents_md,
                     "write_claude_skills": write_claude_skills,
                     "write_codex_skills": write_codex_skills,
+                    "install_hook": install_hook,
                     "yes": yes,
                 }),
             ),
@@ -1723,6 +1738,11 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 "system migrate".to_string(),
                 serde_json::json!({ "to": to, "dry_run": dry_run }),
             ),
+            SystemCommands::Hooks { command } => match command {
+                HooksCommands::Uninstall => {
+                    ("system hooks uninstall".to_string(), serde_json::json!({}))
+                }
+            },
         },
 
         Some(Commands::Agent { command }) => match command {

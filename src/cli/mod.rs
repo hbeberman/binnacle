@@ -936,6 +936,10 @@ pub enum SystemCommands {
         #[arg(long)]
         write_codex_skills: bool,
 
+        /// Install commit-msg hook for co-author attribution
+        #[arg(long)]
+        install_hook: bool,
+
         /// Skip interactive prompts (use flags to control what gets written)
         #[arg(long, short = 'y')]
         yes: bool,
@@ -967,6 +971,19 @@ pub enum SystemCommands {
         #[arg(long)]
         dry_run: bool,
     },
+
+    /// Manage git hooks installed by binnacle
+    Hooks {
+        #[command(subcommand)]
+        command: HooksCommands,
+    },
+}
+
+/// Hooks management subcommands
+#[derive(Subcommand, Debug)]
+pub enum HooksCommands {
+    /// Uninstall binnacle hooks from this repository
+    Uninstall,
 }
 
 /// Template types for the emit command
