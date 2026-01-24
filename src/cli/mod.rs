@@ -276,7 +276,7 @@ pub enum TaskCommands {
         assignee: Option<String>,
 
         /// Task description
-        #[arg(short, long)]
+        #[arg(short, long, visible_alias = "desc")]
         description: Option<String>,
 
         /// Add to work queue immediately after creation
@@ -319,7 +319,7 @@ pub enum TaskCommands {
         short_name: Option<String>,
 
         /// New description
-        #[arg(long)]
+        #[arg(long, visible_alias = "desc")]
         description: Option<String>,
 
         /// New priority
@@ -403,7 +403,7 @@ pub enum BugCommands {
         assignee: Option<String>,
 
         /// Bug description
-        #[arg(short, long)]
+        #[arg(short, long, visible_alias = "desc")]
         description: Option<String>,
 
         /// Steps to reproduce
@@ -458,7 +458,7 @@ pub enum BugCommands {
         short_name: Option<String>,
 
         /// New description
-        #[arg(long)]
+        #[arg(long, visible_alias = "desc")]
         description: Option<String>,
 
         /// New priority
@@ -542,7 +542,7 @@ pub enum IdeaCommands {
         tag: Vec<String>,
 
         /// Idea description
-        #[arg(short, long)]
+        #[arg(short, long, visible_alias = "desc")]
         description: Option<String>,
     },
 
@@ -577,7 +577,7 @@ pub enum IdeaCommands {
         short_name: Option<String>,
 
         /// New description
-        #[arg(long)]
+        #[arg(long, visible_alias = "desc")]
         description: Option<String>,
 
         /// New status (seed, germinating, promoted, discarded)
@@ -655,7 +655,7 @@ pub enum MilestoneCommands {
         assignee: Option<String>,
 
         /// Milestone description
-        #[arg(short, long)]
+        #[arg(short, long, visible_alias = "desc")]
         description: Option<String>,
 
         /// Target due date (ISO 8601 format, e.g., 2026-02-01T00:00:00Z)
@@ -698,7 +698,7 @@ pub enum MilestoneCommands {
         short_name: Option<String>,
 
         /// New description
-        #[arg(long)]
+        #[arg(long, visible_alias = "desc")]
         description: Option<String>,
 
         /// New priority
@@ -768,7 +768,7 @@ pub enum QueueCommands {
         title: String,
 
         /// Optional description
-        #[arg(short, long)]
+        #[arg(short, long, visible_alias = "desc")]
         description: Option<String>,
     },
 
