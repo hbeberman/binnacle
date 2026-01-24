@@ -115,6 +115,32 @@ pub struct PromptArgument {
     pub required: bool,
 }
 
+/// Parse a resource URI into base URI and query parameters.
+///
+/// Example: "binnacle://docs?type=prd&for=bn-1234" -> ("binnacle://docs", {"type": "prd", "for": "bn-1234"})
+fn parse_resource_uri(uri: &str) -> (&str, HashMap<String, String>) {
+    if let Some(idx) = uri.find('?') {
+        let base = &uri[..idx];
+        let query = &uri[idx + 1..];
+        let params: HashMap<String, String> = query
+            .split('&')
+            .filter_map(|pair| {
+                let mut parts = pair.splitn(2, '=');
+                let key = parts.next()?;
+                let value = parts.next().unwrap_or("");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some((key.to_string(), value.to_string()))
+                }
+            })
+            .collect();
+        (base, params)
+    } else {
+        (uri, HashMap::new())
+    }
+}
+
 /// MCP Server state
 pub struct McpServer {
     repo_path: std::path::PathBuf,
@@ -972,7 +998,10 @@ impl McpServer {
     fn read_resource(&self, uri: &str) -> Result<String, Error> {
         let repo = &self.repo_path;
 
-        match uri {
+        // Parse URI into base path and query params
+        let (base_uri, query_params) = parse_resource_uri(uri);
+
+        match base_uri {
             "binnacle://tasks" => {
                 let result = commands::task_list(repo, None, None, None)?;
                 Ok(result.to_json())
@@ -994,7 +1023,19 @@ impl McpServer {
                 Ok(result.to_json())
             }
             "binnacle://bugs" => {
-                let result = commands::bug_list(repo, None, None, None, None, true)?; // Include all for resource
+                let result = commands::bug_list(repo, None, None, None, None, true)?;
+                Ok(result.to_json())
+            }
+            "binnacle://docs" => {
+                // Parse query params: type, for
+                let doc_type = query_params.get("type").and_then(|t| match t.as_str() {
+                    "prd" => Some(DocType::Prd),
+                    "note" => Some(DocType::Note),
+                    "handoff" => Some(DocType::Handoff),
+                    _ => None,
+                });
+                let for_entity = query_params.get("for").map(|s| s.as_str());
+                let result = commands::doc_list(repo, None, doc_type.as_ref(), None, for_entity)?;
                 Ok(result.to_json())
             }
             _ => Err(Error::Other(format!("Unknown resource: {}", uri))),
@@ -2616,6 +2657,14 @@ pub fn get_resource_definitions() -> Vec<ResourceDef> {
             description: "List of all bugs in the project".to_string(),
             mime_type: Some("application/json".to_string()),
         },
+        ResourceDef {
+            uri: "binnacle://docs".to_string(),
+            name: "Documentation".to_string(),
+            description:
+                "List of all docs. Supports query params: ?type=prd|note|handoff, ?for=<entity-id>"
+                    .to_string(),
+            mime_type: Some("application/json".to_string()),
+        },
     ]
 }
 
@@ -3203,5 +3252,194 @@ mod tests {
         assert!(output.contains("bn_task_create"));
         assert!(output.contains("binnacle://tasks"));
         assert!(output.contains("start_work"));
+    }
+
+    #[test]
+    fn test_parse_resource_uri_without_query() {
+        let (base, params) = parse_resource_uri("binnacle://tasks");
+        assert_eq!(base, "binnacle://tasks");
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn test_parse_resource_uri_with_single_param() {
+        let (base, params) = parse_resource_uri("binnacle://docs?type=prd");
+        assert_eq!(base, "binnacle://docs");
+        assert_eq!(params.get("type"), Some(&"prd".to_string()));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_resource_uri_with_multiple_params() {
+        let (base, params) = parse_resource_uri("binnacle://docs?type=note&for=bn-1234");
+        assert_eq!(base, "binnacle://docs");
+        assert_eq!(params.get("type"), Some(&"note".to_string()));
+        assert_eq!(params.get("for"), Some(&"bn-1234".to_string()));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_resource_uri_empty_value() {
+        let (base, params) = parse_resource_uri("binnacle://docs?type=");
+        assert_eq!(base, "binnacle://docs");
+        assert_eq!(params.get("type"), Some(&"".to_string()));
+    }
+
+    #[test]
+    fn test_read_resource_docs_all() {
+        let temp = setup();
+        let server = McpServer::new(temp.path());
+
+        // Create a task first (docs must link to an entity)
+        let task_result = server
+            .execute_tool("bn_task_create", &json!({"title": "Test task"}))
+            .unwrap();
+        // Extract task ID from result
+        let task_id = serde_json::from_str::<serde_json::Value>(&task_result)
+            .ok()
+            .and_then(|v| v["id"].as_str().map(|s| s.to_string()))
+            .unwrap();
+
+        // Create a doc linked to the task
+        server
+            .execute_tool(
+                "bn_doc_create",
+                &json!({
+                    "title": "Test Doc",
+                    "entity_ids": [task_id],
+                    "doc_type": "prd",
+                    "content": "# Summary\nTest content"
+                }),
+            )
+            .unwrap();
+
+        // Read all docs via resource
+        let result = server.read_resource("binnacle://docs").unwrap();
+        assert!(result.contains("Test Doc"));
+        assert!(result.contains("prd"));
+    }
+
+    #[test]
+    fn test_read_resource_docs_filtered_by_type() {
+        let temp = setup();
+        let server = McpServer::new(temp.path());
+
+        // Create a task
+        let task_result = server
+            .execute_tool("bn_task_create", &json!({"title": "Test task 2"}))
+            .unwrap();
+        let task_id = serde_json::from_str::<serde_json::Value>(&task_result)
+            .ok()
+            .and_then(|v| v["id"].as_str().map(|s| s.to_string()))
+            .unwrap();
+
+        // Create docs of different types
+        server
+            .execute_tool(
+                "bn_doc_create",
+                &json!({
+                    "title": "PRD Doc",
+                    "entity_ids": [task_id],
+                    "doc_type": "prd",
+                    "content": "# Summary\nPRD content"
+                }),
+            )
+            .unwrap();
+
+        server
+            .execute_tool(
+                "bn_doc_create",
+                &json!({
+                    "title": "Note Doc",
+                    "entity_ids": [task_id],
+                    "doc_type": "note",
+                    "content": "# Summary\nNote content"
+                }),
+            )
+            .unwrap();
+
+        // Filter by type=prd
+        let prd_result = server.read_resource("binnacle://docs?type=prd").unwrap();
+        assert!(prd_result.contains("PRD Doc"));
+        assert!(!prd_result.contains("Note Doc"));
+
+        // Filter by type=note
+        let note_result = server.read_resource("binnacle://docs?type=note").unwrap();
+        assert!(note_result.contains("Note Doc"));
+        assert!(!note_result.contains("PRD Doc"));
+    }
+
+    #[test]
+    fn test_read_resource_docs_filtered_by_entity() {
+        let temp = setup();
+        let server = McpServer::new(temp.path());
+
+        // Create two tasks
+        let task1_result = server
+            .execute_tool("bn_task_create", &json!({"title": "Task One"}))
+            .unwrap();
+        let task1_id = serde_json::from_str::<serde_json::Value>(&task1_result)
+            .ok()
+            .and_then(|v| v["id"].as_str().map(|s| s.to_string()))
+            .unwrap();
+
+        let task2_result = server
+            .execute_tool("bn_task_create", &json!({"title": "Task Two"}))
+            .unwrap();
+        let task2_id = serde_json::from_str::<serde_json::Value>(&task2_result)
+            .ok()
+            .and_then(|v| v["id"].as_str().map(|s| s.to_string()))
+            .unwrap();
+
+        // Create docs linked to different tasks
+        server
+            .execute_tool(
+                "bn_doc_create",
+                &json!({
+                    "title": "Doc for Task One",
+                    "entity_ids": [task1_id],
+                    "doc_type": "note",
+                    "content": "# Summary\nContent for task one"
+                }),
+            )
+            .unwrap();
+
+        server
+            .execute_tool(
+                "bn_doc_create",
+                &json!({
+                    "title": "Doc for Task Two",
+                    "entity_ids": [task2_id],
+                    "doc_type": "note",
+                    "content": "# Summary\nContent for task two"
+                }),
+            )
+            .unwrap();
+
+        // Filter by for=task1_id
+        let result1 = server
+            .read_resource(&format!("binnacle://docs?for={}", task1_id))
+            .unwrap();
+        assert!(result1.contains("Doc for Task One"));
+        assert!(!result1.contains("Doc for Task Two"));
+
+        // Filter by for=task2_id
+        let result2 = server
+            .read_resource(&format!("binnacle://docs?for={}", task2_id))
+            .unwrap();
+        assert!(result2.contains("Doc for Task Two"));
+        assert!(!result2.contains("Doc for Task One"));
+    }
+
+    #[test]
+    fn test_resource_definitions_include_docs() {
+        let resources = get_resource_definitions();
+        let docs_resource = resources
+            .iter()
+            .find(|r| r.uri == "binnacle://docs")
+            .expect("docs resource should exist");
+        assert_eq!(docs_resource.name, "Documentation");
+        assert!(docs_resource.description.contains("type"));
+        assert!(docs_resource.description.contains("for"));
     }
 }
