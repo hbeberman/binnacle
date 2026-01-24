@@ -226,7 +226,8 @@ async fn get_queue(State(state): State<AppState>) -> Result<Json<serde_json::Val
 /// Get all agents
 async fn get_agents(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
     let mut storage = state.storage.lock().await;
-    // Clean up stale agents before returning
+    // Update agent statuses (active/idle/stale) and clean up stale agents before returning
+    let _ = storage.update_agent_statuses();
     let _ = storage.cleanup_stale_agents();
     let agents = storage
         .list_agents(None)
