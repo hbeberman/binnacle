@@ -261,12 +261,19 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 
 ## Task Workflow (IMPORTANT)
 
-1. **CLAIM before working**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress` to claim it. Do NOT start work without claiming first!
-2. **After completing work**: Run `bn task close <id> --reason "brief description"`
-3. **If blocked**: Run `bn task update <id> --status blocked`
-4. **When terminating**: Run `bn goodbye "summary of what was accomplished"` to gracefully end your session
-5. **For bugs**: Use `bn bug create/update/close` - not `bn task create --tag bug`
-6. **For ideas**: Use `bn idea create/list/show` - ideas are low-stakes seeds that can be promoted to tasks later
+1. **ONE TASK AT A TIME**: Focus on a single task or bug. Do NOT pick multiple tasks - complete one fully before moving to the next.
+2. **CLAIM before working**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress` to claim it. Do NOT start work without claiming first!
+3. **After completing work**: Run `bn task close <id> --reason "brief description"`
+4. **If blocked**: Run `bn task update <id> --status blocked`
+5. **When terminating**: Run `bn goodbye "summary of what was accomplished"` to gracefully end your session
+6. **For bugs**: Use `bn bug create/update/close` - not `bn task create --tag bug`
+7. **For ideas**: Use `bn idea create/list/show` - ideas are low-stakes seeds that can be promoted to tasks later
+
+## Git Rules (CRITICAL)
+
+- **NEVER run `git push`** - The human operator handles all pushes. Your job is to commit locally.
+- Commit early and often with clear messages
+- Always run `just check` before committing
 
 The task graph drives development priorities. Always update task status to keep it accurate.
 
@@ -422,19 +429,26 @@ Links connect entities in the task graph to model dependencies, relationships, a
 
 ## Task Workflow
 
-1. **Start of session**: Run `bn orient` to understand project state
-2. **CLAIM before working**:
+1. **ONE TASK AT A TIME**: Focus on a single task or bug. Complete one fully before moving to the next.
+2. **Start of session**: Run `bn orient` to understand project state
+3. **CLAIM before working**:
    - Run `bn ready` to see available tasks
    - **Claim your task**: `bn task update <id> --status in_progress` (required before starting!)
-3. **During work**:
+4. **During work**:
    - Create new tasks as you discover them
    - Link commits: `bn commit link <sha> <task-id>`
    - If blocked: `bn task update <id> --status blocked`
-4. **After completing work**:
+5. **After completing work**:
    - Run `bn ready` to check related tasks
    - Close ALL completed tasks: `bn task close <id> --reason "description"`
    - Run tests: `bn test run --all`
-5. **End of session**: Run `bn goodbye "summary of what was accomplished"` to gracefully terminate
+6. **End of session**: Run `bn goodbye "summary of what was accomplished"` to gracefully terminate
+
+## Git Rules (CRITICAL)
+
+- **NEVER run `git push`** - The human operator handles all pushes. Your job is to commit locally.
+- Commit early and often with clear messages
+- Always run `just check` before committing (or equivalent for the project)
 
 ## Best Practices
 
