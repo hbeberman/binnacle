@@ -340,15 +340,33 @@ This project uses **bn** (binnacle) for long-horizon task/test status tracking. 
 For new projects, the human should run `bn system init` which provides helpful prompts for setup.
 If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
 
-## Task Workflow (IMPORTANT)
+## Task Workflow (CRITICAL - READ CAREFULLY)
 
-1. **ONE TASK AT A TIME**: Focus on a single task or bug. Do NOT pick multiple tasks - complete one fully before moving to the next.
-2. **CLAIM before working**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress` to claim it. Do NOT start work without claiming first!
-3. **After completing work**: Run `bn task close <id> --reason "brief description"`
-4. **If blocked**: Run `bn task update <id> --status blocked`
-5. **When terminating**: Run `bn goodbye "summary of what was accomplished"` to gracefully end your session
-6. **For bugs**: Use `bn bug create/update/close` - not `bn task create --tag bug`
-7. **For ideas**: Use `bn idea create/list/show` - ideas are low-stakes seeds that can be promoted to tasks later
+**⚠️ SINGLE TASK PER SESSION**: You must work on exactly ONE task or bug per session. After completing it, call `bn goodbye` and terminate. Another agent will handle the next task.
+
+### The Complete Workflow:
+
+1. **CLAIM ONE item**: Run `bn ready`, pick ONE task/bug, claim it with `bn task update <id> --status in_progress` (or `bn bug update`).
+2. **WORK on that item**: Implement, test, and commit your changes.
+3. **CLOSE the item**: Run `bn task close <id> --reason "what was done"` (or `bn bug close`).
+4. **TERMINATE immediately**: Run `bn goodbye "summary"` and end your session.
+
+### Why Single-Task Sessions Matter:
+- **Focused work**: One task gets full attention and proper completion
+- **Clean handoffs**: Each task has a clear owner and outcome
+- **Better tracking**: Task status accurately reflects work state
+- **Reduced errors**: No context-switching between unrelated work
+
+### What NOT to Do:
+- ❌ Pick multiple tasks from `bn ready`
+- ❌ Start a second task after closing the first
+- ❌ Continue working after calling `bn goodbye`
+- ❌ Skip the goodbye call
+
+### Additional Commands:
+- **If blocked**: Run `bn task update <id> --status blocked`, then `bn goodbye`
+- **For bugs**: Use `bn bug create/update/close` - not `bn task create --tag bug`
+- **For ideas**: Use `bn idea create/list/show` - ideas are low-stakes seeds that can be promoted to tasks later
 
 ## Git Rules (CRITICAL)
 
@@ -367,11 +385,13 @@ The task graph drives development priorities. Always update task status to keep 
 - **Add dependencies with reasons**: `bn link add <task> <blocker> -t depends_on --reason "why"`
 - **Link to milestones**: `bn link add <task> <milestone> -t child_of`
 
-## Before you mark task done (IMPORTANT)
+## Before Ending Your Session (IMPORTANT)
 
-1. Run `bn ready` to check if any related tasks should also be closed
-2. Close ALL tasks you completed, not just the one you started with
-3. Verify the task graph is accurate before finalizing your work
+1. **Verify your ONE task is complete**: Tests pass, code is formatted, changes are committed
+2. **Close your task**: `bn task close <id> --reason "what was done"`
+3. **Terminate**: `bn goodbye "summary"` - then STOP working
+
+⚠️ Do NOT start another task. Let another agent handle it.
 
 ## Workflow Stages
 
