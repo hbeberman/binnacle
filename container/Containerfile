@@ -21,8 +21,10 @@ RUN dnf install -y \
     python3-pip \
     && dnf clean all
 
-# Copy pre-built binnacle binary (build with: just build release)
-COPY target/release/bn /usr/local/bin/bn
+# Copy binnacle binary (bn container build copies the running binary here)
+# For manual builds: cargo build --release && cp target/release/bn container/bn
+ARG BN_BINARY_PATH=container/bn
+COPY ${BN_BINARY_PATH} /usr/local/bin/bn
 
 # Install bun (JavaScript runtime and package manager)
 RUN curl -fsSL https://bun.sh/install | bash

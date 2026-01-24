@@ -10564,6 +10564,27 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
         });
     }
 
+    // Get the currently running binary and copy it to the build context
+    let current_exe = std::env::current_exe()
+        .map_err(|e| Error::Other(format!("Failed to get current executable path: {}", e)))?;
+
+    let container_binary_path = Path::new("container/bn");
+    eprintln!(
+        "📋 Copying bn binary from {} to {}...",
+        current_exe.display(),
+        container_binary_path.display()
+    );
+
+    // Copy the binary to the container build context
+    fs::copy(&current_exe, container_binary_path).map_err(|e| {
+        Error::Other(format!(
+            "Failed to copy binary from {} to {}: {}",
+            current_exe.display(),
+            container_binary_path.display(),
+            e
+        ))
+    })?;
+
     // Build with buildah - stream output for real-time feedback
     eprintln!(
         "📦 Building container image (localhost/binnacle-worker:{})...",
@@ -10586,6 +10607,9 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
     build_cmd.arg(".");
 
     let status = build_cmd.status()?;
+
+    // Clean up the copied binary from container/ directory
+    let _ = fs::remove_file(container_binary_path);
 
     if !status.success() {
         return Ok(ContainerBuildResult {

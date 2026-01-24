@@ -69,5 +69,9 @@ dev *args:
 container tag="binnacle-worker:latest":
     @echo "Building release binary..."
     cargo build --release
+    @echo "Copying binary to container/bn..."
+    cp target/release/bn container/bn
     @echo "Building container image..."
     podman build -t {{tag}} -f container/Containerfile .
+    @rm -f container/bn
+    @echo "Container image built: {{tag}}"

@@ -87,7 +87,17 @@ The container worker provides:
 
 ### Build the Worker Image
 
-The container uses a pre-built binnacle binary for faster builds. Use the justfile recipe:
+The `bn container build` command automatically packs the currently running `bn` binary into the container image. This means you can build directly from an installed `bn`:
+
+```bash
+# Build using the currently running bn binary
+bn container build
+
+# Or with a custom tag
+bn container build --tag v1.0
+```
+
+For development builds using the justfile:
 
 ```bash
 just container                   # Build binary + container with tag 'binnacle-worker:latest'
@@ -100,8 +110,14 @@ Or manually:
 # 1. Build the release binary
 cargo build --release
 
-# 2. Build the container image
+# 2. Copy it to the container directory
+cp target/release/bn container/bn
+
+# 3. Build the container image
 podman build -t binnacle-worker:latest -f container/Containerfile .
+
+# 4. Clean up
+rm container/bn
 ```
 
 ### Run a Container
