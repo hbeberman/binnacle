@@ -218,7 +218,7 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 
 ## Task Workflow (IMPORTANT)
 
-1. **Before starting work**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress`
+1. **CLAIM before working**: Run `bn ready` to see available tasks, then `bn task update <id> --status in_progress` to claim it. Do NOT start work without claiming first!
 2. **After completing work**: Run `bn task close <id> --reason "brief description"`
 3. **If blocked**: Run `bn task update <id> --status blocked`
 4. **When terminating**: Run `bn goodbye "summary of what was accomplished"` to gracefully end your session
@@ -358,9 +358,9 @@ Links connect entities in the task graph to model dependencies, relationships, a
 ## Task Workflow
 
 1. **Start of session**: Run `bn orient` to understand project state
-2. **Before starting work**:
+2. **CLAIM before working**:
    - Run `bn ready` to see available tasks
-   - Select a task and mark it: `bn task update <id> --status in_progress`
+   - **Claim your task**: `bn task update <id> --status in_progress` (required before starting!)
 3. **During work**:
    - Create new tasks as you discover them
    - Link commits: `bn commit link <sha> <task-id>`
