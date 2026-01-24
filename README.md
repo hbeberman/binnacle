@@ -76,28 +76,32 @@ The agents automatically:
 
 ## Container Workers
 
-Run AI agents in Docker containers with isolated environments and shared binnacle graph access:
+Run AI agents in isolated containers with access to the binnacle task graph:
 
 ```bash
-# 1. Create a git worktree for the agent
+# 1. Install containerd and buildah
+sudo dnf install containerd buildah  # or apt install
+sudo systemctl enable --now containerd
+
+# 2. Create a git worktree for the agent
 git worktree add ../agent-worktree -b agent-feature
 
-# 2. Set your GitHub token
-export COPILOT_GITHUB_TOKEN="your-token"
-
-# 3. Launch the containerized worker
-./container/launch-worker.sh ../agent-worktree
+# 3. Build and run the container
+bn container build
+bn container run ../agent-worktree
 ```
 
 **Benefits:**
 - **Isolation** - Agent runs in a sandboxed Fedora 43 container
 - **Reproducibility** - Consistent environment across machines
 - **Auto-merge** - Completed work merged to target branch automatically
+- **Resource Control** - Set CPU and memory limits with `--cpus` and `--memory`
 
-**Environment variables:**
-- `BN_AGENT_TYPE` - Agent type: worker, planner, buddy (default: worker)
-- `BN_MERGE_TARGET` - Branch to merge into on success (default: main)
-- `BN_AUTO_MERGE` - Enable auto-merge on success (default: true)
+**Options:**
+- `--type worker|planner|buddy` - Agent type (default: worker)
+- `--merge-target main` - Branch to merge into on success
+- `--no-merge` - Disable auto-merge
+- `--cpus 2 --memory 4g` - Resource limits
 
 See [container/README.md](container/README.md) for full documentation.
 
