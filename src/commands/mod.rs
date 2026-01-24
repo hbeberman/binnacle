@@ -386,6 +386,47 @@ The task graph drives development priorities. Always update task status to keep 
 - **Add dependencies with reasons**: `bn link add <task> <blocker> -t depends_on --reason "why"`
 - **Link to milestones**: `bn link add <task> <milestone> -t child_of`
 
+## Documentation Nodes (IMPORTANT)
+
+Use **doc nodes** (`bnd-xxxx`) instead of creating loose markdown files. Doc nodes are tracked in the task graph and linked to relevant entities.
+
+### When to Use Doc Nodes vs Markdown Files
+
+**Use doc nodes for:**
+- PRDs, specifications, and design documents
+- Implementation notes that explain *why* something was built a certain way
+- Handoff notes between agent sessions
+- Any documentation that relates to specific tasks, bugs, or features
+
+**Keep as regular files:**
+- README.md, CONTRIBUTING.md, LICENSE (repo-level standard files)
+- AGENTS.md (agent instructions - this file)
+- Code documentation (doc comments, inline comments)
+
+### Doc Node Commands
+
+```bash
+# Create a doc linked to a task
+bn doc create bn-task -T "Implementation Notes" -c "Content here..."
+
+# Create from a file
+bn doc create bn-task -T "PRD: Feature" --file spec.md --type prd
+
+# List, show, attach to more entities
+bn doc list
+bn doc show bnd-xxxx
+bn doc attach bnd-xxxx bn-other-task
+
+# Update (creates new version, preserves history)
+bn doc update bnd-xxxx -c "Updated content..."
+```
+
+### Doc Types
+
+- `note` (default) - General documentation, notes
+- `prd` - Product requirements documents
+- `handoff` - Session handoff notes for the next agent
+
 ## Before Ending Your Session (IMPORTANT)
 
 1. **Verify your ONE task is complete**: Tests pass, code is formatted, changes are committed
