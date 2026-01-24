@@ -9714,6 +9714,26 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
         }
     };
 
+    // Set the archive file to read-only to prevent accidental modification
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(&archive_path) {
+            let mut perms = metadata.permissions();
+            // Read-only for owner, group, and others (0o444)
+            perms.set_mode(0o444);
+            let _ = fs::set_permissions(&archive_path, perms);
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(metadata) = fs::metadata(&archive_path) {
+            let mut perms = metadata.permissions();
+            perms.set_readonly(true);
+            let _ = fs::set_permissions(&archive_path, perms);
+        }
+    }
+
     Ok(CommitArchiveResult {
         created: true,
         output_path: archive_path.to_string_lossy().to_string(),
