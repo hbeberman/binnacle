@@ -3001,20 +3001,19 @@ impl Storage {
     }
 
     /// Remove an agent from the registry.
+    /// Also cleans up any working_on/worked_on edges associated with this agent.
     pub fn remove_agent(&mut self, pid: u32) -> Result<()> {
-        // Check if agent exists
-        let exists: bool = self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM agents WHERE pid = ?1)",
-            params![pid],
-            |row| row.get(0),
-        )?;
+        // Get the agent first so we have its ID for edge cleanup
+        let agent = self
+            .get_agent(pid)
+            .map_err(|_| Error::NotFound(format!("Agent not found with PID: {}", pid)))?;
 
-        if !exists {
-            return Err(Error::NotFound(format!(
-                "Agent not found with PID: {}",
-                pid
-            )));
-        }
+        // Clean up working_on and worked_on edges where this agent is the source
+        // We delete by source ID pattern to catch all agent edges
+        self.conn.execute(
+            "DELETE FROM edges WHERE source = ?1 AND (edge_type = 'working_on' OR edge_type = 'worked_on')",
+            params![&agent.id],
+        )?;
 
         // Remove from cache (JSONL is append-only, so we just remove from cache)
         self.conn
@@ -4514,6 +4513,42 @@ mod tests {
         // Should fail to get removed agent
         let result = storage.get_agent(1234);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_agent_remove_cleans_up_edges() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Create a task for the agent to work on
+        let task = Task::new("bn-test".to_string(), "Test task".to_string());
+        storage.create_task(&task).unwrap();
+
+        // Register an agent
+        let agent = Agent::new(1234, 1000, "test-agent".to_string(), AgentType::Worker);
+        storage.register_agent(&agent).unwrap();
+
+        // Add task to agent (creates working_on edge)
+        storage.agent_add_task(1234, "bn-test").unwrap();
+
+        // Verify the working_on edge exists
+        let edges = storage
+            .list_edges(Some(EdgeType::WorkingOn), Some(&agent.id), None)
+            .unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].target, "bn-test");
+
+        // Remove the agent
+        storage.remove_agent(1234).unwrap();
+
+        // Verify the working_on edge is cleaned up
+        let edges_after = storage
+            .list_edges(Some(EdgeType::WorkingOn), Some(&agent.id), None)
+            .unwrap();
+        assert_eq!(
+            edges_after.len(),
+            0,
+            "working_on edges should be cleaned up when agent is removed"
+        );
     }
 
     #[test]
