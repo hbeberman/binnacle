@@ -150,6 +150,7 @@ pub async fn start_server(
         .route("/api/tests", get(get_tests))
         .route("/api/docs", get(get_docs))
         .route("/api/docs/:id", get(get_doc))
+        .route("/api/docs/:id/history", get(get_doc_history))
         .route("/api/queue", get(get_queue))
         .route("/api/queue/toggle", post(toggle_queue_membership))
         .route("/api/edges", get(get_edges))
@@ -284,6 +285,52 @@ async fn get_doc(
             "created_at": doc.core.created_at,
             "updated_at": doc.core.updated_at
         }
+    })))
+}
+
+/// Get version history for a doc
+async fn get_doc_history(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+
+    // Start from the given ID and collect all versions
+    let mut versions = Vec::new();
+    let mut current_id = id.clone();
+    let mut seen_ids = std::collections::HashSet::new();
+
+    // Walk backwards through the supersedes chain to find all previous versions
+    loop {
+        if seen_ids.contains(&current_id) {
+            // Prevent infinite loops from circular references
+            break;
+        }
+        seen_ids.insert(current_id.clone());
+
+        let doc = match storage.get_doc(&current_id) {
+            Ok(d) => d,
+            Err(_) => break,
+        };
+
+        versions.push(serde_json::json!({
+            "id": doc.core.id,
+            "title": doc.core.title,
+            "editors": doc.editors,
+            "created_at": doc.core.created_at,
+            "is_current": versions.is_empty()
+        }));
+
+        if let Some(prev_id) = doc.supersedes {
+            current_id = prev_id;
+        } else {
+            break;
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "current_id": id,
+        "versions": versions
     })))
 }
 

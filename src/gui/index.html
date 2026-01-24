@@ -2576,13 +2576,6 @@
             color: var(--text-primary);
         }
 
-        .doc-viewer-body {
-            flex: 1;
-            overflow: auto;
-            display: flex;
-            flex-direction: column;
-        }
-
         /* Summary Section - Prominent */
         .doc-viewer-summary {
             background: var(--bg-tertiary);
@@ -2617,6 +2610,110 @@
 
         .doc-viewer-summary.dirty .doc-viewer-summary-header {
             color: var(--warning);
+        }
+
+        /* Doc Viewer Layout with Sidebar */
+        .doc-viewer-body-wrapper {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .doc-viewer-main {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Version History Sidebar */
+        .doc-viewer-history-sidebar {
+            width: 220px;
+            min-width: 220px;
+            background: var(--bg-tertiary);
+            border-left: 1px solid var(--border-color);
+            overflow: auto;
+            display: none;
+        }
+
+        .doc-viewer-history-sidebar.visible {
+            display: block;
+        }
+
+        .doc-viewer-history-header {
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .doc-viewer-history-list {
+            padding: 0.5rem;
+        }
+
+        .doc-viewer-history-item {
+            padding: 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 0.25rem;
+            transition: background 0.2s ease;
+        }
+
+        .doc-viewer-history-item:hover {
+            background: var(--bg-secondary);
+        }
+
+        .doc-viewer-history-item.current {
+            background: var(--accent-blue);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.05));
+            border: 1px solid var(--accent-blue);
+        }
+
+        .doc-viewer-history-item-version {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .doc-viewer-history-item.current .doc-viewer-history-item-version::after {
+            content: 'current';
+            font-size: 0.65rem;
+            font-weight: 500;
+            color: var(--accent-blue);
+            background: rgba(59, 130, 246, 0.2);
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+        }
+
+        .doc-viewer-history-item-date {
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            margin-top: 0.25rem;
+        }
+
+        .doc-viewer-history-item-editor {
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            margin-top: 0.125rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .doc-viewer-history-empty {
+            padding: 1rem;
+            color: var(--text-tertiary);
+            font-size: 0.85rem;
+            text-align: center;
         }
 
         /* Main Content */
@@ -3143,14 +3240,22 @@
                     </div>
                     <button class="doc-viewer-close" onclick="closeDocViewer()" title="Close">&times;</button>
                 </div>
-                <div class="doc-viewer-body">
-                    <div class="doc-viewer-summary" id="doc-viewer-summary">
-                        <div class="doc-viewer-summary-header">
-                            <span>📋</span> Summary
+                <div class="doc-viewer-body-wrapper">
+                    <div class="doc-viewer-main">
+                        <div class="doc-viewer-summary" id="doc-viewer-summary">
+                            <div class="doc-viewer-summary-header">
+                                <span>📋</span> Summary
+                            </div>
+                            <div class="doc-viewer-summary-content" id="doc-viewer-summary-content"></div>
                         </div>
-                        <div class="doc-viewer-summary-content" id="doc-viewer-summary-content"></div>
+                        <div class="doc-viewer-content" id="doc-viewer-content"></div>
                     </div>
-                    <div class="doc-viewer-content" id="doc-viewer-content"></div>
+                    <div class="doc-viewer-history-sidebar" id="doc-viewer-history-sidebar">
+                        <div class="doc-viewer-history-header">
+                            <span>📜</span> Versions
+                        </div>
+                        <div class="doc-viewer-history-list" id="doc-viewer-history-list"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -7435,6 +7540,8 @@
             const summaryContentEl = document.getElementById('doc-viewer-summary-content');
             const contentEl = document.getElementById('doc-viewer-content');
             const dirtyIndicator = document.getElementById('doc-viewer-dirty-indicator');
+            const historySidebar = document.getElementById('doc-viewer-history-sidebar');
+            const historyList = document.getElementById('doc-viewer-history-list');
             
             // Show loading state
             modal.classList.add('visible');
@@ -7443,14 +7550,21 @@
             summaryEl.style.display = 'none';
             contentEl.innerHTML = '<div class="doc-viewer-loading">Loading document...</div>';
             dirtyIndicator.style.display = 'none';
+            historySidebar.classList.remove('visible');
+            historyList.innerHTML = '';
             
             try {
-                const response = await fetch(`/api/docs/${encodeURIComponent(docId)}`);
-                if (!response.ok) {
-                    throw new Error(`Failed to load doc: ${response.status}`);
+                // Fetch doc content and history in parallel
+                const [docResponse, historyResponse] = await Promise.all([
+                    fetch(`/api/docs/${encodeURIComponent(docId)}`),
+                    fetch(`/api/docs/${encodeURIComponent(docId)}/history`)
+                ]);
+                
+                if (!docResponse.ok) {
+                    throw new Error(`Failed to load doc: ${docResponse.status}`);
                 }
                 
-                const data = await response.json();
+                const data = await docResponse.json();
                 const doc = data.doc;
                 
                 // Set title
@@ -7508,6 +7622,37 @@
                     contentEl.innerHTML = '<div class="empty-state">No content</div>';
                 } else {
                     contentEl.innerHTML = '';
+                }
+                
+                // Render version history sidebar
+                if (historyResponse.ok) {
+                    const historyData = await historyResponse.json();
+                    if (historyData.versions && historyData.versions.length > 1) {
+                        historySidebar.classList.add('visible');
+                        historyList.innerHTML = historyData.versions.map((version, index) => {
+                            const date = new Date(version.created_at);
+                            const dateStr = date.toLocaleDateString('en-US', { 
+                                year: 'numeric', 
+                                month: 'short', 
+                                day: 'numeric' 
+                            });
+                            const editorName = version.editors && version.editors.length > 0 
+                                ? (version.editors[0].name || version.editors[0].agent_name || 'Unknown')
+                                : 'Unknown';
+                            const isCurrent = version.is_current;
+                            return `
+                                <div class="doc-viewer-history-item ${isCurrent ? 'current' : ''}" 
+                                     onclick="openDocViewer('${escapeHtml(version.id)}')"
+                                     title="${escapeHtml(version.title)}">
+                                    <div class="doc-viewer-history-item-version">v${historyData.versions.length - index}</div>
+                                    <div class="doc-viewer-history-item-date">${dateStr}</div>
+                                    <div class="doc-viewer-history-item-editor">by ${escapeHtml(editorName)}</div>
+                                </div>
+                            `;
+                        }).join('');
+                    } else {
+                        historySidebar.classList.remove('visible');
+                    }
                 }
                 
             } catch (error) {
