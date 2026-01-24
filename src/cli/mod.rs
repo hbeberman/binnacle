@@ -646,22 +646,42 @@ pub enum IdeaCommands {
 /// Documentation node subcommands
 #[derive(Subcommand, Debug)]
 pub enum DocCommands {
-    /// Create a new documentation node
+    /// Create a new documentation node linked to entities
+    ///
+    /// Docs must be linked to at least one entity on creation.
+    /// Content can be provided inline, from a file, or from stdin.
     Create {
+        /// Entity IDs to link this doc to (at least one required)
+        #[arg(required = true)]
+        entity_ids: Vec<String>,
+
         /// Doc title
+        #[arg(short = 'T', long)]
         title: String,
+
+        /// Doc type (prd, note, handoff)
+        #[arg(long = "type", short = 'y', default_value = "note")]
+        doc_type: String,
 
         /// Short display name (shown in GUI instead of ID)
         #[arg(short = 's', long)]
         short_name: Option<String>,
 
-        /// Description or summary
-        #[arg(short, long, visible_alias = "desc")]
-        description: Option<String>,
-
-        /// Full markdown content (can also be read from stdin)
-        #[arg(short, long)]
+        /// Inline markdown content
+        #[arg(short = 'c', long)]
         content: Option<String>,
+
+        /// Read content from file
+        #[arg(long, conflicts_with = "content")]
+        file: Option<std::path::PathBuf>,
+
+        /// Read content from stdin
+        #[arg(long, conflicts_with_all = ["content", "file"])]
+        stdin: bool,
+
+        /// Agent-provided summary (prepended as # Summary section)
+        #[arg(long)]
+        short: Option<String>,
 
         /// Tags for the doc
         #[arg(short, long)]

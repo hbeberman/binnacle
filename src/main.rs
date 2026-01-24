@@ -400,14 +400,57 @@ fn run_command(
 
         Some(Commands::Doc { command }) => match command {
             DocCommands::Create {
+                entity_ids,
                 title,
+                doc_type,
                 short_name,
-                description,
                 content,
+                file,
+                stdin,
+                short,
                 tag,
             } => {
-                let result =
-                    commands::doc_create(repo_path, title, short_name, description, content, tag)?;
+                // Parse doc_type string to DocType enum
+                let parsed_doc_type = match doc_type.to_lowercase().as_str() {
+                    "prd" => DocType::Prd,
+                    "note" => DocType::Note,
+                    "handoff" => DocType::Handoff,
+                    _ => {
+                        return Err(binnacle::Error::InvalidInput(format!(
+                            "Invalid doc type '{}'. Must be prd, note, or handoff",
+                            doc_type
+                        )));
+                    }
+                };
+
+                // Resolve content from various sources
+                let resolved_content = if stdin {
+                    use std::io::Read;
+                    let mut buffer = String::new();
+                    std::io::stdin().read_to_string(&mut buffer)?;
+                    Some(buffer)
+                } else if let Some(ref path) = file {
+                    Some(std::fs::read_to_string(path).map_err(|e| {
+                        binnacle::Error::InvalidInput(format!(
+                            "Failed to read file {}: {}",
+                            path.display(),
+                            e
+                        ))
+                    })?)
+                } else {
+                    content
+                };
+
+                let result = commands::doc_create(
+                    repo_path,
+                    title,
+                    parsed_doc_type,
+                    short_name,
+                    resolved_content,
+                    short,
+                    tag,
+                    entity_ids,
+                )?;
                 output(&result, human);
             }
             DocCommands::Show { id } => {
@@ -1620,18 +1663,26 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
 
         Some(Commands::Doc { command }) => match command {
             DocCommands::Create {
+                entity_ids,
                 title,
+                doc_type,
                 short_name,
-                description,
                 content,
+                file,
+                stdin,
+                short,
                 tag,
             } => (
                 "doc create".to_string(),
                 serde_json::json!({
+                    "entity_ids": entity_ids,
                     "title": title,
+                    "doc_type": doc_type,
                     "short_name": short_name,
-                    "description": description,
                     "content": content,
+                    "file": file,
+                    "stdin": stdin,
+                    "short": short,
                     "tag": tag,
                 }),
             ),

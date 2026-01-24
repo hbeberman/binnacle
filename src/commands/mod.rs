@@ -4941,6 +4941,8 @@ pub fn idea_germinate(repo_path: &Path, id: &str) -> Result<IdeaGerminated> {
 pub struct DocCreated {
     pub id: String,
     pub title: String,
+    pub doc_type: String,
+    pub linked_entities: Vec<String>,
 }
 
 impl Output for DocCreated {
@@ -4949,39 +4951,84 @@ impl Output for DocCreated {
     }
 
     fn to_human(&self) -> String {
-        format!("Created doc {} \"{}\"", self.id, self.title)
+        let links = self.linked_entities.join(", ");
+        format!(
+            "Created {} doc {} \"{}\" linked to: {}",
+            self.doc_type, self.id, self.title, links
+        )
     }
 }
 
-/// Create a new documentation node.
+/// Create a new documentation node linked to entities.
+///
+/// Docs must be linked to at least one entity on creation.
+/// Content can include an optional summary section prepended as `# Summary`.
+#[allow(clippy::too_many_arguments)]
 pub fn doc_create(
     repo_path: &Path,
     title: String,
+    doc_type: DocType,
     short_name: Option<String>,
-    description: Option<String>,
     content: Option<String>,
+    summary: Option<String>,
     tags: Vec<String>,
+    entity_ids: Vec<String>,
 ) -> Result<DocCreated> {
-    use crate::models::DocType;
+    if entity_ids.is_empty() {
+        return Err(Error::InvalidInput(
+            "At least one entity ID is required".to_string(),
+        ));
+    }
 
     let mut storage = Storage::open(repo_path)?;
+
+    // Validate all entity IDs exist before creating the doc
+    for entity_id in &entity_ids {
+        storage
+            .get_entity_type(entity_id)
+            .map_err(|_| Error::InvalidInput(format!("Entity '{}' does not exist", entity_id)))?;
+    }
 
     let id = storage.generate_unique_id("bnd", &title);
     let mut doc = Doc::new(id.clone(), title.clone());
     doc.core.short_name = normalize_short_name(short_name);
-    doc.core.description = description;
     doc.core.tags = tags;
-    doc.doc_type = DocType::default();
+    doc.doc_type = doc_type.clone();
 
-    // Set content if provided
-    if let Some(c) = content {
-        doc.set_content(&c)
+    // Build content with optional summary section prepended
+    let final_content = match (summary, content) {
+        (Some(sum), Some(cont)) => {
+            // Prepend # Summary section
+            format!("# Summary\n\n{}\n\n{}", sum.trim(), cont)
+        }
+        (Some(sum), None) => {
+            // Only summary provided
+            format!("# Summary\n\n{}", sum.trim())
+        }
+        (None, Some(cont)) => cont,
+        (None, None) => String::new(),
+    };
+
+    if !final_content.is_empty() {
+        doc.set_content(&final_content)
             .map_err(|e| Error::InvalidInput(e.to_string()))?;
     }
 
     storage.add_doc(&doc)?;
 
-    Ok(DocCreated { id, title })
+    // Create links from doc to each entity
+    for entity_id in &entity_ids {
+        let edge_id = storage.generate_edge_id(&id, entity_id, EdgeType::Documents);
+        let edge = Edge::new(edge_id, id.clone(), entity_id.clone(), EdgeType::Documents);
+        storage.add_edge(&edge)?;
+    }
+
+    Ok(DocCreated {
+        id,
+        title,
+        doc_type: doc_type.to_string(),
+        linked_entities: entity_ids,
+    })
 }
 
 impl Output for Doc {
