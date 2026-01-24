@@ -559,3 +559,245 @@ fn test_reopen_task_not_readded_to_queue() {
         .success()
         .stdout(predicate::str::contains("\"tasks\":[]"));
 }
+
+// === Queue Rejects Closed Items Tests ===
+
+#[test]
+fn test_queue_add_rejects_closed_task() {
+    let temp = init_binnacle();
+
+    // Create queue and task
+    bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .assert()
+        .success();
+
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Close the task
+    bn_in(&temp)
+        .args(["task", "close", &task_id, "--reason", "done"])
+        .assert()
+        .success();
+
+    // Try to add closed task to queue - should fail
+    bn_in(&temp)
+        .args(["queue", "add", &task_id])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Cannot add"))
+        .stderr(predicate::str::contains("closed"));
+}
+
+#[test]
+fn test_queue_add_rejects_cancelled_task() {
+    let temp = init_binnacle();
+
+    // Create queue and task
+    bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .assert()
+        .success();
+
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Set task status to cancelled
+    bn_in(&temp)
+        .args(["task", "update", &task_id, "--status", "cancelled"])
+        .assert()
+        .success();
+
+    // Try to add cancelled task to queue - should fail
+    bn_in(&temp)
+        .args(["queue", "add", &task_id])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Cannot add"))
+        .stderr(predicate::str::contains("closed"));
+}
+
+#[test]
+fn test_queue_add_accepts_pending_task() {
+    let temp = init_binnacle();
+
+    // Create queue and task
+    bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .assert()
+        .success();
+
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Add pending task to queue - should succeed
+    bn_in(&temp)
+        .args(["queue", "add", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("item_id"));
+}
+
+#[test]
+fn test_queue_add_accepts_in_progress_task() {
+    let temp = init_binnacle();
+
+    // Create queue and task
+    bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .assert()
+        .success();
+
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Set task to in_progress
+    bn_in(&temp)
+        .args(["task", "update", &task_id, "--status", "in_progress"])
+        .assert()
+        .success();
+
+    // Add in_progress task to queue - should succeed
+    bn_in(&temp)
+        .args(["queue", "add", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("item_id"));
+}
+
+#[test]
+fn test_queue_add_accepts_blocked_task() {
+    let temp = init_binnacle();
+
+    // Create queue and task
+    bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .assert()
+        .success();
+
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Set task to blocked
+    bn_in(&temp)
+        .args(["task", "update", &task_id, "--status", "blocked"])
+        .assert()
+        .success();
+
+    // Add blocked task to queue - should succeed
+    bn_in(&temp)
+        .args(["queue", "add", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("item_id"));
+}
+
+#[test]
+fn test_queue_add_accepts_reopened_task() {
+    let temp = init_binnacle();
+
+    // Create queue and task
+    bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .assert()
+        .success();
+
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Task A"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Close then reopen the task
+    bn_in(&temp)
+        .args(["task", "close", &task_id, "--reason", "done"])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["task", "reopen", &task_id])
+        .assert()
+        .success();
+
+    // Add reopened task to queue - should succeed
+    bn_in(&temp)
+        .args(["queue", "add", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("item_id"));
+}
+
+// === Bug Tests for Queue Rejection ===
+
+#[test]
+fn test_queue_add_rejects_closed_bug() {
+    let temp = init_binnacle();
+
+    // Create queue and bug
+    bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .assert()
+        .success();
+
+    let bug_output = bn_in(&temp)
+        .args(["bug", "create", "Bug A"])
+        .output()
+        .unwrap();
+    // Bugs also use bn- prefix
+    let bug_id = extract_task_id(&bug_output);
+
+    // Close the bug
+    bn_in(&temp)
+        .args(["bug", "close", &bug_id, "--reason", "fixed"])
+        .assert()
+        .success();
+
+    // Try to add closed bug to queue - should fail
+    bn_in(&temp)
+        .args(["queue", "add", &bug_id])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Cannot add"))
+        .stderr(predicate::str::contains("closed"));
+}
+
+#[test]
+fn test_queue_add_accepts_open_bug() {
+    let temp = init_binnacle();
+
+    // Create queue and bug
+    bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .assert()
+        .success();
+
+    let bug_output = bn_in(&temp)
+        .args(["bug", "create", "Bug A"])
+        .output()
+        .unwrap();
+    // Bugs also use bn- prefix
+    let bug_id = extract_task_id(&bug_output);
+
+    // Add open bug to queue - should succeed
+    bn_in(&temp)
+        .args(["queue", "add", &bug_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("item_id"));
+}

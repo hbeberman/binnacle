@@ -5180,14 +5180,41 @@ impl Output for QueueItemAdded {
 pub fn queue_add(repo_path: &Path, item_id: &str) -> Result<QueueItemAdded> {
     let mut storage = Storage::open(repo_path)?;
 
-    // Verify item exists (must be a task or bug)
-    let is_task = storage.get_task(item_id).is_ok();
-    let is_bug = storage.get_bug(item_id).is_ok();
-    if !is_task && !is_bug {
-        return Err(Error::Other(format!(
-            "Item {} is not a task or bug",
-            item_id
-        )));
+    // Verify item exists and check if it's closed
+    let task_result = storage.get_task(item_id);
+    let bug_result = storage.get_bug(item_id);
+
+    match (&task_result, &bug_result) {
+        (Ok(task), _) => {
+            // Check if task is closed (Done or Cancelled)
+            if task.status == TaskStatus::Done || task.status == TaskStatus::Cancelled {
+                return Err(Error::Other(format!(
+                    "Cannot add {} to queue: task is closed (status: {})",
+                    item_id,
+                    serde_json::to_string(&task.status)
+                        .unwrap_or_else(|_| "unknown".to_string())
+                        .trim_matches('"')
+                )));
+            }
+        }
+        (_, Ok(bug)) => {
+            // Check if bug is closed (Done or Cancelled)
+            if bug.status == TaskStatus::Done || bug.status == TaskStatus::Cancelled {
+                return Err(Error::Other(format!(
+                    "Cannot add {} to queue: bug is closed (status: {})",
+                    item_id,
+                    serde_json::to_string(&bug.status)
+                        .unwrap_or_else(|_| "unknown".to_string())
+                        .trim_matches('"')
+                )));
+            }
+        }
+        _ => {
+            return Err(Error::Other(format!(
+                "Item {} is not a task or bug",
+                item_id
+            )));
+        }
     }
 
     // Get queue

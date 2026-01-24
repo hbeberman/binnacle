@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{Mutex, broadcast};
 
-use crate::models::{Edge, EdgeType, Queue};
+use crate::models::{Edge, EdgeType, Queue, TaskStatus};
 use crate::storage::{Storage, generate_id};
 
 /// WebSocket performance metrics
@@ -437,6 +437,24 @@ async fn toggle_queue_membership(
             "message": format!("{} removed from queue", request.node_id)
         })))
     } else {
+        // Check if the item is closed before adding to queue
+        let is_closed = if let Ok(task) = storage.get_task(&request.node_id) {
+            task.status == TaskStatus::Done || task.status == TaskStatus::Cancelled
+        } else if let Ok(bug) = storage.get_bug(&request.node_id) {
+            bug.status == TaskStatus::Done || bug.status == TaskStatus::Cancelled
+        } else {
+            false
+        };
+
+        if is_closed {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("Cannot add {} to queue: item is closed", request.node_id)
+                })),
+            ));
+        }
+
         // Add to queue
         let edge_id = storage.generate_edge_id(&request.node_id, &queue.id, EdgeType::Queued);
         let edge = Edge::new(
