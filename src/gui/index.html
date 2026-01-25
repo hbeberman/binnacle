@@ -8515,6 +8515,15 @@
                 return state.nodeTypeFilters[nodeType] !== false;
             });
 
+            // Exclude fully-faded departing agents (animation complete, cleanup done)
+            visible = visible.filter(node => {
+                // If this is a departing agent whose animation is complete, hide it
+                if (node._departing && node.type === 'agent' && !state.departingAgents.has(node.id)) {
+                    return false;
+                }
+                return true;
+            });
+
             if (state.graph.hideCompleted) {
                 // Build active node set and prepare edges for chain detection
                 const activeNodes = buildActiveNodeSet();
@@ -8576,6 +8585,7 @@
                         priority: task.priority,
                         type: task.type || 'task',
                         closed_at: task.closed_at,  // Track when node was completed for fade-out
+                        _departing: task._departing,  // Track departing agents for fade-out
                         x: existing.x,
                         y: existing.y,
                         vx: 0,
@@ -8596,6 +8606,7 @@
                         priority: task.priority,
                         type: task.type || 'task',
                         closed_at: task.closed_at,  // Track when node was completed for fade-out
+                        _departing: task._departing,  // Track departing agents for fade-out
                         x: Math.cos(angle) * radius,
                         y: Math.sin(angle) * radius,
                         vx: 0,
@@ -8642,6 +8653,14 @@
 
             // Update animation time for continuous effects
             state.graph.animationTime = performance.now();
+
+            // Clean up fully-faded departing agents (animation complete)
+            const now = performance.now();
+            for (const [agentId, departureTime] of state.departingAgents.entries()) {
+                if (now - departureTime >= AGENT_DEPARTURE_FADE_MS) {
+                    state.departingAgents.delete(agentId);
+                }
+            }
 
             // Update camera pan animation if active
             updatePanAnimation();
