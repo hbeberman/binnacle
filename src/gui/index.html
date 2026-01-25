@@ -4125,13 +4125,12 @@
         /* Toast Notification System */
         .toast-container {
             position: fixed;
-            top: 1rem;
-            left: 50%;
-            transform: translateX(-50%);
+            bottom: 1rem;
+            left: 1rem;
             z-index: 10000;
             display: flex;
-            flex-direction: column;
-            align-items: center;
+            flex-direction: column-reverse;
+            align-items: flex-start;
             gap: 0.5rem;
             pointer-events: none;
         }
@@ -4160,7 +4159,7 @@
         @keyframes toastSlideIn {
             from {
                 opacity: 0;
-                transform: translateY(-20px);
+                transform: translateY(20px);
             }
             to {
                 opacity: 1;
@@ -4175,7 +4174,7 @@
             }
             to {
                 opacity: 0;
-                transform: translateY(-20px);
+                transform: translateY(20px);
             }
         }
 
