@@ -543,69 +543,97 @@
             text-align: center;
         }
 
-        /* Agents sidebar on graph view */
+        /* Left sidebar (hover to expand) */
         .agents-sidebar {
             position: absolute;
             left: 0;
             top: 0;
             bottom: 0;
-            width: 220px;
+            width: 44px;
             background: var(--bg-secondary);
             border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
             z-index: 100;
-            transition: transform 0.2s ease;
+            transition: width 0.2s ease;
+            overflow: hidden;
         }
 
-        .agents-sidebar.collapsed {
-            transform: translateX(-180px);
+        .agents-sidebar:hover,
+        .agents-sidebar.expanded {
+            width: 240px;
         }
 
         .agents-sidebar-header {
             display: flex;
-            justify-content: space-between;
             align-items: center;
             padding: 0.75rem;
             border-bottom: 1px solid var(--border-color);
             background: var(--bg-tertiary);
+            min-height: 44px;
+        }
+
+        .agents-sidebar-icon {
+            font-size: 1.4rem;
+            flex-shrink: 0;
+            width: 20px;
+            text-align: center;
         }
 
         .agents-sidebar-title {
             font-weight: 600;
             font-size: 0.9rem;
+            margin-left: 0.75rem;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.2s ease;
         }
 
-        .agents-sidebar-toggle {
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
-            background: transparent;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .agents-sidebar-toggle:hover {
-            background: var(--bg-primary);
-            color: var(--text-primary);
-        }
-
-        .agents-sidebar.collapsed .agents-sidebar-toggle {
-            transform: rotate(180deg);
+        .agents-sidebar:hover .agents-sidebar-title,
+        .agents-sidebar.expanded .agents-sidebar-title {
+            opacity: 1;
         }
 
         .agents-sidebar-content {
             flex: 1;
             overflow-y: auto;
+            overflow-x: hidden;
             padding: 0.5rem;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .agents-sidebar:hover .agents-sidebar-content,
+        .agents-sidebar.expanded .agents-sidebar-content {
+            opacity: 1;
         }
 
         .agents-sidebar-list {
             display: flex;
             flex-direction: column;
             gap: 0.5rem;
+        }
+
+        /* Sidebar sections */
+        .sidebar-section {
+            margin-bottom: 1rem;
+        }
+
+        .sidebar-section-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+            padding: 0 0.25rem;
+        }
+
+        /* Sidebar filter buttons */
+        .sidebar-filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
         }
 
         .agents-sidebar-item {
@@ -1557,60 +1585,7 @@
             color: var(--accent-light);
         }
 
-        /* Node filter dropdown */
-        .node-filters {
-            position: relative;
-        }
-
-        .node-filters-btn {
-            padding: 0.4rem 0.75rem;
-            font-size: 0.8rem;
-            border-radius: 4px;
-            border: 1px solid var(--border-color);
-            background: var(--bg-tertiary);
-            color: var(--text-secondary);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-            transition: all 0.2s ease;
-        }
-
-        .node-filters-btn:hover {
-            border-color: var(--accent-blue);
-            color: var(--text-primary);
-        }
-
-        .node-filters-btn .arrow {
-            font-size: 0.6rem;
-            transition: transform 0.2s ease;
-        }
-
-        .node-filters.open .node-filters-btn .arrow {
-            transform: rotate(180deg);
-        }
-
-        .node-filters-dropdown {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            margin-top: 0.25rem;
-            background: var(--overlay-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 0.5rem;
-            z-index: 200;
-            display: none;
-            flex-direction: column;
-            gap: 0.25rem;
-            min-width: 140px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-        }
-
-        .node-filters.open .node-filters-dropdown {
-            display: flex;
-        }
-
+        /* Node filter buttons (in sidebar) */
         .node-filter-btn {
             padding: 0.35rem 0.5rem;
             font-size: 0.75rem;
@@ -1688,60 +1663,7 @@
             padding-bottom: 0.5rem;
         }
 
-        /* Edge filter dropdown */
-        .edge-filters {
-            position: relative;
-        }
-
-        .edge-filters-btn {
-            padding: 0.4rem 0.75rem;
-            font-size: 0.8rem;
-            border-radius: 4px;
-            border: 1px solid var(--border-color);
-            background: var(--bg-tertiary);
-            color: var(--text-secondary);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-            transition: all 0.2s ease;
-        }
-
-        .edge-filters-btn:hover {
-            border-color: var(--accent-blue);
-            color: var(--text-primary);
-        }
-
-        .edge-filters-btn .arrow {
-            font-size: 0.6rem;
-            transition: transform 0.2s ease;
-        }
-
-        .edge-filters.open .edge-filters-btn .arrow {
-            transform: rotate(180deg);
-        }
-
-        .edge-filters-dropdown {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            margin-top: 0.25rem;
-            background: var(--overlay-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 0.5rem;
-            z-index: 200;
-            display: none;
-            flex-direction: column;
-            gap: 0.25rem;
-            min-width: 140px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-        }
-
-        .edge-filters.open .edge-filters-dropdown {
-            display: flex;
-        }
-
+        /* Edge filter buttons (in sidebar) */
         .edge-filter-btn {
             padding: 0.35rem 0.5rem;
             font-size: 0.75rem;
@@ -1854,25 +1776,6 @@
             opacity: 1;
         }
 
-        .graph-filters {
-            position: absolute;
-            top: 4rem;
-            right: 1rem;
-            background: var(--overlay-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 0.5rem;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-        }
-
-        .filters-row {
-            display: flex;
-            gap: 0.5rem;
-        }
-
         .zoom-btn {
             width: 32px;
             height: 32px;
@@ -1930,11 +1833,6 @@
 
         #graph-view.fullscreen .graph-controls {
             top: 1rem;
-        }
-
-        #graph-view.fullscreen .graph-filters {
-            top: 4rem;
-            right: 1rem;
         }
 
         .maximize-btn {
@@ -2601,12 +2499,6 @@
                 flex-direction: column;
                 align-items: stretch;
             }
-            .graph-filters {
-                right: 1rem;
-                left: auto;
-                top: auto;
-                bottom: 1rem;
-            }
             .graph-search {
                 width: 100%;
             }
@@ -2627,11 +2519,18 @@
             }
             .info-panel {
                 top: auto;
-                bottom: 5rem;  /* Above the graph-filters on mobile */
+                bottom: 1rem;
                 left: 1rem;
                 right: 1rem;
                 width: auto;
                 max-height: 50vh;
+            }
+            .agents-sidebar {
+                width: 40px;
+            }
+            .agents-sidebar:hover,
+            .agents-sidebar.expanded {
+                width: 200px;
             }
         }
 
@@ -3089,36 +2988,32 @@
             <div id="graph-view" class="view active">
                 <div class="agents-sidebar" id="agents-sidebar">
                     <div class="agents-sidebar-header">
-                        <span class="agents-sidebar-title">🤖 Agents</span>
-                        <button class="agents-sidebar-toggle" id="agents-sidebar-toggle" title="Toggle agents panel">◀</button>
+                        <span class="agents-sidebar-icon">🤖</span>
+                        <span class="agents-sidebar-title">Sidebar</span>
                     </div>
                     <div class="agents-sidebar-content" id="agents-sidebar-content">
-                        <div class="agents-sidebar-list" id="agents-sidebar-list"></div>
-                    </div>
-                </div>
-                <canvas id="graph-canvas"></canvas>
-                <div class="graph-filters">
-                    <div class="filters-row">
-                        <div class="node-filters" id="node-filters">
-                            <button class="node-filters-btn" id="node-filters-btn">
-                                <span>Nodes</span>
-                                <span class="arrow">▼</span>
-                            </button>
-                            <div class="node-filters-dropdown" id="node-filter-group">
+                        <!-- Agents section -->
+                        <div class="sidebar-section" id="agents-section">
+                            <div class="sidebar-section-title">Agents</div>
+                            <div class="agents-sidebar-list" id="agents-sidebar-list"></div>
+                        </div>
+                        <!-- Node filters section -->
+                        <div class="sidebar-section">
+                            <div class="sidebar-section-title">Nodes</div>
+                            <div class="sidebar-filter-group" id="sidebar-node-filters">
                                 <!-- Node type filter buttons will be populated dynamically -->
                             </div>
                         </div>
-                        <div class="edge-filters" id="edge-filters">
-                            <button class="edge-filters-btn" id="edge-filters-btn">
-                                <span>Edges</span>
-                                <span class="arrow">▼</span>
-                            </button>
-                            <div class="edge-filters-dropdown" id="edge-filter-group">
+                        <!-- Edge filters section -->
+                        <div class="sidebar-section">
+                            <div class="sidebar-section-title">Edges</div>
+                            <div class="sidebar-filter-group" id="sidebar-edge-filters">
                                 <!-- Edge type filter buttons will be populated dynamically -->
                             </div>
                         </div>
                     </div>
                 </div>
+                <canvas id="graph-canvas"></canvas>
                 <div class="node-tooltip" id="node-tooltip">
                     <div class="tooltip-title" id="tooltip-title"></div>
                     <div class="tooltip-id" id="tooltip-id"></div>
@@ -4098,9 +3993,8 @@
         
         // Initialize node type visibility filters (with eye icons like edge filters)
         function initializeNodeTypeFilters() {
-            const container = document.getElementById('node-filter-group');
-            const dropdownBtn = document.getElementById('node-filters-btn');
-            const filtersPanel = document.getElementById('node-filters');
+            const container = document.getElementById('sidebar-node-filters');
+            if (!container) return;
             
             // Create filter buttons for each node type
             container.innerHTML = '';
@@ -4197,26 +4091,6 @@
             }
             
             updateAllBtnState();
-            
-            // Toggle dropdown open/close when button is clicked
-            if (dropdownBtn && filtersPanel) {
-                dropdownBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    filtersPanel.classList.toggle('open');
-                    // Close edge filters if open
-                    const edgeFilters = document.getElementById('edge-filters');
-                    if (edgeFilters && edgeFilters.classList.contains('open')) {
-                        edgeFilters.classList.remove('open');
-                    }
-                });
-                
-                // Close dropdown when clicking outside
-                document.addEventListener('click', (e) => {
-                    if (!filtersPanel.contains(e.target)) {
-                        filtersPanel.classList.remove('open');
-                    }
-                });
-            }
         }
         
         // Legacy function name for compatibility
@@ -7287,12 +7161,6 @@
                 });
             });
         }
-        
-        // Toggle agents sidebar
-        document.getElementById('agents-sidebar-toggle').addEventListener('click', () => {
-            const sidebar = document.getElementById('agents-sidebar');
-            sidebar.classList.toggle('collapsed');
-        });
 
         // Event delegation for agent card interactive elements
         document.getElementById('agents-list').addEventListener('click', (e) => {
@@ -8002,9 +7870,8 @@
         }
 
         function initializeEdgeFilters() {
-            const container = document.getElementById('edge-filter-group');
-            const dropdownBtn = document.getElementById('edge-filters-btn');
-            const filtersPanel = document.getElementById('edge-filters');
+            const container = document.getElementById('sidebar-edge-filters');
+            if (!container) return;
             
             // Create filter buttons for each edge type
             container.innerHTML = '';
@@ -8165,24 +8032,6 @@
             }
             
             updateAllBtnState();
-            
-            // Toggle dropdown open/close
-            dropdownBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                filtersPanel.classList.toggle('open');
-                // Close node filters if open
-                const nodeFilters = document.getElementById('node-filters');
-                if (nodeFilters && nodeFilters.classList.contains('open')) {
-                    nodeFilters.classList.remove('open');
-                }
-            });
-            
-            // Close dropdown when clicking outside
-            document.addEventListener('click', (e) => {
-                if (!filtersPanel.contains(e.target)) {
-                    filtersPanel.classList.remove('open');
-                }
-            });
         }
 
         // Global escape key handler to close modals
@@ -8202,19 +8051,6 @@
                     updateEdgeInfoPanel(null);
                     e.preventDefault();
                     return;
-                }
-                // Close edge filters dropdown if open
-                const edgeFilters = document.querySelector('.edge-filters.open');
-                if (edgeFilters) {
-                    edgeFilters.classList.remove('open');
-                    e.preventDefault();
-                    return;
-                }
-                // Close node filters dropdown if open
-                const nodeFilters = document.querySelector('.node-filters.open');
-                if (nodeFilters) {
-                    nodeFilters.classList.remove('open');
-                    e.preventDefault();
                 }
             }
         });
