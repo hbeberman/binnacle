@@ -71,6 +71,16 @@ test:
 dev *args:
     cargo run -- {{args}}
 
+# Build WASM module with wasm-pack
+# Requires: wasm-pack (cargo install wasm-pack)
+# Output: pkg/ directory with JS bindings
+build-wasm:
+    wasm-pack build --target web --features wasm
+
+# Build WASM module in release mode with optimizations
+build-wasm-release:
+    wasm-pack build --target web --features wasm --release
+
 # Build the container image (builds release binary first)
 container tag="binnacle-worker:latest":
     @echo "Building release binary..."
