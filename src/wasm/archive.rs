@@ -35,6 +35,25 @@ pub struct ArchiveManifest {
     pub binnacle_version: Option<String>,
 }
 
+/// An action log entry from the archive
+#[derive(Debug, Clone)]
+pub struct ActionLogEntry {
+    /// ISO 8601 timestamp when the action occurred
+    pub timestamp: String,
+    /// Command name (e.g., "task create", "ready", "status")
+    pub command: String,
+    /// Command arguments (as JSON string for display)
+    pub args: String,
+    /// Whether the command succeeded
+    pub success: bool,
+    /// Error message if the command failed
+    pub error: Option<String>,
+    /// Command execution duration in milliseconds
+    pub duration_ms: u64,
+    /// User who executed the command
+    pub user: String,
+}
+
 /// Parsed graph data from a binnacle archive
 #[derive(Debug, Default)]
 pub struct GraphData {
@@ -44,6 +63,8 @@ pub struct GraphData {
     pub edges: Vec<GraphEdge>,
     /// Archive metadata (if available)
     pub manifest: ArchiveManifest,
+    /// Action log entries (if included in archive)
+    pub action_logs: Vec<ActionLogEntry>,
 }
 
 /// A graph entity (task, bug, idea, etc.)
@@ -301,6 +322,19 @@ fn parse_archive_files(files: &HashMap<String, Vec<u8>>) -> Result<GraphData, Ar
         }
     }
 
+    // Parse action-log.jsonl (activity log entries)
+    if let Some(action_log_data) = files.get("action-log.jsonl") {
+        let content = String::from_utf8_lossy(action_log_data);
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Some(entry) = parse_action_log_line(line) {
+                graph.action_logs.push(entry);
+            }
+        }
+    }
+
     Ok(graph)
 }
 
@@ -371,6 +405,42 @@ fn parse_edge_line(line: &str) -> Option<GraphEdge> {
         source,
         target,
         edge_type,
+    })
+}
+
+/// Parse a single JSONL line into an ActionLogEntry
+fn parse_action_log_line(line: &str) -> Option<ActionLogEntry> {
+    let json: serde_json::Value = serde_json::from_str(line).ok()?;
+
+    let timestamp = json.get("timestamp")?.as_str()?.to_string();
+    let command = json.get("command")?.as_str()?.to_string();
+    let args = json
+        .get("args")
+        .map(|v| serde_json::to_string(v).unwrap_or_default())
+        .unwrap_or_default();
+    let success = json
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let error = json.get("error").and_then(|v| v.as_str()).map(String::from);
+    let duration_ms = json
+        .get("duration_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let user = json
+        .get("user")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    Some(ActionLogEntry {
+        timestamp,
+        command,
+        args,
+        success,
+        error,
+        duration_ms,
+        user,
     })
 }
 
@@ -496,6 +566,32 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_action_log_line() {
+        let line = r#"{"timestamp":"2026-01-25T12:00:00Z","command":"task create","args":{"title":"Test"},"success":true,"duration_ms":42,"user":"alice"}"#;
+        let entry = parse_action_log_line(line).unwrap();
+        assert_eq!(entry.timestamp, "2026-01-25T12:00:00Z");
+        assert_eq!(entry.command, "task create");
+        assert!(entry.success);
+        assert_eq!(entry.duration_ms, 42);
+        assert_eq!(entry.user, "alice");
+        assert!(entry.error.is_none());
+    }
+
+    #[test]
+    fn test_parse_action_log_line_with_error() {
+        let line = r#"{"timestamp":"2026-01-25T12:00:00Z","command":"task create","args":{},"success":false,"error":"Something went wrong","duration_ms":100,"user":"bob"}"#;
+        let entry = parse_action_log_line(line).unwrap();
+        assert!(!entry.success);
+        assert_eq!(entry.error, Some("Something went wrong".to_string()));
+    }
+
+    #[test]
+    fn test_parse_action_log_line_invalid() {
+        let line = "invalid json";
+        assert!(parse_action_log_line(line).is_none());
+    }
+
+    #[test]
     fn test_extract_tar() {
         // Create a minimal tar archive in memory
         let mut builder = tar::Builder::new(Vec::new());
@@ -605,6 +701,31 @@ mod tests {
 
         assert_eq!(graph.entities.len(), 1);
         assert_eq!(graph.edges.len(), 0); // Edge should be filtered out
+    }
+
+    #[test]
+    fn test_parse_archive_files_with_action_logs() {
+        let mut files = HashMap::new();
+
+        // Add tasks.jsonl
+        let tasks =
+            r#"{"id":"bn-1234","type":"task","title":"Task 1","status":"pending","priority":2}"#;
+        files.insert("tasks.jsonl".to_string(), tasks.as_bytes().to_vec());
+
+        // Add action-log.jsonl
+        let action_logs = r#"{"timestamp":"2026-01-25T12:00:00Z","command":"task create","args":{"title":"Task 1"},"success":true,"duration_ms":42,"user":"alice"}
+{"timestamp":"2026-01-25T12:01:00Z","command":"task list","args":{},"success":true,"duration_ms":10,"user":"alice"}"#;
+        files.insert(
+            "action-log.jsonl".to_string(),
+            action_logs.as_bytes().to_vec(),
+        );
+
+        let graph = parse_archive_files(&files).unwrap();
+
+        assert_eq!(graph.action_logs.len(), 2);
+        assert_eq!(graph.action_logs[0].command, "task create");
+        assert_eq!(graph.action_logs[0].user, "alice");
+        assert_eq!(graph.action_logs[1].command, "task list");
     }
 
     #[test]

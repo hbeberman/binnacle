@@ -11187,6 +11187,20 @@ pub fn system_store_export(
     let tests = storage.list_tests(None)?;
     let commit_count = storage.count_commit_links()?;
 
+    // Export action logs as JSONL (limit to most recent 1000 entries for archive size)
+    let action_logs = storage.query_action_logs(Some(1000), None, None, None, None, None, None)?;
+    if !action_logs.is_empty() {
+        let action_log_jsonl: String = action_logs
+            .iter()
+            .map(|log| serde_json::to_string(log).unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let action_log_bytes = action_log_jsonl.into_bytes();
+        let checksum = calculate_checksum(&action_log_bytes);
+        checksums.insert("action-log.jsonl".to_string(), checksum);
+        file_contents.insert("action-log.jsonl".to_string(), action_log_bytes);
+    }
+
     // Create manifest
     let manifest = ExportManifest {
         version: 1,
