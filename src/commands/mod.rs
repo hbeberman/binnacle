@@ -13,7 +13,7 @@ use crate::models::{
     IdeaStatus, Milestone, Queue, SessionState, Task, TaskStatus, TestNode, TestResult,
     complexity::analyze_complexity, graph::UnionFind,
 };
-use crate::storage::{EntityType, Storage, generate_id, parse_status};
+use crate::storage::{EntityType, Storage, find_git_root, generate_id, parse_status};
 use crate::{Error, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -13523,10 +13523,14 @@ pub fn container_run(
     args.push("--env".to_string());
     args.push("BN_DATA_DIR=/binnacle".to_string());
 
-    // Compute storage hash on host and pass to container
-    // (container mounts at /workspace but hash should match host path)
+    // Compute storage hash on host and pass to container.
+    // IMPORTANT: Use find_git_root to resolve worktrees to main repo before hashing.
+    // This ensures the hash matches the actual storage location, which is computed
+    // the same way by get_storage_dir(). Without this, worktrees would get a different
+    // hash than their main repo, causing "No binnacle database found" errors.
+    let repo_root = find_git_root(&worktree_abs).unwrap_or_else(|| worktree_abs.clone());
     let mut hasher = Sha256::new();
-    hasher.update(worktree_abs.to_string_lossy().as_bytes());
+    hasher.update(repo_root.to_string_lossy().as_bytes());
     let hash = hasher.finalize();
     let storage_hash = &format!("{:x}", hash)[..12];
     args.push("--env".to_string());
