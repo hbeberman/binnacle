@@ -2880,6 +2880,52 @@
             border-color: var(--accent-blue);
         }
 
+        /* Nodes view type toggle menu */
+        .nodes-type-toggle-menu {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            margin-left: 0.75rem;
+        }
+
+        .nodes-type-toggle-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            margin-right: 0.25rem;
+        }
+
+        .nodes-type-toggle-btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.7rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.2rem;
+            white-space: nowrap;
+        }
+
+        .nodes-type-toggle-btn:hover {
+            border-color: var(--accent-blue);
+            color: var(--text-primary);
+        }
+
+        .nodes-type-toggle-btn.active {
+            background: #3a7bc8;
+            border-color: var(--accent-light);
+            color: white;
+        }
+
+        .nodes-type-toggle-btn.all-btn {
+            font-weight: 600;
+            margin-right: 0.25rem;
+        }
+
         /* Auto-follow toggle */
         .auto-follow-toggle {
             display: flex;
@@ -5085,16 +5131,9 @@
                         <span class="view-search-icon">🔍</span>
                         <input class="view-search" id="nodes-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" />
                     </div>
-                    <div class="node-type-filter">
-                        <label class="filter-label">Type:</label>
-                        <select id="nodes-type-filter" class="type-filter-select">
-                            <option value="">All</option>
-                            <option value="task">Tasks</option>
-                            <option value="bug">Bugs</option>
-                            <option value="idea">Ideas</option>
-                            <option value="test">Tests</option>
-                            <option value="doc">Docs</option>
-                        </select>
+                    <div class="nodes-type-toggle-menu" id="nodes-type-toggle-menu">
+                        <span class="nodes-type-toggle-label">Type:</span>
+                        <!-- Toggle buttons populated by JavaScript -->
                     </div>
                     <div class="node-type-filter">
                         <label class="filter-label">Tag:</label>
@@ -5496,6 +5535,38 @@
             localStorage.setItem('binnacle_node_type_filters', JSON.stringify(filters));
         }
 
+        // Node types available in nodes view (subset of NODE_TYPES)
+        const NODES_VIEW_TYPES = {
+            task: { name: 'Tasks', emoji: '📋' },
+            bug: { name: 'Bugs', emoji: '🐛' },
+            idea: { name: 'Ideas', emoji: '💭' },
+            test: { name: 'Tests', emoji: '🧪' },
+            doc: { name: 'Docs', emoji: '📄' }
+        };
+
+        // Load nodes view type filter state from localStorage
+        function loadNodesViewTypeFilters() {
+            const saved = localStorage.getItem('binnacle_nodes_view_type_filters');
+            if (saved) {
+                try {
+                    return JSON.parse(saved);
+                } catch (e) {
+                    // Fall back to defaults
+                }
+            }
+            // Default: all types visible
+            const defaults = {};
+            for (const type of Object.keys(NODES_VIEW_TYPES)) {
+                defaults[type] = true;
+            }
+            return defaults;
+        }
+
+        // Save nodes view type filter state to localStorage
+        function saveNodesViewTypeFilters(filters) {
+            localStorage.setItem('binnacle_nodes_view_type_filters', JSON.stringify(filters));
+        }
+
         // Load edge filter state from localStorage
         function loadEdgeFilters() {
             const saved = localStorage.getItem('binnacle_edge_filters');
@@ -5697,8 +5768,8 @@
             nodes: false
         };
 
-        // Node type filter for consolidated nodes view
-        let nodesTypeFilter = '';
+        // Node type filter for consolidated nodes view (multi-select toggle)
+        let nodesViewTypeFilters = loadNodesViewTypeFilters();
         
         // Node tag filter for consolidated nodes view
         let nodesTagFilter = '';
@@ -6442,7 +6513,6 @@
                     renderAgentsSidebar();  // Update agents sidebar on graph view
                     break;
                 case 'nodes':
-                    syncTypeFilterDropdown();  // Sync type filter dropdown with JS variable
                     updateTagFilterDropdown();  // Update tag dropdown when switching to nodes view
                     renderNodes();
                     break;
@@ -7199,7 +7269,6 @@
         function initializeViewSearch() {
             const input = document.getElementById('nodes-search');
             const toggle = document.getElementById('nodes-include-closed');
-            const typeFilter = document.getElementById('nodes-type-filter');
 
             if (input) {
                 input.addEventListener('input', () => {
@@ -7225,12 +7294,8 @@
                 });
             }
 
-            if (typeFilter) {
-                typeFilter.addEventListener('change', () => {
-                    nodesTypeFilter = typeFilter.value;
-                    renderNodes();
-                });
-            }
+            // Initialize node type toggle menu
+            initializeNodesViewTypeToggles();
             
             const tagFilter = document.getElementById('nodes-tag-filter');
             if (tagFilter) {
@@ -7238,6 +7303,85 @@
                     nodesTagFilter = tagFilter.value;
                     renderNodes();
                 });
+            }
+        }
+        
+        // Initialize the nodes view type toggle buttons
+        function initializeNodesViewTypeToggles() {
+            const container = document.getElementById('nodes-type-toggle-menu');
+            if (!container) return;
+            
+            // Clear existing buttons (except label)
+            const label = container.querySelector('.nodes-type-toggle-label');
+            container.innerHTML = '';
+            if (label) container.appendChild(label);
+            else {
+                const newLabel = document.createElement('span');
+                newLabel.className = 'nodes-type-toggle-label';
+                newLabel.textContent = 'Type:';
+                container.appendChild(newLabel);
+            }
+            
+            // Helper to update All button state
+            function updateAllBtnState() {
+                const allBtn = container.querySelector('.all-btn');
+                if (!allBtn) return;
+                const allActive = Object.keys(NODES_VIEW_TYPES).every(type => nodesViewTypeFilters[type]);
+                allBtn.classList.toggle('active', allActive);
+            }
+            
+            // Create "All" button
+            const allBtn = document.createElement('button');
+            allBtn.className = 'nodes-type-toggle-btn all-btn';
+            allBtn.textContent = 'All';
+            allBtn.title = 'Toggle all types';
+            
+            // Check if all are active initially
+            const allActive = Object.keys(NODES_VIEW_TYPES).every(type => nodesViewTypeFilters[type]);
+            allBtn.classList.toggle('active', allActive);
+            
+            allBtn.addEventListener('click', () => {
+                const currentAllActive = Object.keys(NODES_VIEW_TYPES).every(type => nodesViewTypeFilters[type]);
+                const newState = !currentAllActive;
+                
+                // Set all types to the new state
+                for (const type of Object.keys(NODES_VIEW_TYPES)) {
+                    nodesViewTypeFilters[type] = newState;
+                }
+                
+                // Update all individual buttons
+                const btns = container.querySelectorAll('.nodes-type-toggle-btn:not(.all-btn)');
+                btns.forEach(btn => {
+                    const type = btn.dataset.nodeType;
+                    if (type) {
+                        btn.classList.toggle('active', newState);
+                    }
+                });
+                
+                updateAllBtnState();
+                saveNodesViewTypeFilters(nodesViewTypeFilters);
+                renderNodes();
+            });
+            
+            container.appendChild(allBtn);
+            
+            // Create individual type buttons
+            for (const [type, info] of Object.entries(NODES_VIEW_TYPES)) {
+                const btn = document.createElement('button');
+                btn.className = 'nodes-type-toggle-btn' + (nodesViewTypeFilters[type] ? ' active' : '');
+                btn.dataset.nodeType = type;
+                btn.innerHTML = `${info.emoji} ${info.name}`;
+                btn.title = `Toggle ${info.name} visibility`;
+                
+                btn.addEventListener('click', () => {
+                    nodesViewTypeFilters[type] = !nodesViewTypeFilters[type];
+                    btn.classList.toggle('active', nodesViewTypeFilters[type]);
+                    updateAllBtnState();
+                    saveNodesViewTypeFilters(nodesViewTypeFilters);
+                    renderNodes();
+                });
+                
+                container.appendChild(btn);
             }
         }
 
@@ -7251,17 +7395,6 @@
                 item.description || ''
             ].join(' ').toLowerCase();
             return haystack.includes(query);
-        }
-        
-        // Sync type filter dropdown with JS variable (ensures DOM and state match)
-        function syncTypeFilterDropdown() {
-            const typeFilter = document.getElementById('nodes-type-filter');
-            if (!typeFilter) return;
-            
-            // Sync dropdown DOM value with JS variable
-            if (typeFilter.value !== nodesTypeFilter) {
-                typeFilter.value = nodesTypeFilter;
-            }
         }
         
         // Populate tag filter dropdown with unique tags from all nodes
@@ -9948,38 +10081,36 @@
             const list = document.getElementById('nodes-list');
             const searchQuery = viewSearch.nodes;
             const showClosed = includeClosed.nodes;
-            const typeFilter = nodesTypeFilter;
             const readyIds = new Set((state.ready || []).map(t => t.id));
             
-            // Collect all nodes from different sources
+            // Collect all nodes from different sources based on multi-select filter
             let allNodes = [];
             
             // Tasks and Bugs (from state.tasks)
-            if (!typeFilter || typeFilter === 'task' || typeFilter === 'bug') {
-                (state.tasks || []).forEach(t => {
-                    if (t.type === 'task' || t.type === 'bug') {
-                        if (typeFilter && typeFilter !== t.type) return;
-                        allNodes.push({ ...t, nodeType: t.type });
-                    }
-                });
-            }
+            (state.tasks || []).forEach(t => {
+                if (t.type === 'task' && nodesViewTypeFilters.task) {
+                    allNodes.push({ ...t, nodeType: 'task' });
+                } else if (t.type === 'bug' && nodesViewTypeFilters.bug) {
+                    allNodes.push({ ...t, nodeType: 'bug' });
+                }
+            });
             
             // Ideas (from state.ideas)
-            if (!typeFilter || typeFilter === 'idea') {
+            if (nodesViewTypeFilters.idea) {
                 (state.ideas || []).forEach(idea => {
                     allNodes.push({ ...idea, nodeType: 'idea' });
                 });
             }
             
             // Tests (from state.tests)
-            if (!typeFilter || typeFilter === 'test') {
+            if (nodesViewTypeFilters.test) {
                 (state.tests || []).forEach(test => {
                     allNodes.push({ ...test, nodeType: 'test' });
                 });
             }
             
             // Docs (from state.docs)
-            if (!typeFilter || typeFilter === 'doc') {
+            if (nodesViewTypeFilters.doc) {
                 (state.docs || []).forEach(doc => {
                     allNodes.push({ ...doc, nodeType: 'doc' });
                 });
