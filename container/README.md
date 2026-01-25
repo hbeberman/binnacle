@@ -172,8 +172,8 @@ Environment variables are automatically passed to the container:
 
 | File | Description |
 |------|-------------|
-| `Containerfile` | Fedora 43 base with binnacle, bun, @github/copilot, and dev tools |
-| `entrypoint.sh` | Orchestrates agent setup, execution, and merge |
+| `Containerfile` | Fedora 43 base with binnacle, npm, @github/copilot, nss_wrapper, and dev tools |
+| `entrypoint.sh` | Orchestrates agent setup (with nss_wrapper), execution, and merge |
 
 ## Workflow
 
@@ -236,6 +236,24 @@ git merge --no-ff agent-feature
 - Uses dedicated `binnacle` namespace to isolate from other workloads
 - Resource limits prevent runaway processes
 - Currently requires root/sudo for containerd access
+
+### Container Mode
+
+The container runs as your host user (via `--user UID:GID`):
+
+- File ownership preserved correctly on mounted workspace
+- Uses `nss_wrapper` to provide user identity for Node.js, git, etc.
+- **No sudo access** - agent cannot install packages at runtime
+
+If you need packages not in the base image, add them to the Containerfile and rebuild.
+
+### Network Access
+
+Uses `--net-host` for network access (required for AI agent API calls). The container can access host network interfaces including localhost services.
+
+### User Identity
+
+The container uses `nss_wrapper` with `LD_PRELOAD` to provide user identity without modifying system files. This satisfies tools like `git` and Node.js `os.userInfo()` that call `getpwuid()`.
 
 ## Related
 

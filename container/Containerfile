@@ -19,24 +19,30 @@ RUN dnf install -y \
     unzip \
     python3 \
     python3-pip \
+    nodejs \
+    npm \
+    nss_wrapper \
     && dnf clean all
+
+# Create nss_wrapper template files for default (non-sudo) mode
+# Used by entrypoint.sh to provide user identity for Node.js os.userInfo(), git, etc.
+# when running as host user (not root)
+RUN mkdir -p /etc/nss_wrapper && \
+    cp /etc/passwd /etc/nss_wrapper/passwd && \
+    cp /etc/group /etc/nss_wrapper/group && \
+    chmod 644 /etc/nss_wrapper/passwd /etc/nss_wrapper/group
 
 # Copy binnacle binary (bn container build copies the running binary here)
 # For manual builds: cargo build --release && cp target/release/bn container/bn
 ARG BN_BINARY_PATH=container/bn
 COPY ${BN_BINARY_PATH} /usr/local/bin/bn
 
-# Install bun (JavaScript runtime and package manager)
-RUN curl -fsSL https://bun.sh/install | bash
-ENV BUN_INSTALL="/root/.bun"
-ENV PATH="$BUN_INSTALL/bin:$PATH"
-
-# Install GitHub Copilot CLI
+# Install GitHub Copilot CLI globally using npm
 # Note: Requires COPILOT_GITHUB_TOKEN at runtime for auth
-RUN bun install -g @github/copilot || true
+RUN npm install -g @github/copilot || true
 
 # Create working directories
-RUN mkdir -p /workspace /binnacle /copilot-config
+RUN mkdir -p /workspace /binnacle
 
 # Set container mode environment variables
 ENV BN_CONTAINER_MODE=true

@@ -676,3 +676,71 @@ fn test_work_branch_tracking() {
 
     assert_eq!(branch_name, "feature-xyz", "Should detect current branch");
 }
+
+// === Container Security Tests ===
+
+#[test]
+fn test_container_run_help_shows_shell_flag() {
+    // Verify the --shell flag appears in help
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.args(["container", "run", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--shell"))
+        .stdout(predicate::str::contains("interactive shell"));
+}
+
+#[test]
+fn test_nss_wrapper_templates_exist() {
+    // Verify the Containerfile creates nss_wrapper template files
+    let containerfile_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("container")
+        .join("Containerfile");
+
+    let content = fs::read_to_string(&containerfile_path).expect("Failed to read Containerfile");
+
+    // Should create nss_wrapper directory with templates
+    assert!(
+        content.contains("/etc/nss_wrapper"),
+        "Containerfile should create /etc/nss_wrapper directory"
+    );
+    assert!(
+        content.contains("nss_wrapper"),
+        "Containerfile should install nss_wrapper package"
+    );
+    // Should NOT have the old passwd hacks
+    assert!(
+        !content.contains("chmod 666 /etc/passwd"),
+        "Containerfile should NOT make /etc/passwd world-writable"
+    );
+    assert!(
+        !content.contains("chmod 666 /etc/shadow"),
+        "Containerfile should NOT make /etc/shadow world-writable"
+    );
+}
+
+#[test]
+fn test_entrypoint_nss_wrapper_setup() {
+    // Verify entrypoint.sh sets up nss_wrapper for non-root mode
+    let entrypoint_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("container")
+        .join("entrypoint.sh");
+
+    let content = fs::read_to_string(&entrypoint_path).expect("Failed to read entrypoint.sh");
+
+    // Should check if running as root
+    assert!(
+        content.contains("CURRENT_UID") && content.contains("!= \"0\""),
+        "entrypoint.sh should check if running as non-root"
+    );
+
+    // Should set up nss_wrapper env vars
+    assert!(
+        content.contains("LD_PRELOAD"),
+        "entrypoint.sh should set LD_PRELOAD for nss_wrapper"
+    );
+    assert!(
+        content.contains("NSS_WRAPPER_PASSWD"),
+        "entrypoint.sh should set NSS_WRAPPER_PASSWD"
+    );
+}

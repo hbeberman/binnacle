@@ -2,7 +2,63 @@
 # Binnacle Container Worker Entrypoint
 # This script initializes the agent environment and runs the AI agent
 
-set -e
+set -eu
+
+# Set up writable HOME for non-root user (git config, tool caches, etc.)
+if [ ! -w "${HOME:-/}" ]; then
+    export HOME="/tmp/agent-home"
+fi
+mkdir -p "$HOME"
+# Ensure we own the HOME directory (may exist from previous run)
+if [ ! -O "$HOME" ]; then
+    echo "⚠️  Warning: $HOME exists but is not owned by current user (UID $(id -u))"
+    echo "   Some tools may fail to write config files"
+fi
+
+# Handle user identity based on mode:
+# - --allow-sudo mode: Running as root (UID 0), no setup needed
+# - Default mode: Running as host user, need nss_wrapper for identity
+CURRENT_UID=$(id -u)
+CURRENT_GID=$(id -g)
+
+if [ "$CURRENT_UID" != "0" ]; then
+    # Default mode: set up nss_wrapper for user identity
+    # This provides user info for Node.js os.userInfo(), git, etc.
+
+    # Validate nss_wrapper library and template files exist
+    if [ ! -f /usr/lib64/libnss_wrapper.so ]; then
+        echo "❌ nss_wrapper library not found at /usr/lib64/libnss_wrapper.so"
+        echo "   The container image may be corrupted. Rebuild with 'bn container build'"
+        exit 1
+    fi
+    if [ ! -f /etc/nss_wrapper/passwd ] || [ ! -f /etc/nss_wrapper/group ]; then
+        echo "❌ nss_wrapper template files not found in /etc/nss_wrapper/"
+        echo "   The container image may be corrupted. Rebuild with 'bn container build'"
+        exit 1
+    fi
+
+    NSS_WRAPPER_DIR="$HOME/.nss_wrapper"
+    mkdir -p "$NSS_WRAPPER_DIR"
+
+    # Copy base files and add our user
+    cp /etc/nss_wrapper/passwd "$NSS_WRAPPER_DIR/passwd"
+    cp /etc/nss_wrapper/group "$NSS_WRAPPER_DIR/group"
+
+    echo "agent:x:${CURRENT_UID}:${CURRENT_GID}:Binnacle Agent:${HOME}:/bin/bash" >> "$NSS_WRAPPER_DIR/passwd"
+
+    # Use grep -F for literal string match (GID could theoretically contain regex chars)
+    if ! grep -Fq ":${CURRENT_GID}:" "$NSS_WRAPPER_DIR/group"; then
+        echo "agent:x:${CURRENT_GID}:" >> "$NSS_WRAPPER_DIR/group"
+    fi
+
+    export LD_PRELOAD=/usr/lib64/libnss_wrapper.so
+    export NSS_WRAPPER_PASSWD="$NSS_WRAPPER_DIR/passwd"
+    export NSS_WRAPPER_GROUP="$NSS_WRAPPER_DIR/group"
+
+    echo "🔧 Running as user (UID $CURRENT_UID) - sudo not available"
+else
+    echo "🔧 Running as root (--allow-sudo mode) - sudo available"
+fi
 
 # Configuration with defaults
 BN_AGENT_TYPE="${BN_AGENT_TYPE:-worker}"
@@ -27,26 +83,23 @@ WORK_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 echo "📍 Working on branch: $WORK_BRANCH"
 
 # Check for shell mode (debugging)
-if [ "$1" = "shell" ] || [ "$1" = "bash" ]; then
+# Use ${1:-} to handle unset $1 with set -u
+if [ "${1:-}" = "shell" ] || [ "${1:-}" = "bash" ]; then
     echo "🐚 Starting interactive shell..."
     exec /bin/bash
 fi
 
-# Ensure bun is in PATH
-export BUN_INSTALL="${BUN_INSTALL:-/root/.bun}"
-export PATH="$BUN_INSTALL/bin:$PATH"
-
 # Run the AI agent
 echo "🤖 Starting AI agent..."
 if command -v copilot &> /dev/null; then
-    copilot --allow-all-tools "$BN_INITIAL_PROMPT"
+    copilot --allow-all -p "$BN_INITIAL_PROMPT"
     AGENT_EXIT=$?
 elif command -v claude &> /dev/null; then
-    claude "$BN_INITIAL_PROMPT"
+    claude -p "$BN_INITIAL_PROMPT"
     AGENT_EXIT=$?
 else
     echo "❌ No AI agent found (copilot or claude CLI)"
-    echo "   Please install @github/copilot via: bun install -g @github/copilot"
+    echo "   Please install @github/copilot via: npm install -g @github/copilot"
     exit 1
 fi
 
