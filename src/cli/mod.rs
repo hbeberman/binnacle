@@ -235,28 +235,21 @@ pub enum Commands {
         command: ContainerCommands,
     },
 
-    /// Start the web GUI (requires 'gui' feature)
+    /// Web GUI management commands (requires 'gui' feature)
     #[cfg(feature = "gui")]
     Gui {
+        #[command(subcommand)]
+        command: Option<GuiCommands>,
+
         /// Port to listen on (default: auto-select starting from 3030, or BN_GUI_PORT env var)
-        #[arg(short, long, env = "BN_GUI_PORT")]
+        /// Used when no subcommand is given (starts server)
+        #[arg(short, long, env = "BN_GUI_PORT", global = true)]
         port: Option<u16>,
 
         /// Host address to bind to (default: 0.0.0.0 for network access, use 127.0.0.1 for local only)
-        #[arg(long, env = "BN_GUI_HOST", default_value = "0.0.0.0")]
+        /// Used when no subcommand is given (starts server)
+        #[arg(long, env = "BN_GUI_HOST", default_value = "0.0.0.0", global = true)]
         host: String,
-
-        /// Show status of running GUI server and exit
-        #[arg(long)]
-        status: bool,
-
-        /// Stop a running GUI server gracefully (SIGTERM, then SIGKILL after timeout)
-        #[arg(long)]
-        stop: bool,
-
-        /// Stop any running GUI server and start a new one (combines --stop + start)
-        #[arg(long)]
-        replace: bool,
     },
 }
 
@@ -983,6 +976,40 @@ pub enum QueueCommands {
     Rm {
         /// Task or bug ID to remove from queue (e.g., bn-xxxx)
         item_id: String,
+    },
+}
+
+/// GUI subcommands (web interface management)
+#[cfg(feature = "gui")]
+#[derive(Subcommand, Debug)]
+pub enum GuiCommands {
+    /// Start the web GUI server (default if no subcommand given)
+    #[command(name = "serve", visible_alias = "start")]
+    Serve {
+        /// Port to listen on (default: auto-select starting from 3030, or BN_GUI_PORT env var)
+        #[arg(short, long, env = "BN_GUI_PORT")]
+        port: Option<u16>,
+
+        /// Host address to bind to (default: 0.0.0.0 for network access, use 127.0.0.1 for local only)
+        #[arg(long, env = "BN_GUI_HOST", default_value = "0.0.0.0")]
+        host: String,
+
+        /// Stop any running GUI server first and start a new one
+        #[arg(long)]
+        replace: bool,
+    },
+
+    /// Show status of running GUI server
+    Status,
+
+    /// Stop a running GUI server gracefully (SIGTERM, then SIGKILL after timeout)
+    Stop,
+
+    /// Kill a running GUI server immediately
+    Kill {
+        /// Force immediate termination with SIGKILL (same as -9)
+        #[arg(short = '9', long)]
+        force: bool,
     },
 }
 
