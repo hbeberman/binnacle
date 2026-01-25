@@ -38,6 +38,8 @@ TOOLS_FULL=(
     --allow-tool "shell(find:*)"
     --allow-tool "shell(printf:*)"
     --allow-tool "shell(curl:*)"
+    --allow-tool "shell(awk:*)"
+    --allow-tool "shell(pgrep:*)"
 )
 
 TOOLS_PRD=(
