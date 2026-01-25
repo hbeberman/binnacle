@@ -2,7 +2,7 @@
 
 use axum::{
     Json, Router,
-    extract::{Path as AxumPath, State},
+    extract::{Path as AxumPath, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse},
     routing::{get, post},
@@ -476,31 +476,143 @@ async fn get_edges(State(state): State<AppState>) -> Result<Json<serde_json::Val
     Ok(Json(serde_json::json!({ "edges": edges_with_meta })))
 }
 
-/// Get activity log (limited to most recent entries to reduce bandwidth)
-const MAX_LOG_ENTRIES: usize = 100;
+/// Query parameters for log pagination endpoint
+#[derive(Debug, Deserialize)]
+struct LogQueryParams {
+    /// Maximum entries to return (default: 100, max: 1000)
+    limit: Option<u32>,
+    /// Offset for pagination
+    offset: Option<u32>,
+    /// Only return entries before this ISO 8601 timestamp
+    before: Option<String>,
+    /// Filter by command name (partial match)
+    command: Option<String>,
+    /// Filter by user (exact match)
+    user: Option<String>,
+    /// Filter by success status (true/false)
+    success: Option<bool>,
+}
 
-async fn get_log(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+/// Get activity log with pagination and filtering support.
+///
+/// Query parameters:
+/// - `limit`: Maximum entries to return (default: 100, max: 1000)
+/// - `offset`: Number of entries to skip
+/// - `before`: Only return entries before this ISO 8601 timestamp
+/// - `command`: Filter by command name (partial match)
+/// - `user`: Filter by user (exact match)
+/// - `success`: Filter by success status (true/false)
+async fn get_log(
+    State(state): State<AppState>,
+    Query(params): Query<LogQueryParams>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let storage = state.storage.lock().await;
 
-    // Read the action log file directly since there's no get_log method
+    // Try to query from SQLite cache first (fast, supports pagination)
+    let logs_result = storage.query_action_logs(
+        params.limit,
+        params.offset,
+        params.before.as_deref(),
+        params.command.as_deref(),
+        params.user.as_deref(),
+        params.success,
+    );
+
+    if let Ok(logs) = logs_result {
+        // Get total count for pagination info
+        let total = storage
+            .count_action_logs(
+                params.before.as_deref(),
+                params.command.as_deref(),
+                params.user.as_deref(),
+                params.success,
+            )
+            .unwrap_or(0);
+
+        let entries: Vec<serde_json::Value> = logs
+            .into_iter()
+            .map(|log| {
+                serde_json::json!({
+                    "timestamp": log.timestamp.to_rfc3339(),
+                    "repo_path": log.repo_path,
+                    "command": log.command,
+                    "args": log.args,
+                    "success": log.success,
+                    "error": log.error,
+                    "duration_ms": log.duration_ms,
+                    "user": log.user,
+                })
+            })
+            .collect();
+
+        return Ok(Json(serde_json::json!({
+            "log": entries,
+            "total": total,
+            "limit": params.limit.unwrap_or(100).min(1000),
+            "offset": params.offset.unwrap_or(0),
+        })));
+    }
+
+    // Fallback: read from JSONL file directly (for backward compatibility)
     let log_path = storage.root.join("../action.log");
     let log_entries = if log_path.exists() {
         std::fs::read_to_string(&log_path)
             .map(|content| {
-                let entries: Vec<_> = content
+                let mut entries: Vec<_> = content
                     .lines()
                     .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
                     .collect();
-                // Return only the most recent entries to limit bandwidth
-                let start = entries.len().saturating_sub(MAX_LOG_ENTRIES);
-                entries[start..].to_vec()
+
+                // Apply filters manually for fallback path
+                if let Some(ref cmd_filter) = params.command {
+                    entries.retain(|e| {
+                        e.get("command")
+                            .and_then(|c| c.as_str())
+                            .map(|c| c.contains(cmd_filter))
+                            .unwrap_or(false)
+                    });
+                }
+
+                if let Some(ref user_filter) = params.user {
+                    entries.retain(|e| {
+                        e.get("user")
+                            .and_then(|u| u.as_str())
+                            .map(|u| u == user_filter)
+                            .unwrap_or(false)
+                    });
+                }
+
+                if let Some(success_filter) = params.success {
+                    entries.retain(|e| {
+                        e.get("success")
+                            .and_then(|s| s.as_bool())
+                            .map(|s| s == success_filter)
+                            .unwrap_or(false)
+                    });
+                }
+
+                // Sort by timestamp descending (newest first)
+                entries.reverse();
+
+                // Apply pagination
+                let total = entries.len();
+                let offset = params.offset.unwrap_or(0) as usize;
+                let limit = params.limit.unwrap_or(100).min(1000) as usize;
+                let paginated: Vec<_> = entries.into_iter().skip(offset).take(limit).collect();
+
+                (paginated, total)
             })
-            .unwrap_or_default()
+            .unwrap_or_else(|_| (vec![], 0))
     } else {
-        vec![]
+        (vec![], 0)
     };
 
-    Ok(Json(serde_json::json!({ "log": log_entries })))
+    Ok(Json(serde_json::json!({
+        "log": log_entries.0,
+        "total": log_entries.1,
+        "limit": params.limit.unwrap_or(100).min(1000),
+        "offset": params.offset.unwrap_or(0),
+    })))
 }
 
 /// Request body for adding an edge
