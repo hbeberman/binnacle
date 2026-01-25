@@ -1,6 +1,6 @@
 [package]
 name = "binnacle"
-version = "0.0.1-alpha.3"
+version = "0.0.1-alpha.4"
 edition = "2024"
 description = "A CLI tool for AI agents and humans to track project graphs"
 license = "MIT"
