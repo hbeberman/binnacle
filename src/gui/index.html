@@ -168,6 +168,25 @@
             padding: 0.15rem 0.5rem;
         }
 
+        .active-task-duration {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 0.35rem;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .active-task-duration .duration-icon {
+            font-size: 0.75rem;
+            opacity: 0.7;
+        }
+
+        .active-task-duration .duration-value {
+            font-family: monospace;
+            color: var(--warning);
+        }
+
         /* Available work counter */
         .available-work-pane {
             background: var(--bg-tertiary);
@@ -4773,6 +4792,7 @@
                 <div class="active-task-id" id="active-task-id">No active task</div>
                 <div class="active-task-title" id="active-task-title"></div>
                 <div class="active-task-meta" id="active-task-meta"></div>
+                <div class="active-task-duration" id="active-task-duration"></div>
             </div>
             <div class="recently-completed-pane empty" id="recently-completed-pane">
                 <div class="recently-completed-pane-header">
@@ -5998,6 +6018,7 @@
             const idEl = document.getElementById('active-task-id');
             const titleEl = document.getElementById('active-task-title');
             const metaEl = document.getElementById('active-task-meta');
+            const durationEl = document.getElementById('active-task-duration');
             
             // Find first in_progress task
             const activeTask = state.tasks.find(t => t.status === 'in_progress');
@@ -6019,12 +6040,23 @@
                     });
                 }
                 metaEl.innerHTML = metaHtml;
+                
+                // Show duration since task became active (using updated_at as proxy for status change time)
+                if (activeTask.updated_at) {
+                    const startTime = new Date(activeTask.updated_at).getTime();
+                    const elapsed = Date.now() - startTime;
+                    const durationStr = formatTaskDuration(elapsed);
+                    durationEl.innerHTML = `<span class="duration-icon">⏱</span> Active for <span class="duration-value">${durationStr}</span>`;
+                } else {
+                    durationEl.innerHTML = '';
+                }
             } else {
                 pane.classList.add('empty');
                 idEl.textContent = 'No active task';
                 titleEl.textContent = '';
                 titleEl.title = '';
                 metaEl.innerHTML = '';
+                durationEl.innerHTML = '';
             }
         }
         
@@ -12309,6 +12341,28 @@
             return `${Math.round(ms / 3600000)}h`;
         }
         
+        // Format task duration (how long a task has been active) to a friendly string
+        // Returns format like "2h 15m", "45m", "3d 4h", etc.
+        function formatTaskDuration(ms) {
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const days = Math.floor(hours / 24);
+            
+            if (days > 0) {
+                const remainingHours = hours % 24;
+                return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+            }
+            if (hours > 0) {
+                const remainingMinutes = minutes % 60;
+                return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+            }
+            if (minutes > 0) {
+                return `${minutes}m`;
+            }
+            return 'just started';
+        }
+        
         // Render a single log entry (extracted for reuse)
         function renderLogEntry(entry, searchText, showingMixed) {
             const formatted = formatLogEntry(entry);
@@ -13678,6 +13732,11 @@
         setInterval(() => {
             updateRecentlyCompletedPane();
         }, 30000); // Refresh every 30 seconds
+        
+        // Periodically refresh the active task duration display (more frequently for better UX)
+        setInterval(() => {
+            updateActiveTaskPane();
+        }, 60000); // Refresh every minute
     </script>
 </body>
 </html>
