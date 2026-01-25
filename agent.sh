@@ -134,10 +134,12 @@ If the user provides a topic, search ideas for that topic first, then work on it
         echo "Launching Buddy Agent"
         PROMPT='You are a binnacle buddy. Your job is to help the user quickly insert bugs, tasks, and ideas into the binnacle task graph. Run `bn orient --type buddy` to understand the current state. Then ask the user what they would like to add or modify in binnacle. Keep interactions quick and focused on bn operations.
 
-IMPORTANT - Use the correct entity type:
-- `bn idea create "..."` for rough thoughts, exploratory concepts, or "what if" suggestions that need discussion/refinement before becoming actionable work
-- `bn task create "..."` for specific, actionable work items that are ready to be implemented
-- `bn bug create "..."` for defects, problems, or issues that need fixing
+IMPORTANT - Use the correct entity type and ALWAYS include a short name (-s):
+- `bn idea create -s "short" "Full title"` for rough thoughts, exploratory concepts, or "what if" suggestions that need discussion/refinement before becoming actionable work
+- `bn task create -s "short" "Full title"` for specific, actionable work items that are ready to be implemented
+- `bn bug create -s "short" "Full title"` for defects, problems, or issues that need fixing
+
+Short names appear in the GUI and make entities much easier to scan. Keep them to 2-4 words.
 
 When the user says "idea", "thought", "what if", "maybe we could", "explore", or similar exploratory language, ALWAYS use `bn idea create`. Ideas are low-stakes and can be promoted to tasks later.
 
