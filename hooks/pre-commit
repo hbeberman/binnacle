@@ -63,5 +63,59 @@ if ! cargo audit 2>&1; then
     exit 1
 fi
 
+# Check for documentation litter (new markdown files in unexpected locations)
+echo "  → Checking for documentation litter..."
+
+# Allowed locations for markdown files:
+# - docs/           (documentation directory)
+# - prds/           (PRD files)
+# - Root level known files: README.md, CONTRIBUTING.md, AGENTS.md, PRD.md, 
+#                           LICENSE, CHANGELOG.md, IDEAS.md, PROMPT.md
+ALLOWED_ROOT_MD="README.md|CONTRIBUTING.md|AGENTS.md|PRD.md|LICENSE|CHANGELOG.md|IDEAS.md|PROMPT.md"
+
+# Get newly added or modified markdown files
+new_md_files=$(git diff --cached --name-only --diff-filter=A -- '*.md' 2>/dev/null || true)
+
+litter_found=""
+for file in $new_md_files; do
+    # Skip allowed directories
+    if [[ "$file" == docs/* ]] || [[ "$file" == prds/* ]]; then
+        continue
+    fi
+    
+    # Skip allowed root-level files
+    basename=$(basename "$file")
+    if [[ "$basename" =~ ^($ALLOWED_ROOT_MD)$ ]]; then
+        continue
+    fi
+    
+    # Skip if the file is not at root level (nested in other dirs like tests/, src/)
+    # Only check for litter at repo root
+    if [[ "$file" != "$basename" ]]; then
+        continue
+    fi
+    
+    # This is a new markdown file at repo root that's not in the allowed list
+    litter_found="$litter_found $file"
+done
+
+if [ -n "$litter_found" ]; then
+    echo ""
+    echo "⚠️  Documentation litter detected!"
+    echo "   The following markdown files are being added to unexpected locations:"
+    for file in $litter_found; do
+        echo "     - $file"
+    done
+    echo ""
+    echo "   Documentation should go in:"
+    echo "     - docs/        for general documentation"
+    echo "     - prds/        for PRDs and design docs"
+    echo "     - Or use: bn doc create <entity> -T 'Title' -c 'content'"
+    echo ""
+    echo "   If this is intentional, add the filename to ALLOWED_ROOT_MD in hooks/pre-commit"
+    echo "   Or skip with: git commit --no-verify"
+    exit 1
+fi
+
 echo "✅ All pre-commit checks passed!"
 exit 0
