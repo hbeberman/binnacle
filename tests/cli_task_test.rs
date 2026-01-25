@@ -2438,3 +2438,108 @@ fn test_task_close_human_readable_shows_incomplete_deps_error() {
         .stderr(predicate::str::contains("incomplete dependencies"))
         .stderr(predicate::str::contains("--force"));
 }
+
+// === Complexity Check Tests ===
+
+#[test]
+fn test_task_create_with_check_complexity_simple_task() {
+    let temp = init_binnacle();
+
+    // Simple task should not trigger complexity detection
+    bn_in(&temp)
+        .args(["task", "create", "--check-complexity", "Fix typo in README"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"complexity_detected\":false"))
+        .stdout(predicate::str::contains("\"task_created\":{"));
+}
+
+#[test]
+fn test_task_create_with_check_complexity_complex_task() {
+    let temp = init_binnacle();
+
+    // Complex task should trigger soft-gate suggestion
+    bn_in(&temp)
+        .args([
+            "task",
+            "create",
+            "--check-complexity",
+            "Add authentication and fix database and improve logging",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"complexity_detected\":true"))
+        .stdout(predicate::str::contains("\"suggestion\":"))
+        .stdout(predicate::str::contains("\"proceed_command\":"))
+        .stdout(predicate::str::contains("\"idea_command\":"))
+        // Should NOT contain task_created since it was blocked
+        .stdout(predicate::str::contains("\"task_created\":null").not());
+}
+
+#[test]
+fn test_task_create_with_check_complexity_human_readable() {
+    let temp = init_binnacle();
+
+    // Complex task with human-readable output
+    bn_in(&temp)
+        .args([
+            "-H",
+            "task",
+            "create",
+            "--check-complexity",
+            "Explore caching and investigate patterns",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("better as an **idea**"))
+        .stdout(predicate::str::contains("What would you like to do?"))
+        .stdout(predicate::str::contains("bn idea create"))
+        .stdout(predicate::str::contains("--force"));
+}
+
+#[test]
+fn test_task_create_with_force_bypasses_complexity() {
+    let temp = init_binnacle();
+
+    // Force flag should bypass complexity check and create task
+    bn_in(&temp)
+        .args([
+            "task",
+            "create",
+            "--force",
+            "Add authentication and fix database and improve logging",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"id\":\"bn-"))
+        .stdout(predicate::str::contains("\"title\":"));
+}
+
+#[test]
+fn test_task_create_check_complexity_with_all_options() {
+    let temp = init_binnacle();
+
+    // Complex task with all options - verify they appear in proceed_command
+    bn_in(&temp)
+        .args([
+            "task",
+            "create",
+            "--check-complexity",
+            "Explore caching options and investigate patterns",
+            "-s",
+            "explore cache",
+            "-d",
+            "Need to research",
+            "-p",
+            "1",
+            "-t",
+            "research",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"complexity_detected\":true"))
+        .stdout(predicate::str::contains("-s \\\"explore cache\\\""))
+        .stdout(predicate::str::contains("-d \\\"Need to research\\\""))
+        .stdout(predicate::str::contains("-p 1"))
+        .stdout(predicate::str::contains("-t research"));
+}

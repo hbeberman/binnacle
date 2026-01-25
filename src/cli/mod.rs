@@ -291,6 +291,15 @@ pub enum TaskCommands {
         /// Add to work queue immediately after creation
         #[arg(short = 'q', long)]
         queue: bool,
+
+        /// Check for complexity and suggest filing as idea if detected
+        /// (useful for buddy agents to soft-gate complex task descriptions)
+        #[arg(long)]
+        check_complexity: bool,
+
+        /// Force task creation even if complexity is detected
+        #[arg(long)]
+        force: bool,
     },
 
     /// List tasks
