@@ -50,8 +50,8 @@
             --agent-stale: #4a6670;
             /* Edge type colors - queued */
             --edge-queued: #20b2aa;
-            /* Edge type colors - agent working_on */
-            --edge-agent: #00d4ff;
+            /* Edge type colors - agent working_on (yellow for visibility) */
+            --edge-agent: #f0c040;
             /* Edge type colors - agent worked_on (grey, like a dead/historical link) */
             --edge-agent-past: #6b7a8a;
             /* Node type colors - docs (by doc_type) */
@@ -8531,7 +8531,15 @@
                 (node.type === 'agent' && node.status === 'active')
             );
             
-            if (!hasActiveInteraction && !hasAnimatedNodes) {
+            // Check if any visible edges have animation (e.g., working_on edges)
+            const hasAnimatedEdges = edges.some(edge => {
+                if (!state.edgeFilters[edge.edge_type]) return false;
+                if (!visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) return false;
+                const style = getEdgeStyle(edge.edge_type);
+                return style.animated;
+            });
+            
+            if (!hasActiveInteraction && !hasAnimatedNodes && !hasAnimatedEdges) {
                 const isStable = visibleNodes.every(node => {
                     const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
                     return speed < state.graph.STABLE_THRESHOLD;
@@ -8548,7 +8556,7 @@
                     state.graph.stableFrameCount = 0;
                 }
             } else {
-                // Reset stability counter during interactions or when animated nodes are present
+                // Reset stability counter during interactions, animated nodes, or animated edges
                 state.graph.stableFrameCount = 0;
             }
 
@@ -9350,9 +9358,10 @@
                     };
                 case 'working_on':
                     return {
-                        color: styles.getPropertyValue('--edge-agent').trim() || '#00d4ff',
+                        color: styles.getPropertyValue('--edge-agent').trim() || '#f0c040',
                         dashed: true,  // Dotted line for active work
-                        lineWidth: 3  // Thicker to stand out
+                        lineWidth: 3,  // Thicker to stand out
+                        animated: true  // Enable marching animation
                     };
                 case 'worked_on':
                     return {
@@ -9419,8 +9428,17 @@
             // Set dash pattern for informational edges
             if (edgeStyle.dashed) {
                 ctx.setLineDash([6, 4]);
+                // Animated edges: use lineDashOffset to create marching ants effect
+                if (edgeStyle.animated) {
+                    // Animation flows from source to target (negative offset)
+                    const speed = 0.03;  // pixels per millisecond
+                    ctx.lineDashOffset = -(state.graph.animationTime * speed) % 10;
+                } else {
+                    ctx.lineDashOffset = 0;
+                }
             } else {
                 ctx.setLineDash([]);
+                ctx.lineDashOffset = 0;
             }
 
             // Calculate midpoint for arrow head
