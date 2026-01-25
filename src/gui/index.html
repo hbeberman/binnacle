@@ -7783,10 +7783,32 @@
                 depsSection.style.display = 'none';
             }
 
-            // Relationships - show all edges connected to this node (excluding depends_on which are shown above)
-            const nodeEdges = (state.edges || []).filter(edge => 
-                (edge.source === task.id || edge.target === task.id) && edge.edge_type !== 'depends_on'
-            );
+            // Relationships - show all edges connected to this node
+            // Exclude outbound depends_on (shown in Dependencies section above)
+            // Include inbound depends_on as "Blocks" relationships
+            const nodeEdges = (state.edges || []).filter(edge => {
+                const isSource = edge.source === task.id;
+                const isTarget = edge.target === task.id;
+                if (!isSource && !isTarget) return false;
+                // Exclude outbound depends_on (those are in Dependencies section)
+                if (isSource && edge.edge_type === 'depends_on') return false;
+                return true;
+            });
+            
+            // Map for inverse relationship names (when this node is the target)
+            const inverseNames = {
+                depends_on: 'Blocks',
+                blocks: 'Depends',
+                child_of: 'Parent Of',
+                parent_of: 'Child Of',
+                fixes: 'Fixed By',
+                caused_by: 'Causes',
+                documents: 'Documented By',
+                tests: 'Tested By',
+                supersedes: 'Superseded By',
+                impacts: 'Impacted By'
+            };
+            
             if (nodeEdges.length > 0) {
                 relationshipsList.innerHTML = nodeEdges.map(edge => {
                     const isOutbound = edge.source === task.id;
@@ -7795,7 +7817,14 @@
                     const relatedTitle = relatedTask?.short_name || relatedTask?.title || '';
                     const relatedStatus = relatedTask?.status || '';
                     const edgeType = EDGE_TYPES[edge.edge_type] || {};
-                    const edgeTypeName = edgeType.name || edge.edge_type;
+                    
+                    // Use inverse name for inbound edges, regular name for outbound
+                    let edgeTypeName;
+                    if (isOutbound) {
+                        edgeTypeName = edgeType.name || edge.edge_type;
+                    } else {
+                        edgeTypeName = inverseNames[edge.edge_type] || edgeType.name || edge.edge_type;
+                    }
                     
                     // Build status badge HTML if we have a status
                     const statusBadge = relatedStatus 
