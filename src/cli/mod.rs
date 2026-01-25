@@ -1003,7 +1003,11 @@ pub enum GuiCommands {
     Status,
 
     /// Stop a running GUI server gracefully (SIGTERM, then SIGKILL after timeout)
-    Stop,
+    Stop {
+        /// Force immediate termination with SIGKILL (skip SIGTERM, 500ms wait)
+        #[arg(short = '9', long)]
+        force: bool,
+    },
 
     /// Kill a running GUI server immediately
     Kill {
