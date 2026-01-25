@@ -195,13 +195,12 @@ fn sanitize_args(args: &serde_json::Value) -> serde_json::Value {
                 s.clone()
             };
 
-            // Truncate long strings
-            if sanitized.len() > 100 {
-                serde_json::Value::String(format!(
-                    "{}... ({} chars)",
-                    &sanitized[..97],
-                    sanitized.len()
-                ))
+            // Truncate long strings (by character count, not bytes)
+            let char_count = sanitized.chars().count();
+            if char_count > 100 {
+                // Take first 97 characters safely
+                let truncated: String = sanitized.chars().take(97).collect();
+                serde_json::Value::String(format!("{}... ({} chars)", truncated, char_count))
             } else {
                 serde_json::Value::String(sanitized)
             }
@@ -319,5 +318,37 @@ mod tests {
         assert_eq!(sanitized["user"]["name"], "alice");
         assert_eq!(sanitized["user"]["password"], "[REDACTED]");
         assert_eq!(sanitized["file"], "data.txt");
+    }
+
+    #[test]
+    fn test_sanitize_string_with_emoji() {
+        // String with emojis that exceeds 100 characters
+        let emoji_str = "🎉".repeat(105); // 105 emoji chars
+        let value = serde_json::json!(emoji_str);
+        let sanitized = sanitize_args(&value);
+
+        if let serde_json::Value::String(s) = sanitized {
+            assert!(s.contains("... (105 chars)"), "Got: {}", s);
+            // Verify the string is valid UTF-8 and doesn't panic
+            assert!(s.chars().count() > 0);
+        } else {
+            panic!("Expected string value");
+        }
+    }
+
+    #[test]
+    fn test_sanitize_mixed_ascii_emoji_string() {
+        // Mix of ASCII and emoji that exceeds 100 chars
+        // 95 ASCII + 10 emoji = 105 chars, but 95 + 40 = 135 bytes
+        let mixed = format!("{}{}", "a".repeat(95), "🎉".repeat(10));
+        let value = serde_json::json!(mixed);
+        // This should not panic even though we have multi-byte chars
+        let sanitized = sanitize_args(&value);
+
+        if let serde_json::Value::String(s) = sanitized {
+            assert!(s.contains("... (105 chars)"), "Got: {}", s);
+        } else {
+            panic!("Expected string value");
+        }
     }
 }
