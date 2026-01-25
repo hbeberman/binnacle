@@ -6666,6 +6666,21 @@
             ctx.closePath();
         }
 
+        // Draw a person silhouette path for agent nodes (circle head + semicircle body)
+        function drawPersonPath(ctx, cx, cy, radius) {
+            const headRadius = radius * 0.4;
+            const headY = cy - radius * 0.25;
+            const bodyY = cy + radius * 0.15;
+            const bodyRadius = radius * 0.7;
+            
+            // Head (full circle)
+            ctx.arc(cx, headY, headRadius, 0, Math.PI * 2);
+            
+            // Body (semicircle below, flat side up)
+            ctx.moveTo(cx + bodyRadius, bodyY);
+            ctx.arc(cx, bodyY, bodyRadius, 0, Math.PI);
+        }
+
         // Draw a square path centered at (cx, cy) with the given radius (half-side length)
         function drawSquarePath(ctx, cx, cy, radius) {
             ctx.moveTo(cx - radius, cy - radius);  // Top-left
@@ -6881,7 +6896,7 @@
                 if (node.type === 'queue') {
                     drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
                 } else if (node.type === 'agent') {
-                    drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
+                    drawPersonPath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
                 } else if (node.type === 'bug') {
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 10 * zoom);
                 } else if (node.type === 'idea') {
@@ -6904,7 +6919,7 @@
                 if (node.type === 'queue') {
                     drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'agent') {
-                    drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                    drawPersonPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'bug') {
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'idea') {
@@ -6926,7 +6941,7 @@
                 if (node.type === 'queue') {
                     drawHexagonPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'agent') {
-                    drawDiamondPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
+                    drawPersonPath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'bug') {
                     drawSquarePath(ctx, screenPos.x, screenPos.y, radius + 8 * zoom);
                 } else if (node.type === 'idea') {
@@ -7024,12 +7039,12 @@
                 ctx.restore();
             }
 
-            // Draw node shape (hexagon for queue, diamond for agent, square for bug, cloud for idea, doc for doc, circle for others)
+            // Draw node shape (hexagon for queue, person for agent, square for bug, cloud for idea, doc for doc, circle for others)
             ctx.beginPath();
             if (node.type === 'queue') {
                 drawHexagonPath(ctx, screenPos.x, screenPos.y, radius);
             } else if (node.type === 'agent') {
-                drawDiamondPath(ctx, screenPos.x, screenPos.y, radius);
+                drawPersonPath(ctx, screenPos.x, screenPos.y, radius);
             } else if (node.type === 'bug') {
                 drawSquarePath(ctx, screenPos.x, screenPos.y, radius);
             } else if (node.type === 'idea') {
@@ -7046,37 +7061,40 @@
             ctx.stroke();
 
             // Draw text - show short_name if set, with task ID below in smaller font
-            ctx.fillStyle = '#1a2332';
-            const baseFontSize = 12 * Math.max(0.8, Math.min(1.5, zoom));
-            const smallFontSize = baseFontSize * 0.75;
-            ctx.textAlign = 'center';
+            // Skip text for agent nodes (person silhouette is self-explanatory, ID shown on hover/tooltip)
+            if (node.type !== 'agent') {
+                ctx.fillStyle = '#1a2332';
+                const baseFontSize = 12 * Math.max(0.8, Math.min(1.5, zoom));
+                const smallFontSize = baseFontSize * 0.75;
+                ctx.textAlign = 'center';
 
-            if (node.short_name) {
-                // Format short_name with word wrap
-                const labelLines = formatNodeLabel(node.short_name, 8, 2);
-                const lineHeight = baseFontSize * 1.2;
-                
-                // Calculate total height for centering
-                const totalLines = labelLines.length + 1; // +1 for ID below
-                const totalHeight = (totalLines - 1) * lineHeight;
-                const startY = screenPos.y - totalHeight / 2 + baseFontSize / 2;
-                
-                // Draw short_name lines
-                ctx.font = (isHovered || isDragging) ? `bold ${baseFontSize}px sans-serif` : `${baseFontSize}px sans-serif`;
-                ctx.textBaseline = 'middle';
-                labelLines.forEach((line, i) => {
-                    ctx.fillText(line, screenPos.x, startY + i * lineHeight);
-                });
-                
-                // Draw task ID below in smaller font
-                ctx.font = `${smallFontSize}px sans-serif`;
-                ctx.fillStyle = 'rgba(26, 35, 50, 0.7)';
-                ctx.fillText(node.id, screenPos.x, startY + labelLines.length * lineHeight);
-            } else {
-                // No short_name - just show task ID centered
-                ctx.font = (isHovered || isDragging) ? `bold ${baseFontSize}px sans-serif` : `${baseFontSize}px sans-serif`;
-                ctx.textBaseline = 'middle';
-                ctx.fillText(node.id, screenPos.x, screenPos.y);
+                if (node.short_name) {
+                    // Format short_name with word wrap
+                    const labelLines = formatNodeLabel(node.short_name, 8, 2);
+                    const lineHeight = baseFontSize * 1.2;
+                    
+                    // Calculate total height for centering
+                    const totalLines = labelLines.length + 1; // +1 for ID below
+                    const totalHeight = (totalLines - 1) * lineHeight;
+                    const startY = screenPos.y - totalHeight / 2 + baseFontSize / 2;
+                    
+                    // Draw short_name lines
+                    ctx.font = (isHovered || isDragging) ? `bold ${baseFontSize}px sans-serif` : `${baseFontSize}px sans-serif`;
+                    ctx.textBaseline = 'middle';
+                    labelLines.forEach((line, i) => {
+                        ctx.fillText(line, screenPos.x, startY + i * lineHeight);
+                    });
+                    
+                    // Draw task ID below in smaller font
+                    ctx.font = `${smallFontSize}px sans-serif`;
+                    ctx.fillStyle = 'rgba(26, 35, 50, 0.7)';
+                    ctx.fillText(node.id, screenPos.x, startY + labelLines.length * lineHeight);
+                } else {
+                    // No short_name - just show task ID centered
+                    ctx.font = (isHovered || isDragging) ? `bold ${baseFontSize}px sans-serif` : `${baseFontSize}px sans-serif`;
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(node.id, screenPos.x, screenPos.y);
+                }
             }
             
             // Reset globalAlpha after drawing
