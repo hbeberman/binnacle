@@ -3133,6 +3133,12 @@
                             <option value="doc">Docs</option>
                         </select>
                     </div>
+                    <div class="node-type-filter">
+                        <label class="filter-label">Tag:</label>
+                        <select id="nodes-tag-filter" class="type-filter-select">
+                            <option value="">All</option>
+                        </select>
+                    </div>
                     <div class="include-closed-toggle">
                         <span class="include-closed-label">Include closed</span>
                         <button class="include-closed-switch" id="nodes-include-closed" title="Include closed/done nodes"></button>
@@ -3550,6 +3556,9 @@
 
         // Node type filter for consolidated nodes view
         let nodesTypeFilter = '';
+        
+        // Node tag filter for consolidated nodes view
+        let nodesTagFilter = '';
 
         // WebSocket connection
         let pendingReload = null;
@@ -4147,6 +4156,7 @@
                     renderAgentsSidebar();  // Update agents sidebar on graph view
                     break;
                 case 'nodes':
+                    updateTagFilterDropdown();  // Update tag dropdown when switching to nodes view
                     renderNodes();
                     break;
                 case 'agents':
@@ -4801,6 +4811,14 @@
                     renderNodes();
                 });
             }
+            
+            const tagFilter = document.getElementById('nodes-tag-filter');
+            if (tagFilter) {
+                tagFilter.addEventListener('change', () => {
+                    nodesTagFilter = tagFilter.value;
+                    renderNodes();
+                });
+            }
         }
 
         // Check if an item matches the view search query
@@ -4813,6 +4831,51 @@
                 item.description || ''
             ].join(' ').toLowerCase();
             return haystack.includes(query);
+        }
+        
+        // Populate tag filter dropdown with unique tags from all nodes
+        function updateTagFilterDropdown() {
+            const tagFilter = document.getElementById('nodes-tag-filter');
+            if (!tagFilter) return;
+            
+            // Collect all unique tags from all node types
+            const tags = new Set();
+            
+            (state.tasks || []).forEach(t => {
+                (t.tags || []).forEach(tag => tags.add(tag));
+            });
+            (state.ideas || []).forEach(idea => {
+                (idea.tags || []).forEach(tag => tags.add(tag));
+            });
+            (state.tests || []).forEach(test => {
+                (test.tags || []).forEach(tag => tags.add(tag));
+            });
+            (state.docs || []).forEach(doc => {
+                (doc.tags || []).forEach(tag => tags.add(tag));
+            });
+            
+            // Sort tags alphabetically
+            const sortedTags = [...tags].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+            
+            // Preserve current selection
+            const currentValue = tagFilter.value;
+            
+            // Rebuild options
+            tagFilter.innerHTML = '<option value="">All</option>';
+            sortedTags.forEach(tag => {
+                const option = document.createElement('option');
+                option.value = tag;
+                option.textContent = tag;
+                tagFilter.appendChild(option);
+            });
+            
+            // Restore selection if still valid
+            if (sortedTags.includes(currentValue)) {
+                tagFilter.value = currentValue;
+            } else {
+                tagFilter.value = '';
+                nodesTagFilter = '';
+            }
         }
 
         // Find and pan to the first active agent or in_progress task, zooming to 100%
@@ -6798,6 +6861,15 @@
             // Apply search filter
             if (searchQuery) {
                 allNodes = allNodes.filter(node => itemMatchesViewSearch(node, searchQuery));
+            }
+            
+            // Apply tag filter
+            const tagFilter = nodesTagFilter;
+            if (tagFilter) {
+                allNodes = allNodes.filter(node => {
+                    const nodeTags = node.tags || [];
+                    return nodeTags.includes(tagFilter);
+                });
             }
             
             // Sort: open first, ready first, by priority, then by ID

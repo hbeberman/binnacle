@@ -1,6 +1,6 @@
 # Ideas
 
-- [ ] Add tag filtering to web view
+- [x] Add tag filtering to web view
 - [ ] Add meta nodes in web view of tags
 - [x] Make graph view more circular without a harsh boundary so the graph doesnt squish
 - [x] Support zooming in web view
