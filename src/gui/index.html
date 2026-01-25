@@ -1340,7 +1340,8 @@
         }
 
         /* Doc type filter */
-        .doc-type-filter {
+        .doc-type-filter,
+        .node-type-filter {
             display: flex;
             align-items: center;
             gap: 0.4rem;
@@ -3004,13 +3005,13 @@
             margin-right: 0.5em;
         }
 
-        /* Clickable doc cards */
-        #docs-list .card {
+        /* Clickable doc cards in nodes list */
+        .card[data-doc-id] {
             cursor: pointer;
             transition: transform 0.15s ease, box-shadow 0.15s ease;
         }
 
-        #docs-list .card:hover {
+        .card[data-doc-id]:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
@@ -3052,11 +3053,7 @@
                 <p class="subtitle">Project State Tracker</p>
                 <nav>
                     <button class="nav-btn active" data-view="graph">Graph</button>
-                    <button class="nav-btn" data-view="ready">Tasks</button>
-                    <button class="nav-btn" data-view="bugs">Bugs</button>
-                    <button class="nav-btn" data-view="ideas">Ideas</button>
-                    <button class="nav-btn" data-view="tests">Tests</button>
-                    <button class="nav-btn" data-view="docs">Docs</button>
+                    <button class="nav-btn" data-view="nodes">Nodes</button>
                     <button class="nav-btn" data-view="agents">Agents</button>
                     <button class="nav-btn" data-view="log">Activity Log</button>
                 </nav>
@@ -3224,69 +3221,29 @@
                 </div>
             </div>
 
-            <div id="ready-view" class="view">
+            <div id="nodes-view" class="view">
                 <div class="view-search-container">
                     <div class="view-search-wrapper">
                         <span class="view-search-icon">🔍</span>
-                        <input class="view-search" id="tasks-search" type="text" placeholder="Search tasks…" autocomplete="off" spellcheck="false" />
+                        <input class="view-search" id="nodes-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" />
                     </div>
-                    <div class="include-closed-toggle">
-                        <span class="include-closed-label">Include closed</span>
-                        <button class="include-closed-switch" id="tasks-include-closed" title="Include closed/done tasks in search"></button>
-                    </div>
-                </div>
-                <div class="task-list" id="ready-list"></div>
-            </div>
-
-            <div id="bugs-view" class="view">
-                <div class="view-search-container">
-                    <div class="view-search-wrapper">
-                        <span class="view-search-icon">🔍</span>
-                        <input class="view-search" id="bugs-search" type="text" placeholder="Search bugs…" autocomplete="off" spellcheck="false" />
-                    </div>
-                    <div class="include-closed-toggle">
-                        <span class="include-closed-label">Include closed</span>
-                        <button class="include-closed-switch" id="bugs-include-closed" title="Include closed/done bugs in search"></button>
-                    </div>
-                </div>
-                <div class="task-list" id="bugs-list"></div>
-            </div>
-
-            <div id="ideas-view" class="view">
-                <div class="view-search-container">
-                    <div class="view-search-wrapper">
-                        <span class="view-search-icon">🔍</span>
-                        <input class="view-search" id="ideas-search" type="text" placeholder="Search ideas…" autocomplete="off" spellcheck="false" />
-                    </div>
-                    <div class="include-closed-toggle">
-                        <span class="include-closed-label">Include closed</span>
-                        <button class="include-closed-switch" id="ideas-include-closed" title="Include closed/done ideas in search"></button>
-                    </div>
-                </div>
-                <div class="task-list" id="ideas-list"></div>
-            </div>
-
-            <div id="tests-view" class="view">
-                <div class="test-list" id="test-list"></div>
-            </div>
-
-            <div id="docs-view" class="view">
-                <div class="view-search-container">
-                    <div class="view-search-wrapper">
-                        <span class="view-search-icon">🔍</span>
-                        <input class="view-search" id="docs-search" type="text" placeholder="Search docs…" autocomplete="off" spellcheck="false" />
-                    </div>
-                    <div class="doc-type-filter">
+                    <div class="node-type-filter">
                         <label class="filter-label">Type:</label>
-                        <select id="docs-type-filter" class="type-filter-select">
+                        <select id="nodes-type-filter" class="type-filter-select">
                             <option value="">All</option>
-                            <option value="prd">PRD</option>
-                            <option value="note">Note</option>
-                            <option value="handoff">Handoff</option>
+                            <option value="task">Tasks</option>
+                            <option value="bug">Bugs</option>
+                            <option value="idea">Ideas</option>
+                            <option value="test">Tests</option>
+                            <option value="doc">Docs</option>
                         </select>
                     </div>
+                    <div class="include-closed-toggle">
+                        <span class="include-closed-label">Include closed</span>
+                        <button class="include-closed-switch" id="nodes-include-closed" title="Include closed/done nodes"></button>
+                    </div>
                 </div>
-                <div class="task-list" id="docs-list"></div>
+                <div class="task-list" id="nodes-list"></div>
             </div>
 
             <div id="agents-view" class="view">
@@ -3688,17 +3645,16 @@
 
         // View search state
         const viewSearch = {
-            tasks: '',
-            bugs: '',
-            ideas: ''
+            nodes: ''
         };
 
         // Include closed state (for searching through completed items)
         const includeClosed = {
-            tasks: false,
-            bugs: false,
-            ideas: false
+            nodes: false
         };
+
+        // Node type filter for consolidated nodes view
+        let nodesTypeFilter = '';
 
         // WebSocket connection
         let pendingReload = null;
@@ -4316,20 +4272,8 @@
                     renderGraph();
                     renderAgentsSidebar();  // Update agents sidebar on graph view
                     break;
-                case 'ready':
-                    renderReady();
-                    break;
-                case 'bugs':
-                    renderBugs();
-                    break;
-                case 'ideas':
-                    renderIdeas();
-                    break;
-                case 'tests':
-                    renderTests();
-                    break;
-                case 'docs':
-                    renderDocs();
+                case 'nodes':
+                    renderNodes();
                     break;
                 case 'agents':
                     renderAgents();
@@ -4947,69 +4891,40 @@
             });
         }
 
-        // Initialize view search bars (Tasks, Bugs, Ideas)
+        // Initialize view search bar for consolidated Nodes view
         function initializeViewSearch() {
-            const searchConfigs = [
-                { inputId: 'tasks-search', toggleId: 'tasks-include-closed', key: 'tasks', renderFn: renderReady },
-                { inputId: 'bugs-search', toggleId: 'bugs-include-closed', key: 'bugs', renderFn: renderBugs },
-                { inputId: 'ideas-search', toggleId: 'ideas-include-closed', key: 'ideas', renderFn: renderIdeas }
-            ];
+            const input = document.getElementById('nodes-search');
+            const toggle = document.getElementById('nodes-include-closed');
+            const typeFilter = document.getElementById('nodes-type-filter');
 
-            searchConfigs.forEach(({ inputId, toggleId, key, renderFn }) => {
-                const input = document.getElementById(inputId);
-                if (!input) return;
-
+            if (input) {
                 input.addEventListener('input', () => {
-                    viewSearch[key] = input.value.toLowerCase();
-                    renderFn();
+                    viewSearch.nodes = input.value.toLowerCase();
+                    renderNodes();
                 });
 
                 input.addEventListener('keydown', (e) => {
                     if (e.key === 'Escape') {
                         input.value = '';
-                        viewSearch[key] = '';
-                        renderFn();
-                        e.preventDefault();
-                    }
-                });
-
-                // Initialize include-closed toggle
-                const toggle = document.getElementById(toggleId);
-                if (toggle) {
-                    toggle.addEventListener('click', () => {
-                        includeClosed[key] = !includeClosed[key];
-                        toggle.classList.toggle('active', includeClosed[key]);
-                        renderFn();
-                    });
-                }
-            });
-        }
-
-        // Initialize docs search and type filter
-        function initializeDocsSearch() {
-            const searchInput = document.getElementById('docs-search');
-            const typeFilter = document.getElementById('docs-type-filter');
-            
-            if (searchInput) {
-                searchInput.addEventListener('input', () => {
-                    docsSearch = searchInput.value.toLowerCase();
-                    renderDocs();
-                });
-                
-                searchInput.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape') {
-                        searchInput.value = '';
-                        docsSearch = '';
-                        renderDocs();
+                        viewSearch.nodes = '';
+                        renderNodes();
                         e.preventDefault();
                     }
                 });
             }
-            
+
+            if (toggle) {
+                toggle.addEventListener('click', () => {
+                    includeClosed.nodes = !includeClosed.nodes;
+                    toggle.classList.toggle('active', includeClosed.nodes);
+                    renderNodes();
+                });
+            }
+
             if (typeFilter) {
                 typeFilter.addEventListener('change', () => {
-                    docsTypeFilter = typeFilter.value;
-                    renderDocs();
+                    nodesTypeFilter = typeFilter.value;
+                    renderNodes();
                 });
             }
         }
@@ -6951,271 +6866,270 @@
             }
         }
 
-        function renderReady() {
-            const list = document.getElementById('ready-list');
-            const searchQuery = viewSearch.tasks;
-            const showClosed = includeClosed.tasks;
-            
-            // Get tasks and bugs - if includeClosed is on, get all; otherwise only unclosed
-            let filteredTasks;
-            if (showClosed) {
-                // When includeClosed is on, show all tasks/bugs
-                filteredTasks = (state.tasks || []).filter(t => 
-                    (t.type === 'task' || t.type === 'bug')
-                );
-            } else {
-                // Default behavior: only unclosed tasks
-                filteredTasks = (state.tasks || []).filter(t => 
-                    (t.type === 'task' || t.type === 'bug') && 
-                    t.status !== 'done' && 
-                    t.status !== 'cancelled'
-                );
-            }
-            
-            // Apply search filter
-            if (searchQuery) {
-                filteredTasks = filteredTasks.filter(t => itemMatchesViewSearch(t, searchQuery));
-            }
-            
-            // Sort: open tasks first (when showing closed), ready tasks first, then by priority, then by ID
+        // Unified render function for all node types (tasks, bugs, ideas, tests, docs)
+        function renderNodes() {
+            const list = document.getElementById('nodes-list');
+            const searchQuery = viewSearch.nodes;
+            const showClosed = includeClosed.nodes;
+            const typeFilter = nodesTypeFilter;
             const readyIds = new Set((state.ready || []).map(t => t.id));
-            filteredTasks.sort((a, b) => {
-                // If showing closed, put open items first
-                if (showClosed) {
-                    const aOpen = a.status !== 'done' && a.status !== 'cancelled';
-                    const bOpen = b.status !== 'done' && b.status !== 'cancelled';
-                    if (aOpen !== bOpen) return bOpen - aOpen;  // Open first
-                }
-                const aReady = readyIds.has(a.id);
-                const bReady = readyIds.has(b.id);
-                if (aReady !== bReady) return bReady - aReady;  // Ready first
-                if (a.priority !== b.priority) return a.priority - b.priority;  // Lower priority number first
-                return a.id.localeCompare(b.id);
-            });
             
-            if (filteredTasks.length === 0) {
-                list.innerHTML = searchQuery 
-                    ? '<div class="empty-state">No tasks match your search</div>'
-                    : '<div class="empty-state">No open tasks</div>';
-                return;
-            }
-            list.innerHTML = filteredTasks.map(task => {
-                const isQueued = isNodeQueued(task.id);
-                const isReady = readyIds.has(task.id);
-                const isClosed = task.status === 'done' || task.status === 'cancelled';
-                const isBlocked = !isClosed && (task.status === 'blocked' || !isReady);
-                const isBug = task.type === 'bug';
-                const blockingReasons = isBlocked ? getBlockingReasons(task.id) : [];
-                const reasonText = blockingReasons.length > 0 ? blockingReasons[0] : '';
-                return `
-                <div class="card ${isBlocked ? 'card-blocked' : ''} ${isClosed ? 'card-closed' : ''}">
-                    ${isClosed ? `<div class="closed-banner">✓ ${task.status === 'done' ? 'Done' : 'Cancelled'}</div>` : ''}
-                    ${isBlocked ? `<div class="blocked-banner">🚫 Blocked${reasonText ? `<div class="blocked-reason" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</div>` : ''}</div>` : ''}
-                    <div class="card-header">
-                        <div class="card-title">${isBug ? '🐛 ' : ''}${escapeHtml(task.title)}</div>
-                        <div class="card-actions">
-                            <button class="card-jump-btn" data-task-id="${task.id}" title="Jump to node on graph">
-                                📍
-                            </button>
-                            ${!isClosed ? `<button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
-                                    data-task-id="${task.id}" 
-                                    title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
-                            </button>` : ''}
-                        </div>
-                    </div>
-                    <div class="card-meta">
-                        <span class="badge badge-priority-${task.priority}">P${task.priority}</span>
-                        <span class="badge" style="background: var(--bg-tertiary)">${task.id}</span>
-                        ${(task.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
-                    </div>
-                </div>
-            `}).join('');
+            // Collect all nodes from different sources
+            let allNodes = [];
             
-            // Attach event handlers to queue toggle buttons
-            list.querySelectorAll('.card-queue-toggle').forEach(btn => {
-                btn.addEventListener('click', handleCardQueueToggle);
-            });
-            
-            // Attach event handlers to jump buttons
-            list.querySelectorAll('.card-jump-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const taskId = e.currentTarget.getAttribute('data-task-id');
-                    // Disable auto-follow when user explicitly navigates to a specific node
-                    state.graph.autoFollow = false;
-                    updateAutoFollowDisplay();
-                    // Switch to graph view and pan to the node
-                    switchView('graph');
-                    panToNode(taskId, true);
-                    // Select the node
-                    const node = state.graph.nodes.find(n => n.id === taskId);
-                    if (node) {
-                        state.graph.selectedNode = node;
-                        showInfoPanel(node);
+            // Tasks and Bugs (from state.tasks)
+            if (!typeFilter || typeFilter === 'task' || typeFilter === 'bug') {
+                (state.tasks || []).forEach(t => {
+                    if (t.type === 'task' || t.type === 'bug') {
+                        if (typeFilter && typeFilter !== t.type) return;
+                        allNodes.push({ ...t, nodeType: t.type });
                     }
                 });
-            });
-        }
-
-        function renderBugs() {
-            const list = document.getElementById('bugs-list');
-            const searchQuery = viewSearch.bugs;
-            const showClosed = includeClosed.bugs;
+            }
             
-            // Get bugs - if includeClosed is on, get all; otherwise only open
-            let filteredBugs;
-            if (showClosed) {
-                filteredBugs = (state.tasks || []).filter(t => t.type === 'bug');
-            } else {
-                filteredBugs = (state.tasks || []).filter(t => 
-                    t.type === 'bug' && 
-                    t.status !== 'done' && 
-                    t.status !== 'cancelled'
-                );
+            // Ideas (from state.ideas)
+            if (!typeFilter || typeFilter === 'idea') {
+                (state.ideas || []).forEach(idea => {
+                    allNodes.push({ ...idea, nodeType: 'idea' });
+                });
+            }
+            
+            // Tests (from state.tests)
+            if (!typeFilter || typeFilter === 'test') {
+                (state.tests || []).forEach(test => {
+                    allNodes.push({ ...test, nodeType: 'test' });
+                });
+            }
+            
+            // Docs (from state.docs)
+            if (!typeFilter || typeFilter === 'doc') {
+                (state.docs || []).forEach(doc => {
+                    allNodes.push({ ...doc, nodeType: 'doc' });
+                });
+            }
+            
+            // Filter by closed status
+            if (!showClosed) {
+                allNodes = allNodes.filter(node => {
+                    if (node.nodeType === 'task' || node.nodeType === 'bug') {
+                        return node.status !== 'done' && node.status !== 'cancelled';
+                    } else if (node.nodeType === 'idea') {
+                        return node.status === 'seed' || node.status === 'germinating';
+                    }
+                    // Tests and docs don't have a closed state
+                    return true;
+                });
             }
             
             // Apply search filter
             if (searchQuery) {
-                filteredBugs = filteredBugs.filter(b => itemMatchesViewSearch(b, searchQuery));
+                allNodes = allNodes.filter(node => itemMatchesViewSearch(node, searchQuery));
             }
             
-            // Check which bugs are ready (no blockers)
-            const readyIds = new Set((state.ready || []).filter(t => t.type === 'bug').map(t => t.id));
-            
-            // Sort: open bugs first (when showing closed), ready bugs first, then by priority, then by ID
-            filteredBugs.sort((a, b) => {
-                // If showing closed, put open items first
-                if (showClosed) {
+            // Sort: open first, ready first, by priority, then by ID
+            allNodes.sort((a, b) => {
+                // Type ordering: tasks/bugs first, then ideas, then tests, then docs
+                const typeOrder = { task: 0, bug: 1, idea: 2, test: 3, doc: 4 };
+                if (typeOrder[a.nodeType] !== typeOrder[b.nodeType]) {
+                    return typeOrder[a.nodeType] - typeOrder[b.nodeType];
+                }
+                
+                // For tasks/bugs: open first, ready first, priority
+                if (a.nodeType === 'task' || a.nodeType === 'bug') {
                     const aOpen = a.status !== 'done' && a.status !== 'cancelled';
                     const bOpen = b.status !== 'done' && b.status !== 'cancelled';
-                    if (aOpen !== bOpen) return bOpen - aOpen;  // Open first
-                }
-                const aReady = readyIds.has(a.id);
-                const bReady = readyIds.has(b.id);
-                if (aReady !== bReady) return bReady - aReady;  // Ready first
-                if (a.priority !== b.priority) return a.priority - b.priority;  // Lower priority number first
-                return a.id.localeCompare(b.id);
-            });
-            
-            if (filteredBugs.length === 0) {
-                list.innerHTML = searchQuery
-                    ? '<div class="empty-state">No bugs match your search</div>'
-                    : '<div class="empty-state">No open bugs 🎉</div>';
-                return;
-            }
-            list.innerHTML = filteredBugs.map(bug => {
-                const isQueued = isNodeQueued(bug.id);
-                const isReady = readyIds.has(bug.id);
-                const isClosed = bug.status === 'done' || bug.status === 'cancelled';
-                const isBlocked = !isClosed && (bug.status === 'blocked' || !isReady);
-                const blockingReasons = isBlocked ? getBlockingReasons(bug.id) : [];
-                const reasonText = blockingReasons.length > 0 ? blockingReasons[0] : '';
-                return `
-                <div class="card ${isBlocked ? 'card-blocked' : ''} ${isClosed ? 'card-closed' : ''}">
-                    ${isClosed ? `<div class="closed-banner">✓ ${bug.status === 'done' ? 'Fixed' : 'Cancelled'}</div>` : ''}
-                    ${isBlocked ? `<div class="blocked-banner">🚫 Blocked${reasonText ? `<div class="blocked-reason" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</div>` : ''}</div>` : ''}
-                    <div class="card-header">
-                        <div class="card-title">🐛 ${escapeHtml(bug.title)}</div>
-                        <div class="card-actions">
-                            <button class="card-jump-btn" data-task-id="${bug.id}" title="Jump to node on graph">
-                                📍
-                            </button>
-                            ${!isClosed ? `<button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
-                                    data-task-id="${bug.id}" 
-                                    title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
-                            </button>` : ''}
-                        </div>
-                    </div>
-                    ${bug.description ? `<div class="card-description">${escapeHtml(bug.description)}</div>` : ''}
-                    <div class="card-meta">
-                        <span class="badge badge-priority-${bug.priority}">P${bug.priority}</span>
-                        <span class="badge" style="background: var(--bg-tertiary)">${bug.id}</span>
-                        ${(bug.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
-                    </div>
-                </div>
-            `}).join('');
-            
-            // Attach event handlers to queue toggle buttons
-            list.querySelectorAll('.card-queue-toggle').forEach(btn => {
-                btn.addEventListener('click', handleCardQueueToggle);
-            });
-            
-            // Attach event handlers to jump buttons
-            list.querySelectorAll('.card-jump-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const taskId = e.currentTarget.getAttribute('data-task-id');
-                    // Disable auto-follow when user explicitly navigates to a specific node
-                    state.graph.autoFollow = false;
-                    updateAutoFollowDisplay();
-                    // Switch to graph view and pan to the node
-                    switchView('graph');
-                    panToNode(taskId, true);
-                    // Select the node
-                    const node = state.graph.nodes.find(n => n.id === taskId);
-                    if (node) {
-                        state.graph.selectedNode = node;
-                        showInfoPanel(node);
+                    if (aOpen !== bOpen) return bOpen - aOpen;
+                    
+                    const aReady = readyIds.has(a.id);
+                    const bReady = readyIds.has(b.id);
+                    if (aReady !== bReady) return bReady - aReady;
+                    
+                    if ((a.priority ?? 2) !== (b.priority ?? 2)) {
+                        return (a.priority ?? 2) - (b.priority ?? 2);
                     }
-                });
-            });
-        }
-
-        function renderIdeas() {
-            const list = document.getElementById('ideas-list');
-            const searchQuery = viewSearch.ideas;
-            const showClosed = includeClosed.ideas;
-            
-            // Get ideas - if includeClosed is on, get all; otherwise only open (seed or germinating)
-            let filteredIdeas;
-            if (showClosed) {
-                filteredIdeas = state.ideas.slice();  // All ideas
-            } else {
-                filteredIdeas = state.ideas.filter(idea => 
-                    idea.status === 'seed' || idea.status === 'germinating'
-                );
-            }
-            
-            // Apply search filter
-            if (searchQuery) {
-                filteredIdeas = filteredIdeas.filter(idea => itemMatchesViewSearch(idea, searchQuery));
-            }
-            
-            // Sort: open ideas first when showing closed
-            if (showClosed) {
-                filteredIdeas.sort((a, b) => {
+                }
+                
+                // For ideas: open first
+                if (a.nodeType === 'idea') {
                     const aOpen = a.status === 'seed' || a.status === 'germinating';
                     const bOpen = b.status === 'seed' || b.status === 'germinating';
-                    if (aOpen !== bOpen) return bOpen - aOpen;  // Open first
-                    return a.id.localeCompare(b.id);
-                });
-            }
+                    if (aOpen !== bOpen) return bOpen - aOpen;
+                }
+                
+                return a.id.localeCompare(b.id);
+            });
             
-            if (filteredIdeas.length === 0) {
-                list.innerHTML = searchQuery
-                    ? '<div class="empty-state">No ideas match your search</div>'
-                    : '<div class="empty-state">No open ideas</div>';
+            if (allNodes.length === 0) {
+                const filterDesc = typeFilter ? typeFilter + 's' : 'nodes';
+                list.innerHTML = searchQuery 
+                    ? `<div class="empty-state">No ${filterDesc} match your search</div>`
+                    : `<div class="empty-state">No open ${filterDesc}</div>`;
                 return;
             }
-            list.innerHTML = filteredIdeas.map(idea => {
-                const isClosed = idea.status !== 'seed' && idea.status !== 'germinating';
-                const statusLabel = idea.status === 'seed' ? '🌱 Seed' 
-                    : idea.status === 'germinating' ? '🌿 Germinating'
-                    : idea.status === 'promoted' ? '🚀 Promoted'
-                    : idea.status === 'wilted' ? '🥀 Wilted'
-                    : idea.status;
-                return `
-                <div class="card ${isClosed ? 'card-closed' : ''}">
-                    ${isClosed ? `<div class="closed-banner">✓ ${idea.status === 'promoted' ? 'Promoted' : 'Wilted'}</div>` : ''}
-                    <div class="card-header">
-                        <div class="card-title">${escapeHtml(idea.title)}</div>
-                    </div>
-                    ${idea.description ? `<div class="card-description">${escapeHtml(idea.description)}</div>` : ''}
-                    <div class="card-meta">
-                        <span class="badge" style="background: var(--idea-${idea.status === 'seed' || idea.status === 'germinating' ? idea.status : 'done'})">${statusLabel}</span>
-                        <span class="badge" style="background: var(--bg-tertiary)">${idea.id}</span>
-                        ${(idea.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+            
+            list.innerHTML = allNodes.map(node => renderNodeCard(node, readyIds)).join('');
+            
+            // Attach event handlers to queue toggle buttons
+            list.querySelectorAll('.card-queue-toggle').forEach(btn => {
+                btn.addEventListener('click', handleCardQueueToggle);
+            });
+            
+            // Attach event handlers to jump buttons
+            list.querySelectorAll('.card-jump-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const nodeId = e.currentTarget.getAttribute('data-task-id');
+                    state.graph.autoFollow = false;
+                    updateAutoFollowDisplay();
+                    switchView('graph');
+                    panToNode(nodeId, true);
+                    const graphNode = state.graph.nodes.find(n => n.id === nodeId);
+                    if (graphNode) {
+                        state.graph.selectedNode = graphNode;
+                        showInfoPanel(graphNode);
+                    }
+                });
+            });
+        }
+        
+        // Render a single node card based on its type
+        function renderNodeCard(node, readyIds) {
+            switch (node.nodeType) {
+                case 'task':
+                case 'bug':
+                    return renderTaskBugCard(node, readyIds);
+                case 'idea':
+                    return renderIdeaCard(node);
+                case 'test':
+                    return renderTestCard(node);
+                case 'doc':
+                    return renderDocCard(node);
+                default:
+                    return '';
+            }
+        }
+        
+        function renderTaskBugCard(node, readyIds) {
+            const isQueued = isNodeQueued(node.id);
+            const isReady = readyIds.has(node.id);
+            const isClosed = node.status === 'done' || node.status === 'cancelled';
+            const isBlocked = !isClosed && (node.status === 'blocked' || !isReady);
+            const isBug = node.nodeType === 'bug';
+            const blockingReasons = isBlocked ? getBlockingReasons(node.id) : [];
+            const reasonText = blockingReasons.length > 0 ? blockingReasons[0] : '';
+            
+            return `
+            <div class="card ${isBlocked ? 'card-blocked' : ''} ${isClosed ? 'card-closed' : ''}">
+                ${isClosed ? `<div class="closed-banner">✓ ${node.status === 'done' ? (isBug ? 'Fixed' : 'Done') : 'Cancelled'}</div>` : ''}
+                ${isBlocked ? `<div class="blocked-banner">🚫 Blocked${reasonText ? `<div class="blocked-reason" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</div>` : ''}</div>` : ''}
+                <div class="card-header">
+                    <div class="card-title">${isBug ? '🐛 ' : ''}${escapeHtml(node.title)}</div>
+                    <div class="card-actions">
+                        <button class="card-jump-btn" data-task-id="${node.id}" title="Jump to node on graph">
+                            📍
+                        </button>
+                        ${!isClosed ? `<button class="card-queue-toggle ${isQueued ? 'active' : ''}" 
+                                data-task-id="${node.id}" 
+                                title="${isQueued ? 'Remove from queue' : 'Add to queue'}">
+                        </button>` : ''}
                     </div>
                 </div>
-            `}).join('');
+                ${node.description ? `<div class="card-description">${escapeHtml(node.description)}</div>` : ''}
+                <div class="card-meta">
+                    <span class="badge badge-priority-${node.priority ?? 2}">P${node.priority ?? 2}</span>
+                    <span class="badge" style="background: var(--bg-tertiary)">${node.id}</span>
+                    ${(node.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+                </div>
+            </div>`;
+        }
+        
+        function renderIdeaCard(idea) {
+            const isClosed = idea.status !== 'seed' && idea.status !== 'germinating';
+            const statusLabel = idea.status === 'seed' ? '🌱 Seed' 
+                : idea.status === 'germinating' ? '🌿 Germinating'
+                : idea.status === 'promoted' ? '🚀 Promoted'
+                : idea.status === 'wilted' ? '🥀 Wilted'
+                : idea.status;
+            
+            return `
+            <div class="card ${isClosed ? 'card-closed' : ''}">
+                ${isClosed ? `<div class="closed-banner">✓ ${idea.status === 'promoted' ? 'Promoted' : 'Wilted'}</div>` : ''}
+                <div class="card-header">
+                    <div class="card-title">💡 ${escapeHtml(idea.title)}</div>
+                    <div class="card-actions">
+                        <button class="card-jump-btn" data-task-id="${idea.id}" title="Jump to node on graph">
+                            📍
+                        </button>
+                    </div>
+                </div>
+                ${idea.description ? `<div class="card-description">${escapeHtml(idea.description)}</div>` : ''}
+                <div class="card-meta">
+                    <span class="badge" style="background: var(--idea-${idea.status === 'seed' || idea.status === 'germinating' ? idea.status : 'done'})">${statusLabel}</span>
+                    <span class="badge" style="background: var(--bg-tertiary)">${idea.id}</span>
+                    ${(idea.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+                </div>
+            </div>`;
+        }
+        
+        function renderTestCard(test) {
+            return `
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">🧪 ${escapeHtml(test.name)}</div>
+                    <div class="card-actions">
+                        <button class="card-jump-btn" data-task-id="${test.id}" title="Jump to node on graph">
+                            📍
+                        </button>
+                    </div>
+                </div>
+                <div class="card-meta">
+                    <span class="badge" style="background: var(--bg-tertiary)">${test.id}</span>
+                    <span class="badge ${test.last_status === 'passed' ? 'badge-status-done' : 'badge-status-blocked'}">
+                        ${test.last_status || 'Not run'}
+                    </span>
+                </div>
+            </div>`;
+        }
+        
+        function renderDocCard(doc) {
+            function getDocTypeLabel(docType) {
+                switch (docType) {
+                    case 'prd': return { label: '📋 PRD', color: 'var(--accent-blue)' };
+                    case 'note': return { label: '📝 Note', color: 'var(--info)' };
+                    case 'handoff': return { label: '🔄 Handoff', color: 'var(--warning)' };
+                    default: return { label: docType, color: 'var(--bg-tertiary)' };
+                }
+            }
+            
+            function countLinkedEntities(docId) {
+                return state.edges.filter(e => 
+                    (e.source === docId || e.target === docId) && 
+                    e.edge_type === 'pinned'
+                ).length;
+            }
+            
+            const typeInfo = getDocTypeLabel(doc.doc_type);
+            const linkedCount = countLinkedEntities(doc.id);
+            const summaryDirty = doc.summary_dirty;
+            const summaryPreview = (doc.summary || '').split('\n').filter(l => l.trim()).slice(0, 1).join('').substring(0, 200);
+            
+            return `
+            <div class="card" data-doc-id="${escapeHtml(doc.id)}" onclick="openDocViewer('${escapeHtml(doc.id)}')">
+                <div class="card-header">
+                    <div class="card-title">${escapeHtml(doc.title)}${summaryDirty ? ' <span style="color: var(--warning)" title="Summary needs update">⚠️</span>' : ''}</div>
+                    <div class="card-actions">
+                        <button class="card-jump-btn" data-task-id="${doc.id}" title="Jump to node on graph" onclick="event.stopPropagation()">
+                            📍
+                        </button>
+                    </div>
+                </div>
+                ${summaryPreview ? `<div class="card-description">${escapeHtml(summaryPreview)}${summaryPreview.length >= 200 ? '…' : ''}</div>` : (doc.description ? `<div class="card-description">${escapeHtml(doc.description)}</div>` : '')}
+                <div class="card-meta">
+                    <span class="badge" style="background: ${typeInfo.color}">${typeInfo.label}</span>
+                    <span class="badge" style="background: var(--bg-tertiary)">${doc.id}</span>
+                    ${linkedCount > 0 ? `<span class="badge" style="background: var(--edge-hierarchy)">🔗 ${linkedCount}</span>` : ''}
+                    ${(doc.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+                </div>
+            </div>`;
         }
 
         async function handleCardQueueToggle(event) {
@@ -7249,103 +7163,6 @@
             } finally {
                 btn.disabled = false;
             }
-        }
-
-        function renderTests() {
-            const list = document.getElementById('test-list');
-            if (state.tests.length === 0) {
-                list.innerHTML = '<div class="empty-state">No tests configured</div>';
-                return;
-            }
-            list.innerHTML = state.tests.map(test => `
-                <div class="card">
-                    <div class="card-title">${escapeHtml(test.name)}</div>
-                    <div class="card-meta">
-                        <span class="badge" style="background: var(--bg-tertiary)">${test.id}</span>
-                        <span class="badge ${test.last_status === 'passed' ? 'badge-status-done' : 'badge-status-blocked'}">
-                            ${test.last_status || 'Not run'}
-                        </span>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // Track docs search and filter state
-        let docsSearch = '';
-        let docsTypeFilter = '';
-
-        function renderDocs() {
-            const list = document.getElementById('docs-list');
-            const searchQuery = docsSearch;
-            const typeFilter = docsTypeFilter;
-            
-            let filteredDocs = state.docs.slice();
-            
-            // Apply type filter
-            if (typeFilter) {
-                filteredDocs = filteredDocs.filter(doc => doc.doc_type === typeFilter);
-            }
-            
-            // Apply search filter
-            if (searchQuery) {
-                const query = searchQuery.toLowerCase();
-                filteredDocs = filteredDocs.filter(doc => 
-                    doc.title.toLowerCase().includes(query) ||
-                    (doc.description && doc.description.toLowerCase().includes(query)) ||
-                    doc.id.toLowerCase().includes(query) ||
-                    (doc.tags || []).some(tag => tag.toLowerCase().includes(query))
-                );
-            }
-            
-            // Sort by updated_at (most recent first)
-            filteredDocs.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-            
-            if (filteredDocs.length === 0) {
-                list.innerHTML = searchQuery || typeFilter
-                    ? '<div class="empty-state">No docs match your filters</div>'
-                    : '<div class="empty-state">No docs yet</div>';
-                return;
-            }
-            
-            // Get doc type label and color
-            function getDocTypeLabel(docType) {
-                switch (docType) {
-                    case 'prd': return { label: '📋 PRD', color: 'var(--accent-blue)' };
-                    case 'note': return { label: '📝 Note', color: 'var(--info)' };
-                    case 'handoff': return { label: '🔄 Handoff', color: 'var(--warning)' };
-                    default: return { label: docType, color: 'var(--bg-tertiary)' };
-                }
-            }
-            
-            // Count linked entities for a doc
-            function countLinkedEntities(docId) {
-                return state.edges.filter(e => 
-                    (e.source === docId || e.target === docId) && 
-                    e.edge_type === 'pinned'
-                ).length;
-            }
-            
-            list.innerHTML = filteredDocs.map(doc => {
-                const typeInfo = getDocTypeLabel(doc.doc_type);
-                const linkedCount = countLinkedEntities(doc.id);
-                const summaryDirty = doc.summary_dirty;
-                // Get a brief preview from the summary (first non-empty line, truncated)
-                const summaryPreview = (doc.summary || '').split('\n').filter(l => l.trim()).slice(0, 1).join('').substring(0, 200);
-                
-                return `
-                <div class="card" data-doc-id="${escapeHtml(doc.id)}" onclick="openDocViewer('${escapeHtml(doc.id)}')">
-                    <div class="card-header">
-                        <div class="card-title">${escapeHtml(doc.title)}${summaryDirty ? ' <span style="color: var(--warning)" title="Summary needs update">⚠️</span>' : ''}</div>
-                    </div>
-                    ${summaryPreview ? `<div class="card-description">${escapeHtml(summaryPreview)}${summaryPreview.length >= 200 ? '…' : ''}</div>` : (doc.description ? `<div class="card-description">${escapeHtml(doc.description)}</div>` : '')}
-                    <div class="card-meta">
-                        <span class="badge" style="background: ${typeInfo.color}">${typeInfo.label}</span>
-                        <span class="badge" style="background: var(--bg-tertiary)">${doc.id}</span>
-                        ${linkedCount > 0 ? `<span class="badge" style="background: var(--edge-hierarchy)">🔗 ${linkedCount}</span>` : ''}
-                        ${(doc.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
-                    </div>
-                </div>
-            `}).join('');
         }
 
         function renderAgents() {
@@ -8409,7 +8226,6 @@
         updateHideCompletedDisplay();
         initializeGraphSearch();
         initializeViewSearch();
-        initializeDocsSearch();
         connectWebSocket();
         
         // Periodically refresh the recently completed pane to keep "time ago" display current
