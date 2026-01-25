@@ -6627,6 +6627,7 @@ pub fn queue_delete(repo_path: &Path) -> Result<QueueDeleted> {
 pub struct QueueItemAdded {
     pub queue_id: String,
     pub item_id: String,
+    pub already_queued: bool,
 }
 
 impl Output for QueueItemAdded {
@@ -6635,7 +6636,11 @@ impl Output for QueueItemAdded {
     }
 
     fn to_human(&self) -> String {
-        format!("Added {} to queue {}", self.item_id, self.queue_id)
+        if self.already_queued {
+            format!("{} is already in queue {}", self.item_id, self.queue_id)
+        } else {
+            format!("Added {} to queue {}", self.item_id, self.queue_id)
+        }
     }
 }
 
@@ -6684,10 +6689,14 @@ pub fn queue_add(repo_path: &Path, item_id: &str) -> Result<QueueItemAdded> {
     let queue = storage.get_queue()?;
     let queue_id = queue.id.clone();
 
-    // Check if already queued
+    // Check if already queued - if so, return success (idempotent operation)
     let edges = storage.list_edges(Some(EdgeType::Queued), Some(item_id), Some(&queue_id))?;
     if !edges.is_empty() {
-        return Err(Error::Other(format!("{} is already in the queue", item_id)));
+        return Ok(QueueItemAdded {
+            queue_id,
+            item_id: item_id.to_string(),
+            already_queued: true,
+        });
     }
 
     // Create queued edge
@@ -6703,6 +6712,7 @@ pub fn queue_add(repo_path: &Path, item_id: &str) -> Result<QueueItemAdded> {
     Ok(QueueItemAdded {
         queue_id,
         item_id: item_id.to_string(),
+        already_queued: false,
     })
 }
 
