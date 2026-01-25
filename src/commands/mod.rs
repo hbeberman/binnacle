@@ -3213,11 +3213,33 @@ pub fn task_update(
     remove_tags: Vec<String>,
     assignee: Option<String>,
     force: bool,
+    keep_closed: bool,
+    reopen: bool,
 ) -> Result<TaskUpdated> {
     let mut storage = Storage::open(repo_path)?;
     let mut task = storage.get_task(id)?;
     let mut updated_fields = Vec::new();
     let mut setting_to_done = false;
+
+    // Check if task is closed (Done or Cancelled) and require explicit flag
+    let is_closed = task.status == TaskStatus::Done || task.status == TaskStatus::Cancelled;
+    if is_closed && !keep_closed && !reopen {
+        return Err(Error::Other(format!(
+            "Cannot update closed task {} (status: {:?})\n\n\
+            Closed tasks require explicit intent to modify:\n\
+              --keep-closed  Update without changing status\n\
+              --reopen       Update and set status back to pending\n\n\
+            Example: bn task update {} --title \"New title\" --keep-closed",
+            id, task.status, id
+        )));
+    }
+
+    // Handle --reopen flag: set status to pending
+    if reopen && is_closed {
+        task.status = TaskStatus::Pending;
+        task.closed_at = None;
+        updated_fields.push("status".to_string());
+    }
 
     if let Some(t) = title {
         task.core.title = t;
@@ -4375,10 +4397,32 @@ pub fn bug_update(
     reproduction_steps: Option<String>,
     affected_component: Option<String>,
     force: bool,
+    keep_closed: bool,
+    reopen: bool,
 ) -> Result<BugUpdated> {
     let mut storage = Storage::open(repo_path)?;
     let mut bug = storage.get_bug(id)?;
     let mut updated_fields = Vec::new();
+
+    // Check if bug is closed (Done or Cancelled) and require explicit flag
+    let is_closed = bug.status == TaskStatus::Done || bug.status == TaskStatus::Cancelled;
+    if is_closed && !keep_closed && !reopen {
+        return Err(Error::Other(format!(
+            "Cannot update closed bug {} (status: {:?})\n\n\
+            Closed bugs require explicit intent to modify:\n\
+              --keep-closed  Update without changing status\n\
+              --reopen       Update and set status back to pending\n\n\
+            Example: bn bug update {} --title \"New title\" --keep-closed",
+            id, bug.status, id
+        )));
+    }
+
+    // Handle --reopen flag: set status to pending
+    if reopen && is_closed {
+        bug.status = TaskStatus::Pending;
+        bug.closed_at = None;
+        updated_fields.push("status".to_string());
+    }
 
     if let Some(t) = title {
         bug.core.title = t;
@@ -14537,6 +14581,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -14571,6 +14617,183 @@ mod tests {
         let result = task_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Reopened);
         assert!(result.task.closed_at.is_none());
+    }
+
+    #[test]
+    fn test_closed_task_update_requires_flag() {
+        let temp = setup();
+        let created = task_create(
+            temp.path(),
+            "Test".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Close the task
+        task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
+
+        // Try to update without flag - should fail
+        let result = task_update(
+            temp.path(),
+            &created.id,
+            Some("New Title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+            false,
+            false, // keep_closed
+            false, // reopen
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Cannot update closed task"));
+        assert!(err.contains("--keep-closed"));
+        assert!(err.contains("--reopen"));
+    }
+
+    #[test]
+    fn test_closed_task_update_with_keep_closed() {
+        let temp = setup();
+        let created = task_create(
+            temp.path(),
+            "Test".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Close the task
+        task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
+
+        // Update with --keep-closed - should succeed and keep status as Done
+        let result = task_update(
+            temp.path(),
+            &created.id,
+            Some("Updated Title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+            false,
+            true,  // keep_closed
+            false, // reopen
+        );
+        assert!(result.is_ok());
+
+        // Verify title was updated but status is still Done
+        let task = task_show(temp.path(), &created.id).unwrap().unwrap();
+        assert_eq!(task.task.core.title, "Updated Title");
+        assert_eq!(task.task.status, TaskStatus::Done);
+        assert!(task.task.closed_at.is_some());
+    }
+
+    #[test]
+    fn test_closed_task_update_with_reopen() {
+        let temp = setup();
+        let created = task_create(
+            temp.path(),
+            "Test".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Close the task
+        task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
+
+        // Update with --reopen - should succeed and set status to Pending
+        let result = task_update(
+            temp.path(),
+            &created.id,
+            Some("Reopened Title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+            false,
+            false, // keep_closed
+            true,  // reopen
+        );
+        assert!(result.is_ok());
+
+        // Verify title was updated and status is now Pending
+        let task = task_show(temp.path(), &created.id).unwrap().unwrap();
+        assert_eq!(task.task.core.title, "Reopened Title");
+        assert_eq!(task.task.status, TaskStatus::Pending);
+        assert!(task.task.closed_at.is_none());
+    }
+
+    #[test]
+    fn test_cancelled_task_update_requires_flag() {
+        let temp = setup();
+        let created = task_create(
+            temp.path(),
+            "Test".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Set status to cancelled
+        task_update(
+            temp.path(),
+            &created.id,
+            None,
+            None,
+            None,
+            None,
+            Some("cancelled"),
+            vec![],
+            vec![],
+            None,
+            false,
+            false, // keep_closed
+            false, // reopen
+        )
+        .unwrap();
+
+        // Try to update without flag - should fail
+        let result = task_update(
+            temp.path(),
+            &created.id,
+            Some("New Title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+            false,
+            false, // keep_closed
+            false, // reopen
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Cannot update closed task"));
     }
 
     #[test]
@@ -14911,6 +15134,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_ok());
         let updated = result.unwrap();
@@ -14963,6 +15188,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -15018,6 +15245,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -15054,6 +15283,8 @@ mod tests {
             vec![],
             None,
             true,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_ok());
     }
@@ -15096,6 +15327,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_ok());
     }
@@ -15130,6 +15363,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_ok());
     }
@@ -15177,6 +15412,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_ok());
 
@@ -15242,6 +15479,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_ok(), "First task should succeed");
 
@@ -15258,6 +15497,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_err(), "Second task should fail without force");
         let err = result.unwrap_err().to_string();
@@ -15320,6 +15561,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -15335,7 +15578,9 @@ mod tests {
             vec![],
             vec![],
             None,
-            true, // force = true
+            true,  // force = true
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_ok(), "Second task should succeed with force");
 
@@ -16409,6 +16654,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -16927,6 +17174,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -17240,6 +17489,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -17494,6 +17745,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -17552,6 +17805,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -17605,6 +17860,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -18196,6 +18453,8 @@ mod tests {
             Some("Steps to reproduce".to_string()),
             Some("backend".to_string()),
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -18226,6 +18485,146 @@ mod tests {
         assert_eq!(result.bug.severity, BugSeverity::High);
         assert!(result.bug.core.tags.contains(&"new-tag".to_string()));
         assert_eq!(result.bug.assignee, Some("bob".to_string()));
+    }
+
+    #[test]
+    fn test_closed_bug_update_requires_flag() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Test Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Close the bug
+        bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
+
+        // Try to update without flag - should fail
+        let result = bug_update(
+            temp.path(),
+            &created.id,
+            Some("New Title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+            None,
+            None,
+            false,
+            false, // keep_closed
+            false, // reopen
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Cannot update closed bug"));
+        assert!(err.contains("--keep-closed"));
+        assert!(err.contains("--reopen"));
+    }
+
+    #[test]
+    fn test_closed_bug_update_with_keep_closed() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Test Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Close the bug
+        bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
+
+        // Update with --keep-closed - should succeed
+        let result = bug_update(
+            temp.path(),
+            &created.id,
+            Some("Updated Title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+            None,
+            None,
+            false,
+            true,  // keep_closed
+            false, // reopen
+        );
+        assert!(result.is_ok());
+
+        // Verify title was updated but status is still Done
+        let bug = bug_show(temp.path(), &created.id).unwrap().unwrap();
+        assert_eq!(bug.bug.core.title, "Updated Title");
+        assert_eq!(bug.bug.status, TaskStatus::Done);
+    }
+
+    #[test]
+    fn test_closed_bug_update_with_reopen() {
+        let temp = setup();
+        let created = bug_create(
+            temp.path(),
+            "Test Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Close the bug
+        bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
+
+        // Update with --reopen - should succeed and set status to Pending
+        let result = bug_update(
+            temp.path(),
+            &created.id,
+            Some("Reopened Title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+            None,
+            None,
+            false,
+            false, // keep_closed
+            true,  // reopen
+        );
+        assert!(result.is_ok());
+
+        // Verify title was updated and status is now Pending
+        let bug = bug_show(temp.path(), &created.id).unwrap().unwrap();
+        assert_eq!(bug.bug.core.title, "Reopened Title");
+        assert_eq!(bug.bug.status, TaskStatus::Pending);
     }
 
     #[test]
@@ -18260,6 +18659,8 @@ mod tests {
             None,
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -18299,6 +18700,8 @@ mod tests {
             None,
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
 
@@ -18339,6 +18742,8 @@ mod tests {
             None,
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_err());
         assert!(
@@ -18381,6 +18786,8 @@ mod tests {
             None,
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_err());
         assert!(
@@ -18440,6 +18847,8 @@ mod tests {
             None,
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         );
         assert!(result.is_ok());
 
@@ -20300,6 +20709,8 @@ mod tests {
             vec![],
             None,
             false,
+            false, // keep_closed
+            false, // reopen
         )
         .unwrap();
         task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();

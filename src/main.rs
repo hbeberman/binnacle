@@ -228,6 +228,8 @@ fn run_command(
                 remove_tag,
                 assignee,
                 force,
+                keep_closed,
+                reopen,
             } => {
                 let result = commands::task_update(
                     repo_path,
@@ -241,6 +243,8 @@ fn run_command(
                     remove_tag,
                     assignee,
                     force,
+                    keep_closed,
+                    reopen,
                 )?;
                 output(&result, human);
             }
@@ -324,6 +328,8 @@ fn run_command(
                 reproduction_steps,
                 affected_component,
                 force,
+                keep_closed,
+                reopen,
             } => {
                 let result = commands::bug_update(
                     repo_path,
@@ -340,6 +346,8 @@ fn run_command(
                     reproduction_steps,
                     affected_component,
                     force,
+                    keep_closed,
+                    reopen,
                 )?;
                 output(&result, human);
             }
@@ -1683,6 +1691,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 remove_tag,
                 assignee,
                 force,
+                keep_closed,
+                reopen,
             } => (
                 "task update".to_string(),
                 serde_json::json!({
@@ -1696,6 +1706,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "remove_tag": remove_tag,
                     "assignee": assignee,
                     "force": force,
+                    "keep_closed": keep_closed,
+                    "reopen": reopen,
                 }),
             ),
             TaskCommands::Close { id, reason, force } => (
@@ -1772,6 +1784,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 reproduction_steps,
                 affected_component,
                 force,
+                keep_closed,
+                reopen,
             } => (
                 "bug update".to_string(),
                 serde_json::json!({
@@ -1788,6 +1802,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "reproduction_steps": reproduction_steps,
                     "affected_component": affected_component,
                     "force": force,
+                    "keep_closed": keep_closed,
+                    "reopen": reopen,
                 }),
             ),
             BugCommands::Close { id, reason, force } => (

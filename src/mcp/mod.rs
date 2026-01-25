@@ -404,6 +404,8 @@ impl McpServer {
                 let remove_tags = get_string_array(args, "remove_tags");
                 let assignee = get_optional_string(args, "assignee");
                 let force = get_optional_bool(args, "force").unwrap_or(false);
+                let keep_closed = get_optional_bool(args, "keep_closed").unwrap_or(false);
+                let reopen = get_optional_bool(args, "reopen").unwrap_or(false);
                 let result = commands::task_update(
                     repo,
                     &id,
@@ -416,6 +418,8 @@ impl McpServer {
                     remove_tags,
                     assignee,
                     force,
+                    keep_closed,
+                    reopen,
                 )?;
                 Ok(result.to_json())
             }
@@ -855,6 +859,8 @@ impl McpServer {
                 let reproduction_steps = get_optional_string(args, "reproduction_steps");
                 let affected_component = get_optional_string(args, "affected_component");
                 let force = get_optional_bool(args, "force").unwrap_or(false);
+                let keep_closed = get_optional_bool(args, "keep_closed").unwrap_or(false);
+                let reopen = get_optional_bool(args, "reopen").unwrap_or(false);
                 let result = commands::bug_update(
                     repo,
                     &id,
@@ -870,6 +876,8 @@ impl McpServer {
                     reproduction_steps,
                     affected_component,
                     force,
+                    keep_closed,
+                    reopen,
                 )?;
                 Ok(result.to_json())
             }
