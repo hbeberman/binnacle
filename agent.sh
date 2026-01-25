@@ -13,6 +13,7 @@ TOOLS_FULL=(
     --allow-tool "write"
     --allow-tool "shell(bn:*)"
     --allow-tool "shell(./target/release/bn)"
+    --allow-tool "shell(./target/debug/bn)"
     --allow-tool "shell(cargo run)"
     --allow-tool "shell(cargo fmt)"
     --allow-tool "shell(cargo clippy)"
@@ -43,6 +44,7 @@ TOOLS_PRD=(
     --allow-tool "write"
     --allow-tool "shell(bn:*)"
     --allow-tool "shell(./target/release/bn)"
+    --allow-tool "shell(./target/debug/bn)"
     --allow-tool "shell(git add)"
     --allow-tool "shell(git commit)"
     --allow-tool "shell(git:*)"
@@ -52,6 +54,7 @@ TOOLS_PRD=(
 TOOLS_BUDDY=(
     --allow-tool "shell(bn:*)"
     --allow-tool "shell(./target/release/bn)"
+    --allow-tool "shell(./target/debug/bn)"
     --allow-tool "shell(git add)"
     --allow-tool "shell(git commit)"
     --allow-tool "shell(git:*)"
