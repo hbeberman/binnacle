@@ -4161,6 +4161,7 @@
                     renderAgentsSidebar();  // Update agents sidebar on graph view
                     break;
                 case 'nodes':
+                    syncTypeFilterDropdown();  // Sync type filter dropdown with JS variable
                     updateTagFilterDropdown();  // Update tag dropdown when switching to nodes view
                     renderNodes();
                     break;
@@ -4836,6 +4837,17 @@
                 item.description || ''
             ].join(' ').toLowerCase();
             return haystack.includes(query);
+        }
+        
+        // Sync type filter dropdown with JS variable (ensures DOM and state match)
+        function syncTypeFilterDropdown() {
+            const typeFilter = document.getElementById('nodes-type-filter');
+            if (!typeFilter) return;
+            
+            // Sync dropdown DOM value with JS variable
+            if (typeFilter.value !== nodesTypeFilter) {
+                typeFilter.value = nodesTypeFilter;
+            }
         }
         
         // Populate tag filter dropdown with unique tags from all nodes
