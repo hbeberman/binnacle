@@ -1329,6 +1329,167 @@
             opacity: 0.8;
         }
 
+        /* Command Frequency Chart */
+        .command-frequency-chart {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin: 1rem 0;
+            overflow: hidden;
+        }
+
+        .command-frequency-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .command-frequency-header:hover {
+            background: rgba(74, 144, 226, 0.1);
+        }
+
+        .command-frequency-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .command-frequency-toggle {
+            color: var(--text-secondary);
+            transition: transform 0.2s ease;
+        }
+
+        .command-frequency-chart.collapsed .command-frequency-toggle {
+            transform: rotate(-90deg);
+        }
+
+        .command-frequency-content {
+            padding: 1rem;
+            display: flex;
+            gap: 2rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .command-frequency-chart.collapsed .command-frequency-content {
+            display: none;
+        }
+
+        .frequency-bars {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .frequency-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            cursor: pointer;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            transition: background 0.15s ease;
+        }
+
+        .frequency-bar-row:hover {
+            background: rgba(74, 144, 226, 0.1);
+        }
+
+        .frequency-bar-row.selected {
+            background: rgba(74, 144, 226, 0.2);
+            outline: 1px solid var(--accent-blue);
+        }
+
+        .frequency-bar-label {
+            width: 120px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .frequency-bar-container {
+            flex: 1;
+            height: 20px;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .frequency-bar {
+            height: 100%;
+            background: var(--accent-blue);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            min-width: 2px;
+        }
+
+        .frequency-bar-row:hover .frequency-bar {
+            background: var(--accent-light);
+        }
+
+        .frequency-bar-count {
+            width: 50px;
+            text-align: right;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .frequency-pie {
+            width: 150px;
+            height: 150px;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .frequency-pie svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .frequency-pie-segment {
+            cursor: pointer;
+            transition: opacity 0.15s ease;
+        }
+
+        .frequency-pie-segment:hover {
+            opacity: 0.8;
+        }
+
+        .frequency-pie-segment.selected {
+            stroke: var(--text-primary);
+            stroke-width: 2;
+        }
+
+        .frequency-empty {
+            color: var(--text-muted);
+            font-style: italic;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .frequency-chart-colors {
+            --freq-color-0: #4a90e2;
+            --freq-color-1: #5cb85c;
+            --freq-color-2: #f0ad4e;
+            --freq-color-3: #d9534f;
+            --freq-color-4: #9b6ed8;
+            --freq-color-5: #5bc0de;
+            --freq-color-6: #e85d75;
+            --freq-color-7: #20b2aa;
+            --freq-color-8: #e8b84a;
+            --freq-color-9: #7a8fa3;
+        }
+
         /* Search highlight */
         .log-highlight {
             background: rgba(250, 204, 21, 0.3);
@@ -3947,6 +4108,21 @@
                             <div class="legend-swatch failures"></div>
                             <span>Failures</span>
                         </div>
+                    </div>
+                </div>
+                
+                <!-- Command Frequency Chart -->
+                <div class="command-frequency-chart frequency-chart-colors" id="command-frequency-chart">
+                    <div class="command-frequency-header" onclick="toggleFrequencyChart()">
+                        <div class="command-frequency-title">
+                            <span>📊</span>
+                            <span>Command Frequency</span>
+                        </div>
+                        <span class="command-frequency-toggle">▼</span>
+                    </div>
+                    <div class="command-frequency-content">
+                        <div class="frequency-bars" id="frequency-bars"></div>
+                        <div class="frequency-pie" id="frequency-pie"></div>
                     </div>
                 </div>
                 
@@ -9374,6 +9550,185 @@
             rangeDisplay.textContent = `${entries.length} entries • ${bucketLabel} buckets`;
         }
 
+        // Command Frequency Chart - shows top 10 commands
+        let selectedFrequencyCommand = null;
+        let frequencyChartCollapsed = false;
+
+        function toggleFrequencyChart() {
+            const chart = document.getElementById('command-frequency-chart');
+            frequencyChartCollapsed = !frequencyChartCollapsed;
+            chart.classList.toggle('collapsed', frequencyChartCollapsed);
+        }
+
+        function renderCommandFrequencyChart(entries) {
+            const barsContainer = document.getElementById('frequency-bars');
+            const pieContainer = document.getElementById('frequency-pie');
+            const chart = document.getElementById('command-frequency-chart');
+            
+            if (!entries || entries.length === 0) {
+                chart.style.display = 'none';
+                return;
+            }
+            
+            chart.style.display = 'block';
+            
+            // Count commands
+            const commandCounts = {};
+            entries.forEach(entry => {
+                const command = entry.command || entry.action || entry.message || 'unknown';
+                commandCounts[command] = (commandCounts[command] || 0) + 1;
+            });
+            
+            // Sort by count and take top 10
+            const sortedCommands = Object.entries(commandCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+            
+            if (sortedCommands.length === 0) {
+                barsContainer.innerHTML = '<div class="frequency-empty">No commands to display</div>';
+                pieContainer.innerHTML = '';
+                return;
+            }
+            
+            const maxCount = sortedCommands[0][1];
+            const total = sortedCommands.reduce((sum, [_, count]) => sum + count, 0);
+            
+            // Color palette
+            const colors = [
+                'var(--freq-color-0)', 'var(--freq-color-1)', 'var(--freq-color-2)',
+                'var(--freq-color-3)', 'var(--freq-color-4)', 'var(--freq-color-5)',
+                'var(--freq-color-6)', 'var(--freq-color-7)', 'var(--freq-color-8)',
+                'var(--freq-color-9)'
+            ];
+            
+            // Render bar chart
+            barsContainer.innerHTML = sortedCommands.map(([command, count], index) => {
+                const percentage = (count / maxCount) * 100;
+                const isSelected = selectedFrequencyCommand === command;
+                const color = colors[index % colors.length];
+                return `
+                    <div class="frequency-bar-row ${isSelected ? 'selected' : ''}" 
+                         data-command="${escapeHtml(command)}"
+                         title="${escapeHtml(command)}: ${count} (${((count / total) * 100).toFixed(1)}%)">
+                        <div class="frequency-bar-label">${escapeHtml(command)}</div>
+                        <div class="frequency-bar-container">
+                            <div class="frequency-bar" style="width: ${percentage}%; background: ${color}"></div>
+                        </div>
+                        <div class="frequency-bar-count">${count}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            // Add click handlers for bar chart
+            barsContainer.querySelectorAll('.frequency-bar-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    const command = row.dataset.command;
+                    handleFrequencyCommandClick(command);
+                });
+            });
+            
+            // Render pie chart
+            renderFrequencyPieChart(pieContainer, sortedCommands, total, colors);
+        }
+
+        function renderFrequencyPieChart(container, commandData, total, colors) {
+            const size = 150;
+            const center = size / 2;
+            const radius = 60;
+            
+            let currentAngle = -Math.PI / 2; // Start at top
+            
+            let paths = '';
+            commandData.forEach(([command, count], index) => {
+                const sliceAngle = (count / total) * 2 * Math.PI;
+                const endAngle = currentAngle + sliceAngle;
+                
+                const x1 = center + radius * Math.cos(currentAngle);
+                const y1 = center + radius * Math.sin(currentAngle);
+                const x2 = center + radius * Math.cos(endAngle);
+                const y2 = center + radius * Math.sin(endAngle);
+                
+                const largeArc = sliceAngle > Math.PI ? 1 : 0;
+                const color = colors[index % colors.length];
+                const isSelected = selectedFrequencyCommand === command;
+                
+                // Create pie slice path
+                const pathData = `M ${center} ${center} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+                
+                paths += `
+                    <path class="frequency-pie-segment ${isSelected ? 'selected' : ''}"
+                          d="${pathData}"
+                          fill="${color}"
+                          data-command="${escapeHtml(command)}"
+                          title="${escapeHtml(command)}: ${count} (${((count / total) * 100).toFixed(1)}%)">
+                    </path>
+                `;
+                
+                currentAngle = endAngle;
+            });
+            
+            container.innerHTML = `
+                <svg viewBox="0 0 ${size} ${size}">
+                    ${paths}
+                </svg>
+            `;
+            
+            // Add click handlers for pie segments
+            container.querySelectorAll('.frequency-pie-segment').forEach(segment => {
+                segment.addEventListener('click', () => {
+                    const command = segment.dataset.command;
+                    handleFrequencyCommandClick(command);
+                });
+            });
+        }
+
+        function handleFrequencyCommandClick(command) {
+            if (selectedFrequencyCommand === command) {
+                // Deselect - clear command filter
+                selectedFrequencyCommand = null;
+                state.logFilters.commandCategories = ['all'];
+                // Reset filter chips
+                document.querySelectorAll('#command-filter-chips .filter-chip').forEach(chip => {
+                    chip.classList.toggle('active', chip.dataset.category === 'all');
+                });
+            } else {
+                // Select - filter to this command
+                selectedFrequencyCommand = command;
+                // Map the command to a category if possible, otherwise use search
+                const category = getCommandCategory(command);
+                if (category && category !== 'other') {
+                    state.logFilters.commandCategories = [category];
+                    document.querySelectorAll('#command-filter-chips .filter-chip').forEach(chip => {
+                        chip.classList.toggle('active', chip.dataset.category === category);
+                    });
+                } else {
+                    // Use search filter for specific command
+                    state.logFilters.commandCategories = ['all'];
+                    state.logFilters.searchText = command;
+                    document.getElementById('log-search').value = command;
+                    document.querySelectorAll('#command-filter-chips .filter-chip').forEach(chip => {
+                        chip.classList.toggle('active', chip.dataset.category === 'all');
+                    });
+                }
+            }
+            
+            saveLogFiltersToURL();
+            renderLog();
+        }
+
+        function getCommandCategory(command) {
+            // Map command to filter category
+            if (command.startsWith('task ')) return 'tasks';
+            if (command.startsWith('test ')) return 'tests';
+            if (command.startsWith('link ')) return 'links';
+            if (command.startsWith('bug ')) return 'bugs';
+            if (command.startsWith('idea ')) return 'ideas';
+            if (command.startsWith('doc ')) return 'docs';
+            if (command.startsWith('queue ')) return 'queue';
+            if (['orient', 'ready', 'blocked', 'init', 'doctor', 'config', 'hello', 'goodbye', 'sync'].includes(command)) return 'system';
+            return 'other';
+        }
+
         function renderLog() {
             const list = document.getElementById('log-list');
             
@@ -9381,6 +9736,7 @@
                 list.innerHTML = '<div class="empty-state">No activity yet</div>';
                 updateFilterSummary(0, 0);
                 renderActivityTimeline([]);
+                renderCommandFrequencyChart([]);
                 return;
             }
             
@@ -9412,6 +9768,7 @@
                 return true;
             });
             renderActivityTimeline(timelineEntries);
+            renderCommandFrequencyChart(timelineEntries);
             
             if (filteredEntries.length === 0) {
                 list.innerHTML = '<div class="empty-state">No entries match current filters</div>';
