@@ -193,6 +193,11 @@ if [[ -n "$GIT_DIR" ]]; then
 fi
 
 # Run the agent (with optional loop)
+# Common copilot flags for all agent types
+COPILOT_FLAGS=(
+    --allow-all-urls  # Allow network requests without prompting
+)
+
 if [[ "$LOOP_MODE" == "true" ]]; then
     echo "Loop mode enabled - agent will restart on exit"
     # Track consecutive Ctrl+C presses for clean exit
@@ -224,11 +229,11 @@ if [[ "$LOOP_MODE" == "true" ]]; then
     while true; do
         # Reset SIGINT count at start of each iteration
         SIGINT_COUNT=0
-        copilot "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT" || true
+        copilot "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT" || true
         echo ""
         echo "Agent exited. Restarting in 3 seconds... (Ctrl+C twice to stop)"
         sleep 3
     done
 else
-    copilot "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT"
+    copilot "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT"
 fi
