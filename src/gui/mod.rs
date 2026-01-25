@@ -12,6 +12,12 @@ mod watcher;
 #[cfg(feature = "gui")]
 mod websocket;
 
+/// Shared rendering module for platform-agnostic graph visualization
+///
+/// This module contains code that can be shared between the native GUI server
+/// and the WASM-based viewer.
+pub mod shared;
+
 #[cfg(feature = "gui")]
 pub use pid_file::{GuiPidFile, GuiPidInfo, ProcessStatus, verify_process};
 #[cfg(feature = "gui")]
