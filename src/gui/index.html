@@ -989,6 +989,130 @@
             margin-top: 0.5rem;
         }
         
+        /* Session grouping styles */
+        .session-group {
+            margin-bottom: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .session-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s;
+        }
+        
+        .session-header:hover {
+            background: var(--bg-secondary);
+        }
+        
+        .session-toggle {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            transition: transform 0.2s;
+        }
+        
+        .session-group.collapsed .session-toggle {
+            transform: rotate(-90deg);
+        }
+        
+        .session-info {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        
+        .session-time {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        
+        .session-agent {
+            font-size: 0.85rem;
+            color: var(--accent-light);
+            font-weight: 500;
+        }
+        
+        .session-summary {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-left: auto;
+        }
+        
+        .session-summary .count {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+        
+        .session-summary .duration {
+            color: var(--text-secondary);
+            margin-left: 0.5rem;
+        }
+        
+        .session-entries {
+            background: var(--bg-primary);
+            max-height: 2000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        
+        .session-group.collapsed .session-entries {
+            max-height: 0;
+        }
+        
+        .session-entries .log-entry {
+            border-radius: 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .session-entries .log-entry:last-child {
+            border-bottom: none;
+        }
+        
+        /* View toggle for grouped vs flat */
+        .view-toggle-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .view-toggle-btn {
+            padding: 0.35rem 0.65rem;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .view-toggle-btn:first-child {
+            border-radius: 4px 0 0 4px;
+        }
+        
+        .view-toggle-btn:last-child {
+            border-radius: 0 4px 4px 0;
+            border-left: none;
+        }
+        
+        .view-toggle-btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+        
+        .view-toggle-btn:hover:not(.active) {
+            background: var(--bg-secondary);
+        }
+        
         /* Entity ID links in log entries */
         .entity-link {
             color: var(--accent-blue);
@@ -4189,6 +4313,13 @@
                                 <button class="filter-chip" data-category="queue">Queue</button>
                             </div>
                         </div>
+                        
+                        <!-- View Mode Toggle (Flat vs Grouped) -->
+                        <div class="log-filter-group view-toggle-group">
+                            <label class="filter-label">View:</label>
+                            <button class="view-toggle-btn active" data-view="flat">Flat</button>
+                            <button class="view-toggle-btn" data-view="grouped">Sessions</button>
+                        </div>
                     </div>
                     <div class="log-filters-row">
                         <!-- User/Agent Filter -->
@@ -4597,7 +4728,8 @@
                 searchText: '',          // text search
                 dateRange: 'all',        // hour, day, week, month, all, custom
                 customDateFrom: '',      // ISO date string for custom range start
-                customDateTo: ''         // ISO date string for custom range end
+                customDateTo: '',        // ISO date string for custom range end
+                viewMode: 'flat'         // flat or grouped (session grouping)
             },
             agents: [],
             edges: [], // Raw edges from API
@@ -10072,34 +10204,19 @@
             // Check if showing mixed results (for enhanced failure highlighting)
             const showingMixed = state.logFilters.statusFilter === 'all';
             
-            list.innerHTML = filteredEntries.slice(0, 100).map(entry => {
-                const formatted = formatLogEntry(entry);
-                const isFailure = entry.success === false;
-                const statusClass = isFailure ? 'log-error' : (showingMixed ? 'log-success' : '');
-                // First highlight search text, then linkify entity IDs
-                const highlightedAction = linkifyEntityIds(highlightText(formatted.action, searchText));
-                const highlightedDetails = formatted.details ? linkifyEntityIds(highlightText(formatted.details, searchText)) : '';
-                const highlightedError = entry.error ? linkifyEntityIds(highlightText(entry.error, searchText)) : '';
-                
-                // Show status badge when in mixed mode for clearer differentiation
-                const statusBadge = showingMixed 
-                    ? (isFailure 
-                        ? '<span class="log-status-badge badge-failure">FAILED</span>'
-                        : '<span class="log-status-badge badge-success">OK</span>')
-                    : '';
-                
-                return `
-                    <div class="card log-entry ${statusClass}">
-                        <div class="log-header">
-                            <div class="log-time">${statusBadge}${new Date(entry.timestamp).toLocaleString()}</div>
-                            ${entry.user ? `<div class="log-user">${isAgent(entry.user) ? '🤖' : '👤'} ${escapeHtml(entry.user)}</div>` : ''}
-                        </div>
-                        <div class="card-title">${highlightedAction}</div>
-                        ${highlightedDetails ? `<div class="log-details">${highlightedDetails}</div>` : ''}
-                        ${isFailure && entry.error ? `<div class="log-error-msg">❌ ${highlightedError}</div>` : ''}
-                    </div>
-                `;
-            }).join('');
+            // Check view mode: flat or grouped (sessions)
+            const viewMode = state.logFilters.viewMode || 'flat';
+            
+            if (viewMode === 'grouped') {
+                // Session-grouped view
+                const sessions = groupEntriesIntoSessions(filteredEntries);
+                list.innerHTML = renderSessionGroups(sessions, searchText, showingMixed);
+            } else {
+                // Flat view (original behavior)
+                list.innerHTML = filteredEntries.slice(0, 100).map(entry => 
+                    renderLogEntry(entry, searchText, showingMixed)
+                ).join('');
+            }
             
             // Attach click handlers for entity links
             attachEntityLinkHandlers(list);
@@ -10196,6 +10313,161 @@
             }
             
             return { action, details };
+        }
+        
+        // Group log entries into sessions based on time gaps (>5 min) or agent changes
+        function groupEntriesIntoSessions(entries) {
+            if (!entries || entries.length === 0) return [];
+            
+            const SESSION_GAP_MS = 5 * 60 * 1000; // 5 minutes
+            const sessions = [];
+            let currentSession = null;
+            
+            // Sort entries by timestamp (newest first is already the case, but we need oldest first for grouping)
+            const sortedEntries = [...entries].sort((a, b) => 
+                new Date(a.timestamp) - new Date(b.timestamp)
+            );
+            
+            for (const entry of sortedEntries) {
+                const entryTime = new Date(entry.timestamp);
+                const entryAgent = entry.user || 'unknown';
+                
+                // Check if we need to start a new session
+                const needsNewSession = !currentSession ||
+                    // Time gap > 5 minutes
+                    (entryTime - currentSession.endTime > SESSION_GAP_MS) ||
+                    // Different agent
+                    (currentSession.agent !== entryAgent);
+                
+                if (needsNewSession) {
+                    // Start a new session
+                    currentSession = {
+                        startTime: entryTime,
+                        endTime: entryTime,
+                        agent: entryAgent,
+                        entries: [],
+                        successCount: 0,
+                        failureCount: 0,
+                        commandTypes: new Set()
+                    };
+                    sessions.push(currentSession);
+                }
+                
+                // Add entry to current session
+                currentSession.entries.push(entry);
+                currentSession.endTime = entryTime;
+                
+                // Track statistics
+                if (entry.success === false) {
+                    currentSession.failureCount++;
+                } else {
+                    currentSession.successCount++;
+                }
+                
+                const command = entry.command || entry.action || '';
+                if (command) {
+                    const cmdType = command.split(' ')[0];
+                    currentSession.commandTypes.add(cmdType);
+                }
+            }
+            
+            // Reverse sessions so newest is first, and reverse entries within each session
+            return sessions.reverse().map(session => ({
+                ...session,
+                entries: session.entries.reverse(),
+                commandTypes: Array.from(session.commandTypes)
+            }));
+        }
+        
+        // Format a duration in milliseconds to a human-readable string
+        function formatDuration(ms) {
+            if (ms < 1000) return 'instant';
+            if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+            if (ms < 3600000) return `${Math.round(ms / 60000)}m`;
+            return `${Math.round(ms / 3600000)}h`;
+        }
+        
+        // Render a single log entry (extracted for reuse)
+        function renderLogEntry(entry, searchText, showingMixed) {
+            const formatted = formatLogEntry(entry);
+            const isFailure = entry.success === false;
+            const statusClass = isFailure ? 'log-error' : (showingMixed ? 'log-success' : '');
+            // First highlight search text, then linkify entity IDs
+            const highlightedAction = linkifyEntityIds(highlightText(formatted.action, searchText));
+            const highlightedDetails = formatted.details ? linkifyEntityIds(highlightText(formatted.details, searchText)) : '';
+            const highlightedError = entry.error ? linkifyEntityIds(highlightText(entry.error, searchText)) : '';
+            
+            // Show status badge when in mixed mode for clearer differentiation
+            const statusBadge = showingMixed 
+                ? (isFailure 
+                    ? '<span class="log-status-badge badge-failure">FAILED</span>'
+                    : '<span class="log-status-badge badge-success">OK</span>')
+                : '';
+            
+            return `
+                <div class="card log-entry ${statusClass}">
+                    <div class="log-header">
+                        <div class="log-time">${statusBadge}${new Date(entry.timestamp).toLocaleString()}</div>
+                        ${entry.user ? `<div class="log-user">${isAgent(entry.user) ? '🤖' : '👤'} ${escapeHtml(entry.user)}</div>` : ''}
+                    </div>
+                    <div class="card-title">${highlightedAction}</div>
+                    ${highlightedDetails ? `<div class="log-details">${highlightedDetails}</div>` : ''}
+                    ${isFailure && entry.error ? `<div class="log-error-msg">❌ ${highlightedError}</div>` : ''}
+                </div>
+            `;
+        }
+        
+        // Render sessions with collapsible groups
+        function renderSessionGroups(sessions, searchText, showingMixed) {
+            return sessions.map((session, idx) => {
+                const duration = session.endTime - session.startTime;
+                const durationStr = formatDuration(duration);
+                const isAgentSession = isAgent(session.agent);
+                const agentIcon = isAgentSession ? '🤖' : '👤';
+                
+                // Create summary text
+                const entryCount = session.entries.length;
+                const failureText = session.failureCount > 0 
+                    ? `<span style="color: var(--danger)">${session.failureCount} failed</span>` 
+                    : '';
+                
+                // Format time range
+                const startStr = new Date(session.startTime).toLocaleTimeString();
+                const dateStr = new Date(session.startTime).toLocaleDateString();
+                
+                // Render entries
+                const entriesHtml = session.entries.map(entry => 
+                    renderLogEntry(entry, searchText, showingMixed)
+                ).join('');
+                
+                return `
+                    <div class="session-group" data-session-idx="${idx}">
+                        <div class="session-header" onclick="toggleSession(${idx})">
+                            <span class="session-toggle">▼</span>
+                            <div class="session-info">
+                                <span class="session-time">${dateStr} ${startStr}</span>
+                                <span class="session-agent">${agentIcon} ${escapeHtml(session.agent)}</span>
+                                <span class="session-summary">
+                                    <span class="count">${entryCount} actions</span>
+                                    ${failureText}
+                                    <span class="duration">(${durationStr})</span>
+                                </span>
+                            </div>
+                        </div>
+                        <div class="session-entries">
+                            ${entriesHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Toggle session collapse/expand
+        function toggleSession(idx) {
+            const group = document.querySelector(`.session-group[data-session-idx="${idx}"]`);
+            if (group) {
+                group.classList.toggle('collapsed');
+            }
         }
         
         // Find an entity (task, bug, idea) by ID
@@ -10728,6 +11000,13 @@
                 params.delete('to');
             }
             
+            // View mode (flat or grouped)
+            if (filters.viewMode && filters.viewMode !== 'flat') {
+                params.set('view', filters.viewMode);
+            } else {
+                params.delete('view');
+            }
+            
             // Update URL without page reload
             const newURL = params.toString() 
                 ? `${window.location.pathname}?${params.toString()}`
@@ -10782,6 +11061,16 @@
             }
             if (dateTo) {
                 state.logFilters.customDateTo = dateTo;
+            }
+            
+            // View mode (flat or grouped)
+            const viewMode = params.get('view');
+            if (viewMode && ['flat', 'grouped'].includes(viewMode)) {
+                state.logFilters.viewMode = viewMode;
+                // Update view toggle buttons
+                document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.view === viewMode);
+                });
             }
             
             // Update UI to reflect loaded state
@@ -10947,6 +11236,23 @@
                     renderLog();
                 });
             }
+            
+            // View mode toggle (Flat / Sessions)
+            const viewToggleButtons = document.querySelectorAll('.view-toggle-btn');
+            viewToggleButtons.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const viewMode = btn.dataset.view;
+                    state.logFilters.viewMode = viewMode;
+                    
+                    // Update active state
+                    viewToggleButtons.forEach(b => {
+                        b.classList.toggle('active', b.dataset.view === viewMode);
+                    });
+                    
+                    saveLogFiltersToURL();
+                    renderLog();
+                });
+            });
         }
 
         // Initialize
