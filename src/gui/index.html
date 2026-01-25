@@ -8465,6 +8465,11 @@
         const RECENTLY_COMPLETED_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
         /**
+         * Duration (in ms) for the agent departure fade-out animation.
+         */
+        const AGENT_DEPARTURE_FADE_MS = 300;
+
+        /**
          * Time window (in ms) for the recently completed pane in the header.
          * Configurable - default is 15 minutes.
          */
@@ -8698,10 +8703,11 @@
                                           state.graph.isPanning || 
                                           state.graph.followAnimation;
             
-            // Check if any nodes require continuous animation (in_progress tasks, active agents)
+            // Check if any nodes require continuous animation (in_progress tasks, active agents, departing agents)
             const hasAnimatedNodes = visibleNodes.some(node => 
                 (node.status === 'in_progress' && node.type !== 'queue' && node.type !== 'agent' && node.type !== 'doc') ||
-                (node.type === 'agent' && node.status === 'active')
+                (node.type === 'agent' && node.status === 'active') ||
+                (node._departing && node.type === 'agent')
             );
             
             // Check if any visible edges have animation (e.g., working_on edges)
@@ -9209,6 +9215,14 @@
             let opacity = 1.0;
             if (isDimmed) {
                 opacity = 0.3;
+            } else if (node._departing && node.type === 'agent') {
+                // Apply fade-out animation for departing agents
+                const departureTime = state.departingAgents.get(node.id);
+                if (departureTime) {
+                    const elapsed = performance.now() - departureTime;
+                    const progress = Math.min(elapsed / AGENT_DEPARTURE_FADE_MS, 1.0);
+                    opacity = 1.0 - progress;
+                }
             } else {
                 // Apply fade-out effect for recently completed nodes (when hideCompleted is on)
                 const isCompleted = node.status === 'done' || node.status === 'cancelled';
