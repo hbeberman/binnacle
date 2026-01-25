@@ -13470,7 +13470,13 @@ pub fn container_run(
         args.push("BN_NO_MERGE=true".to_string());
     }
 
-    // Pass through GitHub token if available
+    // Pass through GitHub tokens if available
+    // GH_TOKEN is a common convention for GitHub CLI and other tools
+    if let Ok(token) = std::env::var("GH_TOKEN") {
+        args.push("--env".to_string());
+        args.push(format!("GH_TOKEN={}", token));
+    }
+    // COPILOT_GITHUB_TOKEN is used by @github/copilot CLI
     if let Ok(token) = std::env::var("COPILOT_GITHUB_TOKEN") {
         args.push("--env".to_string());
         args.push(format!("COPILOT_GITHUB_TOKEN={}", token));
