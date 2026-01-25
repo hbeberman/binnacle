@@ -232,15 +232,11 @@ async fn get_ideas(State(state): State<AppState>) -> Result<Json<serde_json::Val
 /// Get ready tasks (no blockers)
 async fn get_ready(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
     let storage = state.storage.lock().await;
-    let tasks = storage
-        .list_tasks(Some("pending"), None, None)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Filter for tasks with no dependencies
-    let ready: Vec<_> = tasks
-        .into_iter()
-        .filter(|t| t.depends_on.is_empty())
-        .collect();
+    // Use the same logic as CLI `bn ready` - checks both legacy depends_on and edge-based dependencies
+    let ready = storage
+        .get_ready_tasks()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "tasks": ready })))
 }
@@ -251,11 +247,11 @@ async fn get_available_work(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let storage = state.storage.lock().await;
 
-    // Count ready tasks (pending with no blockers)
-    let tasks = storage
-        .list_tasks(Some("pending"), None, None)
+    // Count ready tasks using the same logic as CLI `bn ready`
+    let ready_tasks = storage
+        .get_ready_tasks()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let ready_task_count = tasks.iter().filter(|t| t.depends_on.is_empty()).count();
+    let ready_task_count = ready_tasks.len();
 
     // Count open bugs (not done, not cancelled)
     let bugs = storage
