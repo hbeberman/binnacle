@@ -81,6 +81,16 @@ build-wasm:
 build-wasm-release:
     wasm-pack build --target web --features wasm --release
 
+# Build self-contained viewer.html with embedded WASM
+# Requires: wasm-pack, python3
+# Output: target/viewer/viewer.html
+build-viewer:
+    ./scripts/embed_wasm.sh
+
+# Build viewer in release mode with optimized WASM
+build-viewer-release:
+    ./scripts/embed_wasm.sh --release
+
 # Build the container image (builds release binary first)
 container tag="binnacle-worker:latest":
     @echo "Building release binary..."
