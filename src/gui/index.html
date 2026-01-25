@@ -1793,6 +1793,165 @@
             color: var(--text-primary);
         }
 
+        /* Auto-follow config button */
+        .auto-follow-config-btn {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            background: transparent;
+            border: 1px solid transparent;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+            padding: 0;
+        }
+
+        .auto-follow-config-btn:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .auto-follow-config-btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        /* Auto-follow config popover */
+        .auto-follow-config-popover {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            min-width: 260px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            z-index: 1000;
+            display: none;
+        }
+
+        .auto-follow-config-popover.visible {
+            display: block;
+            animation: fadeIn 0.15s ease;
+        }
+
+        .config-popover-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .config-section {
+            margin-bottom: 1rem;
+        }
+
+        .config-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .config-section-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .config-node-types {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .config-node-type-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.25rem 0;
+        }
+
+        .config-node-type-label {
+            font-size: 0.8rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .config-node-type-icon {
+            font-size: 0.9rem;
+        }
+
+        .config-toggle {
+            width: 32px;
+            height: 18px;
+            border-radius: 9px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            position: relative;
+            transition: background 0.2s ease, border-color 0.2s ease;
+            padding: 0;
+        }
+
+        .config-toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+        .config-toggle.active {
+            background: #22c55e;
+            border-color: #22c55e;
+        }
+
+        .config-toggle.active::after {
+            background: white;
+            transform: translateX(14px);
+        }
+
+        .config-duration-input {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .config-duration-input input {
+            width: 60px;
+            padding: 0.3rem 0.5rem;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            font-size: 0.8rem;
+            text-align: center;
+        }
+
+        .config-duration-input input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .config-duration-unit {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
         /* Hide completed toggle */
         .hide-completed-toggle {
             display: flex;
@@ -3370,12 +3529,48 @@
                         <span class="hide-completed-label">Hide completed</span>
                         <button class="hide-completed-switch" id="hide-completed-switch" title="Hide completed nodes (except in active chains)"></button>
                     </div>
-                    <div class="auto-follow-toggle">
+                    <div class="auto-follow-toggle" style="position: relative;">
                         <span class="auto-follow-label">Follow</span>
                         <select class="agent-selector" id="agent-selector" title="Select target to follow">
                             <option value="">None</option>
                         </select>
                         <button class="auto-follow-switch" id="auto-follow-switch" title="Auto-focus on selected target"></button>
+                        <button class="auto-follow-config-btn" id="auto-follow-config-btn" title="Configure auto-follow settings">⚙</button>
+                        <div class="auto-follow-config-popover" id="auto-follow-config-popover">
+                            <div class="config-popover-title">Auto-Follow Settings</div>
+                            <div class="config-section">
+                                <span class="config-section-label">Trigger auto-follow for new:</span>
+                                <div class="config-node-types">
+                                    <div class="config-node-type-row">
+                                        <span class="config-node-type-label"><span class="config-node-type-icon">📋</span> Tasks</span>
+                                        <button class="config-toggle active" id="config-follow-tasks" data-type="task"></button>
+                                    </div>
+                                    <div class="config-node-type-row">
+                                        <span class="config-node-type-label"><span class="config-node-type-icon">🐛</span> Bugs</span>
+                                        <button class="config-toggle active" id="config-follow-bugs" data-type="bug"></button>
+                                    </div>
+                                    <div class="config-node-type-row">
+                                        <span class="config-node-type-label"><span class="config-node-type-icon">💡</span> Ideas</span>
+                                        <button class="config-toggle" id="config-follow-ideas" data-type="idea"></button>
+                                    </div>
+                                    <div class="config-node-type-row">
+                                        <span class="config-node-type-label"><span class="config-node-type-icon">🧪</span> Tests</span>
+                                        <button class="config-toggle" id="config-follow-tests" data-type="test"></button>
+                                    </div>
+                                    <div class="config-node-type-row">
+                                        <span class="config-node-type-label"><span class="config-node-type-icon">📄</span> Docs</span>
+                                        <button class="config-toggle" id="config-follow-docs" data-type="doc"></button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="config-section">
+                                <span class="config-section-label">Focus switch delay:</span>
+                                <div class="config-duration-input">
+                                    <input type="number" id="config-focus-delay" min="1" max="60" value="10" />
+                                    <span class="config-duration-unit">seconds</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="zoom-buttons">
                         <button class="zoom-btn" id="zoom-in" title="Zoom In">+</button>
@@ -3930,7 +4125,9 @@
                 autoFollow: true,  // Whether auto-follow is enabled
                 followTargetId: 'auto',  // Target to follow: 'auto', 'active-task', 'queue', or agent ID (e.g., 'bna-xxxx')
                 followingNodeId: null,  // ID of node currently being followed (for continuous tracking)
-                lastFocusSwitchTime: 0,  // Timestamp of last focus switch (for 10-second delay)
+                lastFocusSwitchTime: 0,  // Timestamp of last focus switch (for configurable delay)
+                // Auto-follow config (loaded from localStorage)
+                autoFollowConfig: null,  // Will be loaded: { nodeTypes: { task: true, ... }, focusDelaySeconds: 10 }
                 // Stat highlight filter state (null = no filter active)
                 highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
                 // Hide completed nodes filter
@@ -4036,8 +4233,9 @@
                             let targetNode = null;
                             if (state.graph.followTargetId === 'auto') {
                                 // Auto mode: follow the agent with the most recent activity
-                                // But only switch focus if 10 seconds have passed since last switch
-                                const FOCUS_SWITCH_DELAY_MS = 10000;
+                                // Use configurable delay (default 10 seconds)
+                                const delaySeconds = state.graph.autoFollowConfig?.focusDelaySeconds || 10;
+                                const FOCUS_SWITCH_DELAY_MS = delaySeconds * 1000;
                                 const mostRecentAgent = findMostRecentlyActiveAgent();
                                 if (mostRecentAgent) {
                                     const now = Date.now();
@@ -5035,6 +5233,100 @@
                 snapToFollowTarget();
             } else {
                 state.graph.followingNodeId = null;
+            }
+        });
+
+        // Auto-follow config popover
+        const configBtn = document.getElementById('auto-follow-config-btn');
+        const configPopover = document.getElementById('auto-follow-config-popover');
+        
+        // Load saved config from localStorage
+        function loadAutoFollowConfig() {
+            const saved = localStorage.getItem('binnacle-auto-follow-config');
+            if (saved) {
+                try {
+                    const config = JSON.parse(saved);
+                    state.graph.autoFollowConfig = {
+                        nodeTypes: config.nodeTypes || { task: true, bug: true, idea: false, test: false, doc: false },
+                        focusDelaySeconds: config.focusDelaySeconds || 10
+                    };
+                } catch (e) {
+                    console.error('Failed to parse auto-follow config:', e);
+                    state.graph.autoFollowConfig = getDefaultAutoFollowConfig();
+                }
+            } else {
+                state.graph.autoFollowConfig = getDefaultAutoFollowConfig();
+            }
+        }
+        
+        function getDefaultAutoFollowConfig() {
+            return {
+                nodeTypes: { task: true, bug: true, idea: false, test: false, doc: false },
+                focusDelaySeconds: 10
+            };
+        }
+        
+        function saveAutoFollowConfig() {
+            localStorage.setItem('binnacle-auto-follow-config', JSON.stringify(state.graph.autoFollowConfig));
+        }
+        
+        function updateConfigUI() {
+            const config = state.graph.autoFollowConfig;
+            // Update toggles
+            for (const type of ['task', 'bug', 'idea', 'test', 'doc']) {
+                const toggle = document.getElementById(`config-follow-${type}s`);
+                if (toggle) {
+                    toggle.classList.toggle('active', config.nodeTypes[type]);
+                }
+            }
+            // Update duration input
+            const delayInput = document.getElementById('config-focus-delay');
+            if (delayInput) {
+                delayInput.value = config.focusDelaySeconds;
+            }
+        }
+        
+        // Initialize config
+        loadAutoFollowConfig();
+        updateConfigUI();
+        
+        // Toggle popover visibility
+        configBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isVisible = configPopover.classList.contains('visible');
+            configPopover.classList.toggle('visible', !isVisible);
+            configBtn.classList.toggle('active', !isVisible);
+        });
+        
+        // Close popover when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!configPopover.contains(e.target) && e.target !== configBtn) {
+                configPopover.classList.remove('visible');
+                configBtn.classList.remove('active');
+            }
+        });
+        
+        // Handle node type toggles
+        configPopover.querySelectorAll('.config-toggle').forEach(toggle => {
+            toggle.addEventListener('click', () => {
+                const type = toggle.dataset.type;
+                if (type && state.graph.autoFollowConfig.nodeTypes.hasOwnProperty(type)) {
+                    state.graph.autoFollowConfig.nodeTypes[type] = !state.graph.autoFollowConfig.nodeTypes[type];
+                    toggle.classList.toggle('active');
+                    saveAutoFollowConfig();
+                }
+            });
+        });
+        
+        // Handle focus delay input
+        const focusDelayInput = document.getElementById('config-focus-delay');
+        focusDelayInput.addEventListener('change', (e) => {
+            const value = parseInt(e.target.value, 10);
+            if (!isNaN(value) && value >= 1 && value <= 60) {
+                state.graph.autoFollowConfig.focusDelaySeconds = value;
+                saveAutoFollowConfig();
+            } else {
+                e.target.value = state.graph.autoFollowConfig.focusDelaySeconds;
             }
         });
 
