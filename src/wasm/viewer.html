@@ -760,8 +760,10 @@
             hoveredNode: null,
             selectedNode: null,
             animationFrame: null,
+            animationTime: 0,       // For animated effects (ms)
             layoutRunning: false,
             archiveSource: null,    // URL or filename of loaded archive
+            queuedNodes: new Set(), // Track which nodes are in the queue
             filters: {
                 text: '',
                 type: '',
@@ -883,6 +885,9 @@
             // Parse nodes and edges from viewer
             state.nodes = JSON.parse(state.viewer.getNodesJson());
             state.edges = JSON.parse(state.viewer.getEdgesJson());
+            
+            // Compute which nodes are queued
+            computeQueuedNodes();
             
             // Update stats
             updateStats();
@@ -1049,11 +1054,27 @@
         function startRenderLoop() {
             if (state.animationFrame) return;
             
-            function render() {
+            function render(timestamp) {
+                state.animationTime = timestamp || 0;
                 renderGraph();
                 state.animationFrame = requestAnimationFrame(render);
             }
-            render();
+            render(0);
+        }
+        
+        function computeQueuedNodes() {
+            // Build set of nodes that are queued (have 'queued' edge to a queue node)
+            state.queuedNodes.clear();
+            for (const edge of state.edges) {
+                if (edge.edge_type === 'queued') {
+                    // Source is queued to target (queue)
+                    state.queuedNodes.add(edge.source);
+                }
+            }
+        }
+        
+        function isNodeQueued(nodeId) {
+            return state.queuedNodes.has(nodeId);
         }
         
         function renderGraph() {
@@ -1092,49 +1113,218 @@
             };
         }
         
+        // Helper to draw a node shape path based on type
+        function drawNodeShapePath(ctx, type, x, y, radius) {
+            ctx.beginPath();
+            if (type === 'queue') {
+                drawHexagonPath(ctx, x, y, radius);
+            } else if (type === 'bug') {
+                drawSquarePath(ctx, x, y, radius);
+            } else if (type === 'idea') {
+                drawCloudPath(ctx, x, y, radius);
+            } else if (type === 'agent') {
+                drawPersonPath(ctx, x, y, radius);
+            } else if (type === 'doc') {
+                drawDocPath(ctx, x, y, radius);
+            } else {
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+            }
+        }
+        
         function drawNode(node) {
             const pos = worldToScreen(node.x, node.y);
-            const radius = 25 * state.zoom;
+            const zoom = state.zoom;
+            const radius = 25 * zoom;
+            
+            const isHovered = state.hoveredNode === node;
+            const isSelected = state.selectedNode === node;
+            
+            // Check if node matches search filter (for dimming)
+            const searchQuery = state.filters.text.toLowerCase();
+            const matchesSearch = !searchQuery || 
+                node.id.toLowerCase().includes(searchQuery) ||
+                (node.title && node.title.toLowerCase().includes(searchQuery)) ||
+                (node.short_name && node.short_name.toLowerCase().includes(searchQuery));
+            const isDimmed = searchQuery && !matchesSearch;
+            
+            // Apply dimming opacity
+            ctx.globalAlpha = isDimmed ? 0.3 : 1.0;
             
             // Node color based on status and type
             const color = getNodeColor(node);
             
-            // Draw node shape based on type
-            ctx.beginPath();
-            if (node.type === 'queue') {
-                drawHexagonPath(ctx, pos.x, pos.y, radius);
-            } else if (node.type === 'bug') {
-                drawSquarePath(ctx, pos.x, pos.y, radius);
-            } else if (node.type === 'idea') {
-                drawCloudPath(ctx, pos.x, pos.y, radius);
-            } else if (node.type === 'agent') {
-                drawPersonPath(ctx, pos.x, pos.y, radius);
-            } else if (node.type === 'doc') {
-                drawDocPath(ctx, pos.x, pos.y, radius);
-            } else {
-                ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+            // Draw selection highlight (persistent)
+            if (isSelected) {
+                drawNodeShapePath(ctx, node.type, pos.x, pos.y, radius + 10 * zoom);
+                ctx.strokeStyle = '#f0ad4e';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(240, 173, 78, 0.15)';
+                ctx.fill();
             }
             
-            // Fill
-            ctx.fillStyle = color;
-            ctx.fill();
-            
-            // Stroke for selected/hovered
-            if (state.selectedNode === node || state.hoveredNode === node) {
-                ctx.strokeStyle = state.selectedNode === node ? '#f0ad4e' : '#fff';
+            // Draw hover highlight
+            if (isHovered && !isSelected) {
+                drawNodeShapePath(ctx, node.type, pos.x, pos.y, radius + 8 * zoom);
+                ctx.fillStyle = 'rgba(74, 144, 226, 0.2)';
+                ctx.fill();
+                ctx.strokeStyle = '#6aa8f0';
                 ctx.lineWidth = 3;
                 ctx.stroke();
             }
             
-            // Draw label if zoomed in enough
-            if (state.zoom > 0.5) {
-                const label = node.short_name || node.id;
-                ctx.font = `${11 * state.zoom}px -apple-system, sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
-                ctx.fillStyle = '#e8edf3';
-                ctx.fillText(label, pos.x, pos.y + radius + 4 * state.zoom, 100 * state.zoom);
+            // Draw queued indicator (teal glow for tasks in the queue)
+            const isQueued = node.type !== 'queue' && node.type !== 'agent' && node.type !== 'doc' && isNodeQueued(node.id);
+            if (isQueued) {
+                drawNodeShapePath(ctx, node.type, pos.x, pos.y, radius + 6 * zoom);
+                ctx.strokeStyle = '#20b2aa';  // Queue color (teal)
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                // Add subtle glow effect
+                drawNodeShapePath(ctx, node.type, pos.x, pos.y, radius + 4 * zoom);
+                ctx.fillStyle = 'rgba(32, 178, 170, 0.15)';
+                ctx.fill();
             }
+            
+            // Draw dotted yellow border for task nodes (visual distinction)
+            if (node.type === 'task' && node.status !== 'in_progress') {
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, radius + 4 * zoom, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.7)';  // Gold/yellow color
+                ctx.lineWidth = 2 * zoom;
+                ctx.setLineDash([4 * zoom, 4 * zoom]);  // Dotted pattern
+                ctx.stroke();
+                ctx.setLineDash([]);  // Reset line dash
+            }
+            
+            // Draw animated spiral for active agent nodes
+            if (node.type === 'agent' && node.status === 'active') {
+                const animTime = state.animationTime;
+                const rotationSpeed = 0.002;
+                const spiralRadius = radius * 0.6;
+                
+                ctx.save();
+                ctx.translate(pos.x, pos.y);
+                ctx.rotate(animTime * rotationSpeed);
+                
+                const armCount = 3;
+                const armWidth = 3 * zoom;
+                
+                for (let arm = 0; arm < armCount; arm++) {
+                    const baseAngle = (arm * Math.PI * 2) / armCount;
+                    
+                    const gradient = ctx.createLinearGradient(
+                        Math.cos(baseAngle) * spiralRadius * 0.3,
+                        Math.sin(baseAngle) * spiralRadius * 0.3,
+                        Math.cos(baseAngle) * spiralRadius,
+                        Math.sin(baseAngle) * spiralRadius
+                    );
+                    gradient.addColorStop(0, '#1e3a5f');
+                    gradient.addColorStop(1, '#d0d0d0');
+                    
+                    ctx.beginPath();
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = armWidth;
+                    ctx.lineCap = 'round';
+                    
+                    const startR = spiralRadius * 0.2;
+                    const endR = spiralRadius;
+                    const curveAngle = Math.PI * 0.5;
+                    
+                    ctx.moveTo(
+                        Math.cos(baseAngle) * startR,
+                        Math.sin(baseAngle) * startR
+                    );
+                    ctx.quadraticCurveTo(
+                        Math.cos(baseAngle + curveAngle * 0.5) * spiralRadius * 0.7,
+                        Math.sin(baseAngle + curveAngle * 0.5) * spiralRadius * 0.7,
+                        Math.cos(baseAngle + curveAngle) * endR,
+                        Math.sin(baseAngle + curveAngle) * endR
+                    );
+                    ctx.stroke();
+                }
+                
+                ctx.restore();
+            }
+            
+            // Draw in-progress animated rings (counter-rotating hatched rings)
+            if (node.status === 'in_progress' && node.type !== 'queue' && node.type !== 'agent' && node.type !== 'doc') {
+                const animTime = state.animationTime;
+                const rotationSpeed = 0.001;
+                const outerRingRadius = radius + 14 * zoom;
+                const innerRingRadius = radius + 8 * zoom;
+                const ringWidth = 2.5 * zoom;
+                const hatchCount = 12;
+                const hatchLength = Math.PI / 18;
+                
+                // Outer ring - rotates clockwise
+                ctx.save();
+                ctx.translate(pos.x, pos.y);
+                ctx.rotate(animTime * rotationSpeed);
+                ctx.strokeStyle = 'rgba(240, 173, 78, 0.8)';
+                ctx.lineWidth = ringWidth;
+                ctx.lineCap = 'round';
+                for (let i = 0; i < hatchCount; i++) {
+                    const startAngle = (i * Math.PI * 2) / hatchCount;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, outerRingRadius, startAngle, startAngle + hatchLength);
+                    ctx.stroke();
+                }
+                ctx.restore();
+                
+                // Inner ring - rotates counter-clockwise
+                ctx.save();
+                ctx.translate(pos.x, pos.y);
+                ctx.rotate(-animTime * rotationSpeed * 1.5);
+                ctx.strokeStyle = 'rgba(255, 200, 100, 0.6)';
+                ctx.lineWidth = ringWidth * 0.8;
+                ctx.lineCap = 'round';
+                for (let i = 0; i < hatchCount; i++) {
+                    const startAngle = (i * Math.PI * 2) / hatchCount + Math.PI / hatchCount;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, innerRingRadius, startAngle, startAngle + hatchLength * 0.8);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+            
+            // Draw node shape
+            drawNodeShapePath(ctx, node.type, pos.x, pos.y, radius);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.strokeStyle = (isHovered) ? '#ffffff' : '#e8edf3';
+            ctx.lineWidth = (isHovered) ? 3 : 2;
+            ctx.stroke();
+            
+            // Draw label - show short_name if set, with ID below
+            if (node.type !== 'agent' && zoom > 0.4) {
+                ctx.fillStyle = '#1a2332';
+                const baseFontSize = 12 * Math.max(0.8, Math.min(1.5, zoom));
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                if (node.short_name) {
+                    // Show short_name inside node
+                    ctx.font = `${baseFontSize}px -apple-system, sans-serif`;
+                    const label = node.short_name.length > 10 
+                        ? node.short_name.substring(0, 9) + '…' 
+                        : node.short_name;
+                    ctx.fillText(label, pos.x, pos.y);
+                    
+                    // Show ID below node in smaller font
+                    ctx.font = `${baseFontSize * 0.75}px -apple-system, sans-serif`;
+                    ctx.fillStyle = '#8899aa';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(node.id, pos.x, pos.y + radius + 4 * zoom);
+                } else {
+                    // Just show ID inside
+                    ctx.font = `${baseFontSize}px -apple-system, sans-serif`;
+                    ctx.fillText(node.id, pos.x, pos.y);
+                }
+            }
+            
+            // Reset global alpha
+            ctx.globalAlpha = 1.0;
         }
         
         function drawEdge(edge) {
