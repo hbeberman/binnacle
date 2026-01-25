@@ -630,3 +630,248 @@ fn test_bn_log_default_works() {
 
     assert!(output.status.success(), "bn log should succeed");
 }
+
+// === Log Compact Tests ===
+
+#[test]
+fn test_log_compact_no_settings() {
+    let env = init_binnacle();
+
+    // Generate some action logs
+    for i in 0..5 {
+        bn_in(&env)
+            .args(["task", "create", &format!("Test task {}", i)])
+            .assert()
+            .success();
+    }
+
+    // Compact without settings should do nothing
+    let output = bn_in(&env).args(["log", "compact"]).output().unwrap();
+    assert!(output.status.success(), "bn log compact should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let result: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    assert_eq!(
+        result["deleted"], 0,
+        "Should delete nothing without settings"
+    );
+    assert!(
+        result["max_entries"].is_null(),
+        "max_entries should be null"
+    );
+    assert!(
+        result["max_age_days"].is_null(),
+        "max_age_days should be null"
+    );
+}
+
+#[test]
+fn test_log_compact_with_max_entries_override() {
+    let env = init_binnacle();
+
+    // Generate several action logs
+    for i in 0..10 {
+        bn_in(&env)
+            .args(["task", "create", &format!("Test task {}", i)])
+            .assert()
+            .success();
+    }
+
+    // Compact with max_entries override
+    let output = bn_in(&env)
+        .args(["log", "compact", "--max-entries", "5"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "bn log compact should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let result: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    assert!(
+        result["deleted"].as_u64().unwrap() > 0,
+        "Should delete some entries"
+    );
+    assert_eq!(result["total_after"], 5, "Should have 5 entries after");
+    assert_eq!(result["max_entries"], 5, "max_entries should be 5");
+    assert_eq!(result["dry_run"], false, "dry_run should be false");
+}
+
+#[test]
+fn test_log_compact_dry_run() {
+    let env = init_binnacle();
+
+    // Generate several action logs
+    for i in 0..10 {
+        bn_in(&env)
+            .args(["task", "create", &format!("Test task {}", i)])
+            .assert()
+            .success();
+    }
+
+    // Compact with dry_run - this will report what WOULD be deleted
+    let output = bn_in(&env)
+        .args(["log", "compact", "--max-entries", "5", "--dry-run"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "bn log compact should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let result: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    // Record total before from dry run
+    let total_before = result["total_before"].as_u64().unwrap();
+
+    assert!(
+        result["deleted"].as_u64().unwrap() > 0,
+        "Should report deletions would occur"
+    );
+    assert_eq!(result["dry_run"], true, "dry_run should be true");
+
+    // Now actually compact - should show entries were not deleted during dry_run
+    // (Note: each command adds a log entry, so total_before will be higher now)
+    let output2 = bn_in(&env)
+        .args(["log", "compact", "--max-entries", "5"])
+        .output()
+        .unwrap();
+    assert!(output2.status.success(), "actual compact should succeed");
+
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+    let result2: serde_json::Value = serde_json::from_str(&stdout2).unwrap();
+
+    // The total_before for actual compact should be >= dry run's total_before
+    // (because more commands ran in between)
+    let total_before2 = result2["total_before"].as_u64().unwrap();
+    assert!(
+        total_before2 >= total_before,
+        "Dry run should not have deleted entries (total_before={} >= {})",
+        total_before2,
+        total_before
+    );
+}
+
+#[test]
+fn test_log_compact_with_config_setting() {
+    let env = init_binnacle();
+
+    // Set max_entries config
+    bn_in(&env)
+        .args(["config", "set", "action_log_max_entries", "3"])
+        .assert()
+        .success();
+
+    // Generate several action logs
+    for i in 0..10 {
+        bn_in(&env)
+            .args(["task", "create", &format!("Test task {}", i)])
+            .assert()
+            .success();
+    }
+
+    // Compact using config (no override)
+    let output = bn_in(&env).args(["log", "compact"]).output().unwrap();
+    assert!(output.status.success(), "bn log compact should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let result: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    assert!(
+        result["deleted"].as_u64().unwrap() > 0,
+        "Should delete some entries"
+    );
+    assert_eq!(result["total_after"], 3, "Should have 3 entries after");
+    assert_eq!(
+        result["max_entries"], 3,
+        "max_entries should be from config"
+    );
+}
+
+#[test]
+fn test_log_compact_human_output() {
+    let env = init_binnacle();
+
+    // Generate some action logs
+    for i in 0..5 {
+        bn_in(&env)
+            .args(["task", "create", &format!("Test task {}", i)])
+            .assert()
+            .success();
+    }
+
+    // Compact with human-readable output
+    let output = bn_in(&env)
+        .args(["-H", "log", "compact", "--max-entries", "3"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "bn log compact should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should have human-readable format
+    assert!(
+        stdout.contains("Deleted") || stdout.contains("No entries to delete"),
+        "Should have deletion summary"
+    );
+    assert!(
+        stdout.contains("Settings:") || stdout.contains("max_entries="),
+        "Should show settings"
+    );
+}
+
+#[test]
+fn test_config_validation_max_entries() {
+    let env = init_binnacle();
+
+    // Valid value should work
+    bn_in(&env)
+        .args(["config", "set", "action_log_max_entries", "100"])
+        .assert()
+        .success();
+
+    // Zero should fail
+    bn_in(&env)
+        .args(["config", "set", "action_log_max_entries", "0"])
+        .assert()
+        .failure();
+
+    // Negative should fail
+    bn_in(&env)
+        .args(["config", "set", "action_log_max_entries", "-1"])
+        .assert()
+        .failure();
+
+    // Non-numeric should fail
+    bn_in(&env)
+        .args(["config", "set", "action_log_max_entries", "abc"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_config_validation_max_age_days() {
+    let env = init_binnacle();
+
+    // Valid value should work
+    bn_in(&env)
+        .args(["config", "set", "action_log_max_age_days", "30"])
+        .assert()
+        .success();
+
+    // Zero should fail
+    bn_in(&env)
+        .args(["config", "set", "action_log_max_age_days", "0"])
+        .assert()
+        .failure();
+
+    // Negative should fail
+    bn_in(&env)
+        .args(["config", "set", "action_log_max_age_days", "-7"])
+        .assert()
+        .failure();
+
+    // Non-numeric should fail
+    bn_in(&env)
+        .args(["config", "set", "action_log_max_age_days", "week"])
+        .assert()
+        .failure();
+}

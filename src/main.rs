@@ -827,6 +827,14 @@ fn run_command(
                 )?;
                 output(&result, human);
             }
+            Some(LogCommands::Compact {
+                max_entries,
+                max_age_days,
+                dry_run,
+            }) => {
+                let result = commands::log_compact(repo_path, max_entries, max_age_days, dry_run)?;
+                output(&result, human);
+            }
             None => {
                 // Support old syntax: `bn log <task_id>` as shorthand for `bn log show <task_id>`
                 let result = commands::log(repo_path, task_id.as_deref())?;
@@ -2268,6 +2276,18 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "before": before,
                     "limit": limit,
                     "output": output,
+                }),
+            ),
+            Some(LogCommands::Compact {
+                max_entries,
+                max_age_days,
+                dry_run,
+            }) => (
+                "log compact".to_string(),
+                serde_json::json!({
+                    "max_entries": max_entries,
+                    "max_age_days": max_age_days,
+                    "dry_run": dry_run,
                 }),
             ),
             None => ("log".to_string(), serde_json::json!({ "task_id": task_id })),
