@@ -3676,11 +3676,13 @@ impl Storage {
     /// * `command_filter` - Filter by command name (partial match)
     /// * `user_filter` - Filter by user name (exact match)
     /// * `success_filter` - Filter by success status
+    #[allow(clippy::too_many_arguments)]
     pub fn query_action_logs(
         &self,
         limit: Option<u32>,
         offset: Option<u32>,
         before: Option<&str>,
+        after: Option<&str>,
         command_filter: Option<&str>,
         user_filter: Option<&str>,
         success_filter: Option<bool>,
@@ -3697,6 +3699,11 @@ impl Storage {
         if let Some(before_ts) = before {
             sql.push_str(" AND timestamp < ?");
             params.push(Box::new(before_ts.to_string()));
+        }
+
+        if let Some(after_ts) = after {
+            sql.push_str(" AND timestamp > ?");
+            params.push(Box::new(after_ts.to_string()));
         }
 
         if let Some(cmd) = command_filter {
@@ -3751,6 +3758,7 @@ impl Storage {
     pub fn count_action_logs(
         &self,
         before: Option<&str>,
+        after: Option<&str>,
         command_filter: Option<&str>,
         user_filter: Option<&str>,
         success_filter: Option<bool>,
@@ -3761,6 +3769,11 @@ impl Storage {
         if let Some(before_ts) = before {
             sql.push_str(" AND timestamp < ?");
             params.push(Box::new(before_ts.to_string()));
+        }
+
+        if let Some(after_ts) = after {
+            sql.push_str(" AND timestamp > ?");
+            params.push(Box::new(after_ts.to_string()));
         }
 
         if let Some(cmd) = command_filter {
@@ -5510,7 +5523,7 @@ mod tests {
 
         // Query it back
         let logs = storage
-            .query_action_logs(None, None, None, None, None, None)
+            .query_action_logs(None, None, None, None, None, None, None)
             .unwrap();
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].command, "task create");
@@ -5539,18 +5552,20 @@ mod tests {
 
         // Query with limit
         let logs = storage
-            .query_action_logs(Some(3), None, None, None, None, None)
+            .query_action_logs(Some(3), None, None, None, None, None, None)
             .unwrap();
         assert_eq!(logs.len(), 3);
 
         // Query with offset
         let logs = storage
-            .query_action_logs(Some(3), Some(5), None, None, None, None)
+            .query_action_logs(Some(3), Some(5), None, None, None, None, None)
             .unwrap();
         assert_eq!(logs.len(), 3);
 
         // Count total
-        let count = storage.count_action_logs(None, None, None, None).unwrap();
+        let count = storage
+            .count_action_logs(None, None, None, None, None)
+            .unwrap();
         assert_eq!(count, 10);
     }
 
@@ -5585,21 +5600,21 @@ mod tests {
 
         // Filter by command
         let logs = storage
-            .query_action_logs(None, None, None, Some("create"), None, None)
+            .query_action_logs(None, None, None, None, Some("create"), None, None)
             .unwrap();
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].command, "task create");
 
         // Filter by user
         let logs = storage
-            .query_action_logs(None, None, None, None, Some("bob"), None)
+            .query_action_logs(None, None, None, None, None, Some("bob"), None)
             .unwrap();
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].user, "bob");
 
         // Filter by success
         let logs = storage
-            .query_action_logs(None, None, None, None, None, Some(false))
+            .query_action_logs(None, None, None, None, None, None, Some(false))
             .unwrap();
         assert_eq!(logs.len(), 1);
         assert!(!logs[0].success);

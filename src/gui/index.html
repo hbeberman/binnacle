@@ -1138,6 +1138,51 @@
             transform: scale(0.95);
         }
         
+        /* New entries badge for live streaming */
+        .log-new-entries-badge {
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            animation: badge-pulse 2s ease-in-out infinite;
+            z-index: 10;
+        }
+        
+        .log-new-entries-badge:hover {
+            background: var(--accent-light);
+            transform: scale(1.05);
+        }
+        
+        @keyframes badge-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+        
+        /* New entry animation */
+        .log-entry.new-entry {
+            animation: slide-in 0.3s ease-out;
+            background: rgba(56, 139, 253, 0.1);
+        }
+        
+        @keyframes slide-in {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
         /* Session grouping styles */
         .session-group {
             margin-bottom: 0.5rem;
@@ -5038,6 +5083,12 @@
                 loading: false,    // Whether we're currently loading more
                 hasMore: true      // Whether there are more entries to load
             },
+            logLiveStream: {
+                newestTimestamp: null,   // Track newest entry timestamp for live updates
+                isAtTop: true,           // Whether user is scrolled to top (for auto-scroll)
+                newEntryCount: 0,        // Count of new entries when scrolled away
+                animateNew: true         // Whether to animate new entries
+            },
             logFilters: {
                 commandCategories: [],   // empty = all, or array of: tasks, tests, links, bugs, ideas, docs, system, queue
                 userFilter: 'all',       // all, humans, agents, or specific user
@@ -5216,6 +5267,12 @@
                                 prevStatuses[t.id] = t.status;
                                 prevTitles[t.id] = t.title;
                             });
+                        }
+                        
+                        // For log view, try to fetch only new entries incrementally
+                        // This preserves scroll position and enables live streaming
+                        if (state.currentView === 'log' && state.logLiveStream.newestTimestamp) {
+                            await fetchNewLogEntries();
                         }
                         
                         await loadData();
@@ -5455,6 +5512,11 @@
             state.logPagination.total = logData.total || state.log.length;
             state.logPagination.offset = state.log.length;
             state.logPagination.hasMore = state.log.length < state.logPagination.total;
+            
+            // Track newest log entry timestamp for live streaming
+            if (state.log.length > 0) {
+                state.logLiveStream.newestTimestamp = state.log[0].timestamp;
+            }
             
             // Update user filter dropdown with users from log
             updateUserFilterOptions();
@@ -10790,14 +10852,110 @@
                 // Only trigger if we're in the log view
                 if (state.currentView !== 'log') return;
                 
-                // Check if we're near the bottom (within 200px)
-                const scrollBottom = logView.scrollTop + logView.clientHeight;
+                // Track if user is at the top for live streaming auto-scroll
+                const scrollTop = logView.scrollTop;
+                const wasAtTop = state.logLiveStream.isAtTop;
+                state.logLiveStream.isAtTop = scrollTop <= 50;  // Within 50px of top
+                
+                // If user scrolled back to top, clear the new entry count
+                if (!wasAtTop && state.logLiveStream.isAtTop) {
+                    state.logLiveStream.newEntryCount = 0;
+                    updateNewEntriesBadge();
+                }
+                
+                // Check if we're near the bottom (within 200px) for pagination
+                const scrollBottom = scrollTop + logView.clientHeight;
                 const threshold = logView.scrollHeight - 200;
                 
                 if (scrollBottom >= threshold) {
                     loadMoreLogEntries();
                 }
             });
+        }
+
+        // Update the "New entries" badge visibility
+        function updateNewEntriesBadge() {
+            let badge = document.getElementById('log-new-entries-badge');
+            if (!badge) {
+                // Create the badge if it doesn't exist - place it after the filter summary
+                const logFilterSummary = document.getElementById('log-filter-summary');
+                if (logFilterSummary) {
+                    badge = document.createElement('button');
+                    badge.id = 'log-new-entries-badge';
+                    badge.className = 'log-new-entries-badge';
+                    badge.onclick = scrollToTopOfLog;
+                    logFilterSummary.parentNode.insertBefore(badge, logFilterSummary.nextSibling);
+                }
+            }
+            
+            if (badge) {
+                const count = state.logLiveStream.newEntryCount;
+                if (count > 0 && !state.logLiveStream.isAtTop) {
+                    badge.textContent = `↑ ${count === 1 ? '1 new entry' : `${count} new entries`} - Click to scroll up`;
+                    badge.style.display = 'flex';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+        }
+        
+        // Scroll log view to top
+        function scrollToTopOfLog() {
+            const logView = document.getElementById('log-view');
+            if (logView) {
+                logView.scrollTo({ top: 0, behavior: 'smooth' });
+                state.logLiveStream.newEntryCount = 0;
+                updateNewEntriesBadge();
+            }
+        }
+        
+        // Fetch new log entries since the newest timestamp
+        async function fetchNewLogEntries() {
+            if (!state.logLiveStream.newestTimestamp) return;
+            
+            try {
+                const afterTs = encodeURIComponent(state.logLiveStream.newestTimestamp);
+                const response = await fetch(`/api/log?limit=100&after=${afterTs}`);
+                const data = await response.json();
+                
+                const newEntries = data.log || [];
+                if (newEntries.length > 0) {
+                    // Prepend new entries to the log
+                    state.log = [...newEntries, ...state.log];
+                    state.logPagination.total = (state.logPagination.total || 0) + newEntries.length;
+                    
+                    // Update newest timestamp
+                    state.logLiveStream.newestTimestamp = newEntries[0].timestamp;
+                    
+                    // Track new entry count for badge
+                    if (!state.logLiveStream.isAtTop) {
+                        state.logLiveStream.newEntryCount += newEntries.length;
+                        updateNewEntriesBadge();
+                    }
+                    
+                    // Mark new entries for animation
+                    newEntries.forEach(entry => {
+                        entry._isNew = true;
+                    });
+                    
+                    // Update user filter dropdown with new users
+                    updateUserFilterOptions();
+                    
+                    // Re-render if we're on the log view
+                    if (state.currentView === 'log') {
+                        renderLog();
+                        
+                        // Clear animation flag after a short delay
+                        setTimeout(() => {
+                            newEntries.forEach(entry => {
+                                delete entry._isNew;
+                            });
+                        }, 500);
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to fetch new log entries:', err);
+            }
         }
 
         // Format a log entry into a human-readable action and details
@@ -11278,9 +11436,10 @@
             
             const hasExpandedContent = expandedSections.length > 0;
             const expandIndicator = hasExpandedContent ? '<span class="log-expand-indicator">▼</span>' : '';
+            const newEntryClass = entry._isNew ? 'new-entry' : '';
             
             return `
-                <div class="card log-entry ${statusClass}" data-expandable="${hasExpandedContent}" onclick="toggleLogEntryExpand(event, this)">
+                <div class="card log-entry ${statusClass} ${newEntryClass}" data-expandable="${hasExpandedContent}" onclick="toggleLogEntryExpand(event, this)">
                     <div class="log-header">
                         <div class="log-time">${statusBadge}${new Date(entry.timestamp).toLocaleString()}</div>
                         ${entry.user ? `<div class="log-user">${isAgent(entry.user) ? '🤖' : '👤'} ${escapeHtml(entry.user)}</div>` : ''}

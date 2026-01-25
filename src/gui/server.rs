@@ -485,6 +485,8 @@ struct LogQueryParams {
     offset: Option<u32>,
     /// Only return entries before this ISO 8601 timestamp
     before: Option<String>,
+    /// Only return entries after this ISO 8601 timestamp (for live streaming)
+    after: Option<String>,
     /// Filter by command name (partial match)
     command: Option<String>,
     /// Filter by user (exact match)
@@ -499,6 +501,7 @@ struct LogQueryParams {
 /// - `limit`: Maximum entries to return (default: 100, max: 1000)
 /// - `offset`: Number of entries to skip
 /// - `before`: Only return entries before this ISO 8601 timestamp
+/// - `after`: Only return entries after this ISO 8601 timestamp (for live updates)
 /// - `command`: Filter by command name (partial match)
 /// - `user`: Filter by user (exact match)
 /// - `success`: Filter by success status (true/false)
@@ -513,6 +516,7 @@ async fn get_log(
         params.limit,
         params.offset,
         params.before.as_deref(),
+        params.after.as_deref(),
         params.command.as_deref(),
         params.user.as_deref(),
         params.success,
@@ -523,6 +527,7 @@ async fn get_log(
         let total = storage
             .count_action_logs(
                 params.before.as_deref(),
+                params.after.as_deref(),
                 params.command.as_deref(),
                 params.user.as_deref(),
                 params.success,

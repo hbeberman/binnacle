@@ -9845,27 +9845,16 @@ pub fn log_export(
 ) -> Result<LogExportResult> {
     let storage = Storage::open(repo_path)?;
 
-    // Query action logs from storage with filters
+    // Query action logs from storage with filters (storage now supports after)
     let logs = storage.query_action_logs(
         limit,
         None,           // no offset for export
         before,         // before filter
+        after,          // after filter
         command_filter, // command filter
         user_filter,    // user filter
         success_filter, // success filter
     )?;
-
-    // Apply after filter (storage doesn't support after directly)
-    let logs: Vec<_> = if let Some(after_str) = after {
-        let after_ts = chrono::DateTime::parse_from_rfc3339(after_str)
-            .map_err(|e| Error::Other(format!("Invalid 'after' timestamp: {}", e)))?
-            .with_timezone(&chrono::Utc);
-        logs.into_iter()
-            .filter(|l| l.timestamp > after_ts)
-            .collect()
-    } else {
-        logs
-    };
 
     let count = logs.len();
 
