@@ -82,6 +82,82 @@ impl ComplexityScore {
             )
         }
     }
+
+    /// Returns a soft-gate suggestion prompt for buddy to use when complexity is detected.
+    ///
+    /// This generates a friendly, conversational message that suggests filing as an idea
+    /// rather than a task. Returns `None` if the task is not complex enough to warrant
+    /// the suggestion.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use binnacle::models::complexity::analyze_complexity;
+    ///
+    /// let score = analyze_complexity("Explore caching options and investigate patterns", None);
+    /// if let Some(suggestion) = score.soft_gate_suggestion() {
+    ///     // buddy would display this suggestion to the user
+    ///     println!("{}", suggestion);
+    /// }
+    /// ```
+    pub fn soft_gate_suggestion(&self) -> Option<String> {
+        if !self.is_complex() {
+            return None;
+        }
+
+        let mut suggestion = String::new();
+
+        // Opening line - acknowledge what they're trying to do
+        suggestion
+            .push_str("This sounds like it might be better as an **idea** rather than a task.\n\n");
+
+        // Explain why (use the reasons we detected)
+        suggestion.push_str("Here's what I noticed:\n");
+        for reason in &self.reasons {
+            suggestion.push_str(&format!("- {}\n", simplify_reason(reason)));
+        }
+
+        // Explain the difference between ideas and tasks
+        suggestion.push_str("\n**Ideas** are great for:\n");
+        suggestion.push_str("- Exploratory concepts that need discussion\n");
+        suggestion.push_str("- \"What if\" thoughts that aren't fully formed\n");
+        suggestion.push_str("- Work that needs decomposition before it's actionable\n");
+
+        // Offer the choice
+        suggestion.push_str("\n**What would you like to do?**\n");
+        suggestion
+            .push_str("1. File as an **idea** (recommended) - can be promoted to tasks later\n");
+        suggestion.push_str("2. File as a **task** anyway - you know best what's needed\n");
+        suggestion.push_str("3. Let me help you **break it down** into smaller tasks\n");
+
+        Some(suggestion)
+    }
+}
+
+/// Simplify technical reason strings into user-friendly language.
+fn simplify_reason(reason: &str) -> String {
+    // Convert technical reasons into friendlier language
+    if reason.contains("conjunctions") {
+        "Contains multiple concerns (might be several tasks combined)".to_string()
+    } else if reason.contains("action verbs") {
+        "Multiple action items detected (could be split up)".to_string()
+    } else if reason.contains("exploratory") {
+        "Uses exploratory language (suggests research/investigation needed)".to_string()
+    } else if reason.contains("uncertainty") {
+        "Contains uncertainty markers (might need more clarity first)".to_string()
+    } else if reason.contains("vague scope") {
+        "Scope seems broad or undefined".to_string()
+    } else if reason.contains("open-ended") {
+        "Has open-ended elements (suggests incomplete definition)".to_string()
+    } else if reason.contains("list items") {
+        "Contains a list of items (might be multiple tasks)".to_string()
+    } else if reason.contains("Title is") {
+        "Title is quite long (might benefit from breaking down)".to_string()
+    } else if reason.contains("Description is") {
+        "Description is quite long (might cover multiple concerns)".to_string()
+    } else {
+        reason.to_string()
+    }
 }
 
 impl Default for ComplexityScore {
@@ -457,5 +533,65 @@ mod tests {
         let score = ComplexityScore::default();
         assert_eq!(score.score, 0);
         assert!(score.reasons.is_empty());
+    }
+
+    #[test]
+    fn test_soft_gate_suggestion_none_for_simple() {
+        let score = analyze_complexity("Fix typo in README", None);
+        assert!(score.soft_gate_suggestion().is_none());
+    }
+
+    #[test]
+    fn test_soft_gate_suggestion_some_for_complex() {
+        let score = analyze_complexity("Explore caching options and investigate patterns", None);
+        assert!(score.is_complex());
+        let suggestion = score.soft_gate_suggestion();
+        assert!(suggestion.is_some());
+    }
+
+    #[test]
+    fn test_soft_gate_suggestion_structure() {
+        let score = analyze_complexity("Add auth and fix database and improve logging", None);
+        let suggestion = score.soft_gate_suggestion().unwrap();
+
+        // Check key components are present
+        assert!(suggestion.contains("better as an **idea**"));
+        assert!(suggestion.contains("Here's what I noticed"));
+        assert!(suggestion.contains("Ideas** are great for"));
+        assert!(suggestion.contains("What would you like to do?"));
+        assert!(suggestion.contains("File as an **idea**"));
+        assert!(suggestion.contains("File as a **task** anyway"));
+        assert!(suggestion.contains("break it down"));
+    }
+
+    #[test]
+    fn test_soft_gate_suggestion_friendly_reasons() {
+        // Test conjunction detection produces friendly message
+        let score = analyze_complexity("Add feature and fix bug", None);
+        if let Some(suggestion) = score.soft_gate_suggestion() {
+            assert!(suggestion.contains("multiple concerns"));
+        }
+
+        // Test exploratory language produces friendly message
+        let score = analyze_complexity("Explore caching options deeply", None);
+        if let Some(suggestion) = score.soft_gate_suggestion() {
+            assert!(suggestion.contains("exploratory"));
+        }
+    }
+
+    #[test]
+    fn test_simplify_reason() {
+        assert_eq!(
+            super::simplify_reason("Contains conjunctions suggesting multiple concerns"),
+            "Contains multiple concerns (might be several tasks combined)"
+        );
+        assert_eq!(
+            super::simplify_reason("Contains exploratory language (better as idea)"),
+            "Uses exploratory language (suggests research/investigation needed)"
+        );
+        assert_eq!(
+            super::simplify_reason("Something unknown"),
+            "Something unknown"
+        );
     }
 }
