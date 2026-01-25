@@ -3864,7 +3864,7 @@
             docs: [],
             log: [],
             logFilters: {
-                commandCategory: 'all',  // all, tasks, tests, links, bugs, ideas, docs, system, queue
+                commandCategories: [],   // empty = all, or array of: tasks, tests, links, bugs, ideas, docs, system, queue
                 userFilter: 'all',       // all, humans, agents, or specific user
                 statusFilter: 'all',     // all, success, failure
                 searchText: '',          // text search
@@ -8395,10 +8395,15 @@
         };
 
         // Check if a command belongs to a category
-        function commandMatchesCategory(command, category) {
-            if (category === 'all') return true;
-            const commands = COMMAND_CATEGORIES[category] || [];
-            return commands.some(c => command.startsWith(c));
+        // Check if a command belongs to any of the selected categories
+        function commandMatchesCategory(command, categories) {
+            // Empty array means "all" - show everything
+            if (!categories || categories.length === 0) return true;
+            // Check if command matches any selected category
+            return categories.some(category => {
+                const commands = COMMAND_CATEGORIES[category] || [];
+                return commands.some(c => command.startsWith(c));
+            });
         }
 
         // Check if a user is an agent (bna- prefix)
@@ -8420,15 +8425,15 @@
 
         // Apply all filters to log entries
         function filterLogEntries(entries) {
-            const { commandCategory, userFilter, statusFilter, searchText, dateRange } = state.logFilters;
+            const { commandCategories, userFilter, statusFilter, searchText, dateRange } = state.logFilters;
             const dateThreshold = getDateThreshold(dateRange);
             const searchLower = searchText.toLowerCase();
 
             return entries.filter(entry => {
                 const command = entry.command || entry.action || '';
                 
-                // Command category filter
-                if (!commandMatchesCategory(command, commandCategory)) return false;
+                // Command category filter (multi-select)
+                if (!commandMatchesCategory(command, commandCategories)) return false;
                 
                 // User filter
                 if (userFilter === 'humans' && isAgent(entry.user)) return false;
@@ -9109,9 +9114,145 @@
             section.classList.toggle('filtered-empty', visibleCount === 0 && query);
         }
 
+        // Update filter chip UI to reflect current state
+        function updateFilterChipUI() {
+            const chipContainer = document.getElementById('command-filter-chips');
+            if (!chipContainer) return;
+            
+            const categories = state.logFilters.commandCategories;
+            chipContainer.querySelectorAll('.filter-chip').forEach(chip => {
+                const cat = chip.dataset.category;
+                if (cat === 'all') {
+                    // "All" is active when no specific categories are selected
+                    chip.classList.toggle('active', categories.length === 0);
+                } else {
+                    chip.classList.toggle('active', categories.includes(cat));
+                }
+            });
+        }
+
+        // Save log filters to URL for persistence and sharing
+        function saveLogFiltersToURL() {
+            const params = new URLSearchParams(window.location.search);
+            const filters = state.logFilters;
+            
+            // Command categories (multi-select)
+            if (filters.commandCategories.length > 0) {
+                params.set('categories', filters.commandCategories.join(','));
+            } else {
+                params.delete('categories');
+            }
+            
+            // User filter
+            if (filters.userFilter !== 'all') {
+                params.set('user', filters.userFilter);
+            } else {
+                params.delete('user');
+            }
+            
+            // Status filter
+            if (filters.statusFilter !== 'all') {
+                params.set('status', filters.statusFilter);
+            } else {
+                params.delete('status');
+            }
+            
+            // Search text
+            if (filters.searchText) {
+                params.set('search', filters.searchText);
+            } else {
+                params.delete('search');
+            }
+            
+            // Date range
+            if (filters.dateRange !== 'all') {
+                params.set('date', filters.dateRange);
+            } else {
+                params.delete('date');
+            }
+            
+            // Update URL without page reload
+            const newURL = params.toString() 
+                ? `${window.location.pathname}?${params.toString()}`
+                : window.location.pathname;
+            window.history.replaceState({}, '', newURL);
+        }
+
+        // Load log filters from URL on page load
+        function loadLogFiltersFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            
+            // Command categories (multi-select)
+            const categories = params.get('categories');
+            if (categories) {
+                state.logFilters.commandCategories = categories.split(',').filter(c => 
+                    ['tasks', 'tests', 'links', 'bugs', 'ideas', 'docs', 'system', 'queue'].includes(c)
+                );
+            }
+            
+            // User filter
+            const user = params.get('user');
+            if (user) {
+                state.logFilters.userFilter = user;
+            }
+            
+            // Status filter
+            const status = params.get('status');
+            if (status && ['success', 'failure'].includes(status)) {
+                state.logFilters.statusFilter = status;
+            }
+            
+            // Search text
+            const search = params.get('search');
+            if (search) {
+                state.logFilters.searchText = search;
+                // Also update the search input field
+                const searchInput = document.getElementById('log-search');
+                if (searchInput) searchInput.value = search;
+            }
+            
+            // Date range
+            const date = params.get('date');
+            if (date && ['hour', 'day', 'week', 'month'].includes(date)) {
+                state.logFilters.dateRange = date;
+            }
+            
+            // Update UI to reflect loaded state
+            updateFilterChipUI();
+            updateFilterUIFromState();
+        }
+
+        // Update other filter UI elements from state
+        function updateFilterUIFromState() {
+            const filters = state.logFilters;
+            
+            // User filter dropdown
+            const userSelect = document.getElementById('user-filter');
+            if (userSelect) userSelect.value = filters.userFilter;
+            
+            // Status toggle
+            const statusToggle = document.getElementById('status-filter-toggle');
+            if (statusToggle) {
+                statusToggle.querySelectorAll('.status-toggle-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.status === filters.statusFilter);
+                });
+            }
+            
+            // Date presets
+            const datePresets = document.getElementById('date-filter-presets');
+            if (datePresets) {
+                datePresets.querySelectorAll('.date-preset-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.range === filters.dateRange);
+                });
+            }
+        }
+
         // Initialize Activity Log filters
         function initializeLogFilters() {
-            // Command category filter chips
+            // Load filters from URL on init
+            loadLogFiltersFromURL();
+            
+            // Command category filter chips (multi-select)
             const chipContainer = document.getElementById('command-filter-chips');
             if (chipContainer) {
                 chipContainer.addEventListener('click', (e) => {
@@ -9119,13 +9260,23 @@
                     if (!chip) return;
                     
                     const category = chip.dataset.category;
-                    state.logFilters.commandCategory = category;
                     
-                    // Update active state
-                    chipContainer.querySelectorAll('.filter-chip').forEach(c => {
-                        c.classList.toggle('active', c.dataset.category === category);
-                    });
+                    if (category === 'all') {
+                        // "All" clears the filter (empty array = show all)
+                        state.logFilters.commandCategories = [];
+                    } else {
+                        // Toggle the category in the array
+                        const idx = state.logFilters.commandCategories.indexOf(category);
+                        if (idx === -1) {
+                            state.logFilters.commandCategories.push(category);
+                        } else {
+                            state.logFilters.commandCategories.splice(idx, 1);
+                        }
+                    }
                     
+                    // Update active states
+                    updateFilterChipUI();
+                    saveLogFiltersToURL();
                     renderLog();
                 });
             }
@@ -9135,6 +9286,7 @@
             if (userSelect) {
                 userSelect.addEventListener('change', (e) => {
                     state.logFilters.userFilter = e.target.value;
+                    saveLogFiltersToURL();
                     renderLog();
                 });
             }
@@ -9154,6 +9306,7 @@
                         b.classList.toggle('active', b.dataset.status === status);
                     });
                     
+                    saveLogFiltersToURL();
                     renderLog();
                 });
             }
@@ -9166,6 +9319,7 @@
                     clearTimeout(searchTimeout);
                     searchTimeout = setTimeout(() => {
                         state.logFilters.searchText = e.target.value.trim();
+                        saveLogFiltersToURL();
                         renderLog();
                     }, 200); // 200ms debounce
                 });
@@ -9186,6 +9340,7 @@
                         b.classList.toggle('active', b.dataset.range === range);
                     });
                     
+                    saveLogFiltersToURL();
                     renderLog();
                 });
             }
