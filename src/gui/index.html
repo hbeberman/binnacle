@@ -5920,7 +5920,8 @@
 
         /**
          * Update the available work counter in the header.
-         * Shows total count of claimable items: ready tasks + open bugs + open ideas.
+         * Shows total count of claimable items: ready tasks + open bugs.
+         * Ideas are excluded as they require human review before becoming actionable.
          */
         function updateAvailableWorkPane() {
             const pane = document.getElementById('available-work-pane');
@@ -5939,13 +5940,9 @@
             );
             const openBugCount = openBugs.length;
             
-            // Count open ideas (seed or germinating)
-            const openIdeas = (state.ideas || []).filter(idea => 
-                idea.status === 'seed' || idea.status === 'germinating'
-            );
-            const openIdeaCount = openIdeas.length;
+            // Ideas are excluded - they require human review/refinement before becoming actionable
             
-            const totalCount = readyTaskCount + openBugCount + openIdeaCount;
+            const totalCount = readyTaskCount + openBugCount;
             
             countEl.textContent = totalCount;
             
@@ -5960,9 +5957,6 @@
             }
             if (openBugCount > 0) {
                 breakdownEl.appendChild(createEmojiCountBadge('🐛', openBugCount, 'bug', `${openBugCount} open bug${openBugCount !== 1 ? 's' : ''}`));
-            }
-            if (openIdeaCount > 0) {
-                breakdownEl.appendChild(createEmojiCountBadge('💭', openIdeaCount, 'idea', `${openIdeaCount} open idea${openIdeaCount !== 1 ? 's' : ''}`));
             }
         }
         
