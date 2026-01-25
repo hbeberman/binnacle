@@ -533,6 +533,28 @@
             border-color: var(--accent-blue);
         }
 
+        .sidebar-filters {
+            padding: 0 0.5rem 0.5rem 0.5rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .filter-select {
+            flex: 1;
+            padding: 0.4rem 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
         .sidebar-content {
             flex: 1;
             overflow-y: auto;
@@ -687,7 +709,28 @@
                     <button class="sidebar-toggle" id="sidebar-toggle">×</button>
                 </div>
                 <div style="padding: 0 0.5rem;">
-                    <input type="text" class="sidebar-search" id="sidebar-search" placeholder="Filter nodes...">
+                    <input type="text" class="sidebar-search" id="sidebar-search" placeholder="Search...">
+                </div>
+                <div class="sidebar-filters">
+                    <select class="filter-select" id="type-filter">
+                        <option value="">All Types</option>
+                        <option value="task">📋 Task</option>
+                        <option value="bug">🐛 Bug</option>
+                        <option value="idea">💡 Idea</option>
+                        <option value="doc">📄 Doc</option>
+                        <option value="queue">📥 Queue</option>
+                        <option value="agent">🤖 Agent</option>
+                        <option value="milestone">🏁 Milestone</option>
+                    </select>
+                    <select class="filter-select" id="status-filter">
+                        <option value="">All Status</option>
+                        <option value="pending">⏳ Pending</option>
+                        <option value="in_progress">🔄 In Progress</option>
+                        <option value="blocked">🚫 Blocked</option>
+                        <option value="done">✅ Done</option>
+                        <option value="cancelled">❌ Cancelled</option>
+                        <option value="reopened">🔁 Reopened</option>
+                    </select>
                 </div>
                 <div class="sidebar-content" id="sidebar-content">
                     <!-- Node list will be populated here -->
@@ -719,6 +762,11 @@
             animationFrame: null,
             layoutRunning: false,
             archiveSource: null,    // URL or filename of loaded archive
+            filters: {
+                text: '',
+                type: '',
+                status: ''
+            }
         };
         
         // DOM elements
@@ -950,15 +998,41 @@
             }
         }
         
-        function filterSidebar(query) {
-            const items = document.querySelectorAll('.node-list-item');
-            const q = query.toLowerCase();
+        function nodePassesFilters(node) {
+            const { text, type, status } = state.filters;
             
+            // Text filter (search in id and title/short_name)
+            if (text) {
+                const q = text.toLowerCase();
+                const id = node.id.toLowerCase();
+                const title = (node.short_name || node.title || '').toLowerCase();
+                if (!id.includes(q) && !title.includes(q)) {
+                    return false;
+                }
+            }
+            
+            // Type filter
+            if (type && node.type !== type) {
+                return false;
+            }
+            
+            // Status filter
+            if (status && node.status !== status) {
+                return false;
+            }
+            
+            return true;
+        }
+        
+        function applyFilters() {
+            // Update sidebar visibility
+            const items = document.querySelectorAll('.node-list-item');
             for (const item of items) {
-                const id = item.dataset.nodeId.toLowerCase();
-                const title = item.querySelector('.node-list-title').textContent.toLowerCase();
-                const visible = id.includes(q) || title.includes(q);
-                item.style.display = visible ? '' : 'none';
+                const nodeId = item.dataset.nodeId;
+                const node = state.nodes.find(n => n.id === nodeId);
+                if (node) {
+                    item.style.display = nodePassesFilters(node) ? '' : 'none';
+                }
             }
         }
         
@@ -987,13 +1061,19 @@
             ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg-primary');
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // Draw edges
+            // Get visible nodes based on filters
+            const visibleNodes = state.nodes.filter(nodePassesFilters);
+            const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+            
+            // Draw edges (only if both nodes are visible)
             for (const edge of state.edges) {
-                drawEdge(edge);
+                if (visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)) {
+                    drawEdge(edge);
+                }
             }
             
-            // Draw nodes
-            for (const node of state.nodes) {
+            // Draw visible nodes
+            for (const node of visibleNodes) {
                 drawNode(node);
             }
         }
@@ -1245,7 +1325,16 @@
             // Sidebar
             document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
             document.getElementById('sidebar-search').addEventListener('input', (e) => {
-                filterSidebar(e.target.value);
+                state.filters.text = e.target.value;
+                applyFilters();
+            });
+            document.getElementById('type-filter').addEventListener('change', (e) => {
+                state.filters.type = e.target.value;
+                applyFilters();
+            });
+            document.getElementById('status-filter').addEventListener('change', (e) => {
+                state.filters.status = e.target.value;
+                applyFilters();
             });
             
             // File picker
@@ -1313,12 +1402,13 @@
                 state.panY += dy / state.zoom;
                 state.dragStart = { x: e.clientX, y: e.clientY };
             } else {
-                // Hover detection
+                // Hover detection (only consider visible nodes)
                 const world = screenToWorld(x, y);
                 const hitRadius = 30 / state.zoom;
                 
                 let hoveredNode = null;
                 for (const node of state.nodes) {
+                    if (!nodePassesFilters(node)) continue;
                     const dx = node.x - world.x;
                     const dy = node.y - world.y;
                     if (dx * dx + dy * dy <= hitRadius * hitRadius) {
