@@ -13157,10 +13157,19 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
         !is_planner || force
     };
 
-    // Remove agent from registry
-    if was_registered && let Some(pid) = agent_pid_for_removal {
-        let _ = storage.remove_agent(pid);
+    // Update agent with goodbye status before removing (for GUI animation)
+    if was_registered && let Ok(mut agent_data) = storage.get_agent(parent_pid) {
+        agent_data.current_action = Some("goodbye".to_string());
+        agent_data.goodbye_at = Some(Utc::now());
+        // Keep the agent visible for a few seconds so GUI can show goodbye animation
+        // The GUI will fade out the agent based on goodbye_at timestamp
+        // cleanup_stale_agents() will remove it after a delay
+        let _ = storage.update_agent(&agent_data);
     }
+
+    // Note: We don't remove the agent immediately anymore to allow GUI
+    // to show the goodbye animation. The cleanup_stale_agents() function
+    // will remove goodbye agents after a 10-second delay.
 
     // Log the bn command PID for debugging
     let _ = bn_pid;

@@ -3641,13 +3641,22 @@ impl Storage {
     pub fn cleanup_stale_agents(&mut self) -> Result<Vec<u32>> {
         let agents = self.list_agents(None)?;
         let mut removed = Vec::new();
+        let now = chrono::Utc::now();
+        let goodbye_delay = chrono::Duration::seconds(10);
 
         for agent in agents {
-            if !agent.is_alive() {
-                // Remove the stale agent
-                if self.remove_agent(agent.pid).is_ok() {
-                    removed.push(agent.pid);
-                }
+            let should_remove = if !agent.is_alive() {
+                // Process is no longer running
+                true
+            } else if let Some(goodbye_at) = agent.goodbye_at {
+                // Agent said goodbye - remove after 10 seconds to allow GUI animation
+                now.signed_duration_since(goodbye_at) > goodbye_delay
+            } else {
+                false
+            };
+
+            if should_remove && self.remove_agent(agent.pid).is_ok() {
+                removed.push(agent.pid);
             }
         }
 

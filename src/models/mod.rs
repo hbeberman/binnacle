@@ -1089,6 +1089,16 @@ pub struct Agent {
     /// Current status of the agent
     #[serde(default)]
     pub status: AgentStatus,
+
+    /// Current action the agent is performing (e.g., "working", "goodbye", task short_name)
+    /// Displayed as a status indicator over the agent node in the GUI
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_action: Option<String>,
+
+    /// When the agent called goodbye (for fade-out animation timing)
+    /// GUI uses this to show agent for 5 seconds after goodbye before fading out
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goodbye_at: Option<DateTime<Utc>>,
 }
 
 fn agent_entity_type() -> String {
@@ -1130,6 +1140,8 @@ impl Agent {
             tasks: Vec::new(),
             command_count: 0,
             status: AgentStatus::default(),
+            current_action: None,
+            goodbye_at: None,
         }
     }
 
@@ -1157,6 +1169,8 @@ impl Agent {
             tasks: Vec::new(),
             command_count: 0,
             status: AgentStatus::default(),
+            current_action: None,
+            goodbye_at: None,
         }
     }
 
