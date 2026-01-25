@@ -899,8 +899,20 @@
             if (state.archiveSource) {
                 const filename = state.archiveSource.split('/').pop();
                 document.getElementById('snapshot-title').textContent = filename;
-                document.getElementById('snapshot-meta').textContent = 
-                    `Loaded from ${state.archiveSource.startsWith('http') ? 'URL' : 'file'}`;
+                
+                // Get manifest data for timestamp
+                let metaText = `Loaded from ${state.archiveSource.startsWith('http') ? 'URL' : 'file'}`;
+                try {
+                    const manifest = JSON.parse(state.viewer.getManifestJson());
+                    if (manifest.exported_at) {
+                        const date = new Date(manifest.exported_at);
+                        const formatted = date.toLocaleString();
+                        metaText = `Exported ${formatted}`;
+                    }
+                } catch (e) {
+                    // Fallback to source info if manifest parsing fails
+                }
+                document.getElementById('snapshot-meta').textContent = metaText;
             }
         }
         

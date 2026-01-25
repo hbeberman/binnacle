@@ -24,6 +24,17 @@ use crate::gui::shared::{LayoutEdge, LayoutEngine, LayoutNode, NodeType};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
+/// Archive manifest metadata
+#[derive(Debug, Clone, Default)]
+pub struct ArchiveManifest {
+    /// When the archive was exported (RFC 3339 timestamp)
+    pub exported_at: Option<String>,
+    /// Source repository path
+    pub source_repo: Option<String>,
+    /// Binnacle version that created the archive
+    pub binnacle_version: Option<String>,
+}
+
 /// Parsed graph data from a binnacle archive
 #[derive(Debug, Default)]
 pub struct GraphData {
@@ -31,6 +42,8 @@ pub struct GraphData {
     pub entities: Vec<GraphEntity>,
     /// All edges between entities
     pub edges: Vec<GraphEdge>,
+    /// Archive metadata (if available)
+    pub manifest: ArchiveManifest,
 }
 
 /// A graph entity (task, bug, idea, etc.)
@@ -222,6 +235,27 @@ fn extract_tar(data: &[u8]) -> Result<HashMap<String, Vec<u8>>, ArchiveError> {
 fn parse_archive_files(files: &HashMap<String, Vec<u8>>) -> Result<GraphData, ArchiveError> {
     let mut graph = GraphData::new();
     let mut entity_ids = std::collections::HashSet::new();
+
+    // Parse manifest.json for metadata
+    if let Some(manifest_data) = files.get("manifest.json") {
+        let content = String::from_utf8_lossy(manifest_data);
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            graph.manifest = ArchiveManifest {
+                exported_at: json
+                    .get("exported_at")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                source_repo: json
+                    .get("source_repo")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                binnacle_version: json
+                    .get("binnacle_version")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+            };
+        }
+    }
 
     // Parse tasks.jsonl (contains tasks, ideas, milestones, queues, docs, agents)
     if let Some(tasks_data) = files.get("tasks.jsonl") {
@@ -503,6 +537,55 @@ mod tests {
         assert_eq!(graph.entities[1].id, "bn-5678");
         assert_eq!(graph.edges[0].source, "bn-1234");
         assert_eq!(graph.edges[0].target, "bn-5678");
+    }
+
+    #[test]
+    fn test_parse_archive_files_with_manifest() {
+        let mut files = HashMap::new();
+
+        // Add manifest.json
+        let manifest = r#"{
+            "version": 1,
+            "format": "binnacle-store-v1",
+            "exported_at": "2026-01-25T12:00:00Z",
+            "source_repo": "/path/to/repo",
+            "binnacle_version": "0.1.0"
+        }"#;
+        files.insert("manifest.json".to_string(), manifest.as_bytes().to_vec());
+
+        // Add tasks.jsonl
+        let tasks =
+            r#"{"id":"bn-1234","type":"task","title":"Task 1","status":"pending","priority":2}"#;
+        files.insert("tasks.jsonl".to_string(), tasks.as_bytes().to_vec());
+
+        let graph = parse_archive_files(&files).unwrap();
+
+        assert_eq!(
+            graph.manifest.exported_at,
+            Some("2026-01-25T12:00:00Z".to_string())
+        );
+        assert_eq!(
+            graph.manifest.source_repo,
+            Some("/path/to/repo".to_string())
+        );
+        assert_eq!(graph.manifest.binnacle_version, Some("0.1.0".to_string()));
+    }
+
+    #[test]
+    fn test_parse_archive_files_without_manifest() {
+        let mut files = HashMap::new();
+
+        // No manifest.json
+        let tasks =
+            r#"{"id":"bn-1234","type":"task","title":"Task 1","status":"pending","priority":2}"#;
+        files.insert("tasks.jsonl".to_string(), tasks.as_bytes().to_vec());
+
+        let graph = parse_archive_files(&files).unwrap();
+
+        // Manifest should have default (None) values
+        assert!(graph.manifest.exported_at.is_none());
+        assert!(graph.manifest.source_repo.is_none());
+        assert!(graph.manifest.binnacle_version.is_none());
     }
 
     #[test]
