@@ -166,7 +166,8 @@ Environment variables are automatically passed to the container:
 | `BN_CONTAINER_MODE` | true | Indicates running in container |
 | `BN_MERGE_TARGET` | main | Branch to merge into on exit |
 | `BN_NO_MERGE` | - | Set when --no-merge is used |
-| `COPILOT_GITHUB_TOKEN` | - | Passed through if set on host |
+| `GH_TOKEN` | - | GitHub token (passed through if set on host) |
+| `COPILOT_GITHUB_TOKEN` | - | Copilot CLI token (passed through if set on host) |
 
 ## Files
 
@@ -214,6 +215,9 @@ sudo ctr -n binnacle images list
 Ensure your GitHub token is set:
 
 ```bash
+# For GitHub CLI and general API access
+export GH_TOKEN="your-token"
+# Or for Copilot CLI specifically
 export COPILOT_GITHUB_TOKEN="your-token"
 bn container run ../agent-worktree
 ```
