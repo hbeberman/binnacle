@@ -3305,6 +3305,124 @@
             cursor: not-allowed;
         }
 
+        /* Info Panel Tabs */
+        .info-panel-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .info-panel-tab {
+            padding: 0.5rem 1rem;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: color 0.2s ease, border-color 0.2s ease;
+            margin-bottom: -1px;
+        }
+
+        .info-panel-tab:hover {
+            color: var(--text-primary);
+        }
+
+        .info-panel-tab.active {
+            color: var(--accent-light);
+            border-bottom-color: var(--accent-light);
+        }
+
+        .info-panel-tab-content {
+            display: none;
+        }
+
+        .info-panel-tab-content.active {
+            display: block;
+        }
+
+        /* Info Panel Activity Log */
+        .info-panel-activity-log {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .info-panel-activity-entry {
+            padding: 0.5rem;
+            border-radius: 4px;
+            background: var(--card-bg);
+            margin-bottom: 0.5rem;
+            font-size: 0.8rem;
+        }
+
+        .info-panel-activity-entry:last-child {
+            margin-bottom: 0;
+        }
+
+        .info-panel-activity-entry.error {
+            background: rgba(239, 68, 68, 0.1);
+            border-left: 3px solid var(--error-color);
+        }
+
+        .info-panel-activity-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.25rem;
+        }
+
+        .info-panel-activity-command {
+            font-family: monospace;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .info-panel-activity-time {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .info-panel-activity-args {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            word-break: break-word;
+        }
+
+        .info-panel-activity-empty {
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 2rem 1rem;
+            font-size: 0.85rem;
+        }
+
+        .info-panel-activity-loading {
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 1rem;
+            font-size: 0.85rem;
+        }
+
+        .info-panel-view-full-log {
+            display: block;
+            text-align: center;
+            padding: 0.75rem;
+            margin-top: 0.75rem;
+            color: var(--accent-light);
+            font-size: 0.8rem;
+            text-decoration: none;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+
+        .info-panel-view-full-log:hover {
+            background: var(--card-bg);
+            border-color: var(--accent-light);
+        }
+
         /* Edge Info Panel */
         .edge-info-panel {
             position: absolute;
@@ -4202,29 +4320,41 @@
                         <span id="info-panel-short-name" class="info-panel-short-name"></span>
                     </div>
                     <div id="info-panel-meta" class="info-panel-meta"></div>
-                    <div id="info-panel-queue-section" class="info-panel-queue-section" style="display: none;">
-                        <span class="info-panel-queue-label">In Queue</span>
-                        <button id="queue-toggle-btn" class="queue-toggle-switch" title="Toggle queue membership"></button>
+                    <div class="info-panel-tabs">
+                        <button class="info-panel-tab active" data-tab="details">Details</button>
+                        <button class="info-panel-tab" data-tab="activity">Activity</button>
                     </div>
-                    <div id="info-panel-description-section" class="info-panel-section">
-                        <div class="info-panel-section-title">Description</div>
-                        <div id="info-panel-description" class="info-panel-description"></div>
+                    <div id="info-panel-details-tab" class="info-panel-tab-content active">
+                        <div id="info-panel-queue-section" class="info-panel-queue-section" style="display: none;">
+                            <span class="info-panel-queue-label">In Queue</span>
+                            <button id="queue-toggle-btn" class="queue-toggle-switch" title="Toggle queue membership"></button>
+                        </div>
+                        <div id="info-panel-description-section" class="info-panel-section">
+                            <div class="info-panel-section-title">Description</div>
+                            <div id="info-panel-description" class="info-panel-description"></div>
+                        </div>
+                        <div id="info-panel-deps-section" class="info-panel-section" style="display: none;">
+                            <div class="info-panel-section-title">Depends On</div>
+                            <ul id="info-panel-deps" class="info-panel-deps"></ul>
+                        </div>
+                        <div id="info-panel-relationships-section" class="info-panel-section" style="display: none;">
+                            <div class="info-panel-section-title">Relationships</div>
+                            <ul id="info-panel-relationships" class="info-panel-relationships"></ul>
+                        </div>
+                        <div id="info-panel-closed-section" class="info-panel-section" style="display: none;">
+                            <div class="info-panel-section-title">Closed Reason</div>
+                            <div id="info-panel-closed-reason" class="info-panel-closed-reason"></div>
+                        </div>
+                        <div id="info-panel-timestamps-section" class="info-panel-section" style="display: none;">
+                            <div class="info-panel-section-title">Timestamps</div>
+                            <dl id="info-panel-timestamps" class="info-panel-timestamps"></dl>
+                        </div>
                     </div>
-                    <div id="info-panel-deps-section" class="info-panel-section" style="display: none;">
-                        <div class="info-panel-section-title">Depends On</div>
-                        <ul id="info-panel-deps" class="info-panel-deps"></ul>
-                    </div>
-                    <div id="info-panel-relationships-section" class="info-panel-section" style="display: none;">
-                        <div class="info-panel-section-title">Relationships</div>
-                        <ul id="info-panel-relationships" class="info-panel-relationships"></ul>
-                    </div>
-                    <div id="info-panel-closed-section" class="info-panel-section" style="display: none;">
-                        <div class="info-panel-section-title">Closed Reason</div>
-                        <div id="info-panel-closed-reason" class="info-panel-closed-reason"></div>
-                    </div>
-                    <div id="info-panel-timestamps-section" class="info-panel-section" style="display: none;">
-                        <div class="info-panel-section-title">Timestamps</div>
-                        <dl id="info-panel-timestamps" class="info-panel-timestamps"></dl>
+                    <div id="info-panel-activity-tab" class="info-panel-tab-content">
+                        <div id="info-panel-activity-content" class="info-panel-activity-log">
+                            <div class="info-panel-activity-loading">Loading activity...</div>
+                        </div>
+                        <a id="info-panel-view-full-log" class="info-panel-view-full-log">View in full activity log →</a>
                     </div>
                 </div>
                 <div class="edge-info-panel" id="edge-info-panel">
@@ -6880,6 +7010,10 @@
             tooltip.classList.add('visible');
         }
 
+        // Info panel state variables (declared before updateInfoPanel so they're in scope)
+        let currentInfoPanelEntityId = null;
+        let entityActivityCache = {};
+
         function updateInfoPanel(node) {
             const panel = document.getElementById('info-panel');
             const idEl = document.getElementById('info-panel-id');
@@ -6899,12 +7033,27 @@
 
             if (!node) {
                 panel.classList.remove('visible');
+                currentInfoPanelEntityId = null;
                 return;
             }
 
             // Find full task data
             const task = state.tasks.find(t => t.id === node.id);
             if (!task) return;
+
+            // Track current entity and reset to Details tab when switching entities
+            if (currentInfoPanelEntityId !== task.id) {
+                currentInfoPanelEntityId = task.id;
+                // Reset to Details tab
+                document.querySelectorAll('.info-panel-tab').forEach(t => {
+                    t.classList.toggle('active', t.dataset.tab === 'details');
+                });
+                document.querySelectorAll('.info-panel-tab-content').forEach(content => {
+                    content.classList.toggle('active', content.id === 'info-panel-details-tab');
+                });
+                // Clear activity cache for this entity to force fresh load
+                delete entityActivityCache[task.id];
+            }
 
             // Update header title based on node type
             const typeLabels = {
@@ -7062,6 +7211,155 @@
             state.graph.selectedNode = null;
             updateInfoPanel(null);
         });
+
+        // Info panel tab switching
+        document.querySelectorAll('.info-panel-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                
+                // Update tab buttons
+                document.querySelectorAll('.info-panel-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Update tab content
+                document.querySelectorAll('.info-panel-tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                document.getElementById(`info-panel-${tabName}-tab`).classList.add('active');
+                
+                // Load activity when switching to activity tab
+                if (tabName === 'activity' && currentInfoPanelEntityId) {
+                    loadEntityActivity(currentInfoPanelEntityId);
+                }
+            });
+        });
+
+        // Fetch and display activity log entries for an entity
+        async function loadEntityActivity(entityId) {
+            const contentEl = document.getElementById('info-panel-activity-content');
+            const viewFullLogLink = document.getElementById('info-panel-view-full-log');
+            
+            // Update the "View full log" link
+            viewFullLogLink.onclick = () => {
+                // Switch to Log view and set filter
+                switchView('log');
+                // Set the search filter to the entity ID
+                state.logFilters.searchText = entityId;
+                const searchInput = document.getElementById('log-search');
+                if (searchInput) {
+                    searchInput.value = entityId;
+                }
+                renderLog();
+            };
+            
+            // Check cache first
+            if (entityActivityCache[entityId]) {
+                renderEntityActivity(entityActivityCache[entityId], entityId);
+                return;
+            }
+            
+            contentEl.innerHTML = '<div class="info-panel-activity-loading">Loading activity...</div>';
+            
+            try {
+                // Fetch logs - we'll filter client-side for entries mentioning this entity
+                const response = await fetch(`/api/log?limit=200`);
+                if (!response.ok) throw new Error('Failed to fetch logs');
+                
+                const data = await response.json();
+                const logs = data.log || [];
+                
+                // Filter logs for entries that mention this entity ID
+                const entityLogs = logs.filter(entry => {
+                    // Check if args contains the entity ID
+                    const argsStr = JSON.stringify(entry.args || {});
+                    return argsStr.includes(entityId);
+                });
+                
+                // Cache the result
+                entityActivityCache[entityId] = entityLogs;
+                
+                renderEntityActivity(entityLogs, entityId);
+            } catch (error) {
+                console.error('Failed to load entity activity:', error);
+                contentEl.innerHTML = '<div class="info-panel-activity-empty">Failed to load activity</div>';
+            }
+        }
+
+        function renderEntityActivity(logs, entityId) {
+            const contentEl = document.getElementById('info-panel-activity-content');
+            
+            if (logs.length === 0) {
+                contentEl.innerHTML = `<div class="info-panel-activity-empty">No activity recorded for ${escapeHtml(entityId)}</div>`;
+                return;
+            }
+            
+            const formatTime = (timestamp) => {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diff = now - date;
+                
+                // Within last hour
+                if (diff < 3600000) {
+                    const mins = Math.floor(diff / 60000);
+                    return mins <= 1 ? 'just now' : `${mins}m ago`;
+                }
+                // Within last 24 hours
+                if (diff < 86400000) {
+                    const hours = Math.floor(diff / 3600000);
+                    return `${hours}h ago`;
+                }
+                // Older
+                return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            };
+            
+            const formatArgs = (args) => {
+                if (!args || typeof args !== 'object') return '';
+                // Filter out internal/verbose fields and show key info
+                const important = {};
+                const skip = ['force', 'check_complexity', 'dry_run'];
+                for (const [key, value] of Object.entries(args)) {
+                    if (skip.includes(key)) continue;
+                    if (value === null || value === undefined) continue;
+                    if (Array.isArray(value) && value.length === 0) continue;
+                    important[key] = value;
+                }
+                if (Object.keys(important).length === 0) return '';
+                
+                // Format as key=value pairs, truncating long values
+                return Object.entries(important)
+                    .map(([k, v]) => {
+                        const strVal = typeof v === 'string' ? v : JSON.stringify(v);
+                        const truncated = strVal.length > 30 ? strVal.substring(0, 27) + '...' : strVal;
+                        return `${k}=${truncated}`;
+                    })
+                    .join(', ');
+            };
+            
+            contentEl.innerHTML = logs.slice(0, 20).map(entry => {
+                const isError = entry.success === false;
+                const argsStr = formatArgs(entry.args);
+                
+                return `
+                    <div class="info-panel-activity-entry ${isError ? 'error' : ''}">
+                        <div class="info-panel-activity-header">
+                            <span class="info-panel-activity-command">${escapeHtml(entry.command)}</span>
+                            <span class="info-panel-activity-time">${formatTime(entry.timestamp)}</span>
+                        </div>
+                        ${argsStr ? `<div class="info-panel-activity-args">${escapeHtml(argsStr)}</div>` : ''}
+                        ${entry.error ? `<div class="info-panel-activity-args" style="color: var(--error-color);">${escapeHtml(entry.error)}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+            
+            if (logs.length > 20) {
+                contentEl.innerHTML += `<div class="info-panel-activity-empty" style="padding: 0.5rem;">+ ${logs.length - 20} more entries</div>`;
+            }
+        }
+
+        // Clear activity cache when data refreshes
+        function clearEntityActivityCache() {
+            entityActivityCache = {};
+        }
 
         // Edge info panel functions
         function updateEdgeInfoPanel(edge) {
