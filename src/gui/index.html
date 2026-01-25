@@ -673,6 +673,42 @@
             padding: 0 0.25rem;
         }
 
+        /* Collapsible section styles */
+        .sidebar-section.collapsible .sidebar-section-title {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+            transition: color 0.2s ease;
+        }
+
+        .sidebar-section.collapsible .sidebar-section-title:hover {
+            color: var(--text-primary);
+        }
+
+        .sidebar-section-toggle {
+            font-size: 0.6rem;
+            transition: transform 0.2s ease;
+            opacity: 0.7;
+        }
+
+        .sidebar-section.collapsed .sidebar-section-toggle {
+            transform: rotate(-90deg);
+        }
+
+        .sidebar-section-content {
+            overflow: hidden;
+            transition: max-height 0.2s ease-out, opacity 0.2s ease-out;
+            max-height: 500px;
+            opacity: 1;
+        }
+
+        .sidebar-section.collapsed .sidebar-section-content {
+            max-height: 0;
+            opacity: 0;
+        }
+
         /* Sidebar filter buttons */
         .sidebar-filter-group {
             display: flex;
@@ -3037,22 +3073,28 @@
                     </div>
                     <div class="agents-sidebar-content" id="agents-sidebar-content">
                         <!-- Agents section -->
-                        <div class="sidebar-section" id="agents-section">
-                            <div class="sidebar-section-title">Agents</div>
-                            <div class="agents-sidebar-list" id="agents-sidebar-list"></div>
+                        <div class="sidebar-section collapsible" id="agents-section" data-section="agents">
+                            <div class="sidebar-section-title">Agents <span class="sidebar-section-toggle">▼</span></div>
+                            <div class="sidebar-section-content">
+                                <div class="agents-sidebar-list" id="agents-sidebar-list"></div>
+                            </div>
                         </div>
                         <!-- Node filters section -->
-                        <div class="sidebar-section">
-                            <div class="sidebar-section-title">Nodes</div>
-                            <div class="sidebar-filter-group" id="sidebar-node-filters">
-                                <!-- Node type filter buttons will be populated dynamically -->
+                        <div class="sidebar-section collapsible" data-section="nodes">
+                            <div class="sidebar-section-title">Nodes <span class="sidebar-section-toggle">▼</span></div>
+                            <div class="sidebar-section-content">
+                                <div class="sidebar-filter-group" id="sidebar-node-filters">
+                                    <!-- Node type filter buttons will be populated dynamically -->
+                                </div>
                             </div>
                         </div>
                         <!-- Edge filters section -->
-                        <div class="sidebar-section">
-                            <div class="sidebar-section-title">Edges</div>
-                            <div class="sidebar-filter-group" id="sidebar-edge-filters">
-                                <!-- Edge type filter buttons will be populated dynamically -->
+                        <div class="sidebar-section collapsible" data-section="edges">
+                            <div class="sidebar-section-title">Edges <span class="sidebar-section-toggle">▼</span></div>
+                            <div class="sidebar-section-content">
+                                <div class="sidebar-filter-group" id="sidebar-edge-filters">
+                                    <!-- Edge type filter buttons will be populated dynamically -->
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -8211,7 +8253,57 @@
             }
         });
 
+        // Collapsible sidebar sections
+        const SIDEBAR_COLLAPSE_KEY = 'binnacle_sidebar_collapsed';
+        
+        function loadSidebarCollapseState() {
+            try {
+                const saved = localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
+                return saved ? JSON.parse(saved) : {};
+            } catch {
+                return {};
+            }
+        }
+        
+        function saveSidebarCollapseState(state) {
+            try {
+                localStorage.setItem(SIDEBAR_COLLAPSE_KEY, JSON.stringify(state));
+            } catch {
+                // Ignore localStorage errors
+            }
+        }
+        
+        function initializeCollapsibleSections() {
+            const collapsedState = loadSidebarCollapseState();
+            const sections = document.querySelectorAll('.sidebar-section.collapsible');
+            
+            sections.forEach(section => {
+                const sectionKey = section.dataset.section;
+                const title = section.querySelector('.sidebar-section-title');
+                
+                // Restore collapsed state
+                if (sectionKey && collapsedState[sectionKey]) {
+                    section.classList.add('collapsed');
+                }
+                
+                // Add click handler to title
+                if (title) {
+                    title.addEventListener('click', () => {
+                        section.classList.toggle('collapsed');
+                        
+                        // Save state
+                        if (sectionKey) {
+                            const newState = loadSidebarCollapseState();
+                            newState[sectionKey] = section.classList.contains('collapsed');
+                            saveSidebarCollapseState(newState);
+                        }
+                    });
+                }
+            });
+        }
+
         // Initialize
+        initializeCollapsibleSections();
         initializeEdgeFilters();
         initializeStatFilters();
         updateAutoFollowDisplay();
