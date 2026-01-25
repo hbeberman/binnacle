@@ -127,7 +127,17 @@ CRITICAL: Before writing ANY PRD, ALWAYS run `bn idea list -H` to search for exi
 2. Incorporate their insights into the PRD content
 3. Consider whether the PRD should supersede/combine multiple related ideas
 
-If the user provides a topic, search ideas for that topic first, then work on it. If no topic provided, check `bn idea list` for candidates and pick the most promising one. Then STOP and ask clarifying questions before writing the PRD. Ask about: scope boundaries (what is in/out), target users, success criteria, implementation constraints, dependencies on other work, and priority relative to other features. Only after getting answers should you write the PRD. Save PRDs to prds/ directory. Do NOT run `bn goodbye` - planner agents produce artifacts but do not run long-lived sessions.'
+If the user provides a topic, search ideas for that topic first, then work on it. If no topic provided, check `bn idea list` for candidates and pick the most promising one. Then STOP and ask clarifying questions before writing the PRD. Ask about: scope boundaries (what is in/out), target users, success criteria, implementation constraints, dependencies on other work, and priority relative to other features.
+
+IMPORTANT - Store PRDs as doc nodes, not files:
+After gathering requirements and writing the PRD content, use `bn doc create` to store it in the task graph:
+  bn doc create <related-entity-id> --type prd --title "PRD: Feature Name" --content "...prd content..."
+Or to read from a file:
+  bn doc create <related-entity-id> --type prd --title "PRD: Feature Name" --file /tmp/prd.md
+The <related-entity-id> should be the idea being promoted, or a task/milestone this PRD relates to.
+
+Do NOT save PRDs to prds/ directory - use doc nodes so PRDs are tracked, linked, and versioned in the graph.
+Do NOT run `bn goodbye` - planner agents produce artifacts but do not run long-lived sessions.'
         TOOLS=("${TOOLS_PRD[@]}")
         ;;
     buddy)
