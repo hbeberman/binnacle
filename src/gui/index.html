@@ -4208,6 +4208,7 @@
                 panThroughPauseDuration: 1200,  // ms to pause on each node
                 panThroughPauseStart: null,     // Timestamp when pause started
                 focusEndTime: null,             // When focus period ends (after pan-through), null = not focusing
+                userPausedFollow: false,        // True when user manually panned, prevents auto re-centering
                 // Stat highlight filter state (null = no filter active)
                 highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
                 // Hide completed nodes filter
@@ -4308,7 +4309,8 @@
                         
                         // When auto-follow is enabled and we have a selected target,
                         // re-center on the target node if it has moved
-                        if (state.graph.autoFollow && state.graph.followTargetId) {
+                        // Skip if user has manually panned (userPausedFollow)
+                        if (state.graph.autoFollow && state.graph.followTargetId && !state.graph.userPausedFollow) {
                             // Check if we're in a focus period (after pan-through)
                             // During focus period, don't resume agent following
                             const now = Date.now();
@@ -4414,11 +4416,15 @@
                             }
                             // Queue pan-through for multiple new nodes
                             if (newNodeIds.length > 1) {
+                                // Clear user pause - new nodes take priority
+                                state.graph.userPausedFollow = false;
                                 // Small delay to let nodes settle in their positions
                                 setTimeout(() => {
                                     queuePanThrough(newNodeIds);
                                 }, 300);
                             } else if (newNodeIds.length === 1) {
+                                // Clear user pause - new node takes priority
+                                state.graph.userPausedFollow = false;
                                 // Single new node: just pan to it directly
                                 setTimeout(() => {
                                     panToNode(newNodeIds[0], true);
@@ -5074,6 +5080,10 @@
                     if (state.graph.followAnimation && state.graph.autoFollow) {
                         return; // Block panning during auto-follow
                     }
+                    // User is manually panning - prevent auto re-centering
+                    state.graph.followingNodeId = null;
+                    state.graph.userPausedFollow = true;
+                    cancelFocusPeriod();
                     cancelPanAnimation();  // Cancel any ongoing camera animation
                     state.graph.isPanning = true;
                     state.graph.panStartX = mouseX;
@@ -5118,8 +5128,9 @@
                         if (state.graph.followAnimation && state.graph.autoFollow) {
                             return; // Block panning during auto-follow animation
                         }
-                        // User is manually panning - stop following the node and cancel focus period
+                        // User is manually panning - stop following and prevent auto re-centering
                         state.graph.followingNodeId = null;
+                        state.graph.userPausedFollow = true;  // Prevent auto re-centering until user re-enables
                         cancelFocusPeriod();  // Cancel any active focus period
                         cancelPanAnimation();  // Cancel any ongoing camera animation
                         state.graph.isPanning = true;
@@ -5333,8 +5344,9 @@
         document.getElementById('auto-follow-switch').addEventListener('click', () => {
             state.graph.autoFollow = !state.graph.autoFollow;
             updateAutoFollowDisplay();
-            // When enabling auto-follow, immediately snap to selected target
+            // When enabling auto-follow, reset user pause and immediately snap to selected target
             if (state.graph.autoFollow && state.graph.followTargetId) {
+                state.graph.userPausedFollow = false;  // Clear pause on explicit re-enable
                 snapToFollowTarget();
             } else if (!state.graph.autoFollow) {
                 // When disabling auto-follow, stop tracking
@@ -5346,6 +5358,7 @@
             state.graph.followTargetId = e.target.value || 'auto';
             // Reset focus switch time when user manually selects a target
             state.graph.lastFocusSwitchTime = Date.now();
+            state.graph.userPausedFollow = false;  // Clear pause on explicit target selection
             // If auto-follow is enabled and we selected a target, snap to it
             if (state.graph.autoFollow && state.graph.followTargetId) {
                 snapToFollowTarget();
