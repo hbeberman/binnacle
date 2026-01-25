@@ -410,6 +410,24 @@ impl Storage {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            -- Action log table (for efficient pagination and filtering)
+            CREATE TABLE IF NOT EXISTS action_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                repo_path TEXT NOT NULL,
+                command TEXT NOT NULL,
+                args TEXT NOT NULL,
+                success INTEGER NOT NULL,
+                error TEXT,
+                duration_ms INTEGER NOT NULL,
+                user TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_action_logs_timestamp ON action_logs(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_action_logs_command ON action_logs(command);
+            CREATE INDEX IF NOT EXISTS idx_action_logs_user ON action_logs(user);
+            CREATE INDEX IF NOT EXISTS idx_action_logs_success ON action_logs(success);
             "#,
         )?;
 
@@ -523,6 +541,28 @@ impl Storage {
         if !has_supersedes {
             conn.execute("ALTER TABLE docs ADD COLUMN supersedes TEXT", [])?;
         }
+
+        // Migration: Create action_logs table if it doesn't exist
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS action_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                repo_path TEXT NOT NULL,
+                command TEXT NOT NULL,
+                args TEXT NOT NULL,
+                success INTEGER NOT NULL,
+                error TEXT,
+                duration_ms INTEGER NOT NULL,
+                user TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_action_logs_timestamp ON action_logs(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_action_logs_command ON action_logs(command);
+            CREATE INDEX IF NOT EXISTS idx_action_logs_user ON action_logs(user);
+            CREATE INDEX IF NOT EXISTS idx_action_logs_success ON action_logs(success);
+            "#,
+        )?;
 
         Ok(())
     }
@@ -3600,6 +3640,199 @@ impl Storage {
         }
         Ok(())
     }
+
+    // ============================================================
+    // Action Log methods
+    // ============================================================
+
+    /// Insert an action log entry into the SQLite cache.
+    pub fn add_action_log(&self, log: &crate::action_log::ActionLog) -> Result<()> {
+        let args_str = serde_json::to_string(&log.args)?;
+        self.conn.execute(
+            r#"
+            INSERT INTO action_logs (timestamp, repo_path, command, args, success, error, duration_ms, user)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                log.timestamp.to_rfc3339(),
+                log.repo_path,
+                log.command,
+                args_str,
+                log.success as i32,
+                log.error,
+                log.duration_ms as i64,
+                log.user,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Query action logs with pagination and optional filters.
+    ///
+    /// # Arguments
+    /// * `limit` - Maximum number of entries to return (default: 100, max: 1000)
+    /// * `offset` - Number of entries to skip for pagination
+    /// * `before` - Only return entries before this ISO 8601 timestamp
+    /// * `command_filter` - Filter by command name (partial match)
+    /// * `user_filter` - Filter by user name (exact match)
+    /// * `success_filter` - Filter by success status
+    pub fn query_action_logs(
+        &self,
+        limit: Option<u32>,
+        offset: Option<u32>,
+        before: Option<&str>,
+        command_filter: Option<&str>,
+        user_filter: Option<&str>,
+        success_filter: Option<bool>,
+    ) -> Result<Vec<crate::action_log::ActionLog>> {
+        let limit = limit.unwrap_or(100).min(1000);
+        let offset = offset.unwrap_or(0);
+
+        // Build the query dynamically based on filters
+        let mut sql = String::from(
+            "SELECT timestamp, repo_path, command, args, success, error, duration_ms, user FROM action_logs WHERE 1=1",
+        );
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![];
+
+        if let Some(before_ts) = before {
+            sql.push_str(" AND timestamp < ?");
+            params.push(Box::new(before_ts.to_string()));
+        }
+
+        if let Some(cmd) = command_filter {
+            sql.push_str(" AND command LIKE ?");
+            params.push(Box::new(format!("%{}%", cmd)));
+        }
+
+        if let Some(user) = user_filter {
+            sql.push_str(" AND user = ?");
+            params.push(Box::new(user.to_string()));
+        }
+
+        if let Some(success) = success_filter {
+            sql.push_str(" AND success = ?");
+            params.push(Box::new(success as i32));
+        }
+
+        sql.push_str(" ORDER BY timestamp DESC LIMIT ? OFFSET ?");
+        params.push(Box::new(limit as i64));
+        params.push(Box::new(offset as i64));
+
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            let timestamp_str: String = row.get(0)?;
+            let args_str: String = row.get(3)?;
+            let success_int: i32 = row.get(4)?;
+            let duration_ms: i64 = row.get(6)?;
+
+            Ok(crate::action_log::ActionLog {
+                timestamp: chrono::DateTime::parse_from_rfc3339(&timestamp_str)
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
+                repo_path: row.get(1)?,
+                command: row.get(2)?,
+                args: serde_json::from_str(&args_str).unwrap_or(serde_json::Value::Null),
+                success: success_int != 0,
+                error: row.get(5)?,
+                duration_ms: duration_ms as u64,
+                user: row.get(7)?,
+            })
+        })?;
+
+        let mut logs = Vec::new();
+        for row in rows {
+            logs.push(row?);
+        }
+        Ok(logs)
+    }
+
+    /// Count total action log entries (with optional filters).
+    pub fn count_action_logs(
+        &self,
+        before: Option<&str>,
+        command_filter: Option<&str>,
+        user_filter: Option<&str>,
+        success_filter: Option<bool>,
+    ) -> Result<u32> {
+        let mut sql = String::from("SELECT COUNT(*) FROM action_logs WHERE 1=1");
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![];
+
+        if let Some(before_ts) = before {
+            sql.push_str(" AND timestamp < ?");
+            params.push(Box::new(before_ts.to_string()));
+        }
+
+        if let Some(cmd) = command_filter {
+            sql.push_str(" AND command LIKE ?");
+            params.push(Box::new(format!("%{}%", cmd)));
+        }
+
+        if let Some(user) = user_filter {
+            sql.push_str(" AND user = ?");
+            params.push(Box::new(user.to_string()));
+        }
+
+        if let Some(success) = success_filter {
+            sql.push_str(" AND success = ?");
+            params.push(Box::new(success as i32));
+        }
+
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let count: u32 = self
+            .conn
+            .query_row(&sql, param_refs.as_slice(), |row| row.get(0))?;
+        Ok(count)
+    }
+
+    /// Import action logs from JSONL file into SQLite cache.
+    /// This is used to populate the cache from existing logs.
+    pub fn import_action_logs_from_file(&mut self, log_path: &Path) -> Result<u32> {
+        if !log_path.exists() {
+            return Ok(0);
+        }
+
+        let file = File::open(log_path)?;
+        let reader = BufReader::new(file);
+        let mut imported = 0;
+
+        // Begin transaction for bulk insert
+        self.conn.execute("BEGIN TRANSACTION", [])?;
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(log) = serde_json::from_str::<crate::action_log::ActionLog>(&line) {
+                let args_str =
+                    serde_json::to_string(&log.args).unwrap_or_else(|_| "{}".to_string());
+                // Use INSERT OR IGNORE to skip duplicates (based on unique constraint on timestamp+repo_path+command)
+                let result = self.conn.execute(
+                    r#"
+                    INSERT INTO action_logs (timestamp, repo_path, command, args, success, error, duration_ms, user)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                    "#,
+                    params![
+                        log.timestamp.to_rfc3339(),
+                        log.repo_path,
+                        log.command,
+                        args_str,
+                        log.success as i32,
+                        log.error,
+                        log.duration_ms as i64,
+                        log.user,
+                    ],
+                );
+                if result.is_ok() {
+                    imported += 1;
+                }
+            }
+        }
+
+        self.conn.execute("COMMIT", [])?;
+        Ok(imported)
+    }
 }
 
 /// Resolve a git worktree's `.git` file to find the main repository root.
@@ -5250,5 +5483,125 @@ mod tests {
             docs_path.exists(),
             "docs.jsonl should be created during init"
         );
+    }
+
+    // ============================================================
+    // Action Log tests
+    // ============================================================
+
+    #[test]
+    fn test_action_log_add_and_query() {
+        let (_env, storage) = create_test_storage();
+
+        // Create a test action log entry
+        let log_entry = crate::action_log::ActionLog {
+            timestamp: chrono::Utc::now(),
+            repo_path: "/test/repo".to_string(),
+            command: "task create".to_string(),
+            args: serde_json::json!({"title": "Test task"}),
+            success: true,
+            error: None,
+            duration_ms: 42,
+            user: "testuser".to_string(),
+        };
+
+        // Add the entry
+        storage.add_action_log(&log_entry).unwrap();
+
+        // Query it back
+        let logs = storage
+            .query_action_logs(None, None, None, None, None, None)
+            .unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].command, "task create");
+        assert_eq!(logs[0].user, "testuser");
+        assert!(logs[0].success);
+    }
+
+    #[test]
+    fn test_action_log_pagination() {
+        let (_env, storage) = create_test_storage();
+
+        // Add multiple entries
+        for i in 0..10 {
+            let log_entry = crate::action_log::ActionLog {
+                timestamp: chrono::Utc::now() + chrono::Duration::milliseconds(i as i64),
+                repo_path: "/test/repo".to_string(),
+                command: format!("command_{}", i),
+                args: serde_json::json!({}),
+                success: true,
+                error: None,
+                duration_ms: 10,
+                user: "testuser".to_string(),
+            };
+            storage.add_action_log(&log_entry).unwrap();
+        }
+
+        // Query with limit
+        let logs = storage
+            .query_action_logs(Some(3), None, None, None, None, None)
+            .unwrap();
+        assert_eq!(logs.len(), 3);
+
+        // Query with offset
+        let logs = storage
+            .query_action_logs(Some(3), Some(5), None, None, None, None)
+            .unwrap();
+        assert_eq!(logs.len(), 3);
+
+        // Count total
+        let count = storage.count_action_logs(None, None, None, None).unwrap();
+        assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn test_action_log_filters() {
+        let (_env, storage) = create_test_storage();
+
+        // Add entries with different properties
+        let log_success = crate::action_log::ActionLog {
+            timestamp: chrono::Utc::now(),
+            repo_path: "/test/repo".to_string(),
+            command: "task create".to_string(),
+            args: serde_json::json!({}),
+            success: true,
+            error: None,
+            duration_ms: 10,
+            user: "alice".to_string(),
+        };
+        storage.add_action_log(&log_success).unwrap();
+
+        let log_failure = crate::action_log::ActionLog {
+            timestamp: chrono::Utc::now() + chrono::Duration::milliseconds(1),
+            repo_path: "/test/repo".to_string(),
+            command: "task delete".to_string(),
+            args: serde_json::json!({}),
+            success: false,
+            error: Some("Not found".to_string()),
+            duration_ms: 5,
+            user: "bob".to_string(),
+        };
+        storage.add_action_log(&log_failure).unwrap();
+
+        // Filter by command
+        let logs = storage
+            .query_action_logs(None, None, None, Some("create"), None, None)
+            .unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].command, "task create");
+
+        // Filter by user
+        let logs = storage
+            .query_action_logs(None, None, None, None, Some("bob"), None)
+            .unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].user, "bob");
+
+        // Filter by success
+        let logs = storage
+            .query_action_logs(None, None, None, None, None, Some(false))
+            .unwrap();
+        assert_eq!(logs.len(), 1);
+        assert!(!logs[0].success);
     }
 }

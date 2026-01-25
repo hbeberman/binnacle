@@ -95,9 +95,17 @@ pub fn log_action(
         user,
     };
 
-    // Write to log file
+    // Write to log file (JSONL format for backward compatibility)
     if let Err(e) = write_log_entry(&log_path, &entry) {
         eprintln!("Warning: Failed to write action log: {}", e);
+    }
+
+    // Also write to SQLite cache for efficient pagination queries
+    if let Ok(storage) = Storage::open(repo_path)
+        && let Err(e) = storage.add_action_log(&entry)
+    {
+        // Non-fatal: SQLite write failure shouldn't block logging
+        eprintln!("Warning: Failed to write action log to cache: {}", e);
     }
 
     Ok(())
