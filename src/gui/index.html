@@ -1280,6 +1280,37 @@
             color: white;
         }
         
+        /* Load More Button for infinite scroll */
+        .log-load-more {
+            display: flex;
+            justify-content: center;
+            padding: 1rem;
+            border-top: 1px solid var(--border-color);
+            margin-top: 0.5rem;
+        }
+        
+        .log-load-more-btn {
+            padding: 0.6rem 1.5rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .log-load-more-btn:hover:not(:disabled) {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+        
+        .log-load-more-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
         /* Highlight animation for targeted nodes */
         @keyframes node-highlight-pulse {
             0%, 100% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0); }
@@ -5000,6 +5031,13 @@
             tests: [],
             docs: [],
             log: [],
+            logPagination: {
+                total: 0,          // Total number of log entries on server
+                offset: 0,         // Current offset (how many entries we've loaded)
+                limit: 100,        // Entries per page
+                loading: false,    // Whether we're currently loading more
+                hasMore: true      // Whether there are more entries to load
+            },
             logFilters: {
                 commandCategories: [],   // empty = all, or array of: tasks, tests, links, bugs, ideas, docs, system, queue
                 userFilter: 'all',       // all, humans, agents, or specific user
@@ -5334,7 +5372,8 @@
 
         // Data loading
         async function loadData() {
-            // Load all data in parallel
+            // Load all data in parallel (log uses pagination)
+            const logLimit = state.logPagination.limit;
             const [configData, tasksData, bugsData, ideasData, readyData, testsData, docsData, logData, edgesData, agentsData, queueData] = await Promise.all([
                 fetch('/api/config').then(r => r.json()),
                 fetch('/api/tasks').then(r => r.json()),
@@ -5343,7 +5382,7 @@
                 fetch('/api/ready').then(r => r.json()),
                 fetch('/api/tests').then(r => r.json()),
                 fetch('/api/docs').then(r => r.json()),
-                fetch('/api/log').then(r => r.json()),
+                fetch(`/api/log?limit=${logLimit}&offset=0`).then(r => r.json()),
                 fetch('/api/edges').then(r => r.json()),
                 fetch('/api/agents').then(r => r.json()),
                 fetch('/api/queue').then(r => r.json())
@@ -5411,6 +5450,11 @@
             state.tests = testsData.tests || [];
             state.docs = docsData.docs || [];
             state.log = logData.log || [];
+            
+            // Update log pagination state
+            state.logPagination.total = logData.total || state.log.length;
+            state.logPagination.offset = state.log.length;
+            state.logPagination.hasMore = state.log.length < state.logPagination.total;
             
             // Update user filter dropdown with users from log
             updateUserFilterOptions();
@@ -10241,12 +10285,19 @@
         }
 
         // Update filter summary
-        function updateFilterSummary(totalCount, filteredCount) {
+        function updateFilterSummary(loadedCount, filteredCount) {
             const summary = document.getElementById('log-filter-summary');
-            if (filteredCount === totalCount) {
-                summary.textContent = `Showing all ${totalCount} entries`;
+            const total = state.logPagination.total;
+            const hasMore = state.logPagination.hasMore;
+            
+            if (filteredCount === loadedCount && loadedCount === total) {
+                summary.textContent = `Showing all ${total} entries`;
+            } else if (filteredCount === loadedCount && hasMore) {
+                summary.textContent = `Showing ${filteredCount} of ${total} total entries (scroll for more)`;
+            } else if (filteredCount === loadedCount) {
+                summary.textContent = `Showing all ${total} entries`;
             } else {
-                summary.textContent = `Showing ${filteredCount} of ${totalCount} entries`;
+                summary.textContent = `Showing ${filteredCount} of ${loadedCount} loaded (${total} total)`;
             }
         }
 
@@ -10611,7 +10662,7 @@
         function renderLog() {
             const list = document.getElementById('log-list');
             
-            if (state.log.length === 0) {
+            if (state.log.length === 0 && !state.logPagination.hasMore) {
                 list.innerHTML = '<div class="empty-state">No activity yet</div>';
                 updateFilterSummary(0, 0);
                 renderActivityTimeline([]);
@@ -10649,7 +10700,7 @@
             renderActivityTimeline(timelineEntries);
             renderCommandFrequencyChart(timelineEntries);
             
-            if (filteredEntries.length === 0) {
+            if (filteredEntries.length === 0 && !state.logPagination.hasMore) {
                 list.innerHTML = '<div class="empty-state">No entries match current filters</div>';
                 return;
             }
@@ -10662,19 +10713,91 @@
             // Check view mode: flat or grouped (sessions)
             const viewMode = state.logFilters.viewMode || 'flat';
             
+            let entriesHtml = '';
             if (viewMode === 'grouped') {
                 // Session-grouped view
                 const sessions = groupEntriesIntoSessions(filteredEntries);
-                list.innerHTML = renderSessionGroups(sessions, searchText, showingMixed);
+                entriesHtml = renderSessionGroups(sessions, searchText, showingMixed);
             } else {
-                // Flat view (original behavior)
-                list.innerHTML = filteredEntries.slice(0, 100).map(entry => 
+                // Flat view - show all filtered entries (no artificial limit)
+                entriesHtml = filteredEntries.map(entry => 
                     renderLogEntry(entry, searchText, showingMixed)
                 ).join('');
             }
             
+            // Add "Load More" button if there are more entries
+            if (state.logPagination.hasMore) {
+                const loadMoreHtml = `
+                    <div class="log-load-more">
+                        <button class="log-load-more-btn" onclick="loadMoreLogEntries()" ${state.logPagination.loading ? 'disabled' : ''}>
+                            ${state.logPagination.loading ? 'Loading...' : `Load More (${state.logPagination.total - state.log.length} remaining)`}
+                        </button>
+                    </div>
+                `;
+                entriesHtml += loadMoreHtml;
+            }
+            
+            list.innerHTML = entriesHtml;
+            
             // Attach click handlers for entity links
             attachEntityLinkHandlers(list);
+        }
+
+        // Load more log entries (pagination)
+        async function loadMoreLogEntries() {
+            if (state.logPagination.loading || !state.logPagination.hasMore) return;
+            
+            state.logPagination.loading = true;
+            renderLog(); // Update button state to "Loading..."
+            
+            try {
+                const limit = state.logPagination.limit;
+                const offset = state.logPagination.offset;
+                const response = await fetch(`/api/log?limit=${limit}&offset=${offset}`);
+                const data = await response.json();
+                
+                const newEntries = data.log || [];
+                if (newEntries.length > 0) {
+                    // Append new entries to existing log
+                    state.log = [...state.log, ...newEntries];
+                    state.logPagination.offset = state.log.length;
+                    state.logPagination.total = data.total || state.logPagination.total;
+                    state.logPagination.hasMore = state.log.length < state.logPagination.total;
+                    
+                    // Update user filter dropdown with new users
+                    updateUserFilterOptions();
+                } else {
+                    state.logPagination.hasMore = false;
+                }
+            } catch (err) {
+                console.error('Failed to load more log entries:', err);
+            } finally {
+                state.logPagination.loading = false;
+                renderLog();
+            }
+        }
+
+        // Infinite scroll handler for log view
+        function setupLogInfiniteScroll() {
+            const logList = document.getElementById('log-list');
+            if (!logList) return;
+            
+            // Use the log-view container for scroll detection since log-list grows with content
+            const logView = document.getElementById('log-view');
+            if (!logView) return;
+            
+            logView.addEventListener('scroll', () => {
+                // Only trigger if we're in the log view
+                if (state.currentView !== 'log') return;
+                
+                // Check if we're near the bottom (within 200px)
+                const scrollBottom = logView.scrollTop + logView.clientHeight;
+                const threshold = logView.scrollHeight - 200;
+                
+                if (scrollBottom >= threshold) {
+                    loadMoreLogEntries();
+                }
+            });
         }
 
         // Format a log entry into a human-readable action and details
@@ -12238,6 +12361,7 @@
         initializeEdgeFilters();
         initializeStatFilters();
         initializeLogFilters();
+        setupLogInfiniteScroll();
         updateAutoFollowDisplay();
         updateHideCompletedDisplay();
         initializeGraphSearch();
