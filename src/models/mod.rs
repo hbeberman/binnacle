@@ -1262,6 +1262,60 @@ impl Queue {
     }
 }
 
+// =============================================================================
+// Log Annotation
+// =============================================================================
+
+/// An annotation attached to an activity log entry.
+/// Used to add context, explanations, or notes to log entries (e.g., explain failures).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogAnnotation {
+    /// Unique identifier (e.g., "bnl-a1b2")
+    pub id: String,
+
+    /// Entity type marker
+    #[serde(rename = "type")]
+    pub entity_type: String,
+
+    /// Timestamp of the log entry this annotation is attached to (ISO 8601)
+    /// This serves as the foreign key to the action log entry
+    pub log_timestamp: String,
+
+    /// The annotation text/note
+    pub content: String,
+
+    /// User who created the annotation
+    pub author: String,
+
+    /// When the annotation was created
+    pub created_at: DateTime<Utc>,
+
+    /// When the annotation was last updated
+    pub updated_at: DateTime<Utc>,
+}
+
+impl LogAnnotation {
+    /// Create a new log annotation.
+    pub fn new(id: String, log_timestamp: String, content: String, author: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            entity_type: "log_annotation".to_string(),
+            log_timestamp,
+            content,
+            author,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Update the annotation content.
+    pub fn update_content(&mut self, content: String) {
+        self.content = content;
+        self.updated_at = Utc::now();
+    }
+}
+
 /// Type of relationship between entities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

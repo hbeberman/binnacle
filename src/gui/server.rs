@@ -40,7 +40,7 @@ pub fn find_available_port(host: &str, start_port: u16) -> Option<u16> {
     None
 }
 
-use crate::models::{Edge, EdgeType, Queue, TaskStatus};
+use crate::models::{Edge, EdgeType, LogAnnotation, Queue, TaskStatus};
 use crate::storage::{Storage, generate_id};
 
 /// WebSocket performance metrics
@@ -157,6 +157,13 @@ pub async fn start_server(
         .route("/api/edges", get(get_edges))
         .route("/api/edges", post(add_edge))
         .route("/api/log", get(get_log))
+        .route("/api/log/annotations", get(get_log_annotations))
+        .route("/api/log/annotations", post(add_log_annotation))
+        .route("/api/log/annotations/:id", get(get_log_annotation_by_id))
+        .route(
+            "/api/log/annotations/:id",
+            axum::routing::delete(delete_log_annotation),
+        )
         .route("/api/agents", get(get_agents))
         .route("/api/agents/:pid/kill", post(kill_agent))
         .route("/api/metrics/ws", get(get_ws_metrics))
@@ -619,6 +626,122 @@ async fn get_log(
         "total": log_entries.1,
         "limit": params.limit.unwrap_or(100).min(1000),
         "offset": params.offset.unwrap_or(0),
+    })))
+}
+
+// =============================================================================
+// Log Annotation Endpoints
+// =============================================================================
+
+/// Query parameters for listing log annotations
+#[derive(Debug, Deserialize)]
+struct LogAnnotationQueryParams {
+    /// Filter by log timestamp (to get annotations for a specific log entry)
+    log_timestamp: Option<String>,
+    /// Filter by author
+    author: Option<String>,
+    /// Search in content
+    search: Option<String>,
+}
+
+/// Get log annotations with optional filtering
+async fn get_log_annotations(
+    State(state): State<AppState>,
+    Query(params): Query<LogAnnotationQueryParams>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+
+    // If log_timestamp is provided, get annotations for that specific log entry
+    if let Some(ref timestamp) = params.log_timestamp {
+        let annotations = storage
+            .get_annotations_for_log(timestamp)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        return Ok(Json(serde_json::json!({ "annotations": annotations })));
+    }
+
+    // Otherwise, list all annotations with optional filters
+    let annotations = storage
+        .list_log_annotations(params.author.as_deref(), params.search.as_deref())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({ "annotations": annotations })))
+}
+
+/// Get a single log annotation by ID
+async fn get_log_annotation_by_id(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+    let annotation = storage
+        .get_log_annotation(&id)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    Ok(Json(serde_json::json!({ "annotation": annotation })))
+}
+
+/// Request body for adding a log annotation
+#[derive(Deserialize)]
+struct AddLogAnnotationRequest {
+    log_timestamp: String,
+    content: String,
+    author: Option<String>,
+}
+
+/// Add a new log annotation
+async fn add_log_annotation(
+    State(state): State<AppState>,
+    Json(request): Json<AddLogAnnotationRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let storage = state.storage.lock().await;
+
+    // Get the current user if author not provided
+    let author = request.author.unwrap_or_else(|| {
+        std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .unwrap_or_else(|_| "unknown".to_string())
+    });
+
+    // Generate ID and create annotation
+    let id = storage.generate_annotation_id(&request.log_timestamp);
+    let annotation = LogAnnotation::new(
+        id.clone(),
+        request.log_timestamp.clone(),
+        request.content.clone(),
+        author,
+    );
+
+    // Add to storage
+    storage.add_log_annotation(&annotation).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "annotation": annotation
+    })))
+}
+
+/// Delete a log annotation
+async fn delete_log_annotation(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let storage = state.storage.lock().await;
+
+    storage.delete_log_annotation(&id).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Annotation {} deleted", id)
     })))
 }
 
