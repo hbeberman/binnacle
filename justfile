@@ -32,12 +32,18 @@ gui:
     # Use XDG_RUNTIME_DIR (tmpfs, session-scoped) with fallback to cache
     RUNTIME_DIR="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/binnacle"
     mkdir -p "$RUNTIME_DIR"
-    GUI_BIN="$RUNTIME_DIR/bn-gui"
-    # Kill any process using the cached binary (could be from any repo)
+    
+    # Use repo-specific binary to avoid killing other repos' GUI sessions
+    # Hash the git root path to get a stable identifier for this repo
+    REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    REPO_HASH="$(echo "$REPO_ROOT" | sha256sum | cut -c1-8)"
+    GUI_BIN="$RUNTIME_DIR/bn-gui-$REPO_HASH"
+    
+    # Only kill THIS repo's GUI process (not other repos)
     if [ -f "$GUI_BIN" ]; then
         PIDS=$(fuser "$GUI_BIN" 2>/dev/null | tr -s ' ') || true
         if [ -n "$PIDS" ]; then
-            echo "Stopping existing GUI process(es): $PIDS"
+            echo "Stopping existing GUI for this repo (pid: $PIDS)..."
             for pid in $PIDS; do
                 kill "$pid" 2>/dev/null || true
             done

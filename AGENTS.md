@@ -201,15 +201,16 @@ This project has TWO different `bn` binaries you need to distinguish:
 
 ## GUI Testing Best Practices
 
-When testing GUI changes, follow this workflow to avoid excessive port approval requests:
+When testing GUI changes, follow this workflow to avoid disrupting the user's session:
 
-1. **Use `just gui`** - This builds with `--features gui`, installs to ~/.local/bin, and launches on a consistent port (3030)
-2. **Check if GUI is already running** - `just gui` will warn you if port 3030 is in use. The user may already have a GUI open in their browser
-3. **For iterative changes** - After making code changes:
-   - Run `just install` to rebuild and install (doesn't launch a new instance)
-   - The user can refresh their browser to pick up changes (if the binary wasn't replaced while running)
-   - Or stop the existing GUI and run `just gui` again
-4. **Different port** - Use `BN_GUI_PORT=3031 just gui` if you need a separate instance
+1. **Use `just gui`** - Builds with `--features gui`, installs to ~/.local/bin, and launches on port 3030
+   - Each repo uses its own binary location, so running `just gui` won't kill GUI sessions from other repos
+   - Within the same repo, it will restart the existing GUI (this is intended behavior)
+2. **Prefer `just install` for iterative changes** - Rebuilds without launching a new instance
+   - If the user has a GUI open, they can refresh to pick up changes
+   - This avoids disrupting their browser session
+3. **Different port** - Use `BN_GUI_PORT=3031 just gui` for a separate instance on a different port
+4. **DON'T kill the user's GUI session** - If unsure whether the user has a GUI open, use `just install` instead of `just gui`
 
 ## Using the Work Queue
 
