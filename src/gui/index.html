@@ -961,6 +961,187 @@
             margin-top: 0.5rem;
         }
 
+        /* Activity Log Filter Styles */
+        .log-filters {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .log-filters-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .log-filter-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .log-search-group {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .filter-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .filter-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+
+        .filter-chip {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 0.25rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .filter-chip:hover {
+            background: var(--accent-blue);
+            color: var(--text-primary);
+            border-color: var(--accent-blue);
+        }
+
+        .filter-chip.active {
+            background: var(--accent-blue);
+            color: white;
+            border-color: var(--accent-light);
+        }
+
+        .filter-select {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            min-width: 120px;
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .status-toggle {
+            display: flex;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .status-toggle-btn {
+            background: var(--bg-tertiary);
+            border: none;
+            color: var(--text-secondary);
+            padding: 0.35rem 0.6rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .status-toggle-btn:last-child {
+            border-right: none;
+        }
+
+        .status-toggle-btn:hover {
+            background: var(--accent-blue);
+            color: var(--text-primary);
+        }
+
+        .status-toggle-btn.active {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .filter-input {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .filter-input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .filter-input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .date-presets {
+            display: flex;
+            gap: 0.25rem;
+        }
+
+        .date-preset-btn {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .date-preset-btn:hover {
+            background: var(--accent-blue);
+            color: var(--text-primary);
+            border-color: var(--accent-blue);
+        }
+
+        .date-preset-btn.active {
+            background: var(--accent-blue);
+            color: white;
+            border-color: var(--accent-light);
+        }
+
+        .log-filter-summary {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            padding-top: 0.5rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .log-filter-summary:empty {
+            display: none;
+        }
+
+        /* Search highlight */
+        .log-highlight {
+            background: rgba(250, 204, 21, 0.3);
+            color: var(--text-primary);
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+
         /* Modal Styles */
         .modal-overlay {
             position: fixed;
@@ -3285,6 +3466,69 @@
             </div>
 
             <div id="log-view" class="view">
+                <!-- Activity Log Filter Toolbar -->
+                <div class="log-filters">
+                    <div class="log-filters-row">
+                        <!-- Command Type Filter Chips -->
+                        <div class="log-filter-group">
+                            <label class="filter-label">Commands:</label>
+                            <div class="filter-chips" id="command-filter-chips">
+                                <button class="filter-chip active" data-category="all">All</button>
+                                <button class="filter-chip" data-category="tasks">Tasks</button>
+                                <button class="filter-chip" data-category="tests">Tests</button>
+                                <button class="filter-chip" data-category="links">Links</button>
+                                <button class="filter-chip" data-category="bugs">Bugs</button>
+                                <button class="filter-chip" data-category="ideas">Ideas</button>
+                                <button class="filter-chip" data-category="docs">Docs</button>
+                                <button class="filter-chip" data-category="system">System</button>
+                                <button class="filter-chip" data-category="queue">Queue</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="log-filters-row">
+                        <!-- User/Agent Filter -->
+                        <div class="log-filter-group">
+                            <label class="filter-label" for="user-filter">User:</label>
+                            <select id="user-filter" class="filter-select">
+                                <option value="all">All Users</option>
+                                <option value="humans">Humans Only</option>
+                                <option value="agents">Agents Only</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Success/Failure Toggle -->
+                        <div class="log-filter-group">
+                            <label class="filter-label">Status:</label>
+                            <div class="status-toggle" id="status-filter-toggle">
+                                <button class="status-toggle-btn active" data-status="all">All</button>
+                                <button class="status-toggle-btn" data-status="success">✓ Success</button>
+                                <button class="status-toggle-btn" data-status="failure">✗ Failures</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Text Search -->
+                        <div class="log-filter-group log-search-group">
+                            <label class="filter-label" for="log-search">Search:</label>
+                            <input type="text" id="log-search" class="filter-input" placeholder="Search commands, IDs, errors...">
+                        </div>
+                        
+                        <!-- Date Range Picker -->
+                        <div class="log-filter-group">
+                            <label class="filter-label">Time:</label>
+                            <div class="date-presets" id="date-filter-presets">
+                                <button class="date-preset-btn" data-range="hour">1h</button>
+                                <button class="date-preset-btn" data-range="day">24h</button>
+                                <button class="date-preset-btn" data-range="week">7d</button>
+                                <button class="date-preset-btn" data-range="month">30d</button>
+                                <button class="date-preset-btn active" data-range="all">All</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Filter Summary -->
+                    <div class="log-filter-summary" id="log-filter-summary"></div>
+                </div>
+                
                 <div class="log-list" id="log-list"></div>
             </div>
         </main>
@@ -3595,6 +3839,13 @@
             tests: [],
             docs: [],
             log: [],
+            logFilters: {
+                commandCategory: 'all',  // all, tasks, tests, links, bugs, ideas, docs, system, queue
+                userFilter: 'all',       // all, humans, agents, or specific user
+                statusFilter: 'all',     // all, success, failure
+                searchText: '',          // text search
+                dateRange: 'all'         // hour, day, week, month, all
+            },
             agents: [],
             edges: [], // Raw edges from API
             edgeFilters: loadEdgeFilters(), // Which edge types are visible
@@ -3936,6 +4187,9 @@
             state.tests = testsData.tests || [];
             state.docs = docsData.docs || [];
             state.log = logData.log || [];
+            
+            // Update user filter dropdown with users from log
+            updateUserFilterOptions();
             
             // Build agent-to-task edges ("working_on" edge type)
             // Only include edges from worker agents (same filter as node rendering)
@@ -7977,24 +8231,176 @@
 
         // ==================== End Doc Viewer ====================
 
+        // Command category mapping for filtering
+        const COMMAND_CATEGORIES = {
+            tasks: ['task create', 'task update', 'task close', 'task delete', 'task reopen', 'task list', 'task show'],
+            tests: ['test create', 'test run', 'test link', 'test unlink', 'test list', 'test show', 'test delete'],
+            links: ['link add', 'link rm', 'link list'],
+            bugs: ['bug create', 'bug update', 'bug close', 'bug delete', 'bug list', 'bug show'],
+            ideas: ['idea create', 'idea update', 'idea list', 'idea show'],
+            docs: ['doc create', 'doc update', 'doc list', 'doc show', 'doc attach'],
+            system: ['system init', 'config', 'doctor', 'orient', 'hello', 'goodbye', 'ready', 'blocked', 'log', 'compact', 'sync', 'agent list', 'agent kill'],
+            queue: ['queue create', 'queue show', 'queue delete', 'queue add', 'queue rm']
+        };
+
+        // Check if a command belongs to a category
+        function commandMatchesCategory(command, category) {
+            if (category === 'all') return true;
+            const commands = COMMAND_CATEGORIES[category] || [];
+            return commands.some(c => command.startsWith(c));
+        }
+
+        // Check if a user is an agent (bna- prefix)
+        function isAgent(user) {
+            return user && user.startsWith('bna-');
+        }
+
+        // Get date threshold for date range filter
+        function getDateThreshold(range) {
+            const now = new Date();
+            switch (range) {
+                case 'hour': return new Date(now - 60 * 60 * 1000);
+                case 'day': return new Date(now - 24 * 60 * 60 * 1000);
+                case 'week': return new Date(now - 7 * 24 * 60 * 60 * 1000);
+                case 'month': return new Date(now - 30 * 24 * 60 * 60 * 1000);
+                default: return null; // 'all'
+            }
+        }
+
+        // Apply all filters to log entries
+        function filterLogEntries(entries) {
+            const { commandCategory, userFilter, statusFilter, searchText, dateRange } = state.logFilters;
+            const dateThreshold = getDateThreshold(dateRange);
+            const searchLower = searchText.toLowerCase();
+
+            return entries.filter(entry => {
+                const command = entry.command || entry.action || '';
+                
+                // Command category filter
+                if (!commandMatchesCategory(command, commandCategory)) return false;
+                
+                // User filter
+                if (userFilter === 'humans' && isAgent(entry.user)) return false;
+                if (userFilter === 'agents' && !isAgent(entry.user)) return false;
+                if (userFilter !== 'all' && userFilter !== 'humans' && userFilter !== 'agents') {
+                    // Specific user selected
+                    if (entry.user !== userFilter) return false;
+                }
+                
+                // Status filter
+                if (statusFilter === 'success' && entry.success === false) return false;
+                if (statusFilter === 'failure' && entry.success !== false) return false;
+                
+                // Date range filter
+                if (dateThreshold && new Date(entry.timestamp) < dateThreshold) return false;
+                
+                // Text search filter
+                if (searchLower) {
+                    const searchFields = [
+                        command,
+                        entry.user || '',
+                        entry.error || '',
+                        JSON.stringify(entry.args || {})
+                    ].join(' ').toLowerCase();
+                    if (!searchFields.includes(searchLower)) return false;
+                }
+                
+                return true;
+            });
+        }
+
+        // Highlight search matches in text
+        function highlightText(text, searchText) {
+            if (!searchText) return escapeHtml(text);
+            const escaped = escapeHtml(text);
+            const searchLower = searchText.toLowerCase();
+            const textLower = text.toLowerCase();
+            
+            let result = '';
+            let lastIndex = 0;
+            let index = textLower.indexOf(searchLower);
+            
+            while (index !== -1) {
+                result += escaped.substring(lastIndex, index);
+                result += `<span class="log-highlight">${escaped.substring(index, index + searchText.length)}</span>`;
+                lastIndex = index + searchText.length;
+                index = textLower.indexOf(searchLower, lastIndex);
+            }
+            result += escaped.substring(lastIndex);
+            
+            return result;
+        }
+
+        // Update user filter dropdown with unique users from log
+        function updateUserFilterOptions() {
+            const select = document.getElementById('user-filter');
+            const users = [...new Set(state.log.map(e => e.user).filter(Boolean))].sort();
+            
+            // Keep first 3 options (All, Humans, Agents)
+            while (select.options.length > 3) {
+                select.remove(3);
+            }
+            
+            // Add individual users
+            if (users.length > 0) {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = 'Individual Users';
+                users.forEach(user => {
+                    const opt = document.createElement('option');
+                    opt.value = user;
+                    opt.textContent = isAgent(user) ? `🤖 ${user}` : `👤 ${user}`;
+                    optgroup.appendChild(opt);
+                });
+                select.appendChild(optgroup);
+            }
+        }
+
+        // Update filter summary
+        function updateFilterSummary(totalCount, filteredCount) {
+            const summary = document.getElementById('log-filter-summary');
+            if (filteredCount === totalCount) {
+                summary.textContent = `Showing all ${totalCount} entries`;
+            } else {
+                summary.textContent = `Showing ${filteredCount} of ${totalCount} entries`;
+            }
+        }
+
         function renderLog() {
             const list = document.getElementById('log-list');
+            
             if (state.log.length === 0) {
                 list.innerHTML = '<div class="empty-state">No activity yet</div>';
+                updateFilterSummary(0, 0);
                 return;
             }
-            list.innerHTML = state.log.slice(0, 50).map(entry => {
+            
+            // Apply filters
+            const filteredEntries = filterLogEntries(state.log);
+            updateFilterSummary(state.log.length, filteredEntries.length);
+            
+            if (filteredEntries.length === 0) {
+                list.innerHTML = '<div class="empty-state">No entries match current filters</div>';
+                return;
+            }
+            
+            const searchText = state.logFilters.searchText;
+            
+            list.innerHTML = filteredEntries.slice(0, 100).map(entry => {
                 const formatted = formatLogEntry(entry);
                 const statusClass = entry.success === false ? 'log-error' : '';
+                const highlightedAction = highlightText(formatted.action, searchText);
+                const highlightedDetails = formatted.details ? highlightText(formatted.details, searchText) : '';
+                const highlightedError = entry.error ? highlightText(entry.error, searchText) : '';
+                
                 return `
                     <div class="card log-entry ${statusClass}">
                         <div class="log-header">
                             <div class="log-time">${new Date(entry.timestamp).toLocaleString()}</div>
-                            ${entry.user ? `<div class="log-user">👤 ${escapeHtml(entry.user)}</div>` : ''}
+                            ${entry.user ? `<div class="log-user">${isAgent(entry.user) ? '🤖' : '👤'} ${escapeHtml(entry.user)}</div>` : ''}
                         </div>
-                        <div class="card-title">${escapeHtml(formatted.action)}</div>
-                        ${formatted.details ? `<div class="log-details">${escapeHtml(formatted.details)}</div>` : ''}
-                        ${entry.success === false && entry.error ? `<div class="log-error-msg">❌ ${escapeHtml(entry.error)}</div>` : ''}
+                        <div class="card-title">${highlightedAction}</div>
+                        ${highlightedDetails ? `<div class="log-details">${highlightedDetails}</div>` : ''}
+                        ${entry.success === false && entry.error ? `<div class="log-error-msg">❌ ${highlightedError}</div>` : ''}
                     </div>
                 `;
             }).join('');
@@ -8496,11 +8902,94 @@
             section.classList.toggle('filtered-empty', visibleCount === 0 && query);
         }
 
+        // Initialize Activity Log filters
+        function initializeLogFilters() {
+            // Command category filter chips
+            const chipContainer = document.getElementById('command-filter-chips');
+            if (chipContainer) {
+                chipContainer.addEventListener('click', (e) => {
+                    const chip = e.target.closest('.filter-chip');
+                    if (!chip) return;
+                    
+                    const category = chip.dataset.category;
+                    state.logFilters.commandCategory = category;
+                    
+                    // Update active state
+                    chipContainer.querySelectorAll('.filter-chip').forEach(c => {
+                        c.classList.toggle('active', c.dataset.category === category);
+                    });
+                    
+                    renderLog();
+                });
+            }
+            
+            // User filter dropdown
+            const userSelect = document.getElementById('user-filter');
+            if (userSelect) {
+                userSelect.addEventListener('change', (e) => {
+                    state.logFilters.userFilter = e.target.value;
+                    renderLog();
+                });
+            }
+            
+            // Status filter toggle
+            const statusToggle = document.getElementById('status-filter-toggle');
+            if (statusToggle) {
+                statusToggle.addEventListener('click', (e) => {
+                    const btn = e.target.closest('.status-toggle-btn');
+                    if (!btn) return;
+                    
+                    const status = btn.dataset.status;
+                    state.logFilters.statusFilter = status;
+                    
+                    // Update active state
+                    statusToggle.querySelectorAll('.status-toggle-btn').forEach(b => {
+                        b.classList.toggle('active', b.dataset.status === status);
+                    });
+                    
+                    renderLog();
+                });
+            }
+            
+            // Text search with debounce
+            const searchInput = document.getElementById('log-search');
+            if (searchInput) {
+                let searchTimeout;
+                searchInput.addEventListener('input', (e) => {
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(() => {
+                        state.logFilters.searchText = e.target.value.trim();
+                        renderLog();
+                    }, 200); // 200ms debounce
+                });
+            }
+            
+            // Date range presets
+            const datePresets = document.getElementById('date-filter-presets');
+            if (datePresets) {
+                datePresets.addEventListener('click', (e) => {
+                    const btn = e.target.closest('.date-preset-btn');
+                    if (!btn) return;
+                    
+                    const range = btn.dataset.range;
+                    state.logFilters.dateRange = range;
+                    
+                    // Update active state
+                    datePresets.querySelectorAll('.date-preset-btn').forEach(b => {
+                        b.classList.toggle('active', b.dataset.range === range);
+                    });
+                    
+                    renderLog();
+                });
+            }
+        }
+
         // Initialize
         initializeCollapsibleSections();
         initializeSidebarSearch();
         initializeEdgeFilters();
         initializeStatFilters();
+        initializeLogFilters();
         updateAutoFollowDisplay();
         updateHideCompletedDisplay();
         initializeGraphSearch();
