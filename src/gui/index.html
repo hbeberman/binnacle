@@ -1084,6 +1084,50 @@
             gap: 0.25rem;
         }
         
+        /* CLI Command section styles */
+        .log-cli-command {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: var(--bg-tertiary);
+            padding: 0.5rem 0.75rem;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        
+        .log-cli-code {
+            flex: 1;
+            overflow-x: auto;
+            white-space: nowrap;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+        }
+        
+        .log-copy-btn {
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.35rem 0.65rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        
+        .log-copy-btn:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        
+        .log-copy-btn:active {
+            transform: scale(0.95);
+        }
+        
         /* Session grouping styles */
         .session-group {
             margin-bottom: 0.5rem;
@@ -10708,6 +10752,228 @@
             return { action, details };
         }
         
+        // Reconstruct CLI command from log entry
+        function reconstructCLICommand(entry) {
+            const command = entry.command || '';
+            const args = entry.args || {};
+            
+            // Helper to quote strings with spaces/special chars
+            const quote = (s) => {
+                if (!s) return '';
+                const str = String(s);
+                if (str.includes(' ') || str.includes('"') || str.includes("'") || str.includes('\\')) {
+                    return `"${str.replace(/"/g, '\\"')}"`;
+                }
+                return str;
+            };
+            
+            // Build command parts
+            const parts = ['bn'];
+            
+            switch (command) {
+                case 'task create':
+                    parts.push('task', 'create');
+                    if (args.title) parts.push(quote(args.title));
+                    if (args.short_name) parts.push('-s', quote(args.short_name));
+                    if (args.priority !== undefined && args.priority !== null) parts.push('-p', args.priority);
+                    if (args.description) parts.push('-d', quote(args.description));
+                    if (args.tags && Array.isArray(args.tags)) {
+                        args.tags.forEach(t => parts.push('-t', quote(t)));
+                    }
+                    if (args.assignee) parts.push('-a', quote(args.assignee));
+                    break;
+                    
+                case 'task update':
+                    parts.push('task', 'update');
+                    if (args.id) parts.push(args.id);
+                    if (args.status) parts.push('--status', args.status);
+                    if (args.priority !== undefined && args.priority !== null) parts.push('--priority', args.priority);
+                    if (args.title) parts.push('--title', quote(args.title));
+                    if (args.description) parts.push('--description', quote(args.description));
+                    if (args.short_name) parts.push('--short-name', quote(args.short_name));
+                    break;
+                    
+                case 'task close':
+                    parts.push('task', 'close');
+                    if (args.id) parts.push(args.id);
+                    if (args.reason) parts.push('--reason', quote(args.reason));
+                    break;
+                    
+                case 'task delete':
+                    parts.push('task', 'delete');
+                    if (args.id) parts.push(args.id);
+                    break;
+                    
+                case 'task show':
+                    parts.push('task', 'show');
+                    if (args.id) parts.push(args.id);
+                    break;
+                    
+                case 'task list':
+                    parts.push('task', 'list');
+                    if (args.status) parts.push('--status', args.status);
+                    if (args.priority !== undefined && args.priority !== null) parts.push('--priority', args.priority);
+                    if (args.tag) parts.push('--tag', quote(args.tag));
+                    break;
+                    
+                case 'bug create':
+                    parts.push('bug', 'create');
+                    if (args.title) parts.push(quote(args.title));
+                    if (args.severity) parts.push('--severity', args.severity);
+                    if (args.description) parts.push('-d', quote(args.description));
+                    break;
+                    
+                case 'bug update':
+                    parts.push('bug', 'update');
+                    if (args.id) parts.push(args.id);
+                    if (args.status) parts.push('--status', args.status);
+                    if (args.severity) parts.push('--severity', args.severity);
+                    break;
+                    
+                case 'bug close':
+                    parts.push('bug', 'close');
+                    if (args.id) parts.push(args.id);
+                    if (args.reason) parts.push('--reason', quote(args.reason));
+                    break;
+                    
+                case 'idea create':
+                    parts.push('idea', 'create');
+                    if (args.title) parts.push(quote(args.title));
+                    if (args.description) parts.push('-d', quote(args.description));
+                    break;
+                    
+                case 'idea update':
+                    parts.push('idea', 'update');
+                    if (args.id) parts.push(args.id);
+                    if (args.status) parts.push('--status', args.status);
+                    break;
+                    
+                case 'link add':
+                    parts.push('link', 'add');
+                    if (args.source) parts.push(args.source);
+                    if (args.target) parts.push(args.target);
+                    if (args.edge_type) parts.push('-t', args.edge_type);
+                    if (args.reason) parts.push('--reason', quote(args.reason));
+                    break;
+                    
+                case 'link rm':
+                    parts.push('link', 'rm');
+                    if (args.source) parts.push(args.source);
+                    if (args.target) parts.push(args.target);
+                    break;
+                    
+                case 'test create':
+                    parts.push('test', 'create');
+                    if (args.name) parts.push(quote(args.name));
+                    if (args.command) parts.push('--cmd', quote(args.command));
+                    if (args.task_id) parts.push('--task', args.task_id);
+                    break;
+                    
+                case 'test run':
+                    parts.push('test', 'run');
+                    if (args.id) parts.push(args.id);
+                    if (args.all) parts.push('--all');
+                    if (args.task_id) parts.push('--task', args.task_id);
+                    break;
+                    
+                case 'queue add':
+                    parts.push('queue', 'add');
+                    if (args.task_id) parts.push(args.task_id);
+                    break;
+                    
+                case 'queue rm':
+                    parts.push('queue', 'rm');
+                    if (args.task_id) parts.push(args.task_id);
+                    break;
+                    
+                case 'orient':
+                    parts.push('orient');
+                    break;
+                    
+                case 'ready':
+                    parts.push('ready');
+                    break;
+                    
+                case 'hello':
+                    parts.push('hello');
+                    if (args.purpose) parts.push(quote(args.purpose));
+                    break;
+                    
+                case 'goodbye':
+                    parts.push('goodbye');
+                    if (args.summary || args.reason) parts.push(quote(args.summary || args.reason));
+                    break;
+                    
+                default:
+                    // Generic fallback: just reconstruct from command name
+                    const cmdParts = command.split(' ');
+                    parts.push(...cmdParts);
+                    // Add id if present
+                    if (args.id) parts.push(args.id);
+                    break;
+            }
+            
+            return parts.join(' ');
+        }
+        
+        // Copy CLI command from log entry to clipboard
+        async function copyLogEntryCommand(event, entry) {
+            event.stopPropagation(); // Don't toggle expand when clicking copy button
+            
+            const command = reconstructCLICommand(entry);
+            
+            try {
+                await navigator.clipboard.writeText(command);
+                showToast(`Copied: ${command}`, 'success', 3000);
+            } catch (err) {
+                // Fallback for older browsers or when clipboard API fails
+                const textarea = document.createElement('textarea');
+                textarea.value = command;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    showToast(`Copied: ${command}`, 'success', 3000);
+                } catch (e) {
+                    showToast('Failed to copy command', 'error', 3000);
+                }
+                document.body.removeChild(textarea);
+            }
+        }
+        
+        // Copy CLI command from button element's data attribute
+        async function copyLogEntryCommandFromElement(event, buttonElement) {
+            event.stopPropagation(); // Don't toggle expand when clicking copy button
+            
+            const command = buttonElement.dataset.command;
+            if (!command) {
+                showToast('No command to copy', 'error', 3000);
+                return;
+            }
+            
+            try {
+                await navigator.clipboard.writeText(command);
+                showToast(`Copied: ${command}`, 'success', 3000);
+            } catch (err) {
+                // Fallback for older browsers or when clipboard API fails
+                const textarea = document.createElement('textarea');
+                textarea.value = command;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    showToast(`Copied: ${command}`, 'success', 3000);
+                } catch (e) {
+                    showToast('Failed to copy command', 'error', 3000);
+                }
+                document.body.removeChild(textarea);
+            }
+        }
+        
         // Group log entries into sessions based on time gaps (>5 min) or agent changes
         function groupEntriesIntoSessions(entries) {
             if (!entries || entries.length === 0) return [];
@@ -10854,6 +11120,20 @@
                     </div>
                 `);
             }
+            
+            // Actions section with copy button
+            const cliCommand = reconstructCLICommand(entry);
+            expandedSections.push(`
+                <div class="log-expanded-section log-actions-section">
+                    <div class="log-expanded-label">CLI Command</div>
+                    <div class="log-cli-command">
+                        <code class="log-cli-code">${escapeHtml(cliCommand)}</code>
+                        <button class="log-copy-btn" onclick="copyLogEntryCommandFromElement(event, this)" data-command="${escapeHtml(cliCommand).replace(/"/g, '&quot;')}" title="Copy to clipboard">
+                            📋 Copy
+                        </button>
+                    </div>
+                </div>
+            `);
             
             const hasExpandedContent = expandedSections.length > 0;
             const expandIndicator = hasExpandedContent ? '<span class="log-expand-indicator">▼</span>' : '';
