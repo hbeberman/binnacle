@@ -610,6 +610,196 @@
         .status-in_progress { background: rgba(240, 173, 78, 0.2); color: #f0ad4e; }
         .status-blocked { background: rgba(217, 83, 79, 0.2); color: #d9534f; }
         .status-done { background: rgba(92, 184, 92, 0.2); color: #5cb85c; }
+        .status-cancelled { background: rgba(108, 117, 125, 0.2); color: #6c757d; }
+        .status-seed { background: rgba(139, 95, 201, 0.2); color: #8b5fc9; }
+        .status-germinating { background: rgba(122, 77, 184, 0.2); color: #7a4db8; }
+        .status-promoted { background: rgba(92, 184, 92, 0.2); color: #5cb85c; }
+        .status-wilted { background: rgba(108, 117, 125, 0.2); color: #6c757d; }
+
+        /* Details Panel (slides in from right when node selected) */
+        .details-panel {
+            position: absolute;
+            top: 0;
+            right: 280px; /* Account for sidebar */
+            width: 320px;
+            height: 100%;
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border-color);
+            transform: translateX(100%);
+            transition: transform 0.2s ease-out;
+            z-index: 30;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .details-panel.visible {
+            transform: translateX(0);
+        }
+
+        .sidebar.collapsed ~ .main-content .details-panel {
+            right: 0;
+        }
+
+        .details-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+        }
+
+        .details-panel-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .details-panel-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 1.2rem;
+            padding: 0.25rem;
+            line-height: 1;
+        }
+
+        .details-panel-close:hover {
+            color: var(--text-primary);
+        }
+
+        .details-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+        }
+
+        .details-panel-id {
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: var(--accent-light);
+            margin-bottom: 0.5rem;
+        }
+
+        .details-panel-node-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            word-wrap: break-word;
+        }
+
+        .details-panel-short-name {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .details-panel-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .details-panel-badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .badge-priority-0 { background: rgba(217, 83, 79, 0.3); color: #ff6b6b; }
+        .badge-priority-1 { background: rgba(240, 173, 78, 0.3); color: #f0ad4e; }
+        .badge-priority-2 { background: rgba(91, 192, 222, 0.3); color: #5bc0de; }
+        .badge-priority-3 { background: rgba(108, 117, 125, 0.3); color: #adb5bd; }
+        .badge-priority-4 { background: rgba(108, 117, 125, 0.2); color: #868e96; }
+
+        .badge-status {
+            text-transform: uppercase;
+        }
+
+        .badge-tag {
+            background: rgba(74, 144, 226, 0.2);
+            color: var(--accent-light);
+        }
+
+        .details-panel-section {
+            margin-bottom: 1rem;
+        }
+
+        .details-panel-section-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.5px;
+        }
+
+        .details-panel-description {
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+        }
+
+        .details-panel-description.empty {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .details-panel-relationships {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .details-panel-relationships li {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 0.8rem;
+        }
+
+        .details-panel-relationships li:last-child {
+            border-bottom: none;
+        }
+
+        .details-panel-edge-type {
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+
+        .details-panel-node-link {
+            color: var(--accent-light);
+            cursor: pointer;
+            font-family: monospace;
+            font-size: 0.75rem;
+        }
+
+        .details-panel-node-link:hover {
+            text-decoration: underline;
+        }
+
+        .details-panel-relation-title {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+        }
     </style>
 </head>
 <body>
@@ -665,6 +855,30 @@
                 <div class="info-panel-content">
                     <div>Drag to pan • Scroll to zoom</div>
                     <div id="viewer-version"></div>
+                </div>
+            </div>
+
+            <!-- Details Panel (node details when selected) -->
+            <div class="details-panel" id="details-panel">
+                <div class="details-panel-header">
+                    <span class="details-panel-title" id="details-panel-type-title">Entity Details</span>
+                    <button class="details-panel-close" id="details-panel-close" title="Close">&times;</button>
+                </div>
+                <div class="details-panel-content">
+                    <div class="details-panel-id" id="details-panel-id"></div>
+                    <div class="details-panel-node-title" id="details-panel-title"></div>
+                    <div class="details-panel-short-name" id="details-panel-short-name" style="display: none;"></div>
+                    <div class="details-panel-meta" id="details-panel-meta"></div>
+                    
+                    <div class="details-panel-section" id="details-panel-description-section">
+                        <div class="details-panel-section-title">Description</div>
+                        <div class="details-panel-description" id="details-panel-description"></div>
+                    </div>
+                    
+                    <div class="details-panel-section" id="details-panel-relationships-section" style="display: none;">
+                        <div class="details-panel-section-title">Relationships</div>
+                        <ul class="details-panel-relationships" id="details-panel-relationships"></ul>
+                    </div>
                 </div>
             </div>
 
@@ -1651,6 +1865,31 @@
             window.addEventListener('resize', () => {
                 resizeCanvas();
             });
+            
+            // Details panel close button
+            document.getElementById('details-panel-close').addEventListener('click', () => {
+                state.selectedNode = null;
+                updateDetailsPanel(null);
+                // Also deselect in sidebar
+                document.querySelectorAll('.node-list-item').forEach(item => {
+                    item.classList.remove('selected');
+                });
+            });
+            
+            // Details panel node link clicks (navigate to related nodes)
+            document.getElementById('details-panel').addEventListener('click', (e) => {
+                const link = e.target.closest('.details-panel-node-link');
+                if (link) {
+                    const nodeId = link.dataset.nodeId;
+                    if (nodeId) {
+                        const node = state.nodes.find(n => n.id === nodeId);
+                        if (node) {
+                            focusNode(nodeId);
+                            selectNode(node);
+                        }
+                    }
+                }
+            });
         }
         
         function onMouseDown(e) {
@@ -1754,6 +1993,133 @@
             history.replaceState(null, '', `#${nodeId}`);
         }
         
+        // Edge type display names
+        const EDGE_TYPE_NAMES = {
+            depends_on: 'Depends On',
+            blocks: 'Blocks',
+            child_of: 'Child Of',
+            parent_of: 'Parent Of',
+            fixes: 'Fixes',
+            caused_by: 'Caused By',
+            documents: 'Documents',
+            tests: 'Tests',
+            supersedes: 'Supersedes',
+            impacts: 'Impacts',
+            queued: 'Queued',
+            pinned: 'Pinned'
+        };
+        
+        // Inverse relationship names (when this node is the target)
+        const INVERSE_EDGE_NAMES = {
+            depends_on: 'Blocks',
+            blocks: 'Depends On',
+            child_of: 'Parent Of',
+            parent_of: 'Child Of',
+            fixes: 'Fixed By',
+            caused_by: 'Causes',
+            documents: 'Documented By',
+            tests: 'Tested By',
+            supersedes: 'Superseded By',
+            impacts: 'Impacted By',
+            queued: 'In Queue',
+            pinned: 'Pinned To'
+        };
+        
+        function updateDetailsPanel(node) {
+            const panel = document.getElementById('details-panel');
+            const typeTitle = document.getElementById('details-panel-type-title');
+            const idEl = document.getElementById('details-panel-id');
+            const titleEl = document.getElementById('details-panel-title');
+            const shortNameEl = document.getElementById('details-panel-short-name');
+            const metaEl = document.getElementById('details-panel-meta');
+            const descEl = document.getElementById('details-panel-description');
+            const descSection = document.getElementById('details-panel-description-section');
+            const relSection = document.getElementById('details-panel-relationships-section');
+            const relList = document.getElementById('details-panel-relationships');
+            
+            if (!node) {
+                panel.classList.remove('visible');
+                return;
+            }
+            
+            // Type labels for header
+            const typeLabels = {
+                task: 'Task Details',
+                bug: 'Bug Details',
+                idea: 'Idea Details',
+                milestone: 'Milestone Details',
+                queue: 'Queue Details',
+                agent: 'Agent Details',
+                doc: 'Doc Details',
+                test: 'Test Details'
+            };
+            typeTitle.textContent = typeLabels[node.type] || 'Entity Details';
+            
+            // ID and title
+            idEl.textContent = node.id;
+            titleEl.textContent = node.title;
+            
+            // Short name (if different from title)
+            if (node.short_name && node.short_name !== node.title) {
+                shortNameEl.textContent = `Display: ${node.short_name}`;
+                shortNameEl.style.display = 'block';
+            } else {
+                shortNameEl.style.display = 'none';
+            }
+            
+            // Build metadata badges
+            const priority = node.priority ?? 2;
+            let metaHtml = `
+                <span class="details-panel-badge badge-priority-${priority}">P${priority}</span>
+                <span class="details-panel-badge badge-status status-${node.status}">${node.status.replace('_', ' ')}</span>
+            `;
+            if (node.tags && node.tags.length > 0) {
+                metaHtml += node.tags.map(tag => 
+                    `<span class="details-panel-badge badge-tag">${escapeHtml(tag)}</span>`
+                ).join('');
+            }
+            if (node.doc_type) {
+                metaHtml += `<span class="details-panel-badge badge-tag">${escapeHtml(node.doc_type)}</span>`;
+            }
+            metaEl.innerHTML = metaHtml;
+            
+            // Description - we don't have description in the current data model
+            // so show a placeholder message
+            descEl.textContent = 'Description not available in snapshot';
+            descEl.classList.add('empty');
+            descSection.style.display = 'block';
+            
+            // Relationships - find all edges connected to this node
+            const nodeEdges = state.edges.filter(edge => 
+                edge.source === node.id || edge.target === node.id
+            );
+            
+            if (nodeEdges.length > 0) {
+                relList.innerHTML = nodeEdges.map(edge => {
+                    const isOutbound = edge.source === node.id;
+                    const relatedId = isOutbound ? edge.target : edge.source;
+                    const relatedNode = state.nodes.find(n => n.id === relatedId);
+                    const relatedTitle = relatedNode?.short_name || relatedNode?.title || '';
+                    
+                    // Use inverse name for inbound edges
+                    const edgeTypeName = isOutbound 
+                        ? (EDGE_TYPE_NAMES[edge.edge_type] || edge.edge_type)
+                        : (INVERSE_EDGE_NAMES[edge.edge_type] || EDGE_TYPE_NAMES[edge.edge_type] || edge.edge_type);
+                    
+                    return `<li>
+                        <span class="details-panel-edge-type">${escapeHtml(edgeTypeName)}</span>
+                        <span class="details-panel-node-link" data-node-id="${escapeHtml(relatedId)}">${escapeHtml(relatedId)}</span>
+                        ${relatedTitle ? `<span class="details-panel-relation-title" title="${escapeHtml(relatedTitle)}">${escapeHtml(relatedTitle)}</span>` : ''}
+                    </li>`;
+                }).join('');
+                relSection.style.display = 'block';
+            } else {
+                relSection.style.display = 'none';
+            }
+            
+            panel.classList.add('visible');
+        }
+        
         function selectNode(node) {
             state.selectedNode = state.selectedNode === node ? null : node;
             
@@ -1762,6 +2128,9 @@
             for (const item of items) {
                 item.classList.toggle('selected', item.dataset.nodeId === node?.id);
             }
+            
+            // Update details panel
+            updateDetailsPanel(state.selectedNode);
         }
         
         function fitToView() {
