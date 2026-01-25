@@ -68,6 +68,14 @@ pub fn version() -> String {
 ///     const edges = viewer.getEdgesJson();
 /// }
 /// ```
+/// Archive manifest information for JavaScript
+#[derive(Debug, Clone, Default)]
+struct ManifestInfo {
+    exported_at: Option<String>,
+    source_repo: Option<String>,
+    binnacle_version: Option<String>,
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct BinnacleViewer {
     state: ViewerState,
@@ -75,6 +83,8 @@ pub struct BinnacleViewer {
     entities: Vec<EntityInfo>,
     /// Edge metadata for JavaScript access
     edge_info: Vec<EdgeInfo>,
+    /// Archive manifest metadata
+    manifest: ManifestInfo,
 }
 
 /// Entity information for JavaScript
@@ -107,6 +117,7 @@ impl BinnacleViewer {
             state: ViewerState::new(),
             entities: Vec::new(),
             edge_info: Vec::new(),
+            manifest: ManifestInfo::default(),
         }
     }
 
@@ -256,6 +267,13 @@ impl BinnacleViewer {
         self.state = ViewerState::new();
         self.entities.clear();
         self.edge_info.clear();
+
+        // Store manifest metadata
+        self.manifest = ManifestInfo {
+            exported_at: graph_data.manifest.exported_at,
+            source_repo: graph_data.manifest.source_repo,
+            binnacle_version: graph_data.manifest.binnacle_version,
+        };
 
         // Add entities from archive
         for (i, entity) in graph_data.entities.iter().enumerate() {
@@ -479,6 +497,20 @@ impl BinnacleViewer {
         } else {
             JsValue::NULL
         }
+    }
+
+    /// Get archive manifest metadata as JSON
+    ///
+    /// Returns { exported_at, source_repo, binnacle_version } if available.
+    /// Values may be null if not present in the archive.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = getManifestJson))]
+    pub fn get_manifest_json(&self) -> String {
+        let manifest = serde_json::json!({
+            "exported_at": self.manifest.exported_at,
+            "source_repo": self.manifest.source_repo,
+            "binnacle_version": self.manifest.binnacle_version,
+        });
+        manifest.to_string()
     }
 
     /// Find node at screen coordinates
