@@ -76,6 +76,18 @@ struct ManifestInfo {
     binnacle_version: Option<String>,
 }
 
+/// Action log entry for JavaScript
+#[derive(Debug, Clone)]
+struct ActionLogInfo {
+    timestamp: String,
+    command: String,
+    args: String,
+    success: bool,
+    error: Option<String>,
+    duration_ms: u64,
+    user: String,
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct BinnacleViewer {
     state: ViewerState,
@@ -85,6 +97,8 @@ pub struct BinnacleViewer {
     edge_info: Vec<EdgeInfo>,
     /// Archive manifest metadata
     manifest: ManifestInfo,
+    /// Action log entries
+    action_logs: Vec<ActionLogInfo>,
 }
 
 /// Entity information for JavaScript
@@ -118,6 +132,7 @@ impl BinnacleViewer {
             entities: Vec::new(),
             edge_info: Vec::new(),
             manifest: ManifestInfo::default(),
+            action_logs: Vec::new(),
         }
     }
 
@@ -267,6 +282,7 @@ impl BinnacleViewer {
         self.state = ViewerState::new();
         self.entities.clear();
         self.edge_info.clear();
+        self.action_logs.clear();
 
         // Store manifest metadata
         self.manifest = ManifestInfo {
@@ -274,6 +290,19 @@ impl BinnacleViewer {
             source_repo: graph_data.manifest.source_repo,
             binnacle_version: graph_data.manifest.binnacle_version,
         };
+
+        // Store action logs
+        for log in &graph_data.action_logs {
+            self.action_logs.push(ActionLogInfo {
+                timestamp: log.timestamp.clone(),
+                command: log.command.clone(),
+                args: log.args.clone(),
+                success: log.success,
+                error: log.error.clone(),
+                duration_ms: log.duration_ms,
+                user: log.user.clone(),
+            });
+        }
 
         // Add entities from archive
         for (i, entity) in graph_data.entities.iter().enumerate() {
@@ -511,6 +540,36 @@ impl BinnacleViewer {
             "binnacle_version": self.manifest.binnacle_version,
         });
         manifest.to_string()
+    }
+
+    /// Get action logs as JSON array
+    ///
+    /// Returns an array of action log entries from the archive.
+    /// Each entry has: timestamp, command, args, success, error, duration_ms, user.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = getActionLogsJson))]
+    pub fn get_action_logs_json(&self) -> String {
+        let logs: Vec<serde_json::Value> = self
+            .action_logs
+            .iter()
+            .map(|log| {
+                serde_json::json!({
+                    "timestamp": log.timestamp,
+                    "command": log.command,
+                    "args": log.args,
+                    "success": log.success,
+                    "error": log.error,
+                    "duration_ms": log.duration_ms,
+                    "user": log.user,
+                })
+            })
+            .collect();
+        serde_json::to_string(&logs).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Get the count of action log entries
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = actionLogCount))]
+    pub fn action_log_count(&self) -> usize {
+        self.action_logs.len()
     }
 
     /// Find node at screen coordinates

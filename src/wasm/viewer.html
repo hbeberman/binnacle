@@ -800,6 +800,169 @@
             white-space: nowrap;
             flex: 1;
         }
+
+        /* Activity Log Panel */
+        .activity-log-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 280px; /* Account for sidebar */
+            max-height: 40vh;
+            background: var(--bg-secondary);
+            border-top: 2px solid var(--border-color);
+            display: none;
+            flex-direction: column;
+            z-index: 40;
+        }
+
+        .activity-log-panel.visible {
+            display: flex;
+        }
+
+        .sidebar.collapsed ~ .main-content .activity-log-panel {
+            right: 0;
+        }
+
+        .activity-log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+        }
+
+        .activity-log-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .activity-log-count {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            background: var(--bg-primary);
+            padding: 0.15rem 0.5rem;
+            border-radius: 10px;
+        }
+
+        .activity-log-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            line-height: 1;
+            padding: 0.25rem;
+        }
+
+        .activity-log-close:hover {
+            color: var(--text-primary);
+        }
+
+        .activity-log-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+
+        .activity-log-entry {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            border-radius: 4px;
+            margin-bottom: 0.25rem;
+            font-size: 0.85rem;
+        }
+
+        .activity-log-entry:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .activity-log-entry.error {
+            background: rgba(217, 83, 79, 0.1);
+            border-left: 3px solid var(--danger);
+        }
+
+        .activity-log-time {
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .activity-log-status {
+            font-size: 0.8rem;
+        }
+
+        .activity-log-command {
+            font-family: monospace;
+            font-weight: 500;
+            color: var(--accent-light);
+        }
+
+        .activity-log-user {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+        }
+
+        .activity-log-duration {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            font-family: monospace;
+        }
+
+        .activity-log-error {
+            color: var(--danger);
+            font-size: 0.8rem;
+            flex: 1;
+        }
+
+        .activity-log-empty {
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 2rem;
+            font-size: 0.9rem;
+        }
+
+        /* Activity Log Toggle Button */
+        .activity-log-toggle {
+            position: fixed;
+            bottom: 1rem;
+            left: 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            z-index: 30;
+            transition: background 0.2s;
+        }
+
+        .activity-log-toggle:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .activity-log-toggle.hidden {
+            display: none;
+        }
+
+        .activity-log-toggle-badge {
+            background: var(--accent-blue);
+            color: white;
+            font-size: 0.7rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 8px;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -847,6 +1010,26 @@
                 <div class="zoom-display" id="zoom-display">100%</div>
                 <button class="control-btn" id="zoom-out-btn" title="Zoom out">−</button>
                 <button class="control-btn" id="reset-view-btn" title="Reset view">⟲</button>
+            </div>
+
+            <!-- Activity Log Toggle Button -->
+            <button class="activity-log-toggle hidden" id="activity-log-toggle">
+                📜 Activity Log
+                <span class="activity-log-toggle-badge" id="activity-log-badge">0</span>
+            </button>
+
+            <!-- Activity Log Panel -->
+            <div class="activity-log-panel" id="activity-log-panel">
+                <div class="activity-log-header">
+                    <span class="activity-log-title">
+                        📜 Activity Log
+                        <span class="activity-log-count" id="activity-log-count">0 entries</span>
+                    </span>
+                    <button class="activity-log-close" id="activity-log-close" title="Close">&times;</button>
+                </div>
+                <div class="activity-log-content" id="activity-log-content">
+                    <!-- Activity entries will be populated here -->
+                </div>
             </div>
 
             <!-- Info panel -->
@@ -966,6 +1149,7 @@
             viewer: null,           // BinnacleViewer instance
             nodes: [],              // Parsed node data
             edges: [],              // Parsed edge data
+            actionLogs: [],         // Parsed action log entries
             zoom: 1.0,
             panX: 0,
             panY: 0,
@@ -1100,6 +1284,13 @@
             state.nodes = JSON.parse(state.viewer.getNodesJson());
             state.edges = JSON.parse(state.viewer.getEdgesJson());
             
+            // Parse action logs if available
+            try {
+                state.actionLogs = JSON.parse(state.viewer.getActionLogsJson());
+            } catch (e) {
+                state.actionLogs = [];
+            }
+            
             // Compute which nodes are queued
             computeQueuedNodes();
             
@@ -1107,6 +1298,7 @@
             updateStats();
             updateSnapshotBanner();
             populateSidebar();
+            updateActivityLog();
             
             // Hide loading, start rendering
             hideLoading();
@@ -1256,6 +1448,77 @@
         }
         
         // ===========================================
+        // Activity Log
+        // ===========================================
+        
+        function updateActivityLog() {
+            const toggle = document.getElementById('activity-log-toggle');
+            const badge = document.getElementById('activity-log-badge');
+            const countEl = document.getElementById('activity-log-count');
+            const content = document.getElementById('activity-log-content');
+            
+            const count = state.actionLogs.length;
+            
+            // Update toggle button visibility and badge
+            if (count > 0) {
+                toggle.classList.remove('hidden');
+                badge.textContent = count;
+                countEl.textContent = `${count} ${count === 1 ? 'entry' : 'entries'}`;
+            } else {
+                toggle.classList.add('hidden');
+            }
+            
+            // Populate content
+            if (count === 0) {
+                content.innerHTML = '<div class="activity-log-empty">No activity log entries in this archive</div>';
+                return;
+            }
+            
+            // Render entries (most recent first - they're already sorted by timestamp desc)
+            content.innerHTML = state.actionLogs.map(log => {
+                const time = formatLogTime(log.timestamp);
+                const statusIcon = log.success ? '✓' : '✗';
+                const errorClass = log.success ? '' : 'error';
+                const duration = log.duration_ms ? `${log.duration_ms}ms` : '';
+                const errorHtml = log.error ? `<span class="activity-log-error">${escapeHtml(log.error)}</span>` : '';
+                
+                return `
+                    <div class="activity-log-entry ${errorClass}">
+                        <span class="activity-log-time">${time}</span>
+                        <span class="activity-log-status">${statusIcon}</span>
+                        <span class="activity-log-command">${escapeHtml(log.command)}</span>
+                        <span class="activity-log-user">@${escapeHtml(log.user)}</span>
+                        ${duration ? `<span class="activity-log-duration">${duration}</span>` : ''}
+                        ${errorHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function formatLogTime(timestamp) {
+            try {
+                const date = new Date(timestamp);
+                // Format as "Jan 25, 12:30:45"
+                const month = date.toLocaleDateString('en-US', { month: 'short' });
+                const day = date.getDate();
+                const time = date.toLocaleTimeString('en-US', { hour12: false });
+                return `${month} ${day}, ${time}`;
+            } catch (e) {
+                return timestamp;
+            }
+        }
+        
+        function toggleActivityLog() {
+            const panel = document.getElementById('activity-log-panel');
+            panel.classList.toggle('visible');
+        }
+        
+        function closeActivityLog() {
+            const panel = document.getElementById('activity-log-panel');
+            panel.classList.remove('visible');
+        }
+        
+        // ==========================================
         // Canvas Rendering
         // ===========================================
         
@@ -1890,6 +2153,10 @@
                     }
                 }
             });
+            
+            // Activity log toggle and close
+            document.getElementById('activity-log-toggle').addEventListener('click', toggleActivityLog);
+            document.getElementById('activity-log-close').addEventListener('click', closeActivityLog);
         }
         
         function onMouseDown(e) {
