@@ -57,14 +57,14 @@
 //! }
 //! ```
 
-#[cfg(target_arch = "wasm32")]
+// Archive module - contains graph data structures that work on all platforms
 mod archive;
-#[cfg(target_arch = "wasm32")]
+// Bindings module - includes both wasm_bindgen exports for wasm32 and
+// the internal structs for testing on all platforms
 mod bindings;
 
-#[cfg(target_arch = "wasm32")]
 pub use archive::*;
-#[cfg(target_arch = "wasm32")]
+// Export bindings on all platforms for testing
 pub use bindings::*;
 
 /// Initialize WASM panic hook for better error messages in browser console
