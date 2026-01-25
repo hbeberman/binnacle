@@ -370,3 +370,263 @@ fn test_action_logging_logs_config_commands() {
         "Log should contain 'config list'"
     );
 }
+
+// === Log Export Tests ===
+
+#[test]
+fn test_log_export_json_format() {
+    let env = init_binnacle();
+
+    // Generate some action logs
+    bn_in(&env)
+        .args(["task", "create", "Test task 1"])
+        .assert()
+        .success();
+    bn_in(&env)
+        .args(["task", "create", "Test task 2"])
+        .assert()
+        .success();
+
+    // Export as JSON
+    let output = bn_in(&env)
+        .args(["log", "export", "--format", "json", "-n", "2"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should be valid JSON array
+    let parsed: Vec<serde_json::Value> =
+        serde_json::from_str(&stdout).expect("Export should be valid JSON array");
+
+    assert!(!parsed.is_empty(), "Should have exported entries");
+
+    // Check structure of first entry
+    let first = &parsed[0];
+    assert!(first.get("timestamp").is_some(), "Should have timestamp");
+    assert!(first.get("command").is_some(), "Should have command");
+    assert!(first.get("user").is_some(), "Should have user");
+    assert!(first.get("success").is_some(), "Should have success");
+}
+
+#[test]
+fn test_log_export_csv_format() {
+    let env = init_binnacle();
+
+    // Generate some action logs
+    bn_in(&env)
+        .args(["task", "create", "Test task"])
+        .assert()
+        .success();
+
+    // Export as CSV
+    let output = bn_in(&env)
+        .args(["log", "export", "--format", "csv", "-n", "2"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should have header line
+    assert!(
+        stdout.starts_with("timestamp,command,user,success,duration_ms,error,args\n"),
+        "CSV should start with header"
+    );
+
+    // Should have at least one data line
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert!(
+        lines.len() >= 2,
+        "Should have header and at least one data line"
+    );
+}
+
+#[test]
+fn test_log_export_markdown_format() {
+    let env = init_binnacle();
+
+    // Generate some action logs
+    bn_in(&env)
+        .args(["task", "create", "Test task"])
+        .assert()
+        .success();
+
+    // Export as Markdown
+    let output = bn_in(&env)
+        .args(["log", "export", "--format", "markdown", "-n", "2"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should have markdown structure
+    assert!(stdout.contains("# Action Log Export"), "Should have title");
+    assert!(stdout.contains("| Timestamp |"), "Should have table header");
+    assert!(stdout.contains("| Command |"), "Should have table header");
+}
+
+#[test]
+fn test_log_export_command_filter() {
+    let env = init_binnacle();
+
+    // Generate different command types
+    bn_in(&env)
+        .args(["task", "create", "Test task"])
+        .assert()
+        .success();
+    bn_in(&env).args(["ready"]).assert().success();
+
+    // Export only task commands
+    let output = bn_in(&env)
+        .args([
+            "log",
+            "export",
+            "--format",
+            "json",
+            "--command",
+            "task",
+            "-n",
+            "10",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let parsed: Vec<serde_json::Value> =
+        serde_json::from_str(&stdout).expect("Export should be valid JSON array");
+
+    // All entries should be task commands
+    for entry in &parsed {
+        let cmd = entry["command"].as_str().unwrap();
+        assert!(
+            cmd.contains("task"),
+            "Filtered entry '{}' should contain 'task'",
+            cmd
+        );
+    }
+}
+
+#[test]
+fn test_log_export_to_file() {
+    let env = init_binnacle();
+
+    // Generate some action logs
+    bn_in(&env)
+        .args(["task", "create", "Test task"])
+        .assert()
+        .success();
+
+    // Export to file
+    let output_path = env.data_path().join("export_test.csv");
+    bn_in(&env)
+        .args([
+            "log",
+            "export",
+            "--format",
+            "csv",
+            "-o",
+            output_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // File should exist and have content
+    assert!(output_path.exists(), "Export file should exist");
+    let content = fs::read_to_string(&output_path).unwrap();
+    assert!(
+        content.contains("timestamp,command"),
+        "File should have CSV header"
+    );
+}
+
+#[test]
+fn test_log_export_human_readable_output() {
+    let env = init_binnacle();
+
+    // Generate some action logs
+    bn_in(&env)
+        .args(["task", "create", "Test task"])
+        .assert()
+        .success();
+
+    // Export to file with -H flag
+    let output_path = env.data_path().join("export_test2.json");
+    let output = bn_in(&env)
+        .args([
+            "-H",
+            "log",
+            "export",
+            "--format",
+            "json",
+            "-o",
+            output_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Human-readable output should mention export
+    assert!(
+        stdout.contains("Exported"),
+        "Should show 'Exported' message"
+    );
+    assert!(
+        stdout.contains("log entries"),
+        "Should mention 'log entries'"
+    );
+}
+
+#[test]
+fn test_log_export_limit() {
+    let env = init_binnacle();
+
+    // Generate several action logs
+    for i in 0..5 {
+        bn_in(&env)
+            .args(["task", "create", &format!("Test task {}", i)])
+            .assert()
+            .success();
+    }
+
+    // Export with limit
+    let output = bn_in(&env)
+        .args(["log", "export", "--format", "json", "-n", "3"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let parsed: Vec<serde_json::Value> =
+        serde_json::from_str(&stdout).expect("Export should be valid JSON array");
+
+    assert_eq!(parsed.len(), 3, "Should export exactly 3 entries");
+}
+
+#[test]
+fn test_log_show_command_works() {
+    let env = init_binnacle();
+
+    // Generate some entity changes
+    bn_in(&env)
+        .args(["task", "create", "Test task"])
+        .assert()
+        .success();
+
+    // bn log show should work (shows entity audit trail)
+    let output = bn_in(&env).args(["log", "show"]).output().unwrap();
+
+    assert!(output.status.success(), "bn log show should succeed");
+
+    // Should have JSON output
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("entries") || stdout.contains("count"),
+        "Should have audit log structure"
+    );
+}
+
+#[test]
+fn test_bn_log_default_works() {
+    let env = init_binnacle();
+
+    // bn log (no subcommand) should work like bn log show
+    let output = bn_in(&env).args(["log"]).output().unwrap();
+
+    assert!(output.status.success(), "bn log should succeed");
+}

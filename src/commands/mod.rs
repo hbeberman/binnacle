@@ -9796,6 +9796,188 @@ pub fn log(repo_path: &Path, task_id: Option<&str>) -> Result<LogResult> {
     })
 }
 
+/// Result of log export command.
+#[derive(Serialize)]
+pub struct LogExportResult {
+    /// Number of entries exported
+    pub count: usize,
+    /// Export format used
+    pub format: String,
+    /// Output file path (or "stdout")
+    pub output: String,
+}
+
+impl Output for LogExportResult {
+    fn to_json(&self) -> String {
+        // When outputting to stdout, data was already printed - suppress metadata
+        if self.output == "stdout" {
+            String::new()
+        } else {
+            serde_json::to_string(self).unwrap_or_default()
+        }
+    }
+
+    fn to_human(&self) -> String {
+        // When outputting to stdout, data was already printed - suppress metadata
+        if self.output == "stdout" {
+            String::new()
+        } else {
+            format!(
+                "Exported {} log entries in {} format to {}",
+                self.count, self.format, self.output
+            )
+        }
+    }
+}
+
+/// Export action logs to JSON, CSV, or Markdown.
+#[allow(clippy::too_many_arguments)]
+pub fn log_export(
+    repo_path: &Path,
+    format: &str,
+    command_filter: Option<&str>,
+    user_filter: Option<&str>,
+    success_filter: Option<bool>,
+    after: Option<&str>,
+    before: Option<&str>,
+    limit: Option<u32>,
+    output_path: Option<&str>,
+) -> Result<LogExportResult> {
+    let storage = Storage::open(repo_path)?;
+
+    // Query action logs from storage with filters
+    let logs = storage.query_action_logs(
+        limit,
+        None,           // no offset for export
+        before,         // before filter
+        command_filter, // command filter
+        user_filter,    // user filter
+        success_filter, // success filter
+    )?;
+
+    // Apply after filter (storage doesn't support after directly)
+    let logs: Vec<_> = if let Some(after_str) = after {
+        let after_ts = chrono::DateTime::parse_from_rfc3339(after_str)
+            .map_err(|e| Error::Other(format!("Invalid 'after' timestamp: {}", e)))?
+            .with_timezone(&chrono::Utc);
+        logs.into_iter()
+            .filter(|l| l.timestamp > after_ts)
+            .collect()
+    } else {
+        logs
+    };
+
+    let count = logs.len();
+
+    // Format the output
+    let content = match format {
+        "json" => format_logs_json(&logs),
+        "csv" => format_logs_csv(&logs),
+        "markdown" => format_logs_markdown(&logs),
+        _ => return Err(Error::Other(format!("Unknown format: {}", format))),
+    };
+
+    // Write to file or stdout
+    let output_name = if let Some(path) = output_path {
+        fs::write(path, &content)
+            .map_err(|e| Error::Other(format!("Failed to write to {}: {}", path, e)))?;
+        path.to_string()
+    } else {
+        // Print to stdout
+        print!("{}", content);
+        "stdout".to_string()
+    };
+
+    Ok(LogExportResult {
+        count,
+        format: format.to_string(),
+        output: output_name,
+    })
+}
+
+/// Format action logs as JSON array.
+fn format_logs_json(logs: &[crate::action_log::ActionLog]) -> String {
+    serde_json::to_string_pretty(logs).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Format action logs as CSV.
+fn format_logs_csv(logs: &[crate::action_log::ActionLog]) -> String {
+    let mut csv = String::from("timestamp,command,user,success,duration_ms,error,args\n");
+    for log in logs {
+        // Escape CSV fields
+        let error = log
+            .error
+            .as_ref()
+            .map(|e| escape_csv(e))
+            .unwrap_or_default();
+        let args = escape_csv(&log.args.to_string());
+        csv.push_str(&format!(
+            "{},{},{},{},{},{},{}\n",
+            log.timestamp.to_rfc3339(),
+            escape_csv(&log.command),
+            escape_csv(&log.user),
+            log.success,
+            log.duration_ms,
+            error,
+            args,
+        ));
+    }
+    csv
+}
+
+/// Escape a field for CSV output.
+fn escape_csv(s: &str) -> String {
+    if s.contains(',') || s.contains('"') || s.contains('\n') {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// Format action logs as Markdown.
+fn format_logs_markdown(logs: &[crate::action_log::ActionLog]) -> String {
+    let mut md = String::from("# Action Log Export\n\n");
+    md.push_str(&format!("**Entries:** {}\n\n", logs.len()));
+
+    if logs.is_empty() {
+        md.push_str("_No log entries found._\n");
+        return md;
+    }
+
+    md.push_str("| Timestamp | Command | User | Status | Duration |\n");
+    md.push_str("|-----------|---------|------|--------|----------|\n");
+
+    for log in logs {
+        let status = if log.success { "✅" } else { "❌" };
+        md.push_str(&format!(
+            "| {} | `{}` | {} | {} | {}ms |\n",
+            log.timestamp.format("%Y-%m-%d %H:%M:%S"),
+            log.command,
+            log.user,
+            status,
+            log.duration_ms,
+        ));
+    }
+
+    // Add details section for failed entries
+    let failures: Vec<_> = logs.iter().filter(|l| !l.success).collect();
+    if !failures.is_empty() {
+        md.push_str("\n## Errors\n\n");
+        for log in failures {
+            md.push_str(&format!(
+                "### {} at {}\n\n",
+                log.command,
+                log.timestamp.format("%Y-%m-%d %H:%M:%S")
+            ));
+            if let Some(ref error) = log.error {
+                md.push_str(&format!("```\n{}\n```\n\n", error));
+            }
+        }
+    }
+
+    md
+}
+
 // === Config Commands ===
 
 /// Result of config get command.

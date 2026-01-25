@@ -169,9 +169,12 @@ pub enum Commands {
         fix: bool,
     },
 
-    /// Show audit trail of changes
+    /// Show audit trail of changes or export action logs
     Log {
-        /// Optional task ID to filter logs
+        #[command(subcommand)]
+        command: Option<LogCommands>,
+
+        /// Optional task ID to filter audit log (shorthand for `bn log show <task_id>`)
         task_id: Option<String>,
     },
 
@@ -1206,6 +1209,51 @@ pub enum McpCommands {
 
     /// Output tool definitions
     Manifest,
+}
+
+/// Log subcommands
+#[derive(Subcommand, Debug)]
+pub enum LogCommands {
+    /// Show audit trail of changes (entity change history)
+    Show {
+        /// Optional task ID to filter logs
+        task_id: Option<String>,
+    },
+
+    /// Export action logs to file
+    Export {
+        /// Export format: json, csv, or markdown
+        #[arg(short, long, default_value = "json", value_parser = ["json", "csv", "markdown"])]
+        format: String,
+
+        /// Filter by command name (partial match)
+        #[arg(long)]
+        command: Option<String>,
+
+        /// Filter by user name (exact match)
+        #[arg(long)]
+        user: Option<String>,
+
+        /// Filter by success status (true/false)
+        #[arg(long)]
+        success: Option<bool>,
+
+        /// Filter for entries after this ISO 8601 timestamp
+        #[arg(long)]
+        after: Option<String>,
+
+        /// Filter for entries before this ISO 8601 timestamp
+        #[arg(long)]
+        before: Option<String>,
+
+        /// Maximum number of entries to export (default: all)
+        #[arg(short = 'n', long)]
+        limit: Option<u32>,
+
+        /// Output file path (default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
 }
 
 /// Graph analysis subcommands
