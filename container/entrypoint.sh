@@ -69,9 +69,15 @@ BN_AUTO_MERGE="${BN_AUTO_MERGE:-true}"
 cd /workspace
 
 # Ensure git is configured for commits
-if [ -z "$(git config --get user.email)" ]; then
-    git config user.email "binnacle-worker@container.local"
-    git config user.name "Binnacle Worker"
+# Use environment variables instead of git config to avoid writing to read-only .git/config
+# (parent repo's .git is mounted read-only for worktrees)
+if [ -z "$(git config --get user.email 2>/dev/null)" ]; then
+    export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-binnacle-worker@container.local}"
+    export GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-binnacle-worker@container.local}"
+fi
+if [ -z "$(git config --get user.name 2>/dev/null)" ]; then
+    export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-Binnacle Worker}"
+    export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-Binnacle Worker}"
 fi
 
 # Orient the agent
