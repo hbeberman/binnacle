@@ -6,8 +6,8 @@ use binnacle::cli::GuiCommands;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
     DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands, LinkCommands,
-    McpCommands, MilestoneCommands, QueueCommands, SearchCommands, StoreCommands, SystemCommands,
-    TaskCommands, TestCommands,
+    LogCommands, McpCommands, MilestoneCommands, QueueCommands, SearchCommands, StoreCommands,
+    SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -797,10 +797,42 @@ fn run_command(
                 output(&result, human);
             }
         }
-        Some(Commands::Log { task_id }) => {
-            let result = commands::log(repo_path, task_id.as_deref())?;
-            output(&result, human);
-        }
+        Some(Commands::Log { command, task_id }) => match command {
+            Some(LogCommands::Show {
+                task_id: show_task_id,
+            }) => {
+                let result = commands::log(repo_path, show_task_id.as_deref())?;
+                output(&result, human);
+            }
+            Some(LogCommands::Export {
+                format,
+                command: cmd_filter,
+                user,
+                success,
+                after,
+                before,
+                limit,
+                output: output_path,
+            }) => {
+                let result = commands::log_export(
+                    repo_path,
+                    &format,
+                    cmd_filter.as_deref(),
+                    user.as_deref(),
+                    success,
+                    after.as_deref(),
+                    before.as_deref(),
+                    limit,
+                    output_path.as_deref(),
+                )?;
+                output(&result, human);
+            }
+            None => {
+                // Support old syntax: `bn log <task_id>` as shorthand for `bn log show <task_id>`
+                let result = commands::log(repo_path, task_id.as_deref())?;
+                output(&result, human);
+            }
+        },
         Some(Commands::Sync { remote, push, pull }) => {
             let result = commands::sync(repo_path, remote, push, pull)?;
             output(&result, human);
@@ -2209,9 +2241,37 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             }),
         ),
 
-        Some(Commands::Log { task_id }) => {
-            ("log".to_string(), serde_json::json!({ "task_id": task_id }))
-        }
+        Some(Commands::Log { command, task_id }) => match command {
+            Some(LogCommands::Show {
+                task_id: show_task_id,
+            }) => (
+                "log show".to_string(),
+                serde_json::json!({ "task_id": show_task_id }),
+            ),
+            Some(LogCommands::Export {
+                format,
+                command: cmd_filter,
+                user,
+                success,
+                after,
+                before,
+                limit,
+                output,
+            }) => (
+                "log export".to_string(),
+                serde_json::json!({
+                    "format": format,
+                    "command": cmd_filter,
+                    "user": user,
+                    "success": success,
+                    "after": after,
+                    "before": before,
+                    "limit": limit,
+                    "output": output,
+                }),
+            ),
+            None => ("log".to_string(), serde_json::json!({ "task_id": task_id })),
+        },
 
         Some(Commands::Sync { remote, push, pull }) => (
             "sync".to_string(),
