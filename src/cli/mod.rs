@@ -1414,7 +1414,7 @@ pub enum StoreCommands {
 
     /// Import store from archive file or storage folder
     Import {
-        /// Input path: archive file (.tar.gz), storage folder, or '-' for stdin
+        /// Input path: archive file (.tar.zst or .tar.gz), storage folder, or '-' for stdin
         input: String,
 
         /// Import type: 'replace' (error if initialized) or 'merge' (append with ID conflict handling)

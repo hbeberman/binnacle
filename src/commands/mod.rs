@@ -10764,14 +10764,13 @@ fn calculate_checksum(data: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// Export store to gzip tar archive.
+/// Export store to zstd-compressed tar archive.
 pub fn system_store_export(
     repo_path: &Path,
     output: &str,
     format: &str,
 ) -> Result<StoreExportResult> {
-    use flate2::Compression;
-    use flate2::write::GzEncoder;
+    use zstd::stream::write::Encoder as ZstdEncoder;
 
     if format != "archive" {
         return Err(Error::InvalidInput(format!(
@@ -10830,10 +10829,12 @@ pub fn system_store_export(
     };
     let config_json = serde_json::to_string_pretty(&config)?;
 
-    // Create tar.gz archive in memory
+    // Create tar.zst archive in memory
     let mut archive_buffer = Vec::new();
     {
-        let encoder = GzEncoder::new(&mut archive_buffer, Compression::default());
+        // Use zstd compression level 3 (default) - good balance of speed and compression
+        let encoder = ZstdEncoder::new(&mut archive_buffer, 3)
+            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
         let mut tar = tar::Builder::new(encoder);
 
         // Add manifest.json
@@ -10864,7 +10865,12 @@ pub fn system_store_export(
             tar.append(&header, data.as_slice())?;
         }
 
-        tar.finish()?;
+        // Finish tar archive and get encoder back
+        let encoder = tar.into_inner()?;
+        // Finish zstd compression
+        encoder
+            .finish()
+            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
     }
 
     let size_bytes = archive_buffer.len() as u64;
@@ -10934,7 +10940,7 @@ impl Output for CommitArchiveResult {
 
 /// Generate archive for a commit snapshot.
 ///
-/// Creates `bn_{commit-hash}.tar.gz` in the configured archive directory.
+/// Creates `bn_{commit-hash}.tar.zst` in the configured archive directory.
 /// Returns `None` if `archive.directory` is not configured.
 pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<CommitArchiveResult> {
     // Helper to create a skipped result
@@ -10995,7 +11001,7 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
     }
 
     // Generate archive filename
-    let archive_filename = format!("bn_{}.tar.gz", commit_hash);
+    let archive_filename = format!("bn_{}.tar.zst", commit_hash);
     let archive_path = archive_dir.join(&archive_filename);
 
     // Use the existing export functionality
@@ -11249,6 +11255,7 @@ pub fn system_store_import(
 ) -> Result<StoreImportResult> {
     use flate2::read::GzDecoder;
     use std::io::Read;
+    use zstd::stream::read::Decoder as ZstdDecoder;
 
     // Detect input type: stdin, directory, or archive file
     let input_path = Path::new(input);
@@ -11265,9 +11272,13 @@ pub fn system_store_import(
         fs::read(input)?
     };
 
-    // Extract archive
-    let decoder = GzDecoder::new(&archive_data[..]);
-    let mut archive = tar::Archive::new(decoder);
+    // Detect compression type and extract archive
+    // Try zstd first (magic bytes: 0x28, 0xB5, 0x2F, 0xFD), then fall back to gzip
+    let is_zstd = archive_data.len() >= 4
+        && archive_data[0] == 0x28
+        && archive_data[1] == 0xB5
+        && archive_data[2] == 0x2F
+        && archive_data[3] == 0xFD;
 
     // Extract files to memory
     let mut manifest: Option<ExportManifest> = None;
@@ -11277,27 +11288,45 @@ pub fn system_store_import(
     let mut commits_jsonl: Option<Vec<u8>> = None;
     let mut test_results_jsonl: Option<Vec<u8>> = None;
 
-    for entry in archive.entries()? {
-        let mut entry = entry?;
-        let path = entry.path()?.to_path_buf();
-        let path_str = path.to_string_lossy().to_string();
+    // Macro to extract entries from an archive (avoids type parameter issues with closures)
+    macro_rules! extract_entries {
+        ($archive:expr) => {
+            for entry in $archive.entries()? {
+                let mut entry = entry?;
+                let path = entry.path()?.to_path_buf();
+                let path_str = path.to_string_lossy().to_string();
 
-        let mut data = Vec::new();
-        entry.read_to_end(&mut data)?;
+                let mut data = Vec::new();
+                entry.read_to_end(&mut data)?;
 
-        if path_str.ends_with("manifest.json") {
-            manifest = Some(parse_json_with_context(&data, "manifest.json")?);
-        } else if path_str.ends_with("tasks.jsonl") {
-            tasks_jsonl = Some(data);
-        } else if path_str.ends_with("bugs.jsonl") {
-            bugs_jsonl = Some(data);
-        } else if path_str.ends_with("edges.jsonl") {
-            edges_jsonl = Some(data);
-        } else if path_str.ends_with("commits.jsonl") {
-            commits_jsonl = Some(data);
-        } else if path_str.ends_with("test-results.jsonl") {
-            test_results_jsonl = Some(data);
-        }
+                if path_str.ends_with("manifest.json") {
+                    manifest = Some(parse_json_with_context(&data, "manifest.json")?);
+                } else if path_str.ends_with("tasks.jsonl") {
+                    tasks_jsonl = Some(data);
+                } else if path_str.ends_with("bugs.jsonl") {
+                    bugs_jsonl = Some(data);
+                } else if path_str.ends_with("edges.jsonl") {
+                    edges_jsonl = Some(data);
+                } else if path_str.ends_with("commits.jsonl") {
+                    commits_jsonl = Some(data);
+                } else if path_str.ends_with("test-results.jsonl") {
+                    test_results_jsonl = Some(data);
+                }
+            }
+        };
+    }
+
+    // Try decompression based on detected format
+    if is_zstd {
+        let decoder =
+            ZstdDecoder::new(&archive_data[..]).map_err(|e| Error::Io(std::io::Error::other(e)))?;
+        let mut archive = tar::Archive::new(decoder);
+        extract_entries!(archive);
+    } else {
+        // Fall back to gzip for backwards compatibility
+        let decoder = GzDecoder::new(&archive_data[..]);
+        let mut archive = tar::Archive::new(decoder);
+        extract_entries!(archive);
     }
 
     let manifest = manifest
@@ -11954,7 +11983,7 @@ pub fn system_store_clear(
             eprintln!("  bn system store clear --force");
             eprintln!();
             eprintln!("To create a backup first (recommended):");
-            eprintln!("  bn system store export backup.tar.gz && bn system store clear --force");
+            eprintln!("  bn system store export backup.tar.zst && bn system store clear --force");
         }
 
         return Ok(StoreClearResult {
@@ -11974,7 +12003,7 @@ pub fn system_store_clear(
     // Create backup unless --no-backup is specified
     let backup_path = if !no_backup {
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-        let backup_name = format!("binnacle_backup_{}.tar.gz", timestamp);
+        let backup_name = format!("binnacle_backup_{}.tar.zst", timestamp);
 
         // Try to create backup in the repo directory, fall back to temp
         let backup_file = repo_path.join(&backup_name);
