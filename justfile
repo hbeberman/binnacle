@@ -27,35 +27,61 @@ gui nobuild="":
     set -e
     export BN_GUI_PORT="${BN_GUI_PORT:-3030}"
     
-    if [ -z "{{nobuild}}" ]; then
-        just install
-    else
-        echo "Skipping build (using existing binary)..."
-    fi
-    # Copy to temp location so builds can replace the original while GUI runs
-    # Use XDG_RUNTIME_DIR (tmpfs, session-scoped) with fallback to cache
+    # Setup paths
     RUNTIME_DIR="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/binnacle"
     mkdir -p "$RUNTIME_DIR"
-    
-    # Use repo-specific binary to avoid killing other repos' GUI sessions
-    # Hash the git root path to get a stable identifier for this repo
     REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
     REPO_HASH="$(echo "$REPO_ROOT" | sha256sum | cut -c1-8)"
     GUI_BIN="$RUNTIME_DIR/bn-gui-$REPO_HASH"
     
-    # Only kill THIS repo's GUI process (not other repos)
-    if [ -f "$GUI_BIN" ]; then
-        PIDS=$(fuser "$GUI_BIN" 2>/dev/null | tr -s ' ') || true
-        if [ -n "$PIDS" ]; then
-            echo "Stopping existing GUI for this repo (pid: $PIDS)..."
-            for pid in $PIDS; do
-                kill "$pid" 2>/dev/null || true
-            done
-            sleep 1
+    # Helper to stop existing GUI for this repo
+    stop_gui() {
+        if [ -f "$GUI_BIN" ]; then
+            PIDS=$(fuser "$GUI_BIN" 2>/dev/null | tr -s ' ') || true
+            if [ -n "$PIDS" ]; then
+                echo "Stopping existing GUI for this repo (pid: $PIDS)..."
+                for pid in $PIDS; do
+                    kill "$pid" 2>/dev/null || true
+                done
+                sleep 1
+            fi
         fi
+    }
+    
+    if [ -z "{{nobuild}}" ]; then
+        # Hot restart: start immediately with existing binary, then rebuild and restart
+        if [ -f ~/.local/bin/bn ]; then
+            stop_gui
+            cp ~/.local/bin/bn "$GUI_BIN"
+            echo "Starting GUI immediately with existing binary..."
+            "$GUI_BIN" gui serve --host 0.0.0.0 --replace &
+            GUI_PID=$!
+            echo "GUI started (pid: $GUI_PID), building new version in background..."
+            
+            # Build new version
+            if just install; then
+                echo "Build complete, restarting GUI with new binary..."
+                stop_gui
+                cp ~/.local/bin/bn "$GUI_BIN"
+                "$GUI_BIN" gui serve --host 0.0.0.0 --replace
+            else
+                echo "Build failed, keeping existing GUI running"
+                wait $GUI_PID
+            fi
+        else
+            # No existing binary, must build first
+            echo "No existing binary found, building first..."
+            just install
+            stop_gui
+            cp ~/.local/bin/bn "$GUI_BIN"
+            "$GUI_BIN" gui serve --host 0.0.0.0 --replace
+        fi
+    else
+        echo "Skipping build (using existing binary)..."
+        stop_gui
+        cp ~/.local/bin/bn "$GUI_BIN"
+        "$GUI_BIN" gui serve --host 0.0.0.0 --replace
     fi
-    cp ~/.local/bin/bn "$GUI_BIN"
-    "$GUI_BIN" gui serve --host 0.0.0.0 --replace
 
 # Run clippy with strict warnings
 clippy:
