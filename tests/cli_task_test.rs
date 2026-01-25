@@ -2078,6 +2078,136 @@ fn test_task_update_status_cancelled_ignores_commit_requirement() {
         .stdout(predicate::str::contains("\"updated_fields\""));
 }
 
+// === Closed Task Update Protection Tests ===
+
+#[test]
+fn test_closed_task_update_without_flag_fails() {
+    let temp = init_binnacle();
+
+    // Create and close a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task to close"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    bn_in(&temp)
+        .args(["task", "close", &id, "--reason", "Done"])
+        .assert()
+        .success();
+
+    // Try to update without flag - should fail
+    bn_in(&temp)
+        .args(["task", "update", &id, "--title", "New Title"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Cannot update closed task"))
+        .stderr(predicate::str::contains("--keep-closed"))
+        .stderr(predicate::str::contains("--reopen"));
+}
+
+#[test]
+fn test_closed_task_update_with_keep_closed_succeeds() {
+    let temp = init_binnacle();
+
+    // Create and close a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task to close"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    bn_in(&temp)
+        .args(["task", "close", &id, "--reason", "Done"])
+        .assert()
+        .success();
+
+    // Update with --keep-closed - should succeed
+    bn_in(&temp)
+        .args([
+            "task",
+            "update",
+            &id,
+            "--title",
+            "Updated Title",
+            "--keep-closed",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"updated_fields\""));
+
+    // Verify task is still done
+    bn_in(&temp)
+        .args(["task", "show", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"done\""))
+        .stdout(predicate::str::contains("Updated Title"));
+}
+
+#[test]
+fn test_closed_task_update_with_reopen_succeeds() {
+    let temp = init_binnacle();
+
+    // Create and close a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task to close"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    bn_in(&temp)
+        .args(["task", "close", &id, "--reason", "Done"])
+        .assert()
+        .success();
+
+    // Update with --reopen - should succeed and reopen
+    bn_in(&temp)
+        .args([
+            "task",
+            "update",
+            &id,
+            "--title",
+            "Reopened Title",
+            "--reopen",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"updated_fields\""));
+
+    // Verify task is now pending
+    bn_in(&temp)
+        .args(["task", "show", &id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"pending\""))
+        .stdout(predicate::str::contains("Reopened Title"));
+}
+
+#[test]
+fn test_cancelled_task_update_without_flag_fails() {
+    let temp = init_binnacle();
+
+    // Create and cancel a task
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task to cancel"])
+        .output()
+        .unwrap();
+    let id = extract_task_id(&output);
+
+    bn_in(&temp)
+        .args(["task", "update", &id, "--status", "cancelled"])
+        .assert()
+        .success();
+
+    // Try to update without flag - should fail
+    bn_in(&temp)
+        .args(["task", "update", &id, "--title", "New Title"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Cannot update closed task"));
+}
+
 #[test]
 fn test_task_close_json_includes_goodbye_hint() {
     let temp = init_binnacle();

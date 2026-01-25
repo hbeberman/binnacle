@@ -363,6 +363,14 @@ pub enum TaskCommands {
         /// When setting status to done, bypass commit requirement (use with caution)
         #[arg(long)]
         force: bool,
+
+        /// Allow updating a closed task without reopening it
+        #[arg(long)]
+        keep_closed: bool,
+
+        /// Reopen a closed task and set status to pending
+        #[arg(long)]
+        reopen: bool,
     },
 
     /// Close a task (marks as done)
@@ -518,6 +526,14 @@ pub enum BugCommands {
         /// Force status update even if agent already has active tasks
         #[arg(long)]
         force: bool,
+
+        /// Allow updating a closed bug without reopening it
+        #[arg(long)]
+        keep_closed: bool,
+
+        /// Reopen a closed bug and set status to pending
+        #[arg(long)]
+        reopen: bool,
     },
 
     /// Close a bug (marks as done)
