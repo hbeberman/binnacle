@@ -1223,6 +1223,112 @@
             display: none;
         }
 
+        /* Activity Timeline Heatmap */
+        .activity-timeline {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .activity-timeline-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .activity-timeline-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .activity-timeline-range {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .activity-timeline-svg {
+            width: 100%;
+            height: 40px;
+            display: block;
+            cursor: pointer;
+        }
+
+        .activity-timeline-segment {
+            fill: var(--accent-blue);
+            opacity: 0.2;
+            transition: opacity 0.15s ease, fill 0.15s ease;
+        }
+
+        .activity-timeline-segment:hover {
+            opacity: 1;
+            fill: var(--accent-light);
+        }
+
+        .activity-timeline-segment.selected {
+            stroke: var(--accent-light);
+            stroke-width: 2;
+            opacity: 1;
+        }
+
+        .activity-timeline-segment.has-failures {
+            fill: var(--danger);
+        }
+
+        .activity-timeline-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        .activity-timeline-empty {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            padding: 0.5rem 0;
+        }
+
+        .activity-timeline-legend {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            justify-content: center;
+        }
+
+        .activity-timeline-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .legend-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+
+        .legend-swatch.low {
+            background: var(--accent-blue);
+            opacity: 0.3;
+        }
+
+        .legend-swatch.high {
+            background: var(--accent-blue);
+            opacity: 1;
+        }
+
+        .legend-swatch.failures {
+            background: var(--danger);
+            opacity: 0.8;
+        }
+
         /* Search highlight */
         .log-highlight {
             background: rgba(250, 204, 21, 0.3);
@@ -3818,6 +3924,30 @@
                     
                     <!-- Filter Summary -->
                     <div class="log-filter-summary" id="log-filter-summary"></div>
+                </div>
+                
+                <!-- Activity Timeline Heatmap -->
+                <div class="activity-timeline" id="activity-timeline">
+                    <div class="activity-timeline-header">
+                        <span class="activity-timeline-title">Activity Timeline</span>
+                        <span class="activity-timeline-range" id="timeline-range"></span>
+                    </div>
+                    <svg class="activity-timeline-svg" id="timeline-svg" preserveAspectRatio="none"></svg>
+                    <div class="activity-timeline-labels" id="timeline-labels"></div>
+                    <div class="activity-timeline-legend">
+                        <div class="activity-timeline-legend-item">
+                            <div class="legend-swatch low"></div>
+                            <span>Few</span>
+                        </div>
+                        <div class="activity-timeline-legend-item">
+                            <div class="legend-swatch high"></div>
+                            <span>Many</span>
+                        </div>
+                        <div class="activity-timeline-legend-item">
+                            <div class="legend-swatch failures"></div>
+                            <span>Failures</span>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="log-list" id="log-list"></div>
@@ -9065,18 +9195,223 @@
             }
         }
 
+        // Activity Timeline Heatmap - shows activity density over time
+        let selectedTimelineSegment = null;
+
+        function renderActivityTimeline(entries) {
+            const svg = document.getElementById('timeline-svg');
+            const labels = document.getElementById('timeline-labels');
+            const rangeDisplay = document.getElementById('timeline-range');
+            
+            if (!entries || entries.length === 0) {
+                svg.innerHTML = '';
+                labels.innerHTML = '';
+                rangeDisplay.textContent = '';
+                document.getElementById('activity-timeline').style.display = 'none';
+                return;
+            }
+            
+            document.getElementById('activity-timeline').style.display = 'block';
+            
+            // Get time range from entries
+            const timestamps = entries.map(e => new Date(e.timestamp).getTime());
+            const minTime = Math.min(...timestamps);
+            const maxTime = Math.max(...timestamps);
+            const timeRange = maxTime - minTime;
+            
+            // Determine bucket size based on time range
+            let bucketMs, bucketLabel;
+            const oneHour = 60 * 60 * 1000;
+            const oneDay = 24 * oneHour;
+            const oneWeek = 7 * oneDay;
+            
+            if (timeRange <= 2 * oneHour) {
+                bucketMs = 5 * 60 * 1000; // 5 minutes
+                bucketLabel = '5min';
+            } else if (timeRange <= oneDay) {
+                bucketMs = oneHour; // 1 hour
+                bucketLabel = 'hour';
+            } else if (timeRange <= oneWeek) {
+                bucketMs = 6 * oneHour; // 6 hours
+                bucketLabel = '6hr';
+            } else {
+                bucketMs = oneDay; // 1 day
+                bucketLabel = 'day';
+            }
+            
+            // Create time buckets
+            const bucketStart = Math.floor(minTime / bucketMs) * bucketMs;
+            const bucketEnd = Math.ceil(maxTime / bucketMs) * bucketMs;
+            const bucketCount = Math.max(1, Math.ceil((bucketEnd - bucketStart) / bucketMs));
+            
+            // Limit to reasonable number of buckets
+            const maxBuckets = 50;
+            const effectiveBucketCount = Math.min(bucketCount, maxBuckets);
+            const effectiveBucketMs = effectiveBucketCount < bucketCount 
+                ? (bucketEnd - bucketStart) / effectiveBucketCount 
+                : bucketMs;
+            
+            // Initialize buckets
+            const buckets = Array(effectiveBucketCount).fill(null).map((_, i) => ({
+                start: bucketStart + i * effectiveBucketMs,
+                end: bucketStart + (i + 1) * effectiveBucketMs,
+                count: 0,
+                failures: 0
+            }));
+            
+            // Fill buckets
+            entries.forEach(entry => {
+                const time = new Date(entry.timestamp).getTime();
+                const bucketIndex = Math.min(
+                    effectiveBucketCount - 1,
+                    Math.floor((time - bucketStart) / effectiveBucketMs)
+                );
+                if (bucketIndex >= 0 && bucketIndex < buckets.length) {
+                    buckets[bucketIndex].count++;
+                    if (entry.success === false) {
+                        buckets[bucketIndex].failures++;
+                    }
+                }
+            });
+            
+            // Find max count for scaling
+            const maxCount = Math.max(1, ...buckets.map(b => b.count));
+            
+            // Render SVG
+            const svgWidth = svg.clientWidth || 600;
+            const svgHeight = 40;
+            const segmentWidth = svgWidth / effectiveBucketCount;
+            const padding = 1;
+            
+            svg.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
+            
+            let svgContent = '';
+            buckets.forEach((bucket, i) => {
+                if (bucket.count === 0) return;
+                
+                const x = i * segmentWidth + padding;
+                const width = Math.max(1, segmentWidth - padding * 2);
+                const opacity = 0.2 + (bucket.count / maxCount) * 0.8;
+                const hasFailures = bucket.failures > 0;
+                const isSelected = selectedTimelineSegment && 
+                    selectedTimelineSegment.start === bucket.start && 
+                    selectedTimelineSegment.end === bucket.end;
+                
+                const classes = [
+                    'activity-timeline-segment',
+                    hasFailures ? 'has-failures' : '',
+                    isSelected ? 'selected' : ''
+                ].filter(Boolean).join(' ');
+                
+                svgContent += `
+                    <rect 
+                        class="${classes}"
+                        x="${x}" 
+                        y="0" 
+                        width="${width}" 
+                        height="${svgHeight}"
+                        style="opacity: ${opacity}"
+                        data-bucket-index="${i}"
+                        data-start="${bucket.start}"
+                        data-end="${bucket.end}"
+                        data-count="${bucket.count}"
+                        data-failures="${bucket.failures}"
+                    >
+                        <title>${bucket.count} entries${bucket.failures > 0 ? ` (${bucket.failures} failures)` : ''}\n${new Date(bucket.start).toLocaleString()}</title>
+                    </rect>
+                `;
+            });
+            
+            svg.innerHTML = svgContent;
+            
+            // Add click handlers
+            svg.querySelectorAll('.activity-timeline-segment').forEach(rect => {
+                rect.addEventListener('click', (e) => {
+                    const start = parseInt(rect.dataset.start);
+                    const end = parseInt(rect.dataset.end);
+                    
+                    // Toggle selection
+                    if (selectedTimelineSegment && 
+                        selectedTimelineSegment.start === start && 
+                        selectedTimelineSegment.end === end) {
+                        // Deselect - clear custom date filter
+                        selectedTimelineSegment = null;
+                        state.logFilters.dateRange = 'all';
+                        state.logFilters.customDateFrom = '';
+                        state.logFilters.customDateTo = '';
+                        document.getElementById('custom-date-range').style.display = 'none';
+                        document.querySelectorAll('.date-preset-btn').forEach(b => {
+                            b.classList.toggle('active', b.dataset.range === 'all');
+                        });
+                    } else {
+                        // Select - set custom date filter
+                        selectedTimelineSegment = { start, end };
+                        state.logFilters.dateRange = 'custom';
+                        state.logFilters.customDateFrom = new Date(start).toISOString().split('T')[0];
+                        state.logFilters.customDateTo = new Date(end).toISOString().split('T')[0];
+                        document.getElementById('custom-date-range').style.display = 'flex';
+                        document.getElementById('date-from').value = state.logFilters.customDateFrom;
+                        document.getElementById('date-to').value = state.logFilters.customDateTo;
+                        document.querySelectorAll('.date-preset-btn').forEach(b => {
+                            b.classList.toggle('active', b.dataset.range === 'custom');
+                        });
+                    }
+                    
+                    saveLogFiltersToURL();
+                    renderLog();
+                });
+            });
+            
+            // Update labels
+            const startDate = new Date(bucketStart);
+            const endDate = new Date(bucketEnd);
+            labels.innerHTML = `
+                <span>${startDate.toLocaleDateString()} ${startDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                <span>${endDate.toLocaleDateString()} ${endDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            `;
+            
+            // Update range display
+            rangeDisplay.textContent = `${entries.length} entries • ${bucketLabel} buckets`;
+        }
+
         function renderLog() {
             const list = document.getElementById('log-list');
             
             if (state.log.length === 0) {
                 list.innerHTML = '<div class="empty-state">No activity yet</div>';
                 updateFilterSummary(0, 0);
+                renderActivityTimeline([]);
                 return;
             }
             
             // Apply filters
             const filteredEntries = filterLogEntries(state.log);
             updateFilterSummary(state.log.length, filteredEntries.length);
+            
+            // Render timeline with all entries (not filtered by date, to show full range)
+            // but respect command, user, and status filters for timeline density
+            const timelineEntries = state.log.filter(entry => {
+                // Apply non-date filters for timeline
+                const { commandCategories, userFilter, statusFilter } = state.logFilters;
+                const command = entry.command || entry.action || entry.message || '';
+                
+                // Command category filter
+                if (!commandMatchesCategory(command, commandCategories)) return false;
+                
+                // User filter
+                if (userFilter === 'humans' && isAgent(entry.user)) return false;
+                if (userFilter === 'agents' && !isAgent(entry.user)) return false;
+                if (userFilter && userFilter !== 'all' && userFilter !== 'humans' && userFilter !== 'agents') {
+                    if (entry.user !== userFilter) return false;
+                }
+                
+                // Status filter
+                if (statusFilter === 'success' && entry.success === false) return false;
+                if (statusFilter === 'failure' && entry.success !== false) return false;
+                
+                return true;
+            });
+            renderActivityTimeline(timelineEntries);
             
             if (filteredEntries.length === 0) {
                 list.innerHTML = '<div class="empty-state">No entries match current filters</div>';
