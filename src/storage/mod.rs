@@ -4197,13 +4197,25 @@ fn resolve_worktree_to_main_repo(git_file: &Path) -> Option<PathBuf> {
 pub fn find_git_root(start: &Path) -> Option<PathBuf> {
     // Start from canonicalized path to handle symlinks consistently
     let mut current = start.canonicalize().ok()?;
+
+    // In container mode, skip worktree-to-main-repo resolution.
+    // Containers mount only the worktree and parent .git (read-only), so resolving
+    // to the main repo would return a path that isn't fully accessible. The storage
+    // hash is pre-computed by the host and passed via BN_STORAGE_HASH.
+    let skip_worktree_resolution = std::env::var("BN_CONTAINER_MODE").is_ok();
+
     loop {
         let git_path = current.join(".git");
         if git_path.is_dir() {
             // Normal git repo - return this directory
             return Some(current);
         } else if git_path.is_file() {
-            // Git worktree: resolve to main repo for shared binnacle database.
+            // Git worktree or submodule detected (.git is a file, not directory)
+            if skip_worktree_resolution {
+                // Container mode: treat worktree as its own root
+                return Some(current);
+            }
+            // Normal mode: resolve to main repo for shared binnacle database.
             // Git submodule: resolution will fail (different gitdir format),
             // and we'll fall back to treating it as its own root (intentional).
             if let Some(main_repo) = resolve_worktree_to_main_repo(&git_path) {
@@ -5364,6 +5376,60 @@ mod tests {
         // find_git_root should fall back to worktree root when resolution fails
         let found = super::find_git_root(&subdir).unwrap();
         assert_eq!(found.canonicalize().unwrap(), root.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn test_find_git_root_worktree_container_mode_skips_resolution() {
+        let env = TestEnv::new();
+        let base = env.path();
+
+        // Create main repo structure
+        let main_repo = base.join("main-repo");
+        fs::create_dir_all(main_repo.join(".git").join("worktrees").join("my-worktree")).unwrap();
+
+        // Create commondir file pointing to main .git
+        fs::write(
+            main_repo
+                .join(".git")
+                .join("worktrees")
+                .join("my-worktree")
+                .join("commondir"),
+            "../..",
+        )
+        .unwrap();
+
+        // Create worktree directory with .git file
+        let worktree = base.join("worktree-dir");
+        fs::create_dir_all(worktree.join("src")).unwrap();
+
+        // Write .git file pointing to worktree gitdir (use absolute path for test reliability)
+        let gitdir_path = main_repo.join(".git").join("worktrees").join("my-worktree");
+        fs::write(
+            worktree.join(".git"),
+            format!("gitdir: {}", gitdir_path.display()),
+        )
+        .unwrap();
+
+        // Set container mode env var
+        // SAFETY: This is test code; we accept the POSIX setenv race condition
+        unsafe {
+            std::env::set_var("BN_CONTAINER_MODE", "true");
+        }
+
+        // In container mode, find_git_root should NOT resolve to main repo
+        // It should return the worktree directory itself
+        let found = super::find_git_root(&worktree.join("src")).unwrap();
+        assert_eq!(
+            found.canonicalize().unwrap(),
+            worktree.canonicalize().unwrap(),
+            "Container mode should treat worktree as its own root, not resolve to main repo"
+        );
+
+        // Clean up env var
+        // SAFETY: This is test code; we accept the POSIX setenv race condition
+        unsafe {
+            std::env::remove_var("BN_CONTAINER_MODE");
+        }
     }
 
     #[test]
