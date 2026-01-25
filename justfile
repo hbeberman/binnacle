@@ -45,7 +45,7 @@ gui:
         fi
     fi
     cp ~/.local/bin/bn "$GUI_BIN"
-    "$GUI_BIN" gui --host 0.0.0.0 --replace
+    "$GUI_BIN" gui serve --host 0.0.0.0 --replace
 
 # Run clippy with strict warnings
 clippy:
