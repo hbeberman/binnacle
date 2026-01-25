@@ -22,12 +22,16 @@ install: (build "release" "gui")
     cp target/release/bn ~/.local/bin/
     @echo "Installed bn to ~/.local/bin/bn (with GUI feature)"
 
-gui:
+gui nobuild="":
     #!/usr/bin/env bash
     set -e
     export BN_GUI_PORT="${BN_GUI_PORT:-3030}"
     
-    just install
+    if [ -z "{{nobuild}}" ]; then
+        just install
+    else
+        echo "Skipping build (using existing binary)..."
+    fi
     # Copy to temp location so builds can replace the original while GUI runs
     # Use XDG_RUNTIME_DIR (tmpfs, session-scoped) with fallback to cache
     RUNTIME_DIR="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/binnacle"
