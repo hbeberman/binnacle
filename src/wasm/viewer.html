@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binnacle Viewer</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #1a2332;
+            --bg-secondary: #243447;
+            --bg-tertiary: #2d4059;
+            --text-primary: #e8edf3;
+            --text-secondary: #b8c5d6;
+            --accent-blue: #4a90e2;
+            --accent-light: #6aa8f0;
+            --border-color: #3a4d66;
+            --success: #5cb85c;
+            --warning: #f0ad4e;
+            --danger: #d9534f;
+            --info: #5bc0de;
+            /* Edge type colors */
+            --edge-blocking: #e85d5d;
+            --edge-informational: #7a8fa3;
+            --edge-fixes: #5cb85c;
+            --edge-hierarchy: #9b6ed8;
+            --edge-default: #3a4d66;
+            /* Node type colors - bugs (reddish) */
+            --bug-pending: #e07878;
+            --bug-in-progress: #d95050;
+            --bug-blocked: #b33a3a;
+            --bug-done: #8fbc8f;
+            /* Node type colors - ideas (deeper purple) */
+            --idea-pending: #8b5fc9;
+            --idea-in-progress: #7a4db8;
+            --idea-blocked: #5c3a8a;
+            --idea-done: #8fbc8f;
+            /* Node type colors - queue (teal/cyan) */
+            --queue-color: #20b2aa;
+            --queue-color-light: #40d0c8;
+            /* Node type colors - agents (bright cyan/electric blue) */
+            --agent-active: #00d4ff;
+            --agent-idle: #6bb3c9;
+            --agent-stale: #4a6670;
+            /* Edge type colors - queued */
+            --edge-queued: #20b2aa;
+            /* Edge type colors - agent working_on */
+            --edge-agent: #f0c040;
+            --edge-agent-past: #6b7a8a;
+            /* Node type colors - docs (by doc_type) */
+            --doc-prd: #4a90e2;
+            --doc-note: #e8b84a;
+            --doc-handoff: #e87d4a;
+            /* Edge type colors */
+            --edge-pinned: #5cb85c;
+            --edge-documents: #4a90e2;
+            --edge-impacts: #e85d5d;
+            /* Overlay backgrounds */
+            --overlay-bg: rgba(0, 0, 0, 0.85);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* Snapshot Banner */
+        .snapshot-banner {
+            background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            padding: 0.75rem 1.5rem;
+            border-bottom: 2px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .snapshot-banner-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .snapshot-badge {
+            background: var(--warning);
+            color: #1a2332;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .snapshot-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .snapshot-meta {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .snapshot-banner-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .snapshot-stats {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .snapshot-stat {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .snapshot-stat-value {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Main content area */
+        .main-content {
+            flex: 1;
+            display: flex;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Graph canvas */
+        #graph-canvas {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+
+        #graph-canvas.dragging {
+            cursor: grabbing;
+        }
+
+        #graph-canvas.hovering:not(.dragging) {
+            cursor: pointer;
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--overlay-bg);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .loading-overlay.hidden {
+            display: none;
+        }
+
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 1rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Error state */
+        .error-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--overlay-bg);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .error-overlay.hidden {
+            display: none;
+        }
+
+        .error-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .error-message {
+            color: var(--danger);
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .error-details {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        /* File picker prompt */
+        .file-picker-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--overlay-bg);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .file-picker-overlay.hidden {
+            display: none;
+        }
+
+        .file-picker-card {
+            background: var(--bg-secondary);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+            max-width: 500px;
+        }
+
+        .file-picker-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .file-picker-subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+        }
+
+        .file-picker-dropzone {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 2rem;
+            margin-bottom: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .file-picker-dropzone:hover,
+        .file-picker-dropzone.dragover {
+            border-color: var(--accent-blue);
+            background: rgba(74, 144, 226, 0.1);
+        }
+
+        .file-picker-icon {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .file-picker-text {
+            color: var(--text-secondary);
+        }
+
+        .file-picker-input {
+            display: none;
+        }
+
+        .file-picker-or {
+            color: var(--text-secondary);
+            margin: 1rem 0;
+        }
+
+        .file-picker-url-form {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .file-picker-url-input {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: 2px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .file-picker-url-input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .file-picker-btn {
+            padding: 0.75rem 1.5rem;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .file-picker-btn:hover {
+            background: var(--accent-light);
+        }
+
+        .file-picker-btn:disabled {
+            background: var(--border-color);
+            cursor: not-allowed;
+        }
+
+        /* Node tooltip */
+        .node-tooltip {
+            position: absolute;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            z-index: 50;
+            max-width: 300px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .node-tooltip.visible {
+            opacity: 1;
+        }
+
+        .tooltip-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .tooltip-id {
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--accent-light);
+            margin-bottom: 0.25rem;
+        }
+
+        .tooltip-meta {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        /* Edge tooltip */
+        .edge-tooltip {
+            position: absolute;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            z-index: 50;
+            font-size: 0.8rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .edge-tooltip.visible {
+            opacity: 1;
+        }
+
+        .edge-tooltip-type {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .edge-tooltip-ids {
+            color: var(--text-secondary);
+            font-family: monospace;
+            font-size: 0.75rem;
+        }
+
+        /* Controls overlay */
+        .controls-overlay {
+            position: absolute;
+            bottom: 1rem;
+            right: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            z-index: 20;
+        }
+
+        .control-btn {
+            width: 36px;
+            height: 36px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            transition: all 0.2s ease;
+        }
+
+        .control-btn:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-blue);
+        }
+
+        .zoom-display {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-align: center;
+            min-width: 36px;
+        }
+
+        /* Info panel (bottom-left) */
+        .info-panel {
+            position: absolute;
+            bottom: 1rem;
+            left: 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-size: 0.8rem;
+            z-index: 20;
+        }
+
+        .info-panel-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .info-panel-content {
+            color: var(--text-secondary);
+        }
+
+        /* Sidebar for node list */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar.collapsed {
+            width: 0;
+            overflow: hidden;
+        }
+
+        .sidebar-header {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar-title {
+            font-weight: 600;
+        }
+
+        .sidebar-toggle {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 1.2rem;
+        }
+
+        .sidebar-search {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            margin: 0.5rem 0;
+        }
+
+        .sidebar-search:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+
+        .node-list-item {
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            margin-bottom: 0.25rem;
+        }
+
+        .node-list-item:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .node-list-item.selected {
+            background: rgba(74, 144, 226, 0.2);
+            border-left: 3px solid var(--accent-blue);
+        }
+
+        .node-list-id {
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: var(--accent-light);
+        }
+
+        .node-list-title {
+            font-size: 0.85rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .node-list-meta {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+        }
+
+        /* Status badges */
+        .status-badge {
+            display: inline-block;
+            padding: 0.1rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-pending { background: rgba(91, 192, 222, 0.2); color: #5bc0de; }
+        .status-in_progress { background: rgba(240, 173, 78, 0.2); color: #f0ad4e; }
+        .status-blocked { background: rgba(217, 83, 79, 0.2); color: #d9534f; }
+        .status-done { background: rgba(92, 184, 92, 0.2); color: #5cb85c; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Snapshot Banner (read-only indicator) -->
+        <div class="snapshot-banner">
+            <div class="snapshot-banner-left">
+                <span class="snapshot-badge">📸 Snapshot</span>
+                <span class="snapshot-title" id="snapshot-title">Binnacle Graph</span>
+                <span class="snapshot-meta" id="snapshot-meta"></span>
+            </div>
+            <div class="snapshot-banner-right">
+                <div class="snapshot-stats" id="snapshot-stats">
+                    <span class="snapshot-stat">
+                        <span class="snapshot-stat-value" id="stat-nodes">0</span> nodes
+                    </span>
+                    <span class="snapshot-stat">
+                        <span class="snapshot-stat-value" id="stat-edges">0</span> edges
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main content area -->
+        <div class="main-content">
+            <!-- Graph canvas -->
+            <canvas id="graph-canvas"></canvas>
+
+            <!-- Node tooltip -->
+            <div class="node-tooltip" id="node-tooltip">
+                <div class="tooltip-title" id="tooltip-title"></div>
+                <div class="tooltip-id" id="tooltip-id"></div>
+                <div class="tooltip-meta" id="tooltip-meta"></div>
+            </div>
+
+            <!-- Edge tooltip -->
+            <div class="edge-tooltip" id="edge-tooltip">
+                <div class="edge-tooltip-type" id="edge-tooltip-type"></div>
+                <div class="edge-tooltip-ids" id="edge-tooltip-ids"></div>
+            </div>
+
+            <!-- Controls overlay -->
+            <div class="controls-overlay">
+                <button class="control-btn" id="zoom-in-btn" title="Zoom in">+</button>
+                <div class="zoom-display" id="zoom-display">100%</div>
+                <button class="control-btn" id="zoom-out-btn" title="Zoom out">−</button>
+                <button class="control-btn" id="reset-view-btn" title="Reset view">⟲</button>
+            </div>
+
+            <!-- Info panel -->
+            <div class="info-panel" id="info-panel">
+                <div class="info-panel-title">🧭 Binnacle Viewer</div>
+                <div class="info-panel-content">
+                    <div>Drag to pan • Scroll to zoom</div>
+                    <div id="viewer-version"></div>
+                </div>
+            </div>
+
+            <!-- Loading overlay -->
+            <div class="loading-overlay" id="loading-overlay">
+                <div class="loading-spinner"></div>
+                <div class="loading-text" id="loading-text">Initializing viewer...</div>
+            </div>
+
+            <!-- Error overlay -->
+            <div class="error-overlay hidden" id="error-overlay">
+                <div class="error-icon">⚠️</div>
+                <div class="error-message" id="error-message">Error loading graph</div>
+                <div class="error-details" id="error-details"></div>
+            </div>
+
+            <!-- File picker overlay -->
+            <div class="file-picker-overlay hidden" id="file-picker-overlay">
+                <div class="file-picker-card">
+                    <div class="file-picker-title">Open Binnacle Graph</div>
+                    <div class="file-picker-subtitle">Load a .bng archive to view the project graph</div>
+                    
+                    <div class="file-picker-dropzone" id="file-dropzone">
+                        <div class="file-picker-icon">📁</div>
+                        <div class="file-picker-text">Drop a .bng file here or click to browse</div>
+                    </div>
+                    <input type="file" class="file-picker-input" id="file-input" accept=".bng,.tar.gz">
+                    
+                    <div class="file-picker-or">— or —</div>
+                    
+                    <form class="file-picker-url-form" id="url-form">
+                        <input type="url" class="file-picker-url-input" id="url-input" placeholder="https://example.com/project.bng">
+                        <button type="submit" class="file-picker-btn" id="url-load-btn">Load</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="sidebar" id="sidebar">
+                <div class="sidebar-header">
+                    <span class="sidebar-title">Nodes</span>
+                    <button class="sidebar-toggle" id="sidebar-toggle">×</button>
+                </div>
+                <div style="padding: 0 0.5rem;">
+                    <input type="text" class="sidebar-search" id="sidebar-search" placeholder="Filter nodes...">
+                </div>
+                <div class="sidebar-content" id="sidebar-content">
+                    <!-- Node list will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WASM Module Placeholder -->
+    <!-- __WASM_BINARY_PLACEHOLDER__ -->
+    
+    <script type="module">
+        // ===========================================
+        // Binnacle WASM Viewer
+        // ===========================================
+        
+        // Viewer state
+        const state = {
+            viewer: null,           // BinnacleViewer instance
+            nodes: [],              // Parsed node data
+            edges: [],              // Parsed edge data
+            zoom: 1.0,
+            panX: 0,
+            panY: 0,
+            isDragging: false,
+            dragStart: { x: 0, y: 0 },
+            hoveredNode: null,
+            selectedNode: null,
+            animationFrame: null,
+            layoutRunning: false,
+            archiveSource: null,    // URL or filename of loaded archive
+        };
+        
+        // DOM elements
+        const canvas = document.getElementById('graph-canvas');
+        const ctx = canvas.getContext('2d');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+        const errorOverlay = document.getElementById('error-overlay');
+        const errorMessage = document.getElementById('error-message');
+        const errorDetails = document.getElementById('error-details');
+        const filePickerOverlay = document.getElementById('file-picker-overlay');
+        const nodeTooltip = document.getElementById('node-tooltip');
+        const edgeTooltip = document.getElementById('edge-tooltip');
+        
+        // ===========================================
+        // WASM Initialization
+        // ===========================================
+        
+        // This will be replaced by the build process with actual WASM loading
+        // For now, provide a stub that loads from external module
+        async function initWasm() {
+            setLoadingText('Loading WASM module...');
+            
+            // __WASM_INIT_PLACEHOLDER__
+            // The build process will replace this with embedded WASM loading
+            // For development, try to load from external file
+            try {
+                const wasmModule = await import('./pkg/binnacle.js');
+                await wasmModule.default();
+                return wasmModule;
+            } catch (e) {
+                console.warn('Could not load external WASM module:', e);
+                throw new Error('WASM module not available. This viewer needs to be built with embedded WASM.');
+            }
+        }
+        
+        // ===========================================
+        // URL Parameter Handling
+        // ===========================================
+        
+        function getUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                src: params.get('src'),      // Archive URL
+                focus: window.location.hash.slice(1) || null  // Fragment anchor (node ID)
+            };
+        }
+        
+        // ===========================================
+        // Archive Loading
+        // ===========================================
+        
+        async function loadArchiveFromUrl(url) {
+            setLoadingText(`Fetching archive from ${url}...`);
+            showLoading();
+            
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const arrayBuffer = await response.arrayBuffer();
+                const bytes = new Uint8Array(arrayBuffer);
+                
+                setLoadingText('Parsing archive...');
+                state.viewer.loadFromBytes(bytes);
+                state.archiveSource = url;
+                
+                await runLayoutAndRender();
+            } catch (e) {
+                showError('Failed to load archive', e.message);
+            }
+        }
+        
+        async function loadArchiveFromFile(file) {
+            setLoadingText(`Loading ${file.name}...`);
+            showLoading();
+            
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const bytes = new Uint8Array(arrayBuffer);
+                
+                setLoadingText('Parsing archive...');
+                state.viewer.loadFromBytes(bytes);
+                state.archiveSource = file.name;
+                
+                await runLayoutAndRender();
+            } catch (e) {
+                showError('Failed to load archive', e.message);
+            }
+        }
+        
+        async function runLayoutAndRender() {
+            setLoadingText('Computing layout...');
+            
+            // Run layout in batches to keep UI responsive
+            const maxIterations = 500;
+            const batchSize = 50;
+            let iterations = 0;
+            
+            while (iterations < maxIterations && !state.viewer.isStable()) {
+                state.viewer.runLayout(batchSize);
+                iterations += batchSize;
+                
+                // Update loading progress
+                const progress = Math.min(100, Math.round((iterations / maxIterations) * 100));
+                setLoadingText(`Computing layout... ${progress}%`);
+                
+                // Yield to UI thread
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+            
+            // Parse nodes and edges from viewer
+            state.nodes = JSON.parse(state.viewer.getNodesJson());
+            state.edges = JSON.parse(state.viewer.getEdgesJson());
+            
+            // Update stats
+            updateStats();
+            updateSnapshotBanner();
+            populateSidebar();
+            
+            // Hide loading, start rendering
+            hideLoading();
+            startRenderLoop();
+            
+            // Focus on node if specified in URL
+            const params = getUrlParams();
+            if (params.focus) {
+                focusNode(params.focus);
+            } else {
+                // Fit all nodes in view
+                fitToView();
+            }
+        }
+        
+        // ===========================================
+        // UI State Management
+        // ===========================================
+        
+        function showLoading() {
+            loadingOverlay.classList.remove('hidden');
+            errorOverlay.classList.add('hidden');
+            filePickerOverlay.classList.add('hidden');
+        }
+        
+        function hideLoading() {
+            loadingOverlay.classList.add('hidden');
+        }
+        
+        function setLoadingText(text) {
+            loadingText.textContent = text;
+        }
+        
+        function showError(message, details) {
+            errorMessage.textContent = message;
+            errorDetails.textContent = details || '';
+            errorOverlay.classList.remove('hidden');
+            loadingOverlay.classList.add('hidden');
+        }
+        
+        function showFilePicker() {
+            filePickerOverlay.classList.remove('hidden');
+            loadingOverlay.classList.add('hidden');
+            errorOverlay.classList.add('hidden');
+        }
+        
+        function hideFilePicker() {
+            filePickerOverlay.classList.add('hidden');
+        }
+        
+        function updateStats() {
+            document.getElementById('stat-nodes').textContent = state.nodes.length;
+            document.getElementById('stat-edges').textContent = state.edges.length;
+        }
+        
+        function updateSnapshotBanner() {
+            if (state.archiveSource) {
+                const filename = state.archiveSource.split('/').pop();
+                document.getElementById('snapshot-title').textContent = filename;
+                document.getElementById('snapshot-meta').textContent = 
+                    `Loaded from ${state.archiveSource.startsWith('http') ? 'URL' : 'file'}`;
+            }
+        }
+        
+        // ===========================================
+        // Sidebar
+        // ===========================================
+        
+        function populateSidebar() {
+            const content = document.getElementById('sidebar-content');
+            content.innerHTML = '';
+            
+            // Sort nodes by type, then by ID
+            const sorted = [...state.nodes].sort((a, b) => {
+                if (a.type !== b.type) return a.type.localeCompare(b.type);
+                return a.id.localeCompare(b.id);
+            });
+            
+            for (const node of sorted) {
+                const item = document.createElement('div');
+                item.className = 'node-list-item';
+                item.dataset.nodeId = node.id;
+                item.innerHTML = `
+                    <div class="node-list-id">${escapeHtml(node.id)}</div>
+                    <div class="node-list-title">${escapeHtml(node.short_name || node.title)}</div>
+                    <div class="node-list-meta">
+                        <span class="status-badge status-${node.status}">${node.status}</span>
+                        ${node.type}
+                    </div>
+                `;
+                item.addEventListener('click', () => {
+                    focusNode(node.id);
+                    selectNode(node);
+                });
+                content.appendChild(item);
+            }
+        }
+        
+        function filterSidebar(query) {
+            const items = document.querySelectorAll('.node-list-item');
+            const q = query.toLowerCase();
+            
+            for (const item of items) {
+                const id = item.dataset.nodeId.toLowerCase();
+                const title = item.querySelector('.node-list-title').textContent.toLowerCase();
+                const visible = id.includes(q) || title.includes(q);
+                item.style.display = visible ? '' : 'none';
+            }
+        }
+        
+        // ===========================================
+        // Canvas Rendering
+        // ===========================================
+        
+        function resizeCanvas() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width - (document.getElementById('sidebar').classList.contains('collapsed') ? 0 : 280);
+            canvas.height = rect.height;
+        }
+        
+        function startRenderLoop() {
+            if (state.animationFrame) return;
+            
+            function render() {
+                renderGraph();
+                state.animationFrame = requestAnimationFrame(render);
+            }
+            render();
+        }
+        
+        function renderGraph() {
+            // Clear canvas
+            ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg-primary');
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw edges
+            for (const edge of state.edges) {
+                drawEdge(edge);
+            }
+            
+            // Draw nodes
+            for (const node of state.nodes) {
+                drawNode(node);
+            }
+        }
+        
+        function worldToScreen(worldX, worldY) {
+            return {
+                x: (worldX + state.panX) * state.zoom + canvas.width / 2,
+                y: (worldY + state.panY) * state.zoom + canvas.height / 2
+            };
+        }
+        
+        function screenToWorld(screenX, screenY) {
+            return {
+                x: (screenX - canvas.width / 2) / state.zoom - state.panX,
+                y: (screenY - canvas.height / 2) / state.zoom - state.panY
+            };
+        }
+        
+        function drawNode(node) {
+            const pos = worldToScreen(node.x, node.y);
+            const radius = 25 * state.zoom;
+            
+            // Node color based on status and type
+            const color = getNodeColor(node);
+            
+            // Draw node shape based on type
+            ctx.beginPath();
+            if (node.type === 'queue') {
+                drawHexagonPath(ctx, pos.x, pos.y, radius);
+            } else if (node.type === 'bug') {
+                drawSquarePath(ctx, pos.x, pos.y, radius);
+            } else if (node.type === 'idea') {
+                drawCloudPath(ctx, pos.x, pos.y, radius);
+            } else if (node.type === 'agent') {
+                drawPersonPath(ctx, pos.x, pos.y, radius);
+            } else if (node.type === 'doc') {
+                drawDocPath(ctx, pos.x, pos.y, radius);
+            } else {
+                ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+            }
+            
+            // Fill
+            ctx.fillStyle = color;
+            ctx.fill();
+            
+            // Stroke for selected/hovered
+            if (state.selectedNode === node || state.hoveredNode === node) {
+                ctx.strokeStyle = state.selectedNode === node ? '#f0ad4e' : '#fff';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+            
+            // Draw label if zoomed in enough
+            if (state.zoom > 0.5) {
+                const label = node.short_name || node.id;
+                ctx.font = `${11 * state.zoom}px -apple-system, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillStyle = '#e8edf3';
+                ctx.fillText(label, pos.x, pos.y + radius + 4 * state.zoom, 100 * state.zoom);
+            }
+        }
+        
+        function drawEdge(edge) {
+            const sourceNode = state.nodes.find(n => n.id === edge.source);
+            const targetNode = state.nodes.find(n => n.id === edge.target);
+            if (!sourceNode || !targetNode) return;
+            
+            const source = worldToScreen(sourceNode.x, sourceNode.y);
+            const target = worldToScreen(targetNode.x, targetNode.y);
+            
+            // Edge color based on type
+            const color = getEdgeColor(edge.edge_type);
+            
+            ctx.beginPath();
+            ctx.moveTo(source.x, source.y);
+            ctx.lineTo(target.x, target.y);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.5 * state.zoom;
+            ctx.stroke();
+            
+            // Draw arrow for directed edges
+            if (['depends_on', 'blocks', 'child_of', 'parent_of'].includes(edge.edge_type)) {
+                drawArrow(ctx, source, target, color);
+            }
+        }
+        
+        function drawArrow(ctx, from, to, color) {
+            const headLen = 10 * state.zoom;
+            const angle = Math.atan2(to.y - from.y, to.x - from.x);
+            
+            // Arrow position (near target)
+            const arrowX = to.x - Math.cos(angle) * 25 * state.zoom;
+            const arrowY = to.y - Math.sin(angle) * 25 * state.zoom;
+            
+            ctx.beginPath();
+            ctx.moveTo(arrowX, arrowY);
+            ctx.lineTo(
+                arrowX - headLen * Math.cos(angle - Math.PI / 6),
+                arrowY - headLen * Math.sin(angle - Math.PI / 6)
+            );
+            ctx.lineTo(
+                arrowX - headLen * Math.cos(angle + Math.PI / 6),
+                arrowY - headLen * Math.sin(angle + Math.PI / 6)
+            );
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+        }
+        
+        // Shape drawing helpers
+        function drawHexagonPath(ctx, x, y, r) {
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const angle = (i * Math.PI) / 3 - Math.PI / 6;
+                const px = x + r * Math.cos(angle);
+                const py = y + r * Math.sin(angle);
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+        }
+        
+        function drawSquarePath(ctx, x, y, r) {
+            const size = r * 1.4;
+            ctx.beginPath();
+            ctx.rect(x - size / 2, y - size / 2, size, size);
+        }
+        
+        function drawCloudPath(ctx, x, y, r) {
+            // Simplified cloud shape using circles
+            ctx.beginPath();
+            ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+            ctx.arc(x - r * 0.5, y, r * 0.5, 0, Math.PI * 2);
+            ctx.arc(x + r * 0.5, y, r * 0.5, 0, Math.PI * 2);
+        }
+        
+        function drawPersonPath(ctx, x, y, r) {
+            // Head
+            ctx.beginPath();
+            ctx.arc(x, y - r * 0.3, r * 0.4, 0, Math.PI * 2);
+            // Body
+            ctx.moveTo(x - r * 0.5, y + r * 0.6);
+            ctx.lineTo(x + r * 0.5, y + r * 0.6);
+            ctx.lineTo(x + r * 0.3, y);
+            ctx.lineTo(x - r * 0.3, y);
+            ctx.closePath();
+        }
+        
+        function drawDocPath(ctx, x, y, r) {
+            const w = r * 1.2;
+            const h = r * 1.5;
+            const corner = r * 0.3;
+            ctx.beginPath();
+            ctx.moveTo(x - w / 2, y - h / 2);
+            ctx.lineTo(x + w / 2 - corner, y - h / 2);
+            ctx.lineTo(x + w / 2, y - h / 2 + corner);
+            ctx.lineTo(x + w / 2, y + h / 2);
+            ctx.lineTo(x - w / 2, y + h / 2);
+            ctx.closePath();
+        }
+        
+        function getNodeColor(node) {
+            const colors = {
+                task: {
+                    pending: '#5bc0de',
+                    in_progress: '#f0ad4e',
+                    blocked: '#d9534f',
+                    done: '#5cb85c'
+                },
+                bug: {
+                    pending: '#e07878',
+                    in_progress: '#d95050',
+                    blocked: '#b33a3a',
+                    done: '#8fbc8f'
+                },
+                idea: {
+                    pending: '#8b5fc9',
+                    in_progress: '#7a4db8',
+                    blocked: '#5c3a8a',
+                    done: '#8fbc8f'
+                },
+                agent: {
+                    active: '#00d4ff',
+                    idle: '#6bb3c9',
+                    stale: '#4a6670'
+                },
+                queue: '#20b2aa',
+                doc: {
+                    prd: '#4a90e2',
+                    note: '#e8b84a',
+                    handoff: '#e87d4a'
+                },
+                milestone: '#9b6ed8'
+            };
+            
+            if (node.type === 'queue') return colors.queue;
+            if (node.type === 'milestone') return colors.milestone;
+            
+            const palette = colors[node.type] || colors.task;
+            if (typeof palette === 'string') return palette;
+            
+            if (node.type === 'doc') {
+                return palette[node.doc_type] || palette.note;
+            }
+            
+            return palette[node.status] || '#4a90e2';
+        }
+        
+        function getEdgeColor(edgeType) {
+            const colors = {
+                depends_on: '#e85d5d',
+                blocks: '#e85d5d',
+                related_to: '#7a8fa3',
+                fixes: '#5cb85c',
+                child_of: '#9b6ed8',
+                parent_of: '#9b6ed8',
+                queued: '#20b2aa',
+                working_on: '#f0c040',
+                worked_on: '#6b7a8a',
+                documents: '#4a90e2',
+                impacts: '#e85d5d',
+                pinned: '#5cb85c'
+            };
+            return colors[edgeType] || '#3a4d66';
+        }
+        
+        // ===========================================
+        // Interaction Handlers
+        // ===========================================
+        
+        function setupEventListeners() {
+            // Canvas mouse events
+            canvas.addEventListener('mousedown', onMouseDown);
+            canvas.addEventListener('mousemove', onMouseMove);
+            canvas.addEventListener('mouseup', onMouseUp);
+            canvas.addEventListener('wheel', onWheel, { passive: false });
+            canvas.addEventListener('mouseleave', onMouseLeave);
+            
+            // Zoom controls
+            document.getElementById('zoom-in-btn').addEventListener('click', () => {
+                setZoom(state.zoom * 1.2);
+            });
+            document.getElementById('zoom-out-btn').addEventListener('click', () => {
+                setZoom(state.zoom / 1.2);
+            });
+            document.getElementById('reset-view-btn').addEventListener('click', fitToView);
+            
+            // Sidebar
+            document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
+            document.getElementById('sidebar-search').addEventListener('input', (e) => {
+                filterSidebar(e.target.value);
+            });
+            
+            // File picker
+            const dropzone = document.getElementById('file-dropzone');
+            const fileInput = document.getElementById('file-input');
+            const urlForm = document.getElementById('url-form');
+            
+            dropzone.addEventListener('click', () => fileInput.click());
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('dragover');
+            });
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('dragover');
+            });
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                if (file) {
+                    hideFilePicker();
+                    loadArchiveFromFile(file);
+                }
+            });
+            
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    hideFilePicker();
+                    loadArchiveFromFile(file);
+                }
+            });
+            
+            urlForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const url = document.getElementById('url-input').value.trim();
+                if (url) {
+                    hideFilePicker();
+                    loadArchiveFromUrl(url);
+                }
+            });
+            
+            // Window resize
+            window.addEventListener('resize', () => {
+                resizeCanvas();
+            });
+        }
+        
+        function onMouseDown(e) {
+            state.isDragging = true;
+            state.dragStart = { x: e.clientX, y: e.clientY };
+            canvas.classList.add('dragging');
+        }
+        
+        function onMouseMove(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            if (state.isDragging) {
+                // Pan
+                const dx = e.clientX - state.dragStart.x;
+                const dy = e.clientY - state.dragStart.y;
+                state.panX += dx / state.zoom;
+                state.panY += dy / state.zoom;
+                state.dragStart = { x: e.clientX, y: e.clientY };
+            } else {
+                // Hover detection
+                const world = screenToWorld(x, y);
+                const hitRadius = 30 / state.zoom;
+                
+                let hoveredNode = null;
+                for (const node of state.nodes) {
+                    const dx = node.x - world.x;
+                    const dy = node.y - world.y;
+                    if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+                        hoveredNode = node;
+                        break;
+                    }
+                }
+                
+                state.hoveredNode = hoveredNode;
+                canvas.classList.toggle('hovering', !!hoveredNode);
+                
+                // Update tooltip
+                if (hoveredNode) {
+                    showNodeTooltip(hoveredNode, e.clientX, e.clientY);
+                } else {
+                    hideTooltips();
+                }
+            }
+        }
+        
+        function onMouseUp(e) {
+            if (state.isDragging) {
+                const dx = e.clientX - state.dragStart.x;
+                const dy = e.clientY - state.dragStart.y;
+                
+                // If it was a click (not a drag), select/deselect node
+                if (Math.abs(dx) < 5 && Math.abs(dy) < 5 && state.hoveredNode) {
+                    selectNode(state.hoveredNode);
+                }
+            }
+            
+            state.isDragging = false;
+            canvas.classList.remove('dragging');
+        }
+        
+        function onMouseLeave() {
+            state.hoveredNode = null;
+            canvas.classList.remove('hovering');
+            hideTooltips();
+        }
+        
+        function onWheel(e) {
+            e.preventDefault();
+            const factor = e.deltaY > 0 ? 0.9 : 1.1;
+            
+            // Zoom toward mouse position
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            const worldBefore = screenToWorld(x, y);
+            setZoom(state.zoom * factor);
+            const worldAfter = screenToWorld(x, y);
+            
+            state.panX += worldAfter.x - worldBefore.x;
+            state.panY += worldAfter.y - worldBefore.y;
+        }
+        
+        function setZoom(z) {
+            state.zoom = Math.max(0.1, Math.min(5, z));
+            document.getElementById('zoom-display').textContent = Math.round(state.zoom * 100) + '%';
+        }
+        
+        function focusNode(nodeId) {
+            const node = state.nodes.find(n => n.id === nodeId);
+            if (!node) return;
+            
+            state.panX = -node.x;
+            state.panY = -node.y;
+            setZoom(1.5);
+            
+            // Update URL hash
+            history.replaceState(null, '', `#${nodeId}`);
+        }
+        
+        function selectNode(node) {
+            state.selectedNode = state.selectedNode === node ? null : node;
+            
+            // Highlight in sidebar
+            const items = document.querySelectorAll('.node-list-item');
+            for (const item of items) {
+                item.classList.toggle('selected', item.dataset.nodeId === node?.id);
+            }
+        }
+        
+        function fitToView() {
+            if (state.nodes.length === 0) return;
+            
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            
+            for (const node of state.nodes) {
+                minX = Math.min(minX, node.x);
+                maxX = Math.max(maxX, node.x);
+                minY = Math.min(minY, node.y);
+                maxY = Math.max(maxY, node.y);
+            }
+            
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            const width = maxX - minX + 100;
+            const height = maxY - minY + 100;
+            
+            state.panX = -centerX;
+            state.panY = -centerY;
+            
+            const scaleX = canvas.width / width;
+            const scaleY = canvas.height / height;
+            setZoom(Math.min(scaleX, scaleY, 2) * 0.9);
+        }
+        
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('collapsed');
+            resizeCanvas();
+        }
+        
+        // ===========================================
+        // Tooltips
+        // ===========================================
+        
+        function showNodeTooltip(node, x, y) {
+            document.getElementById('tooltip-title').textContent = node.short_name || node.title;
+            document.getElementById('tooltip-id').textContent = node.id;
+            document.getElementById('tooltip-meta').textContent = `${node.type} • ${node.status}`;
+            
+            nodeTooltip.style.left = (x + 15) + 'px';
+            nodeTooltip.style.top = (y + 15) + 'px';
+            nodeTooltip.classList.add('visible');
+        }
+        
+        function hideTooltips() {
+            nodeTooltip.classList.remove('visible');
+            edgeTooltip.classList.remove('visible');
+        }
+        
+        // ===========================================
+        // Utility Functions
+        // ===========================================
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+        
+        // ===========================================
+        // Main Initialization
+        // ===========================================
+        
+        async function main() {
+            resizeCanvas();
+            setupEventListeners();
+            
+            try {
+                // Initialize WASM
+                const wasm = await initWasm();
+                state.viewer = new wasm.BinnacleViewer();
+                
+                // Display version
+                document.getElementById('viewer-version').textContent = `v${wasm.version()}`;
+                
+                // Check URL parameters
+                const params = getUrlParams();
+                
+                if (params.src) {
+                    // Load archive from URL
+                    await loadArchiveFromUrl(params.src);
+                } else {
+                    // Show file picker
+                    hideLoading();
+                    showFilePicker();
+                }
+            } catch (e) {
+                console.error('Initialization failed:', e);
+                showError('Failed to initialize viewer', e.message);
+            }
+        }
+        
+        // Start the viewer
+        main();
+    </script>
+</body>
+</html>
