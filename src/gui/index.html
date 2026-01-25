@@ -925,10 +925,38 @@
         .log-entry {
             padding: 1rem;
             border-left: 3px solid var(--accent-blue);
+            position: relative;
         }
         
         .log-entry.log-error {
             border-left-color: var(--status-bug);
+            background: rgba(236, 72, 72, 0.08);
+            border-left-width: 4px;
+        }
+        
+        .log-entry.log-success {
+            border-left-color: var(--status-done);
+        }
+        
+        .log-status-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            margin-right: 0.5rem;
+        }
+        
+        .log-status-badge.badge-success {
+            background: rgba(76, 175, 80, 0.2);
+            color: var(--status-done);
+        }
+        
+        .log-status-badge.badge-failure {
+            background: rgba(236, 72, 72, 0.2);
+            color: var(--status-bug);
+            font-weight: 600;
         }
 
         .log-header {
@@ -8844,23 +8872,34 @@
             
             const searchText = state.logFilters.searchText;
             
+            // Check if showing mixed results (for enhanced failure highlighting)
+            const showingMixed = state.logFilters.statusFilter === 'all';
+            
             list.innerHTML = filteredEntries.slice(0, 100).map(entry => {
                 const formatted = formatLogEntry(entry);
-                const statusClass = entry.success === false ? 'log-error' : '';
+                const isFailure = entry.success === false;
+                const statusClass = isFailure ? 'log-error' : (showingMixed ? 'log-success' : '');
                 // First highlight search text, then linkify entity IDs
                 const highlightedAction = linkifyEntityIds(highlightText(formatted.action, searchText));
                 const highlightedDetails = formatted.details ? linkifyEntityIds(highlightText(formatted.details, searchText)) : '';
                 const highlightedError = entry.error ? linkifyEntityIds(highlightText(entry.error, searchText)) : '';
                 
+                // Show status badge when in mixed mode for clearer differentiation
+                const statusBadge = showingMixed 
+                    ? (isFailure 
+                        ? '<span class="log-status-badge badge-failure">FAILED</span>'
+                        : '<span class="log-status-badge badge-success">OK</span>')
+                    : '';
+                
                 return `
                     <div class="card log-entry ${statusClass}">
                         <div class="log-header">
-                            <div class="log-time">${new Date(entry.timestamp).toLocaleString()}</div>
+                            <div class="log-time">${statusBadge}${new Date(entry.timestamp).toLocaleString()}</div>
                             ${entry.user ? `<div class="log-user">${isAgent(entry.user) ? '🤖' : '👤'} ${escapeHtml(entry.user)}</div>` : ''}
                         </div>
                         <div class="card-title">${highlightedAction}</div>
                         ${highlightedDetails ? `<div class="log-details">${highlightedDetails}</div>` : ''}
-                        ${entry.success === false && entry.error ? `<div class="log-error-msg">❌ ${highlightedError}</div>` : ''}
+                        ${isFailure && entry.error ? `<div class="log-error-msg">❌ ${highlightedError}</div>` : ''}
                     </div>
                 `;
             }).join('');
