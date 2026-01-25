@@ -1026,8 +1026,8 @@ fn run_command(
             Some(GuiCommands::Status) => {
                 show_gui_status(repo_path, human)?;
             }
-            Some(GuiCommands::Stop) => {
-                stop_gui(repo_path, human)?;
+            Some(GuiCommands::Stop { force }) => {
+                stop_gui(repo_path, force, human)?;
             }
             Some(GuiCommands::Kill { force }) => {
                 kill_gui(repo_path, force, human)?;
@@ -1325,7 +1325,7 @@ fn show_gui_status(repo_path: &Path, human: bool) -> Result<(), binnacle::Error>
 
 /// Stop a running GUI server with graceful shutdown
 #[cfg(feature = "gui")]
-fn stop_gui(repo_path: &Path, human: bool) -> Result<(), binnacle::Error> {
+fn stop_gui(repo_path: &Path, force: bool, human: bool) -> Result<(), binnacle::Error> {
     use binnacle::gui::{GuiPidFile, ProcessStatus};
     use binnacle::storage::get_storage_dir;
     use std::thread;
@@ -1341,6 +1341,27 @@ fn stop_gui(repo_path: &Path, human: bool) -> Result<(), binnacle::Error> {
         Some((status, info)) => match status {
             ProcessStatus::Running => {
                 let pid = info.pid;
+
+                if force {
+                    // Force mode: skip SIGTERM, send SIGKILL immediately
+                    if human {
+                        println!("Force stopping GUI server (PID: {}) with SIGKILL...", pid);
+                    }
+                    send_signal(pid, Signal::Kill);
+                    thread::sleep(Duration::from_millis(500));
+                    pid_file.delete().ok();
+                    if human {
+                        println!("GUI server forcefully terminated");
+                    } else {
+                        println!(
+                            r#"{{"status":"stopped","pid":{},"method":"sigkill","forced":true}}"#,
+                            pid
+                        );
+                    }
+                    return Ok(());
+                }
+
+                // Graceful mode: SIGTERM first
                 if human {
                     println!("Stopping GUI server (PID: {})...", pid);
                 }
@@ -2389,7 +2410,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     serde_json::json!({ "subcommand": "serve", "port": sub_port.or(*port), "host": sub_host, "replace": replace })
                 }
                 Some(GuiCommands::Status) => serde_json::json!({ "subcommand": "status" }),
-                Some(GuiCommands::Stop) => serde_json::json!({ "subcommand": "stop" }),
+                Some(GuiCommands::Stop { force }) => {
+                    serde_json::json!({ "subcommand": "stop", "force": force })
+                }
                 Some(GuiCommands::Kill { force }) => {
                     serde_json::json!({ "subcommand": "kill", "force": force })
                 }
