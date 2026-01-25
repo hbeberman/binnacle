@@ -1755,6 +1755,160 @@
             color: white;
         }
 
+        /* Agent Summary Panel Styles */
+        .agent-summary {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .agent-summary-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.5rem 1rem;
+            font-size: 0.85rem;
+        }
+
+        .agent-summary-stat {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .agent-summary-stat .stat-icon {
+            font-size: 0.9rem;
+        }
+
+        .agent-summary-stat .stat-label {
+            color: var(--text-secondary);
+        }
+
+        .agent-summary-stat .stat-value {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .agent-summary-stat .stat-value.success {
+            color: var(--status-done);
+        }
+
+        .agent-summary-stat .stat-value.warning {
+            color: var(--status-in-progress);
+        }
+
+        .agent-summary-stat .stat-value.error {
+            color: var(--status-bug);
+        }
+
+        .agent-top-actions {
+            margin-top: 0.75rem;
+        }
+
+        .agent-top-actions-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .agent-top-actions-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+
+        .agent-action-chip {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 0.15rem 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .agent-action-chip .action-count {
+            color: var(--accent-light);
+            margin-left: 0.25rem;
+        }
+
+        /* Expandable Agent Timeline */
+        .agent-timeline-toggle {
+            width: 100%;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 0.5rem;
+            margin-top: 0.75rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            transition: background 0.15s ease;
+        }
+
+        .agent-timeline-toggle:hover {
+            background: var(--bg-secondary);
+        }
+
+        .agent-timeline-toggle .toggle-icon {
+            transition: transform 0.2s ease;
+        }
+
+        .agent-timeline-toggle.expanded .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .agent-timeline-content {
+            display: none;
+            margin-top: 0.5rem;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-secondary);
+        }
+
+        .agent-timeline-content.expanded {
+            display: block;
+        }
+
+        .agent-timeline-entry {
+            padding: 0.4rem 0.6rem;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.8rem;
+            display: flex;
+            gap: 0.5rem;
+            align-items: flex-start;
+        }
+
+        .agent-timeline-entry:last-child {
+            border-bottom: none;
+        }
+
+        .agent-timeline-entry .timeline-time {
+            color: var(--text-muted);
+            white-space: nowrap;
+            min-width: 65px;
+        }
+
+        .agent-timeline-entry .timeline-action {
+            color: var(--text-primary);
+            flex: 1;
+        }
+
+        .agent-timeline-entry .timeline-status {
+            font-size: 0.9rem;
+        }
+
+        .agent-timeline-entry.timeline-error {
+            background: rgba(236, 72, 72, 0.08);
+        }
+
+        .agent-timeline-entry.timeline-error .timeline-action {
+            color: var(--status-bug);
+        }
+
         /* Agent Activity Section */
         .agents-activity-section {
             margin-top: 2rem;
@@ -8507,6 +8661,79 @@
             }
         }
 
+        /**
+         * Compute agent activity statistics from log entries.
+         * @param {string} agentName - The agent's name
+         * @param {Date} startedAt - When the agent started
+         * @returns {Object} Statistics: duration, successRate, topActions, recentEntries
+         */
+        function computeAgentStats(agentName, startedAt) {
+            const log = state.log || [];
+            
+            // Filter log entries for this agent
+            const agentEntries = log.filter(entry => entry.user === agentName);
+            
+            // Compute duration
+            const now = new Date();
+            const durationMs = now - startedAt;
+            const durationMinutes = Math.floor(durationMs / 60000);
+            const durationHours = Math.floor(durationMinutes / 60);
+            const durationDays = Math.floor(durationHours / 24);
+            
+            let durationStr;
+            if (durationDays > 0) {
+                durationStr = `${durationDays}d ${durationHours % 24}h`;
+            } else if (durationHours > 0) {
+                durationStr = `${durationHours}h ${durationMinutes % 60}m`;
+            } else {
+                durationStr = `${durationMinutes}m`;
+            }
+            
+            // Compute success rate
+            const totalCommands = agentEntries.length;
+            const failedCommands = agentEntries.filter(e => e.success === false).length;
+            const successfulCommands = totalCommands - failedCommands;
+            const successRate = totalCommands > 0 
+                ? Math.round((successfulCommands / totalCommands) * 100) 
+                : 100;
+            
+            // Compute top actions (most common commands)
+            const actionCounts = {};
+            agentEntries.forEach(entry => {
+                const command = entry.command || entry.action || 'unknown';
+                actionCounts[command] = (actionCounts[command] || 0) + 1;
+            });
+            
+            const topActions = Object.entries(actionCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map(([action, count]) => ({ action, count }));
+            
+            // Get recent entries for timeline (last 20)
+            const recentEntries = agentEntries.slice(0, 20);
+            
+            return {
+                duration: durationStr,
+                successRate,
+                failedCommands,
+                totalCommands,
+                topActions,
+                recentEntries
+            };
+        }
+
+        /**
+         * Toggle the expandable agent timeline.
+         */
+        function toggleAgentTimeline(agentName) {
+            const toggle = document.querySelector(`.agent-timeline-toggle[data-agent="${agentName}"]`);
+            const content = document.querySelector(`.agent-timeline-content[data-agent="${agentName}"]`);
+            if (toggle && content) {
+                toggle.classList.toggle('expanded');
+                content.classList.toggle('expanded');
+            }
+        }
+
         function renderAgents() {
             const list = document.getElementById('agents-list');
             const activityLog = document.getElementById('agents-activity-log');
@@ -8517,8 +8744,10 @@
                 return;
             }
             list.innerHTML = state.agents.map(agent => {
-                const startedAt = new Date(agent.started_at).toLocaleString();
+                const startedAt = new Date(agent.started_at);
                 const lastActivity = new Date(agent.last_activity_at).toLocaleString();
+                const stats = computeAgentStats(agent.name, startedAt);
+                
                 const tasksHtml = agent.tasks && agent.tasks.length > 0 
                     ? agent.tasks.map(t => `<span class="task-link" data-node-id="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join(', ')
                     : '<span class="no-tasks">No active tasks</span>';
@@ -8530,21 +8759,84 @@
                     ? `<div class="agent-purpose">${escapeHtml(agent.purpose)}</div>` 
                     : `<div class="agent-purpose agent-type-label">${escapeHtml(agent.agent_type || 'worker')} agent</div>`;
                 const agentNodeId = `agent-${agent.name}`;
+                
+                // Success rate color class
+                let successRateClass = 'success';
+                if (stats.successRate < 90) successRateClass = 'warning';
+                if (stats.successRate < 70) successRateClass = 'error';
+                
+                // Top actions chips
+                const topActionsHtml = stats.topActions.length > 0
+                    ? `<div class="agent-top-actions">
+                        <div class="agent-top-actions-label">Top actions:</div>
+                        <div class="agent-top-actions-list">
+                            ${stats.topActions.map(a => `<span class="agent-action-chip">${escapeHtml(a.action)}<span class="action-count">×${a.count}</span></span>`).join('')}
+                        </div>
+                    </div>`
+                    : '';
+                
+                // Timeline entries
+                const timelineHtml = stats.recentEntries.length > 0
+                    ? `<button class="agent-timeline-toggle" data-agent="${escapeHtml(agent.name)}" onclick="toggleAgentTimeline('${escapeHtml(agent.name)}')">
+                        <span>📜 Activity timeline (${stats.recentEntries.length} entries)</span>
+                        <span class="toggle-icon">▼</span>
+                    </button>
+                    <div class="agent-timeline-content" data-agent="${escapeHtml(agent.name)}">
+                        ${stats.recentEntries.map(entry => {
+                            const time = new Date(entry.timestamp).toLocaleTimeString();
+                            const formatted = formatLogEntry(entry);
+                            const errorClass = entry.success === false ? 'timeline-error' : '';
+                            const statusIcon = entry.success === false ? '❌' : '✓';
+                            return `<div class="agent-timeline-entry ${errorClass}">
+                                <span class="timeline-time">${time}</span>
+                                <span class="timeline-status">${statusIcon}</span>
+                                <span class="timeline-action">${escapeHtml(formatted.action)}</span>
+                            </div>`;
+                        }).join('')}
+                    </div>`
+                    : '';
+                
                 return `
                 <div class="card agent-card">
                     <button class="terminate-btn" data-pid="${agent.pid}" data-name="${escapeHtml(agent.name)}" data-tasks="${escapeHtml(taskIds)}">✕ Terminate</button>
                     <div class="agent-name">${escapeHtml(agent.name)}</div>
                     ${purposeHtml}
-                    <div class="agent-pid">PID: ${agent.pid}</div>
+                    <div class="agent-pid">PID: ${agent.pid} | ID: ${escapeHtml(agent.id || 'N/A')}</div>
                     <div class="card-meta">
                         <span class="badge badge-agent-${agent.status}">${agent.status}</span>
                     </div>
                     <div class="agent-tasks">Tasks: ${tasksHtml}</div>
-                    <div class="agent-stats">
-                        <span>📊 ${agent.command_count} commands</span>
-                        <span>🕐 Started: ${startedAt}</span>
+                    
+                    <!-- Agent Summary Panel -->
+                    <div class="agent-summary">
+                        <div class="agent-summary-stats">
+                            <div class="agent-summary-stat">
+                                <span class="stat-icon">⏱️</span>
+                                <span class="stat-label">Duration:</span>
+                                <span class="stat-value">${stats.duration}</span>
+                            </div>
+                            <div class="agent-summary-stat">
+                                <span class="stat-icon">📊</span>
+                                <span class="stat-label">Commands:</span>
+                                <span class="stat-value">${agent.command_count}</span>
+                            </div>
+                            <div class="agent-summary-stat">
+                                <span class="stat-icon">✅</span>
+                                <span class="stat-label">Success:</span>
+                                <span class="stat-value ${successRateClass}">${stats.successRate}%</span>
+                            </div>
+                            <div class="agent-summary-stat">
+                                <span class="stat-icon">❌</span>
+                                <span class="stat-label">Failures:</span>
+                                <span class="stat-value ${stats.failedCommands > 0 ? 'error' : ''}">${stats.failedCommands}</span>
+                            </div>
+                        </div>
+                        ${topActionsHtml}
                     </div>
-                    <div class="agent-stats">
+                    
+                    ${timelineHtml}
+                    
+                    <div class="agent-stats" style="margin-top: 0.5rem;">
                         <span>⏱️ Last active: ${lastActivity}</span>
                     </div>
                     <button class="focus-btn" data-agent-id="${escapeHtml(agentNodeId)}">🎯 Focus on Graph</button>
