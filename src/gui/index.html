@@ -3702,15 +3702,24 @@
         /* Relationships list */
         .info-panel-relationships {
             list-style: none;
+            max-height: 200px;
+            overflow-y: auto;
+            padding-right: 4px;
         }
 
         .info-panel-relationships li {
             font-size: 0.9rem;
             color: var(--text-primary);
-            padding: 0.35rem 0;
+            padding: 0.5rem 0;
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            flex-wrap: wrap;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .info-panel-relationships li:last-child {
+            border-bottom: none;
         }
 
         .info-panel-edge-type {
@@ -3725,6 +3734,23 @@
         .info-panel-edge-direction {
             color: var(--text-secondary);
             font-size: 0.85rem;
+        }
+
+        .info-panel-relation-status {
+            font-size: 0.7rem;
+            padding: 0.1rem 0.35rem;
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+
+        .info-panel-relation-title {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         /* Timestamps */
@@ -7766,14 +7792,21 @@
                     const isOutbound = edge.source === task.id;
                     const relatedId = isOutbound ? edge.target : edge.source;
                     const relatedTask = state.tasks.find(t => t.id === relatedId);
-                    const relatedTitle = relatedTask ? escapeHtml(relatedTask.title) : '';
-                    const direction = isOutbound ? '→' : '←';
-                    const edgeTypeName = EDGE_TYPES[edge.edge_type]?.name || edge.edge_type;
+                    const relatedTitle = relatedTask?.short_name || relatedTask?.title || '';
+                    const relatedStatus = relatedTask?.status || '';
+                    const edgeType = EDGE_TYPES[edge.edge_type] || {};
+                    const edgeTypeName = edgeType.name || edge.edge_type;
+                    
+                    // Build status badge HTML if we have a status
+                    const statusBadge = relatedStatus 
+                        ? `<span class="badge badge-status-${relatedStatus} info-panel-relation-status">${relatedStatus.replace('_', ' ')}</span>`
+                        : '';
+                    
                     return `<li>
                         <span class="info-panel-edge-type">${escapeHtml(edgeTypeName)}</span>
-                        <span class="info-panel-edge-direction">${direction}</span>
                         <span class="info-panel-node-link" data-node-id="${escapeHtml(relatedId)}">${escapeHtml(relatedId)}</span>
-                        ${relatedTitle ? `<span style="color: var(--text-secondary)">— ${relatedTitle}</span>` : ''}
+                        ${statusBadge}
+                        ${relatedTitle ? `<span class="info-panel-relation-title" title="${escapeHtml(relatedTitle)}">${escapeHtml(relatedTitle)}</span>` : ''}
                     </li>`;
                 }).join('');
                 relationshipsSection.style.display = 'block';
