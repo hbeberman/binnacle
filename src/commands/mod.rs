@@ -5420,7 +5420,60 @@ pub struct LinkedEntityInfo {
 
 impl Output for DocShowResult {
     fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_default()
+        // Create a JSON representation with decompressed content
+        // so agents can read the actual content, not the compressed blob
+        let decompressed_content = self.doc.get_content().unwrap_or_default();
+
+        // Build a doc representation with decompressed content
+        #[derive(Serialize)]
+        struct DocJson<'a> {
+            id: &'a str,
+            #[serde(rename = "type")]
+            entity_type: &'a str,
+            title: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            short_name: &'a Option<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            description: &'a Option<String>,
+            tags: &'a [String],
+            doc_type: &'a crate::models::DocType,
+            content: &'a str,
+            summary_dirty: bool,
+            editors: &'a [crate::models::Editor],
+            #[serde(skip_serializing_if = "Option::is_none")]
+            supersedes: &'a Option<String>,
+            created_at: &'a chrono::DateTime<chrono::Utc>,
+            updated_at: &'a chrono::DateTime<chrono::Utc>,
+        }
+
+        #[derive(Serialize)]
+        struct DocShowJson<'a> {
+            doc: DocJson<'a>,
+            linked_entities: &'a [LinkedEntityInfo],
+        }
+
+        let doc_json = DocJson {
+            id: &self.doc.core.id,
+            entity_type: &self.doc.core.entity_type,
+            title: &self.doc.core.title,
+            short_name: &self.doc.core.short_name,
+            description: &self.doc.core.description,
+            tags: &self.doc.core.tags,
+            doc_type: &self.doc.doc_type,
+            content: &decompressed_content,
+            summary_dirty: self.doc.summary_dirty,
+            editors: &self.doc.editors,
+            supersedes: &self.doc.supersedes,
+            created_at: &self.doc.core.created_at,
+            updated_at: &self.doc.core.updated_at,
+        };
+
+        let json_repr = DocShowJson {
+            doc: doc_json,
+            linked_entities: &self.linked_entities,
+        };
+
+        serde_json::to_string(&json_repr).unwrap_or_default()
     }
 
     fn to_human(&self) -> String {

@@ -224,6 +224,68 @@ fn test_doc_show_displays_linked_entities() {
 }
 
 #[test]
+fn test_doc_show_json_returns_decompressed_content() {
+    let (temp, task_id) = init_with_task();
+
+    // Create doc with recognizable content
+    let content = "# Summary\n\nThis is the summary.\n\n# Body\n\nThis is readable body text.";
+    let output = bn_in(&temp)
+        .args([
+            "doc",
+            "create",
+            &task_id,
+            "-T",
+            "Doc for JSON test",
+            "-c",
+            content,
+        ])
+        .output()
+        .expect("Failed to create doc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
+    let doc_id = json["id"].as_str().expect("No doc ID");
+
+    // Get JSON output (no -H flag)
+    let show_output = bn_in(&temp)
+        .args(["doc", "show", doc_id])
+        .output()
+        .expect("Failed to show doc");
+
+    let show_stdout = String::from_utf8_lossy(&show_output.stdout);
+    let show_json: serde_json::Value = serde_json::from_str(&show_stdout).expect("Invalid JSON");
+
+    // The content field in JSON should be decompressed, readable text
+    // Note: doc show returns { "doc": { ... }, "linked_entities": [...] }
+    let returned_content = show_json["doc"]["content"]
+        .as_str()
+        .expect("No doc.content field");
+    assert!(
+        returned_content.contains("# Summary"),
+        "Content should contain '# Summary', got: {}",
+        returned_content
+    );
+    assert!(
+        returned_content.contains("This is the summary"),
+        "Content should contain 'This is the summary', got: {}",
+        returned_content
+    );
+    assert!(
+        returned_content.contains("This is readable body text"),
+        "Content should contain 'This is readable body text', got: {}",
+        returned_content
+    );
+
+    // The content should NOT look like base64 or compressed data
+    // Base64 typically has lots of + / = characters and no spaces
+    assert!(
+        !returned_content.starts_with("KL"),
+        "Content should not be compressed (starts with zstd magic), got: {}",
+        returned_content
+    );
+}
+
+#[test]
 fn test_doc_create_links_to_entity() {
     let (temp, task_id) = init_with_task();
 
