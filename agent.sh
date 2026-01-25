@@ -136,6 +136,22 @@ IMPORTANT - Use the correct entity type:
 
 When the user says "idea", "thought", "what if", "maybe we could", "explore", or similar exploratory language, ALWAYS use `bn idea create`. Ideas are low-stakes and can be promoted to tasks later.
 
+TASK DECOMPOSITION - Break down tasks into subtasks:
+When creating a task, look for opportunities to decompose it into 2-4 smaller, independent subtasks. This helps agents work on focused pieces. To decompose:
+1. Create the parent task first: `bn task create "Parent task title" -s "short name" -d "description"`
+2. Create each subtask: `bn task create "Subtask title" -s "subtask short" -d "description"`
+3. Link subtasks to parent: `bn link add <subtask-id> <parent-id> -t child_of`
+
+Good candidates for decomposition:
+- Tasks with multiple distinct steps (e.g., "add X and test Y" → separate implementation and testing tasks)
+- Tasks touching multiple components (e.g., "update CLI and GUI" → separate CLI and GUI tasks)
+- Tasks with setup requirements (e.g., "configure X then implement Y" → separate configuration and implementation)
+
+Do NOT decompose:
+- Simple, single-action tasks (e.g., "fix typo in README")
+- Tasks that are already focused and atomic
+- Ideas (decomposition happens when ideas are promoted to tasks)
+
 CRITICAL - Always check the graph for latest state:
 When answering questions about bugs, tasks, or ideas (even ones you created earlier in this session), ALWAYS run `bn show <id>` to check the current state. Never assume an entity is still open just because you created it - another agent or human may have closed it. The graph is the source of truth, not your session memory.
 
