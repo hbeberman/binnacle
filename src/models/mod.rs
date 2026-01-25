@@ -1067,6 +1067,11 @@ pub struct Agent {
     #[serde(default)]
     pub purpose: Option<String>,
 
+    /// MCP session ID for non-PID-based agent tracking.
+    /// When set, goodbye uses this instead of parent PID for lookup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_session_id: Option<String>,
+
     /// When the agent was registered
     pub started_at: DateTime<Utc>,
 
@@ -1119,6 +1124,7 @@ impl Agent {
             name,
             agent_type,
             purpose: None,
+            mcp_session_id: None,
             started_at: now,
             last_activity_at: now,
             tasks: Vec::new(),
@@ -1145,6 +1151,7 @@ impl Agent {
             name,
             agent_type,
             purpose: Some(purpose),
+            mcp_session_id: None,
             started_at: now,
             last_activity_at: now,
             tasks: Vec::new(),

@@ -387,6 +387,7 @@ impl Storage {
                 parent_pid INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 purpose TEXT,
+                mcp_session_id TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 started_at TEXT NOT NULL,
                 last_activity_at TEXT NOT NULL,
@@ -553,6 +554,23 @@ impl Storage {
 
         if !has_supersedes {
             conn.execute("ALTER TABLE docs ADD COLUMN supersedes TEXT", [])?;
+        }
+
+        // Migration: Add mcp_session_id column to agents table if it doesn't exist
+        let has_mcp_session_id: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('agents') WHERE name = 'mcp_session_id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_mcp_session_id {
+            conn.execute("ALTER TABLE agents ADD COLUMN mcp_session_id TEXT", [])?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_agents_mcp_session ON agents(mcp_session_id)",
+                [],
+            )?;
         }
 
         // Migration: Create action_logs table if it doesn't exist
@@ -3369,13 +3387,14 @@ impl Storage {
     fn cache_agent(&self, agent: &Agent) -> Result<()> {
         // Insert or replace the agent
         self.conn.execute(
-            "INSERT OR REPLACE INTO agents (pid, parent_pid, name, purpose, status, started_at, last_activity_at, command_count, id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT OR REPLACE INTO agents (pid, parent_pid, name, purpose, mcp_session_id, status, started_at, last_activity_at, command_count, id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 agent.pid,
                 agent.parent_pid,
                 agent.name,
                 agent.purpose,
+                agent.mcp_session_id,
                 format!("{:?}", agent.status).to_lowercase(),
                 agent.started_at.to_rfc3339(),
                 agent.last_activity_at.to_rfc3339(),
@@ -3593,6 +3612,27 @@ impl Storage {
         match pid {
             Some(p) => self.get_agent(p),
             None => Err(Error::NotFound(format!("Agent not found: {}", name))),
+        }
+    }
+
+    /// Get agent by MCP session ID.
+    /// Used for MCP wrapper invocation where PID-based tracking doesn't work.
+    pub fn get_agent_by_mcp_session(&self, session_id: &str) -> Result<Agent> {
+        let pid: Option<u32> = self
+            .conn
+            .query_row(
+                "SELECT pid FROM agents WHERE mcp_session_id = ?1 LIMIT 1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        match pid {
+            Some(p) => self.get_agent(p),
+            None => Err(Error::NotFound(format!(
+                "Agent not found with MCP session: {}",
+                session_id
+            ))),
         }
     }
 

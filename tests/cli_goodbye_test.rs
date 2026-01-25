@@ -257,3 +257,106 @@ fn test_goodbye_with_force_flag() {
     // should_terminate should be true when --force is used
     assert!(json["should_terminate"].as_bool().unwrap());
 }
+
+// === BN_MCP_SESSION Environment Variable Tests ===
+
+#[test]
+fn test_mcp_session_registers_and_deregisters_agent() {
+    let temp = init_binnacle();
+
+    // Register agent with MCP session ID
+    bn_in(&temp)
+        .env("BN_MCP_SESSION", "test-session-123")
+        .args(["orient", "--type", "worker", "--name", "mcp-agent"])
+        .assert()
+        .success();
+
+    // Agent should be registered
+    bn_in(&temp)
+        .args(["agent", "list", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("mcp-agent"));
+
+    // Goodbye with same session ID should find and deregister the agent
+    let output = bn_in(&temp)
+        .env("BN_MCP_SESSION", "test-session-123")
+        .args(["goodbye", "MCP session complete"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // Should have found and deregistered the agent
+    assert!(json["was_registered"].as_bool().unwrap());
+    assert_eq!(json["agent_name"].as_str().unwrap(), "mcp-agent");
+
+    // MCP mode should set should_terminate to false
+    assert!(!json["should_terminate"].as_bool().unwrap());
+}
+
+#[test]
+fn test_mcp_session_unknown_session_still_works() {
+    let temp = init_binnacle();
+
+    // Goodbye with unknown session ID should still work
+    let output = bn_in(&temp)
+        .env("BN_MCP_SESSION", "nonexistent-session")
+        .args(["goodbye", "done"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // Should not find any agent
+    assert!(!json["was_registered"].as_bool().unwrap());
+}
+
+#[test]
+fn test_mcp_session_isolation_between_sessions() {
+    let temp = init_binnacle();
+
+    // Register agent with MCP session ID
+    bn_in(&temp)
+        .env("BN_MCP_SESSION", "session-a")
+        .args(["orient", "--type", "worker", "--name", "agent-a"])
+        .assert()
+        .success();
+
+    // Goodbye with a DIFFERENT session ID should NOT find agent-a
+    let output = bn_in(&temp)
+        .env("BN_MCP_SESSION", "session-b")
+        .args(["goodbye", "done"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // session-b should NOT find agent-a (different session)
+    assert!(!json["was_registered"].as_bool().unwrap());
+
+    // Now goodbye with session-a SHOULD find and deregister agent-a
+    let output = bn_in(&temp)
+        .env("BN_MCP_SESSION", "session-a")
+        .args(["goodbye", "done"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // session-a should find agent-a
+    assert!(json["was_registered"].as_bool().unwrap());
+    assert_eq!(json["agent_name"].as_str().unwrap(), "agent-a");
+}
