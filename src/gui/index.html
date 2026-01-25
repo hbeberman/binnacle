@@ -8569,17 +8569,11 @@
                 allBtn.classList.toggle('active', allActive);
             };
             
-            // Update spring button enabled state based on visibility
+            // Update spring button state (independent of visibility)
             const updateSpringBtnState = (springBtn, type) => {
-                const isVisible = state.edgeFilters[type];
-                springBtn.disabled = !isVisible;
-                if (!isVisible) {
-                    springBtn.title = `Enable ${EDGE_TYPES[type].name} visibility first`;
-                } else {
-                    springBtn.title = state.edgeSpringFilters[type] 
-                        ? `Disable spring physics for ${EDGE_TYPES[type].name} edges`
-                        : `Enable spring physics for ${EDGE_TYPES[type].name} edges`;
-                }
+                springBtn.title = state.edgeSpringFilters[type] 
+                    ? `Disable spring physics for ${EDGE_TYPES[type].name} edges`
+                    : `Enable spring physics for ${EDGE_TYPES[type].name} edges`;
             };
             
             allBtn.addEventListener('click', (e) => {
@@ -8695,10 +8689,9 @@
                     startAnimation();
                 });
                 
-                // Magnet button: toggle spring physics only (when visible)
+                // Magnet button: toggle spring physics only (independent of visibility)
                 springBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    if (!state.edgeFilters[type]) return; // Can't toggle spring if edge not visible
                     state.edgeSpringFilters[type] = !state.edgeSpringFilters[type];
                     springBtn.classList.toggle('active', state.edgeSpringFilters[type]);
                     updateLabelBtnState();
