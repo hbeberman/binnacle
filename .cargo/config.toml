@@ -1,0 +1,12 @@
+# WASM target configuration
+# To build for WASM, use:
+#   rustup target add wasm32-unknown-unknown
+#   cargo build --target wasm32-unknown-unknown --features wasm --lib
+
+[target.wasm32-unknown-unknown]
+# Use wasm-bindgen for JS interop
+rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+mutable-globals"]
+
+[build]
+# Keep native as the default target (don't set target here)
+# WASM builds must explicitly specify --target wasm32-unknown-unknown
