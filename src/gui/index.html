@@ -4156,6 +4156,11 @@
                 lastFocusSwitchTime: 0,  // Timestamp of last focus switch (for configurable delay)
                 // Auto-follow config (loaded from localStorage)
                 autoFollowConfig: null,  // Will be loaded: { nodeTypes: { task: true, ... }, focusDelaySeconds: 10 }
+                // Pan-through state for multiple new nodes
+                panThroughQueue: [],     // Array of node IDs to visit
+                panThroughState: 'idle', // 'idle', 'panning', 'paused'
+                panThroughPauseDuration: 1200,  // ms to pause on each node
+                panThroughPauseStart: null,     // Timestamp when pause started
                 // Stat highlight filter state (null = no filter active)
                 highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
                 // Hide completed nodes filter
@@ -4326,6 +4331,7 @@
                         // Only show if auto-follow is enabled and we've done the initial load
                         if (state.tasks && initialLoadComplete && state.graph.autoFollow) {
                             const config = state.graph.autoFollowConfig || { nodeTypes: { task: true, bug: true } };
+                            const newNodeIds = [];  // Collect new node IDs for pan-through
                             for (const task of state.tasks) {
                                 // Check if this is a new item (not in previous state)
                                 if (prevStatuses[task.id] === undefined) {
@@ -4343,8 +4349,21 @@
                                         const typeName = nodeType.charAt(0).toUpperCase() + nodeType.slice(1);
                                         const toastType = nodeType === 'bug' ? 'warning' : 'info';
                                         showToast(`${icon} ${typeName} added: ${task.id} - ${task.title || task.name || ''}`, toastType, 5000);
+                                        newNodeIds.push(task.id);
                                     }
                                 }
+                            }
+                            // Queue pan-through for multiple new nodes
+                            if (newNodeIds.length > 1) {
+                                // Small delay to let nodes settle in their positions
+                                setTimeout(() => {
+                                    queuePanThrough(newNodeIds);
+                                }, 300);
+                            } else if (newNodeIds.length === 1) {
+                                // Single new node: just pan to it directly
+                                setTimeout(() => {
+                                    panToNode(newNodeIds[0], true);
+                                }, 300);
                             }
                         }
                         initialLoadComplete = true;
@@ -5849,6 +5868,10 @@
         // Cancel any ongoing pan animation
         function cancelPanAnimation() {
             state.graph.followAnimation = null;
+            // Also cancel pan-through if in progress
+            if (state.graph.panThroughState !== 'idle') {
+                cancelPanThrough();
+            }
         }
 
         // Update pan animation (called from animateGraph)
@@ -5875,6 +5898,79 @@
             if (progress >= 1) {
                 state.graph.followAnimation = null;
             }
+        }
+
+        // Pan-through: queue multiple nodes to visit in sequence
+        function queuePanThrough(nodeIds) {
+            if (!nodeIds || nodeIds.length === 0) return;
+            
+            // Add to existing queue (don't replace)
+            state.graph.panThroughQueue.push(...nodeIds);
+            
+            // Start pan-through if not already running
+            if (state.graph.panThroughState === 'idle') {
+                startNextPanThrough();
+            }
+        }
+        
+        function startNextPanThrough() {
+            if (state.graph.panThroughQueue.length === 0) {
+                // Queue empty - return to idle
+                state.graph.panThroughState = 'idle';
+                state.graph.panThroughPauseStart = null;
+                return;
+            }
+            
+            // Get next node to visit
+            const nodeId = state.graph.panThroughQueue.shift();
+            const node = state.graph.nodes.find(n => n.id === nodeId);
+            
+            if (!node) {
+                // Node doesn't exist, skip to next
+                startNextPanThrough();
+                return;
+            }
+            
+            // Highlight the node temporarily
+            state.graph.tempHighlightNode = nodeId;
+            state.graph.tempHighlightStart = performance.now();
+            
+            // Start panning to this node
+            state.graph.panThroughState = 'panning';
+            panToNode(nodeId, true);  // Zoom to 100%
+        }
+        
+        function updatePanThrough() {
+            // Skip if not in pan-through mode
+            if (state.graph.panThroughState === 'idle') return;
+            
+            // Skip if auto-follow is disabled
+            if (!state.graph.autoFollow) {
+                cancelPanThrough();
+                return;
+            }
+            
+            if (state.graph.panThroughState === 'panning') {
+                // Check if pan animation is complete
+                if (!state.graph.followAnimation) {
+                    // Start pause
+                    state.graph.panThroughState = 'paused';
+                    state.graph.panThroughPauseStart = performance.now();
+                }
+            } else if (state.graph.panThroughState === 'paused') {
+                // Check if pause is complete
+                const elapsed = performance.now() - state.graph.panThroughPauseStart;
+                if (elapsed >= state.graph.panThroughPauseDuration) {
+                    // Move to next node
+                    startNextPanThrough();
+                }
+            }
+        }
+        
+        function cancelPanThrough() {
+            state.graph.panThroughQueue = [];
+            state.graph.panThroughState = 'idle';
+            state.graph.panThroughPauseStart = null;
         }
 
         // Continuous follow: keep viewport centered on followed node as it moves
@@ -6721,6 +6817,9 @@
 
             // Update camera pan animation if active
             updatePanAnimation();
+            
+            // Update pan-through state machine
+            updatePanThrough();
 
             // Clear canvas
             ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary');
