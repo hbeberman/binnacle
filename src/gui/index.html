@@ -1356,6 +1356,24 @@
             cursor: not-allowed;
         }
         
+        /* Virtual Scroll Container */
+        .log-virtual-container {
+            position: relative;
+            width: 100%;
+        }
+        
+        .log-virtual-spacer-top,
+        .log-virtual-spacer-bottom {
+            width: 100%;
+            pointer-events: none;
+        }
+        
+        .log-virtual-entries {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        
         /* Highlight animation for targeted nodes */
         @keyframes node-highlight-pulse {
             0%, 100% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0); }
@@ -5102,6 +5120,16 @@
             logKeyboard: {
                 focusedIndex: -1,        // -1 means no entry is focused
                 enabled: false           // Becomes true when user navigates with keyboard
+            },
+            logVirtualScroll: {
+                enabled: true,           // Virtual scroll is on by default for flat view
+                estimatedRowHeight: 100, // Estimated height per entry (px)
+                bufferSize: 10,          // Entries to render above/below viewport
+                scrollTop: 0,            // Current scroll position
+                visibleStartIndex: 0,    // First visible entry index
+                visibleEndIndex: 0,      // Last visible entry index
+                filteredEntries: [],     // Cached filtered entries for virtual scroll
+                measuredHeights: new Map() // Map of entry index -> measured height
             },
             agents: [],
             edges: [], // Raw edges from API
@@ -10736,6 +10764,9 @@
             const filteredEntries = filterLogEntries(state.log);
             updateFilterSummary(state.log.length, filteredEntries.length);
             
+            // Cache filtered entries for virtual scroll
+            state.logVirtualScroll.filteredEntries = filteredEntries;
+            
             // Render timeline with all entries (not filtered by date, to show full range)
             // but respect command, user, and status filters for timeline density
             const timelineEntries = state.log.filter(entry => {
@@ -10775,13 +10806,21 @@
             // Check view mode: flat or grouped (sessions)
             const viewMode = state.logFilters.viewMode || 'flat';
             
+            // Use virtual scrolling for flat view with large datasets (>100 entries)
+            const useVirtualScroll = viewMode === 'flat' && 
+                                     state.logVirtualScroll.enabled && 
+                                     filteredEntries.length > 100;
+            
             let entriesHtml = '';
             if (viewMode === 'grouped') {
-                // Session-grouped view
+                // Session-grouped view - no virtual scroll (sessions are collapsible)
                 const sessions = groupEntriesIntoSessions(filteredEntries);
                 entriesHtml = renderSessionGroups(sessions, searchText, showingMixed);
+            } else if (useVirtualScroll) {
+                // Virtual scroll mode - only render visible entries
+                entriesHtml = renderVirtualScrollEntries(filteredEntries, searchText, showingMixed);
             } else {
-                // Flat view - show all filtered entries (no artificial limit)
+                // Flat view with small dataset - render all entries
                 entriesHtml = filteredEntries.map(entry => 
                     renderLogEntry(entry, searchText, showingMixed)
                 ).join('');
@@ -10803,6 +10842,94 @@
             
             // Attach click handlers for entity links
             attachEntityLinkHandlers(list);
+            
+            // After rendering, measure heights for virtual scroll if enabled
+            if (useVirtualScroll) {
+                measureRenderedHeights();
+            }
+        }
+        
+        // Render virtual scroll entries - only renders visible items
+        function renderVirtualScrollEntries(filteredEntries, searchText, showingMixed) {
+            const logView = document.getElementById('log-view');
+            if (!logView) {
+                // Fallback to rendering all if container not found
+                return filteredEntries.map(entry => renderLogEntry(entry, searchText, showingMixed)).join('');
+            }
+            
+            const vs = state.logVirtualScroll;
+            const rowHeight = vs.estimatedRowHeight;
+            const bufferSize = vs.bufferSize;
+            const totalEntries = filteredEntries.length;
+            
+            // Get scroll container dimensions
+            const scrollTop = logView.scrollTop;
+            const viewportHeight = logView.clientHeight;
+            
+            // Calculate visible range
+            const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - bufferSize);
+            const visibleCount = Math.ceil(viewportHeight / rowHeight) + (bufferSize * 2);
+            const endIndex = Math.min(totalEntries - 1, startIndex + visibleCount);
+            
+            // Store visible range in state
+            vs.visibleStartIndex = startIndex;
+            vs.visibleEndIndex = endIndex;
+            vs.scrollTop = scrollTop;
+            
+            // Calculate spacer heights
+            const topSpacerHeight = startIndex * rowHeight;
+            const bottomSpacerHeight = Math.max(0, (totalEntries - endIndex - 1) * rowHeight);
+            
+            // Render only visible entries
+            const visibleEntriesHtml = filteredEntries
+                .slice(startIndex, endIndex + 1)
+                .map((entry, idx) => {
+                    const globalIndex = startIndex + idx;
+                    return renderLogEntryWithIndex(entry, searchText, showingMixed, globalIndex);
+                })
+                .join('');
+            
+            return `
+                <div class="log-virtual-container">
+                    <div class="log-virtual-spacer-top" style="height: ${topSpacerHeight}px;"></div>
+                    <div class="log-virtual-entries">${visibleEntriesHtml}</div>
+                    <div class="log-virtual-spacer-bottom" style="height: ${bottomSpacerHeight}px;"></div>
+                </div>
+            `;
+        }
+        
+        // Render a log entry with its global index (for keyboard navigation)
+        function renderLogEntryWithIndex(entry, searchText, showingMixed, globalIndex) {
+            const html = renderLogEntry(entry, searchText, showingMixed);
+            // Add data-index attribute for keyboard navigation and height measurement
+            // Insert data-virtual-index into the opening div
+            return html.replace(/<div class="card log-entry/, `<div data-virtual-index="${globalIndex}" class="card log-entry`);
+        }
+        
+        // Measure rendered entry heights for more accurate virtual scrolling
+        function measureRenderedHeights() {
+            const list = document.getElementById('log-list');
+            if (!list) return;
+            
+            const entries = list.querySelectorAll('.log-entry[data-virtual-index]');
+            let totalHeight = 0;
+            let count = 0;
+            
+            entries.forEach(entry => {
+                const index = parseInt(entry.getAttribute('data-virtual-index'), 10);
+                const height = entry.offsetHeight + 4; // 4px for gap
+                state.logVirtualScroll.measuredHeights.set(index, height);
+                totalHeight += height;
+                count++;
+            });
+            
+            // Update estimated row height based on measurements
+            if (count > 0) {
+                const avgHeight = totalHeight / count;
+                // Smooth the estimate to avoid jumping
+                state.logVirtualScroll.estimatedRowHeight = 
+                    state.logVirtualScroll.estimatedRowHeight * 0.7 + avgHeight * 0.3;
+            }
         }
 
         // Load more log entries (pagination)
@@ -10848,6 +10975,9 @@
             const logView = document.getElementById('log-view');
             if (!logView) return;
             
+            // Throttle virtual scroll re-renders to avoid excessive updates
+            let virtualScrollRafId = null;
+            
             logView.addEventListener('scroll', () => {
                 // Only trigger if we're in the log view
                 if (state.currentView !== 'log') return;
@@ -10870,7 +11000,64 @@
                 if (scrollBottom >= threshold) {
                     loadMoreLogEntries();
                 }
+                
+                // Trigger virtual scroll re-render if in virtual scroll mode
+                const viewMode = state.logFilters.viewMode || 'flat';
+                const filteredEntries = state.logVirtualScroll.filteredEntries;
+                const useVirtualScroll = viewMode === 'flat' && 
+                                         state.logVirtualScroll.enabled && 
+                                         filteredEntries.length > 100;
+                
+                if (useVirtualScroll) {
+                    // Calculate new visible range
+                    const rowHeight = state.logVirtualScroll.estimatedRowHeight;
+                    const bufferSize = state.logVirtualScroll.bufferSize;
+                    const newStartIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - bufferSize);
+                    
+                    // Only re-render if visible range has changed significantly
+                    const prevStartIndex = state.logVirtualScroll.visibleStartIndex;
+                    if (Math.abs(newStartIndex - prevStartIndex) >= bufferSize / 2) {
+                        // Use requestAnimationFrame to avoid excessive re-renders
+                        if (virtualScrollRafId) {
+                            cancelAnimationFrame(virtualScrollRafId);
+                        }
+                        virtualScrollRafId = requestAnimationFrame(() => {
+                            renderLogVirtualScrollOnly();
+                            virtualScrollRafId = null;
+                        });
+                    }
+                }
             });
+        }
+        
+        // Re-render only the virtual scroll portion (without timeline/charts)
+        function renderLogVirtualScrollOnly() {
+            const list = document.getElementById('log-list');
+            if (!list) return;
+            
+            const filteredEntries = state.logVirtualScroll.filteredEntries;
+            if (filteredEntries.length <= 100) return; // Not in virtual scroll mode
+            
+            const searchText = state.logFilters.searchText;
+            const showingMixed = state.logFilters.statusFilter === 'all';
+            
+            let entriesHtml = renderVirtualScrollEntries(filteredEntries, searchText, showingMixed);
+            
+            // Add "Load More" button if there are more entries
+            if (state.logPagination.hasMore) {
+                const loadMoreHtml = `
+                    <div class="log-load-more">
+                        <button class="log-load-more-btn" onclick="loadMoreLogEntries()" ${state.logPagination.loading ? 'disabled' : ''}>
+                            ${state.logPagination.loading ? 'Loading...' : `Load More (${state.logPagination.total - state.log.length} remaining)`}
+                        </button>
+                    </div>
+                `;
+                entriesHtml += loadMoreHtml;
+            }
+            
+            list.innerHTML = entriesHtml;
+            attachEntityLinkHandlers(list);
+            measureRenderedHeights();
         }
 
         // Update the "New entries" badge visibility
