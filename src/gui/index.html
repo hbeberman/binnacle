@@ -1175,6 +1175,43 @@
             border-color: var(--accent-light);
         }
 
+        /* Custom date range inputs */
+        .custom-date-range {
+            display: none;
+            gap: 0.5rem;
+            align-items: center;
+            margin-top: 0.5rem;
+        }
+
+        .custom-date-range.visible {
+            display: flex;
+        }
+
+        .custom-date-range input[type="date"] {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+
+        .custom-date-range input[type="date"]:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .custom-date-range label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+        }
+
+        .date-preset-btn[data-range="custom"].active {
+            background: var(--accent-purple, #9333ea);
+            border-color: var(--accent-purple, #9333ea);
+        }
+
         .log-filter-summary {
             font-size: 0.75rem;
             color: var(--text-secondary);
@@ -3768,6 +3805,13 @@
                                 <button class="date-preset-btn" data-range="week">7d</button>
                                 <button class="date-preset-btn" data-range="month">30d</button>
                                 <button class="date-preset-btn active" data-range="all">All</button>
+                                <button class="date-preset-btn" data-range="custom">Custom</button>
+                            </div>
+                            <div class="custom-date-range" id="custom-date-range">
+                                <label>From:</label>
+                                <input type="date" id="date-from" />
+                                <label>To:</label>
+                                <input type="date" id="date-to" />
                             </div>
                         </div>
                     </div>
@@ -4091,7 +4135,9 @@
                 userFilter: 'all',       // all, humans, agents, or specific user
                 statusFilter: 'all',     // all, success, failure
                 searchText: '',          // text search
-                dateRange: 'all'         // hour, day, week, month, all
+                dateRange: 'all',        // hour, day, week, month, all, custom
+                customDateFrom: '',      // ISO date string for custom range start
+                customDateTo: ''         // ISO date string for custom range end
             },
             agents: [],
             edges: [], // Raw edges from API
@@ -8882,9 +8928,13 @@
 
         // Apply all filters to log entries
         function filterLogEntries(entries) {
-            const { commandCategories, userFilter, statusFilter, searchText, dateRange } = state.logFilters;
+            const { commandCategories, userFilter, statusFilter, searchText, dateRange, customDateFrom, customDateTo } = state.logFilters;
             const dateThreshold = getDateThreshold(dateRange);
             const searchLower = searchText.toLowerCase();
+            
+            // Parse custom date range bounds
+            const customFrom = customDateFrom ? new Date(customDateFrom + 'T00:00:00') : null;
+            const customTo = customDateTo ? new Date(customDateTo + 'T23:59:59.999') : null;
 
             return entries.filter(entry => {
                 const command = entry.command || entry.action || '';
@@ -8905,7 +8955,14 @@
                 if (statusFilter === 'failure' && entry.success !== false) return false;
                 
                 // Date range filter
-                if (dateThreshold && new Date(entry.timestamp) < dateThreshold) return false;
+                const entryDate = new Date(entry.timestamp);
+                if (dateRange === 'custom') {
+                    // Custom range: check both bounds
+                    if (customFrom && entryDate < customFrom) return false;
+                    if (customTo && entryDate > customTo) return false;
+                } else if (dateThreshold && entryDate < dateThreshold) {
+                    return false;
+                }
                 
                 // Text search filter
                 if (searchLower) {
@@ -9657,6 +9714,23 @@
                 params.delete('date');
             }
             
+            // Custom date range
+            if (filters.dateRange === 'custom') {
+                if (filters.customDateFrom) {
+                    params.set('from', filters.customDateFrom);
+                } else {
+                    params.delete('from');
+                }
+                if (filters.customDateTo) {
+                    params.set('to', filters.customDateTo);
+                } else {
+                    params.delete('to');
+                }
+            } else {
+                params.delete('from');
+                params.delete('to');
+            }
+            
             // Update URL without page reload
             const newURL = params.toString() 
                 ? `${window.location.pathname}?${params.toString()}`
@@ -9699,8 +9773,18 @@
             
             // Date range
             const date = params.get('date');
-            if (date && ['hour', 'day', 'week', 'month'].includes(date)) {
+            if (date && ['hour', 'day', 'week', 'month', 'custom'].includes(date)) {
                 state.logFilters.dateRange = date;
+            }
+            
+            // Custom date range
+            const dateFrom = params.get('from');
+            const dateTo = params.get('to');
+            if (dateFrom) {
+                state.logFilters.customDateFrom = dateFrom;
+            }
+            if (dateTo) {
+                state.logFilters.customDateTo = dateTo;
             }
             
             // Update UI to reflect loaded state
@@ -9731,6 +9815,16 @@
                     btn.classList.toggle('active', btn.dataset.range === filters.dateRange);
                 });
             }
+            
+            // Custom date range inputs
+            const customDateRange = document.getElementById('custom-date-range');
+            if (customDateRange) {
+                customDateRange.classList.toggle('visible', filters.dateRange === 'custom');
+            }
+            const dateFromInput = document.getElementById('date-from');
+            const dateToInput = document.getElementById('date-to');
+            if (dateFromInput) dateFromInput.value = filters.customDateFrom || '';
+            if (dateToInput) dateToInput.value = filters.customDateTo || '';
         }
 
         // Initialize Activity Log filters
@@ -9813,6 +9907,7 @@
             
             // Date range presets
             const datePresets = document.getElementById('date-filter-presets');
+            const customDateRange = document.getElementById('custom-date-range');
             if (datePresets) {
                 datePresets.addEventListener('click', (e) => {
                     const btn = e.target.closest('.date-preset-btn');
@@ -9826,6 +9921,31 @@
                         b.classList.toggle('active', b.dataset.range === range);
                     });
                     
+                    // Show/hide custom date range inputs
+                    if (customDateRange) {
+                        customDateRange.classList.toggle('visible', range === 'custom');
+                    }
+                    
+                    saveLogFiltersToURL();
+                    renderLog();
+                });
+            }
+            
+            // Custom date range inputs
+            const dateFromInput = document.getElementById('date-from');
+            const dateToInput = document.getElementById('date-to');
+            
+            if (dateFromInput) {
+                dateFromInput.addEventListener('change', (e) => {
+                    state.logFilters.customDateFrom = e.target.value;
+                    saveLogFiltersToURL();
+                    renderLog();
+                });
+            }
+            
+            if (dateToInput) {
+                dateToInput.addEventListener('change', (e) => {
+                    state.logFilters.customDateTo = e.target.value;
                     saveLogFiltersToURL();
                     renderLog();
                 });
