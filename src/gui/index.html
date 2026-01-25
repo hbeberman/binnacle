@@ -307,6 +307,11 @@
             border-bottom: 1px solid var(--border-color);
             opacity: 1;
             transition: opacity 0.3s ease;
+            cursor: pointer;
+        }
+
+        .recently-completed-item:hover {
+            background-color: var(--hover-bg);
         }
 
         .recently-completed-item:last-child {
@@ -6075,7 +6080,7 @@
                 else if (item.type === 'idea') icon = '💭 ';
                 
                 return `
-                    <div class="recently-completed-item${isFading ? ' fading' : ''}" title="${title}">
+                    <div class="recently-completed-item${isFading ? ' fading' : ''}" title="${title}" onclick="navigateToNodeOnGraph('${item.id}')">
                         <span class="recently-completed-id">${item.id}</span>
                         <span class="recently-completed-title">${icon}${escapeHtml(title)}</span>
                         <span class="recently-completed-ago">${ago}</span>
