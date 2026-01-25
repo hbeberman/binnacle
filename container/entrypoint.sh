@@ -68,17 +68,16 @@ BN_AUTO_MERGE="${BN_AUTO_MERGE:-true}"
 
 cd /workspace
 
-# Ensure git is configured for commits
-# Use environment variables instead of git config to avoid writing to read-only .git/config
-# (parent repo's .git is mounted read-only for worktrees)
-if [ -z "$(git config --get user.email 2>/dev/null)" ]; then
-    export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-binnacle-worker@container.local}"
-    export GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-binnacle-worker@container.local}"
-fi
-if [ -z "$(git config --get user.name 2>/dev/null)" ]; then
-    export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-Binnacle Worker}"
-    export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-Binnacle Worker}"
-fi
+# Configure git identity via environment variables.
+# This is the most reliable way to set identity in containers since:
+# 1. It doesn't require writing to .git/config (which may be shared with host)
+# 2. It works regardless of HOME directory permissions
+# 3. It overrides any existing config without modifying files
+# The host can pre-configure these by passing GIT_AUTHOR_* / GIT_COMMITTER_* env vars.
+export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-binnacle-worker@container.local}"
+export GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-binnacle-worker@container.local}"
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-Binnacle Worker}"
+export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-Binnacle Worker}"
 
 # Orient the agent
 echo "🧭 Orienting agent (type: $BN_AGENT_TYPE)..."

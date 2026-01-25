@@ -13495,10 +13495,15 @@ pub fn container_run(
     // so git commands can resolve the worktree reference inside the container.
     // The .git file in worktrees contains "gitdir: /path/to/parent/.git/worktrees/name"
     // which git needs to access.
+    //
+    // NOTE: This is mounted read-write because git worktrees store their HEAD, index,
+    // and refs under .git/worktrees/<name>/, and git commits add objects to the shared
+    // object store. Mounting read-only would prevent all git write operations (commit,
+    // checkout, etc.). The container is trusted to work only on its designated worktree.
     if let Some(parent_git_dir) = detect_worktree_parent_git(&worktree_abs) {
         args.push("--mount".to_string());
         args.push(format!(
-            "type=bind,src={},dst={},options=rbind:ro",
+            "type=bind,src={},dst={},options=rbind:rw",
             parent_git_dir.display(),
             parent_git_dir.display()
         ));
