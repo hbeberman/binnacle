@@ -1,7 +1,7 @@
 # PRD: Binnacle Container Worker
 
-**Status:** Draft  
-**Created:** 2026-01-24  
+**Status:** Draft
+**Created:** 2026-01-24
 **Related Ideas:** bn-8918, bn-bdf0, bn-dc17
 
 ## Overview
@@ -20,7 +20,7 @@ Running agents in containers provides several benefits:
 
 ## Goals
 
-- Run Copilot CLI with `--allow-all-tools` inside a Fedora 43 container
+- Run Copilot CLI with `--allow-all -p` inside a Fedora 43 container
 - Share binnacle graph data between host and container (full read/write)
 - Mount repository worktree into container
 - Auto-merge completed work back to main branch
@@ -71,7 +71,7 @@ Running agents in containers provides several benefits:
 │  ┌─────────────────────────────────────────┐                   │
 │  │            entrypoint.sh                │                   │
 │  │  1. bn orient --type $BN_AGENT_TYPE     │                   │
-│  │  2. copilot --allow-all-tools "..."     │                   │
+│  │  2. copilot --allow-all -p "..."       │                   │
 │  │  3. git merge to $BN_MERGE_TARGET       │                   │
 │  └─────────────────────────────────────────┘                   │
 │                                                                 │
@@ -107,7 +107,7 @@ fn get_data_directory(repo_hash: &str) -> PathBuf {
     if std::env::var("BN_CONTAINER_MODE").is_ok() || Path::new("/binnacle").exists() {
         return PathBuf::from("/binnacle");
     }
-    
+
     // Default: ~/.local/share/binnacle/<repo-hash>/
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -139,7 +139,7 @@ echo "📍 Working on branch: $WORK_BRANCH"
 
 # Run Copilot agent
 echo "🤖 Starting Copilot agent..."
-copilot --allow-all-tools "$BN_INITIAL_PROMPT"
+copilot --allow-all -p "$BN_INITIAL_PROMPT"
 COPILOT_EXIT=$?
 
 if [ $COPILOT_EXIT -ne 0 ]; then
@@ -242,7 +242,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: binnacle-worker
-    
+
     environment:
       - BN_AGENT_TYPE=${BN_AGENT_TYPE:-coder}
       - BN_AGENT_NAME=${BN_AGENT_NAME:-container-agent}
@@ -252,20 +252,20 @@ services:
       # Alternative auth methods
       - GH_TOKEN=${GH_TOKEN:-}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-    
+
     volumes:
       # Repository worktree (REQUIRED - set WORKTREE_PATH)
       - ${WORKTREE_PATH:?Set WORKTREE_PATH to your git worktree}:/workspace:rw
-      
+
       # Binnacle data directory (REQUIRED - set BINNACLE_DATA_PATH)
       - ${BINNACLE_DATA_PATH:?Set BINNACLE_DATA_PATH}:/binnacle:rw
-      
+
       # Copilot config (optional, for custom settings)
       - ${COPILOT_CONFIG_PATH:-~/.config/github-copilot}:/copilot-config:ro
-      
+
       # SSH keys for git operations (optional)
       - ${SSH_KEY_PATH:-~/.ssh}:/root/.ssh:ro
-    
+
     # Resource limits (adjust as needed)
     deploy:
       resources:
@@ -275,7 +275,7 @@ services:
         reservations:
           cpus: '2'
           memory: 4G
-    
+
     # Keep stdin open for interactive debugging
     stdin_open: true
     tty: true

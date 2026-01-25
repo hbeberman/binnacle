@@ -1397,10 +1397,6 @@ pub enum ContainerCommands {
         #[arg(long)]
         no_merge: bool,
 
-        /// Run in background (non-headed mode)
-        #[arg(long)]
-        detach: bool,
-
         /// CPU limit (e.g., 1.5 for 1.5 CPUs, 0.5 for half a CPU)
         #[arg(long)]
         cpus: Option<f64>,
@@ -1408,6 +1404,10 @@ pub enum ContainerCommands {
         /// Memory limit (e.g., "512m", "1g", "2048m")
         #[arg(long)]
         memory: Option<String>,
+
+        /// Start an interactive shell instead of the AI agent
+        #[arg(long)]
+        shell: bool,
     },
 
     /// Stop a running binnacle container

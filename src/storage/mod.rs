@@ -3727,13 +3727,24 @@ pub fn get_storage_dir(repo_path: &Path) -> Result<PathBuf> {
 ///
 /// This is the DI-friendly variant used by tests to avoid env var manipulation.
 /// The `base_dir` is used directly as the parent for the hashed repo subdirectory.
+///
+/// In container mode (`BN_CONTAINER_MODE` set), if `BN_STORAGE_HASH` is provided,
+/// it is used directly as the subdirectory name instead of computing from path.
+/// This allows the host to pre-compute the hash for the mounted workspace.
 pub fn get_storage_dir_with_base(repo_path: &Path, base_dir: &Path) -> Result<PathBuf> {
-    let repo_canonical = repo_path
+    // In container mode, use pre-computed hash if provided
+    if std::env::var("BN_CONTAINER_MODE").is_ok()
+        && let Ok(hash) = std::env::var("BN_STORAGE_HASH")
+    {
+        return Ok(base_dir.join(hash));
+    }
+
+    let canonical = repo_path
         .canonicalize()
         .map_err(|e| Error::Other(format!("Could not canonicalize repo path: {}", e)))?;
 
     let mut hasher = Sha256::new();
-    hasher.update(repo_canonical.to_string_lossy().as_bytes());
+    hasher.update(canonical.to_string_lossy().as_bytes());
     let hash = hasher.finalize();
     let hash_hex = format!("{:x}", hash);
     let short_hash = &hash_hex[..12];

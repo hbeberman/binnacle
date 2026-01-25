@@ -17,6 +17,7 @@ use crate::storage::{EntityType, Storage, generate_id, parse_status};
 use crate::{Error, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -12736,9 +12737,9 @@ pub fn container_run(
     name: Option<String>,
     merge_target: &str,
     no_merge: bool,
-    detach: bool,
     cpus: Option<f64>,
     memory: Option<&str>,
+    shell: bool,
 ) -> Result<ContainerRunResult> {
     // Check for required tools
     if !command_exists("ctr") {
@@ -12792,16 +12793,51 @@ pub fn container_run(
         "--rm".to_string(),
     ];
 
-    if detach {
-        args.push("-d".to_string());
-    } else {
-        // Only add --tty if stdin is a terminal.
-        // When running from a non-interactive context (like an AI agent subprocess),
-        // --tty would fail with "provided file is not a console".
-        use std::io::IsTerminal;
-        if std::io::stdin().is_terminal() {
-            args.push("--tty".to_string());
-        }
+    // Check if we have a real terminal
+    use std::io::IsTerminal;
+    let is_tty = std::io::stdin().is_terminal();
+
+    if is_tty {
+        args.push("--tty".to_string());
+    }
+    // Note: Without --tty, ctr still inherits stdio but won't allocate a PTY.
+    // This means the container can still output to stdout/stderr, but interactive
+    // programs may not work correctly. This is acceptable for non-TTY contexts.
+
+    // SECURITY: Host networking removes network namespace isolation.
+    // Required for AI agent API calls (OpenAI, Anthropic, etc.) and package installs.
+    // The container can access all host network interfaces including localhost services.
+    // See bn-a3a2 for planned rootless support with more restrictive networking.
+    args.push("--net-host".to_string());
+
+    // Run as host user's UID/GID to preserve file ownership in mounted workspace
+    // Container uses nss_wrapper to provide user identity for Node.js, git, etc.
+    // SECURITY: User mapping is mandatory to prevent running as root
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = fs::metadata(&worktree_abs).map_err(|e| {
+            Error::Other(format!(
+                "Failed to read worktree metadata for user mapping: {}. \
+                Container cannot run without user mapping.",
+                e
+            ))
+        })?;
+        let uid = meta.uid();
+        let gid = meta.gid();
+        args.push("--user".to_string());
+        args.push(format!("{}:{}", uid, gid));
+    }
+
+    #[cfg(not(unix))]
+    {
+        return Ok(ContainerRunResult {
+            success: false,
+            name: None,
+            error: Some(
+                "Container user mapping requires Unix. Windows is not supported.".to_string(),
+            ),
+        });
     }
 
     // Add resource limits if specified
@@ -12840,6 +12876,19 @@ pub fn container_run(
     args.push("--env".to_string());
     args.push(format!("BN_MERGE_TARGET={}", merge_target));
 
+    // Tell bn where to find the database (mounted at /binnacle)
+    args.push("--env".to_string());
+    args.push("BN_DATA_DIR=/binnacle".to_string());
+
+    // Compute storage hash on host and pass to container
+    // (container mounts at /workspace but hash should match host path)
+    let mut hasher = Sha256::new();
+    hasher.update(worktree_abs.to_string_lossy().as_bytes());
+    let hash = hasher.finalize();
+    let storage_hash = &format!("{:x}", hash)[..12];
+    args.push("--env".to_string());
+    args.push(format!("BN_STORAGE_HASH={}", storage_hash));
+
     if no_merge {
         args.push("--env".to_string());
         args.push("BN_NO_MERGE=true".to_string());
@@ -12855,13 +12904,28 @@ pub fn container_run(
     args.push("localhost/binnacle-worker:latest".to_string());
     args.push(container_name.clone());
 
-    let output = Command::new("sudo").arg("ctr").args(&args).output()?;
+    // For shell mode, override the entrypoint to run bash with "shell" argument
+    if shell {
+        args.push("/entrypoint.sh".to_string());
+        args.push("shell".to_string());
+    }
 
-    if !output.status.success() {
+    // Inherit stdio so container output is visible.
+    // With --tty (TTY mode), ctr allocates a PTY for interactive programs.
+    // Without --tty (non-TTY mode), output still streams but interactive programs may not work.
+    let status = Command::new("sudo")
+        .arg("ctr")
+        .args(&args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
+
+    if !status.success() {
         return Ok(ContainerRunResult {
             success: false,
             name: Some(container_name),
-            error: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+            error: Some(format!("Container exited with status: {}", status)),
         });
     }
 

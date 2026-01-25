@@ -959,9 +959,9 @@ fn run_command(
                 name,
                 merge_target,
                 no_merge,
-                detach,
                 cpus,
                 memory,
+                shell,
             } => {
                 let result = commands::container_run(
                     &worktree_path,
@@ -969,9 +969,9 @@ fn run_command(
                     name,
                     &merge_target,
                     no_merge,
-                    detach,
                     cpus,
                     memory.as_deref(),
+                    shell,
                 )?;
                 output(&result, human);
             }
@@ -2238,9 +2238,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 name,
                 merge_target,
                 no_merge,
-                detach,
                 cpus,
                 memory,
+                shell,
             } => (
                 "container run".to_string(),
                 serde_json::json!({
@@ -2249,9 +2249,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "name": name,
                     "merge_target": merge_target,
                     "no_merge": no_merge,
-                    "detach": detach,
                     "cpus": cpus,
-                    "memory": memory
+                    "memory": memory,
+                    "shell": shell
                 }),
             ),
             ContainerCommands::Stop { name, all } => (
