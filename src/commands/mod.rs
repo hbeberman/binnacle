@@ -1667,6 +1667,9 @@ pub fn orient(
     // Get current state
     let mut storage = Storage::open(repo_path)?;
 
+    // Check for MCP session mode (for MCP wrapper invocation)
+    let mcp_session_id = std::env::var("BN_MCP_SESSION").ok();
+
     // In dry-run mode, skip agent registration and session state writing
     let agent_id = if dry_run {
         // Return a placeholder ID for dry-run mode
@@ -1687,9 +1690,26 @@ pub fn orient(
             .or_else(|| std::env::var("BN_AGENT_NAME").ok())
             .unwrap_or_else(|| format!("agent-{}", agent_pid));
 
-        // Check if already registered (update activity, type, and potentially purpose) or register new
-        let id = if let Ok(mut existing_agent) = storage.get_agent(agent_pid) {
-            // Update type and purpose if provided (allows re-registering)
+        // For MCP mode, check if agent with this session ID already exists
+        let existing_by_session = mcp_session_id
+            .as_ref()
+            .and_then(|sid| storage.get_agent_by_mcp_session(sid).ok());
+
+        // Check if already registered (by MCP session or PID)
+        let id = if let Some(mut existing_agent) = existing_by_session {
+            // MCP session already registered - update it
+            existing_agent.agent_type = agent_type.clone();
+            if purpose.is_some() {
+                existing_agent.purpose = purpose;
+            }
+            let id = existing_agent.id.clone();
+            storage.update_agent(&existing_agent)?;
+            let _ = storage.touch_agent(existing_agent.pid);
+            id
+        } else if mcp_session_id.is_none()
+            && let Ok(mut existing_agent) = storage.get_agent(agent_pid)
+        {
+            // Normal PID-based lookup (no MCP session)
             existing_agent.agent_type = agent_type.clone();
             if purpose.is_some() {
                 existing_agent.purpose = purpose;
@@ -1699,8 +1719,8 @@ pub fn orient(
             let _ = storage.touch_agent(agent_pid);
             id
         } else {
-            // Register new agent with parent PID as primary identifier
-            let agent = if let Some(ref p) = purpose {
+            // Register new agent
+            let mut agent = if let Some(ref p) = purpose {
                 Agent::new_with_purpose(
                     agent_pid,
                     bn_pid,
@@ -1711,14 +1731,22 @@ pub fn orient(
             } else {
                 Agent::new(agent_pid, bn_pid, agent_name, agent_type.clone())
             };
+
+            // Set MCP session ID if provided
+            if let Some(ref sid) = mcp_session_id {
+                agent.mcp_session_id = Some(sid.clone());
+            }
+
             let id = agent.id.clone();
             storage.register_agent(&agent)?;
             id
         };
 
-        // Write session state for commit-msg hook detection
-        let session_state = SessionState::new(agent_pid, agent_type);
-        storage.write_session_state(&session_state)?;
+        // Write session state for commit-msg hook detection (skip in MCP mode)
+        if mcp_session_id.is_none() {
+            let session_state = SessionState::new(agent_pid, agent_type);
+            storage.write_session_state(&session_state)?;
+        }
 
         id
     };
@@ -12705,20 +12733,28 @@ impl Output for GoodbyeResult {
 /// Note: We target the grandparent PID because the process tree is typically:
 /// agent session → shell (running bn) → bn goodbye
 /// Killing the direct parent (shell) doesn't terminate the agent session.
+///
+/// When `BN_MCP_SESSION` env var is set, the agent is looked up by session ID
+/// instead of by PID, and process termination is automatically skipped.
 pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<GoodbyeResult> {
     let bn_pid = std::process::id();
     let parent_pid = get_parent_pid().unwrap_or(0);
-
-    if parent_pid == 0 {
-        return Err(Error::Other("Could not determine parent PID".to_string()));
-    }
-
-    // Get grandparent PID - this is the actual agent session we want to terminate
     let grandparent_pid = get_grandparent_pid().unwrap_or(0);
-    if grandparent_pid == 0 {
-        return Err(Error::Other(
-            "Could not determine grandparent PID".to_string(),
-        ));
+
+    // Check for MCP session mode
+    let mcp_session_id = std::env::var("BN_MCP_SESSION").ok();
+
+    // When using MCP session, we don't require valid parent/grandparent PIDs
+    // since we're not going to terminate them anyway
+    if mcp_session_id.is_none() {
+        if parent_pid == 0 {
+            return Err(Error::Other("Could not determine parent PID".to_string()));
+        }
+        if grandparent_pid == 0 {
+            return Err(Error::Other(
+                "Could not determine grandparent PID".to_string(),
+            ));
+        }
     }
 
     let mut storage = Storage::open(repo_path)?;
@@ -12726,8 +12762,18 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     // Clean up stale agents first
     let _ = storage.cleanup_stale_agents();
 
-    // Check if agent is registered using parent PID (which is how orient registers it)
-    let agent = storage.get_agent(parent_pid).ok();
+    // Look up agent: MCP session > parent PID
+    let (agent, agent_pid_for_removal) = if let Some(ref session_id) = mcp_session_id {
+        // MCP session mode - look up by session ID
+        let agent = storage.get_agent_by_mcp_session(session_id).ok();
+        let pid = agent.as_ref().map(|a| a.pid);
+        (agent, pid)
+    } else {
+        // Normal PID-based lookup
+        let agent = storage.get_agent(parent_pid).ok();
+        (agent, Some(parent_pid))
+    };
+
     let was_registered = agent.is_some();
     let agent_name = agent.as_ref().map(|a| a.name.clone());
     let agent_type = agent
@@ -12739,20 +12785,26 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
         .as_ref()
         .map(|a| a.agent_type == AgentType::Planner)
         .unwrap_or(false);
-    let should_terminate = !is_planner || force;
 
-    // Only remove agent from registry if we're actually terminating
-    if should_terminate && was_registered {
-        let _ = storage.remove_agent(parent_pid);
+    // In MCP mode, should_terminate is always false (we don't terminate parent processes)
+    let should_terminate = if mcp_session_id.is_some() {
+        false
+    } else {
+        !is_planner || force
+    };
+
+    // Remove agent from registry
+    if was_registered && let Some(pid) = agent_pid_for_removal {
+        let _ = storage.remove_agent(pid);
     }
 
     // Log the bn command PID for debugging
     let _ = bn_pid;
 
-    // Add warning if no reason provided (only relevant if we're terminating)
-    let warning = if should_terminate && reason.is_none() {
+    // Add warning if no reason provided
+    let warning = if reason.is_none() && (mcp_session_id.is_some() || should_terminate) {
         Some("No reason provided. Please use: bn goodbye \"reason for termination\"".to_string())
-    } else if !should_terminate {
+    } else if !should_terminate && mcp_session_id.is_none() && is_planner {
         Some(
             "Planner agents should not call goodbye. Use --force if you must terminate."
                 .to_string(),
