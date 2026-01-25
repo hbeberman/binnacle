@@ -785,9 +785,13 @@ fn run_command(
             clean_unused,
             dry_run,
             fix,
+            fix_archives,
         }) => {
             if migrate_edges {
                 let result = commands::doctor_migrate_edges(repo_path, clean_unused, dry_run)?;
+                output(&result, human);
+            } else if fix_archives {
+                let result = commands::doctor_fix_archives(repo_path, dry_run)?;
                 output(&result, human);
             } else if fix {
                 let result = commands::doctor_fix(repo_path)?;
@@ -2239,13 +2243,15 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             clean_unused,
             dry_run,
             fix,
+            fix_archives,
         }) => (
             "doctor".to_string(),
             serde_json::json!({
                 "migrate_edges": migrate_edges,
                 "clean_unused": clean_unused,
                 "dry_run": dry_run,
-                "fix": fix
+                "fix": fix,
+                "fix_archives": fix_archives
             }),
         ),
 

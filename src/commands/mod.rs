@@ -9422,6 +9422,288 @@ impl Output for DoctorFixResult {
     }
 }
 
+/// Result of archive migration.
+#[derive(Serialize)]
+pub struct DoctorFixArchivesResult {
+    pub archives_scanned: usize,
+    pub archives_migrated: usize,
+    pub archives_skipped: usize,
+    pub errors: Vec<String>,
+    pub dry_run: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<String>,
+}
+
+impl Output for DoctorFixArchivesResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if self.dry_run {
+            lines.push("Archive Migration (DRY RUN - no changes made)".to_string());
+        } else {
+            lines.push("Archive Migration Complete".to_string());
+        }
+
+        lines.push(format!("  Archives scanned: {}", self.archives_scanned));
+        lines.push(format!("  Archives migrated: {}", self.archives_migrated));
+        lines.push(format!("  Archives skipped: {}", self.archives_skipped));
+
+        if !self.errors.is_empty() {
+            lines.push(String::new());
+            lines.push(format!("Errors ({}):", self.errors.len()));
+            for error in &self.errors {
+                lines.push(format!("  ✗ {}", error));
+            }
+        }
+
+        if !self.details.is_empty() {
+            lines.push(String::new());
+            lines.push("Details:".to_string());
+            for detail in &self.details {
+                lines.push(format!("  {}", detail));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Migrate old .tar.gz archives to new .bng format (zstd compression).
+///
+/// This function:
+/// 1. Gets the archive directory from config
+/// 2. Scans for .tar.gz files
+/// 3. For each file: decompresses, re-compresses as .bng, renames old file to .old
+pub fn doctor_fix_archives(repo_path: &Path, dry_run: bool) -> Result<DoctorFixArchivesResult> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+    use zstd::stream::write::Encoder as ZstdEncoder;
+
+    let archive_dir = match config_get_archive_directory(repo_path) {
+        Some(dir) => dir,
+        None => {
+            return Ok(DoctorFixArchivesResult {
+                archives_scanned: 0,
+                archives_migrated: 0,
+                archives_skipped: 0,
+                errors: vec![
+                    "Archive directory not configured. Set archive.directory config key."
+                        .to_string(),
+                ],
+                dry_run,
+                details: vec![],
+            });
+        }
+    };
+
+    if !archive_dir.exists() {
+        return Ok(DoctorFixArchivesResult {
+            archives_scanned: 0,
+            archives_migrated: 0,
+            archives_skipped: 0,
+            errors: vec![format!(
+                "Archive directory does not exist: {}",
+                archive_dir.display()
+            )],
+            dry_run,
+            details: vec![],
+        });
+    }
+
+    let mut archives_scanned = 0;
+    let mut archives_migrated = 0;
+    let mut archives_skipped = 0;
+    let mut errors = Vec::new();
+    let mut details = Vec::new();
+
+    // Find all .tar.gz files
+    let entries = match fs::read_dir(&archive_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            return Ok(DoctorFixArchivesResult {
+                archives_scanned: 0,
+                archives_migrated: 0,
+                archives_skipped: 0,
+                errors: vec![format!("Failed to read archive directory: {}", e)],
+                dry_run,
+                details: vec![],
+            });
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let filename = match path.file_name() {
+            Some(f) => f.to_string_lossy().to_string(),
+            None => continue,
+        };
+
+        // Only process .tar.gz files
+        if !filename.ends_with(".tar.gz") {
+            continue;
+        }
+
+        archives_scanned += 1;
+
+        // Check if corresponding .bng already exists
+        let bng_filename = filename.replace(".tar.gz", ".bng");
+        let bng_path = archive_dir.join(&bng_filename);
+        if bng_path.exists() {
+            archives_skipped += 1;
+            details.push(format!("Skipped {} (already has .bng version)", filename));
+            continue;
+        }
+
+        // Read and decompress .tar.gz
+        let archive_data = match fs::read(&path) {
+            Ok(data) => data,
+            Err(e) => {
+                errors.push(format!("Failed to read {}: {}", filename, e));
+                continue;
+            }
+        };
+
+        // Extract archive contents
+        let decoder = GzDecoder::new(&archive_data[..]);
+        let mut archive = tar::Archive::new(decoder);
+
+        let mut file_contents: Vec<(String, Vec<u8>)> = Vec::new();
+        let entries_result = archive.entries();
+        match entries_result {
+            Ok(entries) => {
+                for entry_result in entries {
+                    match entry_result {
+                        Ok(mut entry) => {
+                            let entry_path = match entry.path() {
+                                Ok(p) => p.to_path_buf(),
+                                Err(e) => {
+                                    errors.push(format!(
+                                        "Failed to get entry path in {}: {}",
+                                        filename, e
+                                    ));
+                                    continue;
+                                }
+                            };
+                            let mut data = Vec::new();
+                            if let Err(e) = entry.read_to_end(&mut data) {
+                                errors.push(format!(
+                                    "Failed to read entry {} in {}: {}",
+                                    entry_path.display(),
+                                    filename,
+                                    e
+                                ));
+                                continue;
+                            }
+                            file_contents.push((entry_path.to_string_lossy().to_string(), data));
+                        }
+                        Err(e) => {
+                            errors.push(format!("Failed to read entry in {}: {}", filename, e));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                errors.push(format!("Failed to read archive {}: {}", filename, e));
+                continue;
+            }
+        }
+
+        if file_contents.is_empty() {
+            errors.push(format!("Archive {} is empty or corrupted", filename));
+            continue;
+        }
+
+        if dry_run {
+            archives_migrated += 1;
+            details.push(format!("Would migrate {} → {}", filename, bng_filename));
+            continue;
+        }
+
+        // Create new .bng archive with zstd compression
+        let mut archive_buffer = Vec::new();
+        {
+            let encoder = match ZstdEncoder::new(&mut archive_buffer, 3) {
+                Ok(e) => e,
+                Err(e) => {
+                    errors.push(format!(
+                        "Failed to create zstd encoder for {}: {}",
+                        filename, e
+                    ));
+                    continue;
+                }
+            };
+            let mut tar = tar::Builder::new(encoder);
+
+            for (entry_path, data) in &file_contents {
+                let mut header = tar::Header::new_gnu();
+                if let Err(e) = header.set_path(entry_path) {
+                    errors.push(format!(
+                        "Failed to set path {} in {}: {}",
+                        entry_path, filename, e
+                    ));
+                    continue;
+                }
+                header.set_size(data.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                if let Err(e) = tar.append(&header, data.as_slice()) {
+                    errors.push(format!(
+                        "Failed to append {} to {}: {}",
+                        entry_path, filename, e
+                    ));
+                    continue;
+                }
+            }
+
+            // Finish tar archive
+            let encoder = match tar.into_inner() {
+                Ok(e) => e,
+                Err(e) => {
+                    errors.push(format!("Failed to finish tar for {}: {}", filename, e));
+                    continue;
+                }
+            };
+            // Finish zstd compression
+            if let Err(e) = encoder.finish() {
+                errors.push(format!("Failed to finish zstd for {}: {}", filename, e));
+                continue;
+            }
+        }
+
+        // Write new .bng file
+        if let Err(e) = fs::write(&bng_path, &archive_buffer) {
+            errors.push(format!("Failed to write {}: {}", bng_filename, e));
+            continue;
+        }
+
+        // Rename old file to .old (append .old to preserve the original extension)
+        let old_filename = format!("{}.old", filename);
+        let old_path = archive_dir.join(&old_filename);
+        if let Err(e) = fs::rename(&path, &old_path) {
+            errors.push(format!(
+                "Failed to rename {} to .old (new .bng was created): {}",
+                filename, e
+            ));
+        }
+
+        archives_migrated += 1;
+        details.push(format!("Migrated {} → {}", filename, bng_filename));
+    }
+
+    Ok(DoctorFixArchivesResult {
+        archives_scanned,
+        archives_migrated,
+        archives_skipped,
+        errors,
+        dry_run,
+        details,
+    })
+}
+
 /// Run doctor with automatic fixes for repairable issues.
 pub fn doctor_fix(repo_path: &Path) -> Result<DoctorFixResult> {
     let mut storage = Storage::open(repo_path)?;

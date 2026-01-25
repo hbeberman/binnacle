@@ -167,6 +167,10 @@ pub enum Commands {
         /// Automatically fix issues that can be repaired
         #[arg(long)]
         fix: bool,
+
+        /// Migrate old .tar.gz archives to new .bng format (non-destructive)
+        #[arg(long)]
+        fix_archives: bool,
     },
 
     /// Show audit trail of changes or export action logs
