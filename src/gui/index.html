@@ -960,6 +960,30 @@
             color: var(--status-bug);
             margin-top: 0.5rem;
         }
+        
+        /* Entity ID links in log entries */
+        .entity-link {
+            color: var(--accent-blue);
+            cursor: pointer;
+            text-decoration: none;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.85em;
+            padding: 0.1em 0.3em;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            transition: background 0.15s, color 0.15s;
+        }
+        
+        .entity-link:hover {
+            background: var(--accent-blue);
+            color: white;
+        }
+        
+        /* Highlight animation for targeted nodes */
+        @keyframes node-highlight-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0); }
+            50% { box-shadow: 0 0 0 15px rgba(52, 152, 219, 0.4); }
+        }
 
         /* Activity Log Filter Styles */
         .log-filters {
@@ -3896,6 +3920,10 @@
                 // Selection state
                 selectedNode: null,
                 selectedEdge: null,
+                // Temporary highlight state (for entity link navigation)
+                tempHighlightNode: null,
+                tempHighlightStart: null,
+                tempHighlightDuration: 1500,
                 // Camera pan animation state
                 followAnimation: null,  // { startPanX, startPanY, targetPanX, targetPanY, startZoom, targetZoom, startTime, duration }
                 // Auto-follow state
@@ -6918,6 +6946,45 @@
                 ctx.fillStyle = 'rgba(240, 173, 78, 0.15)';
                 ctx.fill();
             }
+            
+            // Draw temporary highlight (pulse animation when jumping to a node from log)
+            const isTempHighlighted = state.graph.tempHighlightNode === node.id;
+            if (isTempHighlighted && state.graph.tempHighlightStart) {
+                const elapsed = performance.now() - state.graph.tempHighlightStart;
+                const duration = state.graph.tempHighlightDuration || 1500;
+                
+                if (elapsed < duration) {
+                    // Pulse effect: starts strong, fades out
+                    const progress = elapsed / duration;
+                    const pulsePhase = Math.sin(progress * Math.PI * 3); // 3 pulses
+                    const pulseOpacity = (1 - progress) * 0.6 * Math.max(0, pulsePhase);
+                    const pulseRadius = radius + (15 + 10 * pulsePhase) * zoom;
+                    
+                    ctx.beginPath();
+                    if (node.type === 'queue') {
+                        drawHexagonPath(ctx, screenPos.x, screenPos.y, pulseRadius);
+                    } else if (node.type === 'agent') {
+                        drawPersonPath(ctx, screenPos.x, screenPos.y, pulseRadius);
+                    } else if (node.type === 'bug') {
+                        drawSquarePath(ctx, screenPos.x, screenPos.y, pulseRadius);
+                    } else if (node.type === 'idea') {
+                        drawCloudPath(ctx, screenPos.x, screenPos.y, pulseRadius);
+                    } else if (node.type === 'doc') {
+                        drawDocPath(ctx, screenPos.x, screenPos.y, pulseRadius);
+                    } else {
+                        ctx.arc(screenPos.x, screenPos.y, pulseRadius, 0, Math.PI * 2);
+                    }
+                    ctx.strokeStyle = `rgba(52, 152, 219, ${pulseOpacity})`;
+                    ctx.lineWidth = 4;
+                    ctx.stroke();
+                    ctx.fillStyle = `rgba(52, 152, 219, ${pulseOpacity * 0.3})`;
+                    ctx.fill();
+                } else {
+                    // Animation complete, clear the highlight
+                    state.graph.tempHighlightNode = null;
+                    state.graph.tempHighlightStart = null;
+                }
+            }
 
             // Draw drag highlight (active)
             if (isDragging) {
@@ -7688,15 +7755,21 @@
                     const time = new Date(entry.timestamp).toLocaleTimeString();
                     const formatted = formatLogEntry(entry);
                     const statusIcon = entry.success === false ? '❌' : '✓';
+                    // Linkify entity IDs in action and details
+                    const linkedAction = linkifyEntityIds(escapeHtml(formatted.action));
+                    const linkedDetails = formatted.details ? linkifyEntityIds(escapeHtml(formatted.details)) : '';
                     return `
                         <div class="activity-entry ${entry.success === false ? 'activity-error' : ''}">
                             <span class="activity-time">${time}</span>
                             <span class="activity-status">${statusIcon}</span>
-                            <span class="activity-action">${escapeHtml(formatted.action)}</span>
-                            ${formatted.details ? `<span class="activity-details">${escapeHtml(formatted.details)}</span>` : ''}
+                            <span class="activity-action">${linkedAction}</span>
+                            ${linkedDetails ? `<span class="activity-details">${linkedDetails}</span>` : ''}
                         </div>
                     `;
                 }).join('');
+                
+                // Attach click handlers for entity links
+                attachEntityLinkHandlers(activityLog);
             }
             
             // Also update the sidebar on graph view
@@ -8466,9 +8539,10 @@
             list.innerHTML = filteredEntries.slice(0, 100).map(entry => {
                 const formatted = formatLogEntry(entry);
                 const statusClass = entry.success === false ? 'log-error' : '';
-                const highlightedAction = highlightText(formatted.action, searchText);
-                const highlightedDetails = formatted.details ? highlightText(formatted.details, searchText) : '';
-                const highlightedError = entry.error ? highlightText(entry.error, searchText) : '';
+                // First highlight search text, then linkify entity IDs
+                const highlightedAction = linkifyEntityIds(highlightText(formatted.action, searchText));
+                const highlightedDetails = formatted.details ? linkifyEntityIds(highlightText(formatted.details, searchText)) : '';
+                const highlightedError = entry.error ? linkifyEntityIds(highlightText(entry.error, searchText)) : '';
                 
                 return `
                     <div class="card log-entry ${statusClass}">
@@ -8482,6 +8556,9 @@
                     </div>
                 `;
             }).join('');
+            
+            // Attach click handlers for entity links
+            attachEntityLinkHandlers(list);
         }
 
         // Format a log entry into a human-readable action and details
@@ -8583,6 +8660,65 @@
             const allEntities = [...(state.tasks || []), ...(state.bugs || []), ...(state.ideas || [])];
             return allEntities.find(e => e.id === id);
         }
+        
+        // Convert entity IDs in text to clickable links
+        // Matches: bn-xxxx, bnt-xxxx, bnq-xxxx (4 hex chars)
+        function linkifyEntityIds(text) {
+            if (!text) return '';
+            // Pattern matches entity IDs: bn-, bnt-, bnq- followed by 4 hex chars
+            const entityPattern = /\b(bn-[a-f0-9]{4}|bnt-[a-f0-9]{4}|bnq-[a-f0-9]{4})\b/gi;
+            return text.replace(entityPattern, (match) => {
+                return `<span class="entity-link" data-entity-id="${match.toLowerCase()}">${match}</span>`;
+            });
+        }
+        
+        // Navigate to an entity in the graph view
+        function navigateToEntity(entityId) {
+            if (!entityId) return;
+            
+            // Switch to graph view
+            switchView('graph');
+            
+            // Disable auto-follow to prevent interference
+            state.graph.autoFollow = false;
+            updateAutoFollowDisplay();
+            
+            // Find and pan to the node
+            const node = state.graph.nodes.find(n => n.id === entityId);
+            if (node) {
+                // Pan to node with zoom
+                panToNode(entityId, true);
+                
+                // Select the node and show info panel
+                state.graph.selectedNode = node;
+                showInfoPanel(node);
+                
+                // Add a temporary highlight effect
+                highlightNodeTemporarily(entityId);
+            }
+        }
+        
+        // Temporarily highlight a node with a pulse animation
+        function highlightNodeTemporarily(nodeId) {
+            // Store the highlighted node and start time
+            state.graph.tempHighlightNode = nodeId;
+            state.graph.tempHighlightStart = performance.now();
+            state.graph.tempHighlightDuration = 1500; // 1.5 seconds
+        }
+        
+        // Attach click handlers for entity links (call after rendering log content)
+        function attachEntityLinkHandlers(container) {
+            if (!container) return;
+            container.querySelectorAll('.entity-link').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const entityId = e.target.getAttribute('data-entity-id');
+                    navigateToEntity(entityId);
+                });
+            });
+        }
+
 
         function renderEmptyState(ctx, message) {
             ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary');
