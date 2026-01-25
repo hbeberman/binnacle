@@ -989,6 +989,101 @@
             margin-top: 0.5rem;
         }
         
+        /* Log entry expansion styles */
+        .log-entry {
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+        
+        .log-entry:hover {
+            background: var(--bg-tertiary);
+        }
+        
+        .log-entry.expanded {
+            background: var(--bg-secondary);
+            border-left-width: 4px;
+        }
+        
+        .log-expand-indicator {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            transition: transform 0.2s;
+            margin-left: auto;
+        }
+        
+        .log-entry.expanded .log-expand-indicator {
+            transform: rotate(180deg);
+        }
+        
+        .log-expanded-content {
+            display: none;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.85rem;
+        }
+        
+        .log-entry.expanded .log-expanded-content {
+            display: block;
+        }
+        
+        .log-expanded-section {
+            margin-bottom: 0.5rem;
+        }
+        
+        .log-expanded-section:last-child {
+            margin-bottom: 0;
+        }
+        
+        .log-expanded-label {
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.25rem;
+        }
+        
+        .log-expanded-args {
+            background: var(--bg-tertiary);
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .log-expanded-duration {
+            color: var(--accent-light);
+        }
+        
+        .log-expanded-error {
+            background: rgba(236, 72, 72, 0.1);
+            border: 1px solid var(--status-bug);
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--status-bug);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .log-expanded-meta {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            color: var(--text-secondary);
+        }
+        
+        .log-expanded-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
         /* Session grouping styles */
         .session-group {
             margin-bottom: 0.5rem;
@@ -10702,15 +10797,78 @@
                     : '<span class="log-status-badge badge-success">OK</span>')
                 : '';
             
+            // Build expanded content sections
+            const expandedSections = [];
+            
+            // Full arguments (if any beyond what's shown in summary)
+            const args = entry.args || {};
+            const hasArgs = Object.keys(args).length > 0;
+            if (hasArgs) {
+                const argsJson = JSON.stringify(args, null, 2);
+                expandedSections.push(`
+                    <div class="log-expanded-section">
+                        <div class="log-expanded-label">Arguments</div>
+                        <div class="log-expanded-args">${escapeHtml(argsJson)}</div>
+                    </div>
+                `);
+            }
+            
+            // Duration (if available)
+            if (entry.duration_ms !== undefined && entry.duration_ms !== null) {
+                const durationStr = formatDuration(entry.duration_ms);
+                expandedSections.push(`
+                    <div class="log-expanded-section">
+                        <div class="log-expanded-label">Duration</div>
+                        <div class="log-expanded-duration">${durationStr} (${entry.duration_ms}ms)</div>
+                    </div>
+                `);
+            }
+            
+            // Full error/stack trace (if error and more details)
+            if (isFailure && entry.error) {
+                expandedSections.push(`
+                    <div class="log-expanded-section">
+                        <div class="log-expanded-label">Error Details</div>
+                        <div class="log-expanded-error">${escapeHtml(entry.error)}</div>
+                    </div>
+                `);
+            }
+            
+            // Metadata section
+            const metaItems = [];
+            if (entry.command) {
+                metaItems.push(`<span class="log-expanded-meta-item">📋 Command: <code>${escapeHtml(entry.command)}</code></span>`);
+            }
+            if (entry.user) {
+                metaItems.push(`<span class="log-expanded-meta-item">${isAgent(entry.user) ? '🤖' : '👤'} User: ${escapeHtml(entry.user)}</span>`);
+            }
+            if (entry.result_id) {
+                metaItems.push(`<span class="log-expanded-meta-item">🆔 Result: ${linkifyEntityIds(entry.result_id)}</span>`);
+            }
+            
+            if (metaItems.length > 0) {
+                expandedSections.push(`
+                    <div class="log-expanded-section">
+                        <div class="log-expanded-label">Metadata</div>
+                        <div class="log-expanded-meta">${metaItems.join('')}</div>
+                    </div>
+                `);
+            }
+            
+            const hasExpandedContent = expandedSections.length > 0;
+            const expandIndicator = hasExpandedContent ? '<span class="log-expand-indicator">▼</span>' : '';
+            
             return `
-                <div class="card log-entry ${statusClass}">
+                <div class="card log-entry ${statusClass}" data-expandable="${hasExpandedContent}" onclick="toggleLogEntryExpand(event, this)">
                     <div class="log-header">
                         <div class="log-time">${statusBadge}${new Date(entry.timestamp).toLocaleString()}</div>
                         ${entry.user ? `<div class="log-user">${isAgent(entry.user) ? '🤖' : '👤'} ${escapeHtml(entry.user)}</div>` : ''}
+                        ${expandIndicator}
                     </div>
                     <div class="card-title">${highlightedAction}</div>
                     ${highlightedDetails ? `<div class="log-details">${highlightedDetails}</div>` : ''}
                     ${isFailure && entry.error ? `<div class="log-error-msg">❌ ${highlightedError}</div>` : ''}
+                    ${hasExpandedContent ? `<div class="log-expanded-content">${expandedSections.join('')}</div>` : ''}
                 </div>
             `;
         }
@@ -10766,6 +10924,33 @@
             if (group) {
                 group.classList.toggle('collapsed');
             }
+        }
+        
+        // Toggle log entry expansion
+        function toggleLogEntryExpand(event, element) {
+            // Don't expand if clicking on a link inside the entry
+            if (event.target.closest('.entity-link')) {
+                return;
+            }
+            
+            // Only toggle if the entry has expandable content
+            if (element.dataset.expandable !== 'true') {
+                return;
+            }
+            
+            // If clicking on expanded content area (except for close action), don't collapse
+            if (event.target.closest('.log-expanded-content') && element.classList.contains('expanded')) {
+                return;
+            }
+            
+            element.classList.toggle('expanded');
+        }
+        
+        // Collapse all expanded log entries (called on Escape)
+        function collapseAllLogEntries() {
+            document.querySelectorAll('.log-entry.expanded').forEach(entry => {
+                entry.classList.remove('expanded');
+            });
         }
         
         // Find an entity (task, bug, idea) by ID
@@ -11040,6 +11225,13 @@
                 if (edgeInfoPanel && edgeInfoPanel.classList.contains('visible')) {
                     state.graph.selectedEdge = null;
                     updateEdgeInfoPanel(null);
+                    e.preventDefault();
+                    return;
+                }
+                // Collapse any expanded log entries
+                const expandedEntries = document.querySelectorAll('.log-entry.expanded');
+                if (expandedEntries.length > 0) {
+                    collapseAllLogEntries();
                     e.preventDefault();
                     return;
                 }
