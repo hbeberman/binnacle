@@ -5497,6 +5497,7 @@
                 measuredHeights: new Map() // Map of entry index -> measured height
             },
             agents: [],
+            departingAgents: new Map(), // Map<agent_id, departure_timestamp> for fade-out animation
             edges: [], // Raw edges from API
             edgeFilters: loadEdgeFilters(), // Which edge types are visible
             edgeSpringFilters: loadEdgeSpringFilters(), // Which edge types have spring physics
@@ -5874,6 +5875,35 @@
             // Normalize agents to have node-like fields for graph rendering
             // Only show worker agents in the graph (filter out planner and buddy agents)
             const workerAgents = (agentsData.agents || []).filter(agent => agent.agent_type === 'worker');
+            
+            // Build a set of new agent IDs for quick lookup
+            const newAgentIds = new Set(workerAgents.map(a => a.id || `agent-${a.pid}`));
+            
+            // Track departing agents: find agents that existed before but are no longer in the new data
+            // This must happen BEFORE we try to include departing nodes in the graph
+            const oldWorkerAgents = (state.agents || []).filter(a => a.agent_type === 'worker');
+            const now = performance.now();
+            for (const agent of oldWorkerAgents) {
+                const agentId = agent.id || `agent-${agent.pid}`;
+                if (!newAgentIds.has(agentId) && !state.departingAgents.has(agentId)) {
+                    state.departingAgents.set(agentId, now);
+                }
+            }
+            
+            // Include departing agents (those being animated out) that aren't in the new data
+            // We need to preserve their node data from the previous state
+            const departingAgentNodes = [];
+            const existingAgentNodes = state.tasks ? state.tasks.filter(t => t.type === 'agent') : [];
+            for (const agentNode of existingAgentNodes) {
+                if (!newAgentIds.has(agentNode.id) && state.departingAgents.has(agentNode.id)) {
+                    // Mark as departing and include in the graph
+                    departingAgentNodes.push({
+                        ...agentNode,
+                        _departing: true
+                    });
+                }
+            }
+            
             const normalizedAgents = workerAgents.map(agent => ({
                 // Use proper binnacle ID (bna-xxxx) if available, fall back to PID-based ID for backwards compat
                 id: agent.id || `agent-${agent.pid}`,
@@ -5887,6 +5917,9 @@
                 _agent: agent
             }));
             
+            // Combine active agents with departing agents (for fade-out animation)
+            const allAgentNodes = [...normalizedAgents, ...departingAgentNodes];
+            
             // Normalize docs to have node-like fields for graph rendering
             const normalizedDocs = (docsData.docs || []).map(doc => ({
                 ...doc,
@@ -5897,7 +5930,7 @@
                 depends_on: doc.supersedes ? [doc.supersedes] : []  // Version chain as dependency
             }));
             
-            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas, ...normalizedQueue, ...normalizedAgents, ...normalizedDocs];
+            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas, ...normalizedQueue, ...allAgentNodes, ...normalizedDocs];
             state.ready = readyData.tasks || [];
             state.ideas = ideasData.ideas || [];
             state.tests = testsData.tests || [];
