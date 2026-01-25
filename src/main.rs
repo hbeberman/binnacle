@@ -166,20 +166,38 @@ fn run_command(
                 assignee,
                 description,
                 queue,
+                check_complexity,
+                force,
             } => {
                 // Convert empty or whitespace-only string to None
                 let short_name = short_name.filter(|s| !s.trim().is_empty());
-                let result = commands::task_create_with_queue(
-                    repo_path,
-                    title,
-                    short_name,
-                    description,
-                    priority,
-                    tag,
-                    assignee,
-                    queue,
-                )?;
-                output(&result, human);
+
+                // Check complexity if requested (and not forcing)
+                if check_complexity && !force {
+                    let result = commands::task_create_with_complexity_check(
+                        repo_path,
+                        title,
+                        short_name,
+                        description,
+                        priority,
+                        tag,
+                        assignee,
+                        queue,
+                    )?;
+                    output(&result, human);
+                } else {
+                    let result = commands::task_create_with_queue(
+                        repo_path,
+                        title,
+                        short_name,
+                        description,
+                        priority,
+                        tag,
+                        assignee,
+                        queue,
+                    )?;
+                    output(&result, human);
+                }
             }
 
             TaskCommands::List {
@@ -1472,6 +1490,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 assignee,
                 description,
                 queue,
+                check_complexity,
+                force,
             } => (
                 "task create".to_string(),
                 serde_json::json!({
@@ -1482,6 +1502,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "assignee": assignee,
                     "description": description,
                     "queue": queue,
+                    "check_complexity": check_complexity,
+                    "force": force,
                 }),
             ),
             TaskCommands::List {

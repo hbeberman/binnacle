@@ -11,7 +11,7 @@
 use crate::models::{
     Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Editor, Idea,
     IdeaStatus, Milestone, Queue, SessionState, Task, TaskStatus, TestNode, TestResult,
-    graph::UnionFind,
+    complexity::analyze_complexity, graph::UnionFind,
 };
 use crate::storage::{EntityType, Storage, generate_id, parse_status};
 use crate::{Error, Result};
@@ -2185,6 +2185,155 @@ fn add_entity_to_queue_internal(storage: &mut Storage, entity_id: &str) -> Resul
     storage.add_edge(&edge)?;
 
     Ok(queue_id)
+}
+
+/// Result of task creation with complexity check.
+///
+/// When complexity is detected and the task is not forced, returns a suggestion
+/// instead of creating the task. This implements the "soft-gate" pattern for
+/// buddy agents.
+#[derive(Serialize)]
+pub struct TaskCreateResult {
+    /// Whether complexity was detected
+    pub complexity_detected: bool,
+
+    /// The complexity score (if checked)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complexity_score: Option<u8>,
+
+    /// The suggestion text from buddy (if complex)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
+
+    /// Reasons for complexity assessment
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub complexity_reasons: Vec<String>,
+
+    /// Command to force task creation anyway
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proceed_command: Option<String>,
+
+    /// Command to file as idea instead
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idea_command: Option<String>,
+
+    /// The created task (if not complex or forced)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_created: Option<TaskCreated>,
+}
+
+impl Output for TaskCreateResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if let Some(ref task) = self.task_created {
+            // Task was created normally
+            task.to_human()
+        } else if let Some(ref suggestion) = self.suggestion {
+            // Complexity detected, show soft-gate suggestion
+            let mut lines = vec![suggestion.clone()];
+
+            if let Some(ref cmd) = self.idea_command {
+                lines.push(format!("\nTo file as idea: {}", cmd));
+            }
+            if let Some(ref cmd) = self.proceed_command {
+                lines.push(format!("To file as task anyway: {}", cmd));
+            }
+
+            lines.join("\n")
+        } else {
+            "Task creation result".to_string()
+        }
+    }
+}
+
+/// Create a new task with complexity checking.
+///
+/// Analyzes the task title and description for complexity indicators. If the
+/// task appears complex (multiple concerns, exploratory language, etc.), returns
+/// a soft-gate suggestion recommending to file as an idea instead.
+///
+/// This is useful for buddy agents to help users avoid creating overly complex
+/// tasks that might be better suited as ideas for further breakdown.
+#[allow(clippy::too_many_arguments)]
+pub fn task_create_with_complexity_check(
+    repo_path: &Path,
+    title: String,
+    short_name: Option<String>,
+    description: Option<String>,
+    priority: Option<u8>,
+    tags: Vec<String>,
+    assignee: Option<String>,
+    queue: bool,
+) -> Result<TaskCreateResult> {
+    // Analyze complexity
+    let score = analyze_complexity(&title, description.as_deref());
+
+    if score.is_complex() {
+        // Build helper commands for the user
+        let escaped_title = title.replace('"', "\\\"");
+        let mut force_cmd = format!("bn task create \"{}\" --force", escaped_title);
+        let mut idea_cmd = format!("bn idea create \"{}\"", escaped_title);
+
+        // Add optional flags to force command
+        if let Some(ref sn) = short_name {
+            let escaped_sn = sn.replace('"', "\\\"");
+            force_cmd.push_str(&format!(" -s \"{}\"", escaped_sn));
+            idea_cmd.push_str(&format!(" -s \"{}\"", escaped_sn));
+        }
+        if let Some(ref desc) = description {
+            let escaped_desc = desc.replace('"', "\\\"");
+            force_cmd.push_str(&format!(" -d \"{}\"", escaped_desc));
+            idea_cmd.push_str(&format!(" -d \"{}\"", escaped_desc));
+        }
+        if let Some(p) = priority {
+            force_cmd.push_str(&format!(" -p {}", p));
+        }
+        for tag in &tags {
+            force_cmd.push_str(&format!(" -t {}", tag));
+            idea_cmd.push_str(&format!(" -t {}", tag));
+        }
+        if let Some(ref a) = assignee {
+            force_cmd.push_str(&format!(" -a {}", a));
+        }
+        if queue {
+            force_cmd.push_str(" -q");
+        }
+
+        return Ok(TaskCreateResult {
+            complexity_detected: true,
+            complexity_score: Some(score.score),
+            suggestion: score.soft_gate_suggestion(),
+            complexity_reasons: score.reasons.clone(),
+            proceed_command: Some(force_cmd),
+            idea_command: Some(idea_cmd),
+            task_created: None,
+        });
+    }
+
+    // Not complex - create the task normally
+    let task = task_create_with_queue(
+        repo_path,
+        title,
+        short_name,
+        description,
+        priority,
+        tags,
+        assignee,
+        queue,
+    )?;
+
+    Ok(TaskCreateResult {
+        complexity_detected: false,
+        complexity_score: Some(score.score),
+        suggestion: None,
+        complexity_reasons: vec![],
+        proceed_command: None,
+        idea_command: None,
+        task_created: Some(task),
+    })
 }
 
 /// Create a new task.
@@ -19669,5 +19818,83 @@ mod tests {
             EXPECTED_FORMAT, "binnacle-store-v1",
             "Archive format string changed! Ensure backwards compatibility."
         );
+    }
+
+    #[test]
+    fn test_task_create_with_complexity_check_simple() {
+        let temp = setup();
+        let result = task_create_with_complexity_check(
+            temp.path(),
+            "Fix typo in README".to_string(),
+            None,
+            None,
+            Some(2),
+            vec![],
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Simple task should not trigger complexity detection
+        assert!(!result.complexity_detected);
+        assert!(result.task_created.is_some());
+        assert!(result.suggestion.is_none());
+        assert!(result.proceed_command.is_none());
+    }
+
+    #[test]
+    fn test_task_create_with_complexity_check_complex() {
+        let temp = setup();
+        let result = task_create_with_complexity_check(
+            temp.path(),
+            "Add authentication and fix database and improve logging".to_string(),
+            None,
+            None,
+            Some(2),
+            vec![],
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Complex task should trigger soft-gate
+        assert!(result.complexity_detected);
+        assert!(result.task_created.is_none()); // No task created
+        assert!(result.suggestion.is_some());
+        assert!(result.proceed_command.is_some());
+        assert!(result.idea_command.is_some());
+
+        // Check the suggestion contains expected content
+        let suggestion = result.suggestion.unwrap();
+        assert!(suggestion.contains("idea"));
+        assert!(suggestion.contains("What would you like to do?"));
+    }
+
+    #[test]
+    fn test_task_create_with_complexity_check_preserves_options() {
+        let temp = setup();
+        let result = task_create_with_complexity_check(
+            temp.path(),
+            "Explore caching options and investigate patterns".to_string(),
+            Some("explore cache".to_string()),
+            Some("Need to research".to_string()),
+            Some(1),
+            vec!["research".to_string()],
+            Some("henry".to_string()),
+            false,
+        )
+        .unwrap();
+
+        // Should be complex (exploratory language)
+        assert!(result.complexity_detected);
+
+        // Check that the proceed_command includes all options
+        let proceed_cmd = result.proceed_command.unwrap();
+        assert!(proceed_cmd.contains("--force"));
+        assert!(proceed_cmd.contains("-s \"explore cache\""));
+        assert!(proceed_cmd.contains("-d \"Need to research\""));
+        assert!(proceed_cmd.contains("-p 1"));
+        assert!(proceed_cmd.contains("-t research"));
+        assert!(proceed_cmd.contains("-a henry"));
     }
 }
