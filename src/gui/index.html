@@ -1845,6 +1845,59 @@
             opacity: 0.8;
         }
 
+        .legend-swatch.commits {
+            background: var(--accent-purple);
+            opacity: 0.9;
+        }
+
+        /* Commit markers on timeline */
+        .activity-timeline-commit {
+            fill: var(--accent-purple);
+            stroke: var(--bg-primary);
+            stroke-width: 1;
+            cursor: pointer;
+            transition: transform 0.15s ease;
+        }
+
+        .activity-timeline-commit:hover {
+            transform: scale(1.3);
+            filter: brightness(1.2);
+        }
+
+        /* Commit tooltip overlay */
+        .commit-tooltip {
+            position: absolute;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.75rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 300px;
+        }
+
+        .commit-tooltip-sha {
+            font-family: 'SF Mono', monospace;
+            color: var(--accent-purple);
+            font-weight: 600;
+        }
+
+        .commit-tooltip-message {
+            color: var(--text-primary);
+            margin-top: 0.25rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .commit-tooltip-meta {
+            color: var(--text-muted);
+            font-size: 0.65rem;
+            margin-top: 0.25rem;
+        }
+
         /* Command Frequency Chart */
         .command-frequency-chart {
             background: var(--bg-secondary);
@@ -3815,6 +3868,66 @@
             border-color: var(--accent-light);
         }
 
+        /* Info Panel Commits Tab */
+        .info-panel-commits-log {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .info-panel-commit-entry {
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.75rem;
+        }
+
+        .info-panel-commit-entry:last-child {
+            border-bottom: none;
+        }
+
+        .info-panel-commit-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.25rem;
+        }
+
+        .info-panel-commit-sha {
+            font-family: 'SF Mono', monospace;
+            color: var(--accent-purple);
+            font-weight: 600;
+            font-size: 0.7rem;
+        }
+
+        .info-panel-commit-time {
+            color: var(--text-muted);
+            font-size: 0.65rem;
+        }
+
+        .info-panel-commit-message {
+            color: var(--text-primary);
+            word-break: break-word;
+        }
+
+        .info-panel-commit-author {
+            color: var(--text-muted);
+            font-size: 0.65rem;
+            margin-top: 0.25rem;
+        }
+
+        .info-panel-commits-empty {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            padding: 1rem;
+        }
+
+        .info-panel-commits-loading {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            padding: 1rem;
+        }
+
         /* Edge Info Panel */
         .edge-info-panel {
             position: absolute;
@@ -4715,6 +4828,7 @@
                     <div class="info-panel-tabs">
                         <button class="info-panel-tab active" data-tab="details">Details</button>
                         <button class="info-panel-tab" data-tab="activity">Activity</button>
+                        <button class="info-panel-tab" data-tab="commits">Commits</button>
                     </div>
                     <div id="info-panel-details-tab" class="info-panel-tab-content active">
                         <div id="info-panel-queue-section" class="info-panel-queue-section" style="display: none;">
@@ -4747,6 +4861,11 @@
                             <div class="info-panel-activity-loading">Loading activity...</div>
                         </div>
                         <a id="info-panel-view-full-log" class="info-panel-view-full-log">View in full activity log →</a>
+                    </div>
+                    <div id="info-panel-commits-tab" class="info-panel-tab-content">
+                        <div id="info-panel-commits-content" class="info-panel-commits-log">
+                            <div class="info-panel-commits-loading">Loading commits...</div>
+                        </div>
                     </div>
                 </div>
                 <div class="edge-info-panel" id="edge-info-panel">
@@ -4914,6 +5033,10 @@
                         <div class="activity-timeline-legend-item">
                             <div class="legend-swatch failures"></div>
                             <span>Failures</span>
+                        </div>
+                        <div class="activity-timeline-legend-item">
+                            <div class="legend-swatch commits"></div>
+                            <span>Commits</span>
                         </div>
                     </div>
                 </div>
@@ -5243,6 +5366,7 @@
             tests: [],
             docs: [],
             log: [],
+            commits: [], // Git commits for timeline correlation
             logAnnotations: new Map(), // Map of log_timestamp -> array of annotations
             logPagination: {
                 total: 0,          // Total number of log entries on server
@@ -5609,7 +5733,7 @@
         async function loadData() {
             // Load all data in parallel (log uses pagination)
             const logLimit = state.logPagination.limit;
-            const [configData, tasksData, bugsData, ideasData, readyData, testsData, docsData, logData, edgesData, agentsData, queueData] = await Promise.all([
+            const [configData, tasksData, bugsData, ideasData, readyData, testsData, docsData, logData, edgesData, agentsData, queueData, commitsData] = await Promise.all([
                 fetch('/api/config').then(r => r.json()),
                 fetch('/api/tasks').then(r => r.json()),
                 fetch('/api/bugs').then(r => r.json()),
@@ -5620,7 +5744,8 @@
                 fetch(`/api/log?limit=${logLimit}&offset=0`).then(r => r.json()),
                 fetch('/api/edges').then(r => r.json()),
                 fetch('/api/agents').then(r => r.json()),
-                fetch('/api/queue').then(r => r.json())
+                fetch('/api/queue').then(r => r.json()),
+                fetch('/api/commits?limit=200').then(r => r.json()).catch(() => ({ commits: [] }))
             ]);
             
             // Update the document title with project name
@@ -5685,6 +5810,7 @@
             state.tests = testsData.tests || [];
             state.docs = docsData.docs || [];
             state.log = logData.log || [];
+            state.commits = commitsData.commits || [];
             
             // Update log pagination state
             state.logPagination.total = logData.total || state.log.length;
@@ -7675,6 +7801,11 @@
                 if (tabName === 'activity' && currentInfoPanelEntityId) {
                     loadEntityActivity(currentInfoPanelEntityId);
                 }
+                
+                // Load commits when switching to commits tab
+                if (tabName === 'commits' && currentInfoPanelEntityId) {
+                    loadEntityCommits(currentInfoPanelEntityId);
+                }
             });
         });
 
@@ -7803,6 +7934,108 @@
         // Clear activity cache when data refreshes
         function clearEntityActivityCache() {
             entityActivityCache = {};
+        }
+
+        // Entity commits cache
+        let entityCommitsCache = {};
+
+        // Fetch and display git commits that occurred during work on an entity
+        async function loadEntityCommits(entityId) {
+            const contentEl = document.getElementById('info-panel-commits-content');
+            
+            // Check cache first
+            if (entityCommitsCache[entityId]) {
+                renderEntityCommits(entityCommitsCache[entityId], entityId);
+                return;
+            }
+            
+            contentEl.innerHTML = '<div class="info-panel-commits-loading">Loading commits...</div>';
+            
+            try {
+                // Get entity's activity to find time range
+                const task = state.tasks.find(t => t.id === entityId);
+                if (!task) {
+                    contentEl.innerHTML = '<div class="info-panel-commits-empty">Entity not found</div>';
+                    return;
+                }
+                
+                // Get all activity for this entity to find time range
+                const entityLogs = (state.log || []).filter(entry => {
+                    const argsStr = JSON.stringify(entry.args || {});
+                    return argsStr.includes(entityId);
+                });
+                
+                // Find time range from activity (or use created_at/updated_at)
+                let startTime = task.created_at;
+                let endTime = task.updated_at || new Date().toISOString();
+                
+                if (entityLogs.length > 0) {
+                    const timestamps = entityLogs.map(e => new Date(e.timestamp).getTime());
+                    startTime = new Date(Math.min(...timestamps)).toISOString();
+                    endTime = new Date(Math.max(...timestamps)).toISOString();
+                }
+                
+                // Fetch commits in that time range
+                const response = await fetch(`/api/commits?limit=50&after=${encodeURIComponent(startTime)}&before=${encodeURIComponent(endTime)}`);
+                if (!response.ok) throw new Error('Failed to fetch commits');
+                
+                const data = await response.json();
+                const commits = data.commits || [];
+                
+                // Cache the result
+                entityCommitsCache[entityId] = commits;
+                
+                renderEntityCommits(commits, entityId);
+            } catch (error) {
+                console.error('Failed to load entity commits:', error);
+                contentEl.innerHTML = '<div class="info-panel-commits-empty">Failed to load commits</div>';
+            }
+        }
+
+        function renderEntityCommits(commits, entityId) {
+            const contentEl = document.getElementById('info-panel-commits-content');
+            
+            if (!commits || commits.length === 0) {
+                contentEl.innerHTML = '<div class="info-panel-commits-empty">No commits found during work on this entity</div>';
+                return;
+            }
+            
+            const formatTime = (timestamp) => {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diff = now - date;
+                const minutes = Math.floor(diff / 60000);
+                const hours = Math.floor(diff / 3600000);
+                const days = Math.floor(diff / 86400000);
+                
+                if (minutes < 1) return 'just now';
+                if (minutes < 60) return `${minutes}m ago`;
+                if (hours < 24) return `${hours}h ago`;
+                if (days < 7) return `${days}d ago`;
+                return date.toLocaleDateString();
+            };
+            
+            contentEl.innerHTML = commits.slice(0, 20).map(commit => {
+                return `
+                    <div class="info-panel-commit-entry">
+                        <div class="info-panel-commit-header">
+                            <span class="info-panel-commit-sha">${escapeHtml(commit.short_sha)}</span>
+                            <span class="info-panel-commit-time">${formatTime(commit.timestamp)}</span>
+                        </div>
+                        <div class="info-panel-commit-message">${escapeHtml(commit.subject)}</div>
+                        <div class="info-panel-commit-author">${escapeHtml(commit.author)}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            if (commits.length > 20) {
+                contentEl.innerHTML += `<div class="info-panel-commits-empty" style="padding: 0.5rem;">+ ${commits.length - 20} more commits</div>`;
+            }
+        }
+
+        // Clear commits cache when data refreshes
+        function clearEntityCommitsCache() {
+            entityCommitsCache = {};
         }
 
         // Edge info panel functions
@@ -10671,6 +10904,35 @@
                 `;
             });
             
+            // Add commit markers as triangles at the top of the timeline
+            const commits = state.commits || [];
+            const commitMarkersInRange = commits.filter(commit => {
+                const commitTime = new Date(commit.timestamp).getTime();
+                return commitTime >= bucketStart && commitTime <= bucketEnd;
+            });
+            
+            // Render commit markers (triangles pointing down)
+            commitMarkersInRange.forEach(commit => {
+                const commitTime = new Date(commit.timestamp).getTime();
+                const x = ((commitTime - bucketStart) / (bucketEnd - bucketStart)) * svgWidth;
+                const markerSize = 6;
+                
+                // Triangle pointing down at the top of the timeline
+                svgContent += `
+                    <polygon 
+                        class="activity-timeline-commit"
+                        points="${x - markerSize},0 ${x + markerSize},0 ${x},${markerSize * 1.5}"
+                        data-sha="${commit.sha}"
+                        data-short-sha="${commit.short_sha}"
+                        data-author="${escapeHtml(commit.author)}"
+                        data-subject="${escapeHtml(commit.subject)}"
+                        data-timestamp="${commit.timestamp}"
+                    >
+                        <title>${commit.short_sha}: ${escapeHtml(commit.subject)}\n${commit.author} - ${new Date(commit.timestamp).toLocaleString()}</title>
+                    </polygon>
+                `;
+            });
+            
             svg.innerHTML = svgContent;
             
             // Add click handlers
@@ -10720,7 +10982,8 @@
             `;
             
             // Update range display
-            rangeDisplay.textContent = `${entries.length} entries • ${bucketLabel} buckets`;
+            const commitCount = commitMarkersInRange.length;
+            rangeDisplay.textContent = `${entries.length} entries${commitCount > 0 ? ` • ${commitCount} commits` : ''} • ${bucketLabel} buckets`;
         }
 
         // Command Frequency Chart - shows top 10 commands

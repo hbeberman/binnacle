@@ -9,7 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 use std::net::{SocketAddr, TcpListener};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{Mutex, broadcast};
@@ -105,6 +105,8 @@ pub struct AppState {
     pub project_name: String,
     /// WebSocket performance metrics
     pub ws_metrics: Arc<WebSocketMetrics>,
+    /// Repository path for git operations
+    pub repo_path: PathBuf,
 }
 
 /// Start the GUI web server
@@ -129,6 +131,7 @@ pub async fn start_server(
         update_tx,
         project_name,
         ws_metrics: Arc::new(WebSocketMetrics::new()),
+        repo_path: repo_path.to_path_buf(),
     };
 
     // Start file watcher in background
@@ -166,6 +169,7 @@ pub async fn start_server(
         )
         .route("/api/agents", get(get_agents))
         .route("/api/agents/:pid/kill", post(kill_agent))
+        .route("/api/commits", get(get_git_commits))
         .route("/api/metrics/ws", get(get_ws_metrics))
         .route("/ws", get(crate::gui::websocket::ws_handler))
         .with_state(state);
@@ -910,4 +914,83 @@ async fn toggle_queue_membership(
 async fn get_ws_metrics(State(state): State<AppState>) -> Json<serde_json::Value> {
     let metrics = state.ws_metrics.snapshot();
     Json(serde_json::json!({ "websocket": metrics }))
+}
+
+/// Query parameters for git commits endpoint
+#[derive(Deserialize)]
+struct CommitsQueryParams {
+    /// Maximum commits to return (default: 100, max: 500)
+    limit: Option<u32>,
+    /// Only return commits after this ISO 8601 timestamp
+    after: Option<String>,
+    /// Only return commits before this ISO 8601 timestamp
+    before: Option<String>,
+}
+
+/// Get recent git commits for timeline correlation
+///
+/// Query parameters:
+/// - `limit`: Maximum commits to return (default: 100, max: 500)
+/// - `after`: Only return commits after this ISO 8601 timestamp
+/// - `before`: Only return commits before this ISO 8601 timestamp
+async fn get_git_commits(
+    State(state): State<AppState>,
+    Query(params): Query<CommitsQueryParams>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let limit = params.limit.unwrap_or(100).min(500);
+
+    // Build git log command with format: sha|timestamp|author|subject
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("-C")
+        .arg(&state.repo_path)
+        .arg("--no-pager")
+        .arg("log")
+        .arg(format!("-{}", limit))
+        .arg("--format=%H|%aI|%an|%s");
+
+    // Add date range filters if provided
+    if let Some(ref after) = params.after {
+        cmd.arg(format!("--after={}", after));
+    }
+    if let Some(ref before) = params.before {
+        cmd.arg(format!("--before={}", before));
+    }
+
+    let output = cmd
+        .output()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if !output.status.success() {
+        // Git command failed (might not be a git repo)
+        return Ok(Json(serde_json::json!({
+            "commits": [],
+            "count": 0,
+            "error": "Not a git repository or git command failed"
+        })));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let commits: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(4, '|').collect();
+            if parts.len() == 4 {
+                Some(serde_json::json!({
+                    "sha": parts[0],
+                    "timestamp": parts[1],
+                    "author": parts[2],
+                    "subject": parts[3],
+                    "short_sha": &parts[0][..7.min(parts[0].len())]
+                }))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let count = commits.len();
+    Ok(Json(serde_json::json!({
+        "commits": commits,
+        "count": count
+    })))
 }
