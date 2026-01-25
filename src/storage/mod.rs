@@ -3798,6 +3798,56 @@ impl Storage {
         Ok(count)
     }
 
+    /// Delete old action logs based on retention settings.
+    ///
+    /// Returns the number of entries deleted.
+    ///
+    /// - `max_entries`: If set, keep only this many most recent entries
+    /// - `max_age_days`: If set, delete entries older than this many days
+    ///
+    /// Both limits are applied if both are set.
+    pub fn delete_old_action_logs(
+        &mut self,
+        max_entries: Option<u32>,
+        max_age_days: Option<u32>,
+    ) -> Result<u32> {
+        let mut total_deleted = 0u32;
+
+        // Delete entries older than max_age_days
+        if let Some(days) = max_age_days {
+            let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
+            let cutoff_str = cutoff.to_rfc3339();
+
+            let deleted = self.conn.execute(
+                "DELETE FROM action_logs WHERE timestamp < ?1",
+                [&cutoff_str],
+            )?;
+            total_deleted += deleted as u32;
+        }
+
+        // Delete entries exceeding max_entries (keep most recent)
+        if let Some(max) = max_entries {
+            // First count how many we have
+            let count: u32 =
+                self.conn
+                    .query_row("SELECT COUNT(*) FROM action_logs", [], |row| row.get(0))?;
+
+            if count > max {
+                let to_delete = count - max;
+                // Delete oldest entries (those with smallest timestamps)
+                let deleted = self.conn.execute(
+                    "DELETE FROM action_logs WHERE rowid IN (
+                        SELECT rowid FROM action_logs ORDER BY timestamp ASC LIMIT ?1
+                    )",
+                    [to_delete],
+                )?;
+                total_deleted += deleted as u32;
+            }
+        }
+
+        Ok(total_deleted)
+    }
+
     /// Import action logs from JSONL file into SQLite cache.
     /// This is used to populate the cache from existing logs.
     pub fn import_action_logs_from_file(&mut self, log_path: &Path) -> Result<u32> {
@@ -5618,5 +5668,154 @@ mod tests {
             .unwrap();
         assert_eq!(logs.len(), 1);
         assert!(!logs[0].success);
+    }
+
+    #[test]
+    fn test_action_log_delete_by_max_entries() {
+        let (_env, mut storage) = create_test_storage();
+
+        // Add 10 entries with increasing timestamps
+        for i in 0..10 {
+            let log_entry = crate::action_log::ActionLog {
+                timestamp: chrono::Utc::now() + chrono::Duration::milliseconds(i as i64 * 100),
+                repo_path: "/test/repo".to_string(),
+                command: format!("command_{}", i),
+                args: serde_json::json!({}),
+                success: true,
+                error: None,
+                duration_ms: 10,
+                user: "testuser".to_string(),
+            };
+            storage.add_action_log(&log_entry).unwrap();
+        }
+
+        // Verify we have 10 entries
+        let count = storage
+            .count_action_logs(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(count, 10);
+
+        // Delete to keep only 5 entries
+        let deleted = storage.delete_old_action_logs(Some(5), None).unwrap();
+        assert_eq!(deleted, 5);
+
+        // Verify we now have 5 entries
+        let count = storage
+            .count_action_logs(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(count, 5);
+
+        // Verify the most recent 5 entries are kept (command_5 through command_9)
+        let logs = storage
+            .query_action_logs(None, None, None, None, None, None, None)
+            .unwrap();
+        assert_eq!(logs.len(), 5);
+        // Logs are returned in DESC order by timestamp, so most recent first
+        for log in &logs {
+            let cmd_num: u32 = log
+                .command
+                .strip_prefix("command_")
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert!(
+                cmd_num >= 5,
+                "Expected command_5 or higher, got {}",
+                log.command
+            );
+        }
+    }
+
+    #[test]
+    fn test_action_log_delete_by_age() {
+        let (_env, mut storage) = create_test_storage();
+
+        // Add entries: 3 old (8 days ago) and 3 recent (now)
+        for i in 0..3 {
+            let old_entry = crate::action_log::ActionLog {
+                timestamp: chrono::Utc::now() - chrono::Duration::days(8)
+                    + chrono::Duration::milliseconds(i as i64),
+                repo_path: "/test/repo".to_string(),
+                command: format!("old_command_{}", i),
+                args: serde_json::json!({}),
+                success: true,
+                error: None,
+                duration_ms: 10,
+                user: "testuser".to_string(),
+            };
+            storage.add_action_log(&old_entry).unwrap();
+        }
+
+        for i in 0..3 {
+            let recent_entry = crate::action_log::ActionLog {
+                timestamp: chrono::Utc::now() + chrono::Duration::milliseconds(i as i64),
+                repo_path: "/test/repo".to_string(),
+                command: format!("recent_command_{}", i),
+                args: serde_json::json!({}),
+                success: true,
+                error: None,
+                duration_ms: 10,
+                user: "testuser".to_string(),
+            };
+            storage.add_action_log(&recent_entry).unwrap();
+        }
+
+        // Verify we have 6 entries
+        let count = storage
+            .count_action_logs(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(count, 6);
+
+        // Delete entries older than 7 days
+        let deleted = storage.delete_old_action_logs(None, Some(7)).unwrap();
+        assert_eq!(deleted, 3);
+
+        // Verify we now have 3 entries (the recent ones)
+        let count = storage
+            .count_action_logs(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(count, 3);
+
+        // Verify all remaining entries are recent
+        let logs = storage
+            .query_action_logs(None, None, None, None, None, None, None)
+            .unwrap();
+        for log in &logs {
+            assert!(
+                log.command.starts_with("recent_"),
+                "Expected recent command, got {}",
+                log.command
+            );
+        }
+    }
+
+    #[test]
+    fn test_action_log_delete_no_settings() {
+        let (_env, mut storage) = create_test_storage();
+
+        // Add 3 entries
+        for i in 0..3 {
+            let log_entry = crate::action_log::ActionLog {
+                timestamp: chrono::Utc::now() + chrono::Duration::milliseconds(i as i64),
+                repo_path: "/test/repo".to_string(),
+                command: format!("command_{}", i),
+                args: serde_json::json!({}),
+                success: true,
+                error: None,
+                duration_ms: 10,
+                user: "testuser".to_string(),
+            };
+            storage.add_action_log(&log_entry).unwrap();
+        }
+
+        // Delete with no settings - should delete nothing
+        let deleted = storage.delete_old_action_logs(None, None).unwrap();
+        assert_eq!(deleted, 0);
+
+        // Verify all 3 entries are still there
+        let count = storage
+            .count_action_logs(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(count, 3);
     }
 }

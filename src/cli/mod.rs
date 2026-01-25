@@ -1254,6 +1254,24 @@ pub enum LogCommands {
         #[arg(short, long)]
         output: Option<String>,
     },
+
+    /// Compact action logs by enforcing retention limits
+    ///
+    /// Deletes old entries based on configured retention settings.
+    /// Uses `action_log_max_entries` and `action_log_max_age_days` config keys.
+    Compact {
+        /// Override max entries to keep (ignores config if set)
+        #[arg(long)]
+        max_entries: Option<u32>,
+
+        /// Override max age in days (ignores config if set)
+        #[arg(long)]
+        max_age_days: Option<u32>,
+
+        /// Show what would be deleted without actually deleting
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// Graph analysis subcommands

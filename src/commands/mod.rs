@@ -9967,6 +9967,151 @@ fn format_logs_markdown(logs: &[crate::action_log::ActionLog]) -> String {
     md
 }
 
+// === Log Compact Command ===
+
+/// Result of log compact command.
+#[derive(Serialize)]
+pub struct LogCompactResult {
+    /// Number of entries deleted
+    pub deleted: u32,
+    /// Total entries before compaction
+    pub total_before: u32,
+    /// Total entries after compaction
+    pub total_after: u32,
+    /// Max entries setting used (if any)
+    pub max_entries: Option<u32>,
+    /// Max age days setting used (if any)
+    pub max_age_days: Option<u32>,
+    /// Whether this was a dry run
+    pub dry_run: bool,
+}
+
+impl Output for LogCompactResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if self.dry_run {
+            lines.push("Dry run - no changes made".to_string());
+        }
+
+        if self.deleted == 0 {
+            lines.push(format!(
+                "No entries to delete ({} total entries)",
+                self.total_before
+            ));
+        } else {
+            lines.push(format!(
+                "Deleted {} of {} entries ({} remaining)",
+                self.deleted, self.total_before, self.total_after
+            ));
+        }
+
+        let mut settings = Vec::new();
+        if let Some(max) = self.max_entries {
+            settings.push(format!("max_entries={}", max));
+        }
+        if let Some(days) = self.max_age_days {
+            settings.push(format!("max_age_days={}", days));
+        }
+
+        if !settings.is_empty() {
+            lines.push(format!("Settings: {}", settings.join(", ")));
+        } else {
+            lines.push("No retention settings configured".to_string());
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Compact action logs by enforcing retention settings.
+pub fn log_compact(
+    repo_path: &Path,
+    max_entries_override: Option<u32>,
+    max_age_days_override: Option<u32>,
+    dry_run: bool,
+) -> Result<LogCompactResult> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Get retention settings (overrides take precedence over config)
+    let max_entries = match max_entries_override {
+        Some(n) => Some(n),
+        None => storage
+            .get_config("action_log_max_entries")?
+            .and_then(|s| s.parse::<u32>().ok()),
+    };
+
+    let max_age_days = match max_age_days_override {
+        Some(n) => Some(n),
+        None => storage
+            .get_config("action_log_max_age_days")?
+            .and_then(|s| s.parse::<u32>().ok()),
+    };
+
+    // Get total count before
+    let total_before = storage.count_action_logs(None, None, None, None, None)?;
+
+    // If no settings, nothing to do
+    if max_entries.is_none() && max_age_days.is_none() {
+        return Ok(LogCompactResult {
+            deleted: 0,
+            total_before,
+            total_after: total_before,
+            max_entries,
+            max_age_days,
+            dry_run,
+        });
+    }
+
+    // If dry run, calculate what would be deleted without deleting
+    if dry_run {
+        let mut would_delete = 0u32;
+
+        // Calculate entries older than max_age_days
+        if let Some(days) = max_age_days {
+            let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
+            let cutoff_str = cutoff.to_rfc3339();
+            would_delete += storage.count_action_logs(Some(&cutoff_str), None, None, None, None)?;
+        }
+
+        // Calculate entries exceeding max_entries (after age deletion)
+        if let Some(max) = max_entries {
+            let remaining_after_age = total_before.saturating_sub(would_delete);
+            if remaining_after_age > max {
+                would_delete += remaining_after_age - max;
+            }
+        }
+
+        return Ok(LogCompactResult {
+            deleted: would_delete,
+            total_before,
+            total_after: total_before.saturating_sub(would_delete),
+            max_entries,
+            max_age_days,
+            dry_run,
+        });
+    }
+
+    // Perform deletion
+    let deleted = storage.delete_old_action_logs(max_entries, max_age_days)?;
+
+    // Get total count after
+    let total_after = storage.count_action_logs(None, None, None, None, None)?;
+
+    Ok(LogCompactResult {
+        deleted,
+        total_before,
+        total_after,
+        max_entries,
+        max_age_days,
+        dry_run,
+    })
+}
+
 // === Config Commands ===
 
 /// Result of config get command.
@@ -10110,6 +10255,30 @@ pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet>
                     "Invalid boolean value for {}: {}. Must be one of: true, false, 1, 0, yes, no",
                     key, value
                 )));
+            }
+        }
+        "action_log_max_entries" => {
+            // Validate positive integer
+            match value.parse::<u32>() {
+                Ok(n) if n > 0 => {}
+                _ => {
+                    return Err(Error::Other(format!(
+                        "Invalid value for {}: {}. Must be a positive integer.",
+                        key, value
+                    )));
+                }
+            }
+        }
+        "action_log_max_age_days" => {
+            // Validate positive integer
+            match value.parse::<u32>() {
+                Ok(n) if n > 0 => {}
+                _ => {
+                    return Err(Error::Other(format!(
+                        "Invalid value for {}: {}. Must be a positive integer.",
+                        key, value
+                    )));
+                }
             }
         }
         "action_log_path" => {
