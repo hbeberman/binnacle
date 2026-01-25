@@ -100,6 +100,18 @@ bn gui
 
 Interactive graph of tasks and dependencies with live updates.
 
+## Viewer (WASM)
+
+Export your task graph and view it in any browser—no server needed:
+
+```bash
+just build-viewer                # build the standalone viewer
+bn system store export data.bng  # export your project data
+# open target/viewer/viewer.html, drop in data.bng
+```
+
+See [docs/embedding-viewer.md](docs/embedding-viewer.md) for embedding in web pages.
+
 ## Building
 
 ```bash
