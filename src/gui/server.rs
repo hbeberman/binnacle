@@ -266,7 +266,9 @@ async fn get_available_work(
         })
         .count();
 
-    let total = ready_task_count + open_bug_count + open_idea_count;
+    // Only count ready tasks and open bugs as available work
+    // Ideas are speculative and should not count
+    let total = ready_task_count + open_bug_count;
 
     Ok(Json(serde_json::json!({
         "total": total,
