@@ -60,6 +60,10 @@
             --doc-handoff: #e87d4a;      /* Orange for Handoffs */
             /* Edge type colors - pinned (solid green, important connections) */
             --edge-pinned: #5cb85c;
+            /* Edge type colors - documents (doc → entity) */
+            --edge-documents: #4a90e2;
+            /* Edge type colors - impacts (bug impacts entity) */
+            --edge-impacts: #e85d5d;
             /* Overlay backgrounds */
             --overlay-bg: rgba(0, 0, 0, 0.85);
         }
@@ -5274,7 +5278,9 @@
             tests: { name: 'Tests', category: 'fixes', defaultVisible: false },
             queued: { name: 'Queued', category: 'queued', defaultVisible: true },
             working_on: { name: 'Working On', category: 'agent', defaultVisible: true },
-            worked_on: { name: 'Worked On', category: 'agent', defaultVisible: false }
+            worked_on: { name: 'Worked On', category: 'agent', defaultVisible: false },
+            documents: { name: 'Documents', category: 'documents', defaultVisible: true },
+            impacts: { name: 'Impacts', category: 'impacts', defaultVisible: true }
         };
 
         // Node types for visibility filtering
@@ -9360,6 +9366,18 @@
                         dashed: false,  // Solid line for important connections
                         lineWidth: 3    // Thicker to emphasize importance
                     };
+                case 'documents':
+                    return {
+                        color: styles.getPropertyValue('--edge-documents').trim() || '#4a90e2',
+                        dashed: true,  // Dashed line for documentation links
+                        lineWidth: 2
+                    };
+                case 'impacts':
+                    return {
+                        color: styles.getPropertyValue('--edge-impacts').trim() || '#e85d5d',
+                        dashed: true,  // Dashed line for impact relationships
+                        lineWidth: 2
+                    };
                 default:
                     return {
                         color: styles.getPropertyValue('--edge-default').trim(),
@@ -12587,6 +12605,8 @@
                 case 'fixes': return styles.getPropertyValue('--edge-fixes').trim();
                 case 'hierarchy': return styles.getPropertyValue('--edge-hierarchy').trim();
                 case 'queued': return styles.getPropertyValue('--edge-queued').trim();
+                case 'documents': return styles.getPropertyValue('--edge-documents').trim();
+                case 'impacts': return styles.getPropertyValue('--edge-impacts').trim();
                 default: return styles.getPropertyValue('--edge-default').trim();
             }
         }
