@@ -1138,6 +1138,155 @@
             transform: scale(0.95);
         }
         
+        /* Log annotations styles */
+        .log-annotations-section {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .log-annotations-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        
+        .log-annotation {
+            background: rgba(74, 144, 226, 0.1);
+            border: 1px solid rgba(74, 144, 226, 0.3);
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .log-annotation:last-child {
+            margin-bottom: 0;
+        }
+        
+        .log-annotation-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+        
+        .log-annotation-author {
+            font-weight: 500;
+        }
+        
+        .log-annotation-content {
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+        
+        .log-annotation-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .log-annotation-delete {
+            color: var(--danger);
+            cursor: pointer;
+            opacity: 0.6;
+            transition: opacity 0.15s;
+        }
+        
+        .log-annotation-delete:hover {
+            opacity: 1;
+        }
+        
+        .log-add-annotation-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            border: 1px solid var(--accent-blue);
+            border-radius: 4px;
+            background: transparent;
+            color: var(--accent-blue);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        
+        .log-add-annotation-btn:hover {
+            background: var(--accent-blue);
+            color: white;
+        }
+        
+        .log-annotation-form {
+            display: none;
+            margin-top: 0.5rem;
+        }
+        
+        .log-annotation-form.visible {
+            display: block;
+        }
+        
+        .log-annotation-textarea {
+            width: 100%;
+            min-height: 60px;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            font-family: inherit;
+            resize: vertical;
+        }
+        
+        .log-annotation-textarea:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+        
+        .log-annotation-form-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            justify-content: flex-end;
+        }
+        
+        .log-annotation-save-btn,
+        .log-annotation-cancel-btn {
+            padding: 0.35rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        
+        .log-annotation-save-btn {
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+        }
+        
+        .log-annotation-save-btn:hover {
+            background: var(--accent-light);
+        }
+        
+        .log-annotation-save-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .log-annotation-cancel-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+        
+        .log-annotation-cancel-btn:hover {
+            background: var(--bg-tertiary);
+        }
+        
         /* New entries badge for live streaming */
         .log-new-entries-badge {
             display: none;
@@ -5094,6 +5243,7 @@
             tests: [],
             docs: [],
             log: [],
+            logAnnotations: new Map(), // Map of log_timestamp -> array of annotations
             logPagination: {
                 total: 0,          // Total number of log entries on server
                 offset: 0,         // Current offset (how many entries we've loaded)
@@ -5545,6 +5695,9 @@
             if (state.log.length > 0) {
                 state.logLiveStream.newestTimestamp = state.log[0].timestamp;
             }
+            
+            // Fetch log annotations
+            await fetchLogAnnotations();
             
             // Update user filter dropdown with users from log
             updateUserFilterOptions();
@@ -11621,6 +11774,42 @@
                 </div>
             `);
             
+            // Annotations section
+            const annotations = state.logAnnotations.get(entry.timestamp) || [];
+            const annotationsHtml = annotations.map(a => `
+                <div class="log-annotation" data-annotation-id="${escapeHtml(a.id)}">
+                    <div class="log-annotation-meta">
+                        <span class="log-annotation-author">📝 ${escapeHtml(a.author)}</span>
+                        <div class="log-annotation-actions">
+                            <span class="log-annotation-time">${new Date(a.created_at).toLocaleString()}</span>
+                            <span class="log-annotation-delete" onclick="deleteLogAnnotation(event, '${escapeHtml(a.id)}')" title="Delete annotation">🗑️</span>
+                        </div>
+                    </div>
+                    <div class="log-annotation-content">${escapeHtml(a.content)}</div>
+                </div>
+            `).join('');
+            
+            expandedSections.push(`
+                <div class="log-expanded-section log-annotations-section">
+                    <div class="log-annotations-header">
+                        <div class="log-expanded-label">Notes ${annotations.length > 0 ? `(${annotations.length})` : ''}</div>
+                        <button class="log-add-annotation-btn" onclick="showAnnotationForm(event, '${escapeHtml(entry.timestamp)}')">
+                            ➕ Add Note
+                        </button>
+                    </div>
+                    <div class="log-annotations-list" data-log-timestamp="${escapeHtml(entry.timestamp)}">
+                        ${annotationsHtml || '<div style="color: var(--text-secondary); font-size: 0.8rem; font-style: italic;">No notes yet</div>'}
+                    </div>
+                    <div class="log-annotation-form" id="annotation-form-${escapeHtml(entry.timestamp).replace(/[:.]/g, '-')}">
+                        <textarea class="log-annotation-textarea" placeholder="Add a note to explain this log entry..." onclick="event.stopPropagation()"></textarea>
+                        <div class="log-annotation-form-buttons">
+                            <button class="log-annotation-cancel-btn" onclick="hideAnnotationForm(event, '${escapeHtml(entry.timestamp)}')">Cancel</button>
+                            <button class="log-annotation-save-btn" onclick="saveLogAnnotation(event, '${escapeHtml(entry.timestamp)}')">Save Note</button>
+                        </div>
+                    </div>
+                </div>
+            `);
+            
             const hasExpandedContent = expandedSections.length > 0;
             const expandIndicator = hasExpandedContent ? '<span class="log-expand-indicator">▼</span>' : '';
             const newEntryClass = entry._isNew ? 'new-entry' : '';
@@ -11711,6 +11900,151 @@
             }
             
             element.classList.toggle('expanded');
+        }
+        
+        // === Log Annotations ===
+        
+        // Fetch all annotations and populate the cache
+        async function fetchLogAnnotations() {
+            try {
+                const response = await fetch('/api/log/annotations');
+                const data = await response.json();
+                
+                // Clear and repopulate the annotations map
+                state.logAnnotations.clear();
+                for (const annotation of (data.annotations || [])) {
+                    const key = annotation.log_timestamp;
+                    if (!state.logAnnotations.has(key)) {
+                        state.logAnnotations.set(key, []);
+                    }
+                    state.logAnnotations.get(key).push(annotation);
+                }
+            } catch (err) {
+                console.error('Failed to fetch log annotations:', err);
+            }
+        }
+        
+        // Show the annotation form for a log entry
+        function showAnnotationForm(event, timestamp) {
+            event.stopPropagation();
+            const formId = `annotation-form-${timestamp.replace(/[:.]/g, '-')}`;
+            const form = document.getElementById(formId);
+            if (form) {
+                form.classList.add('visible');
+                const textarea = form.querySelector('textarea');
+                if (textarea) {
+                    textarea.focus();
+                }
+            }
+        }
+        
+        // Hide the annotation form for a log entry
+        function hideAnnotationForm(event, timestamp) {
+            event.stopPropagation();
+            const formId = `annotation-form-${timestamp.replace(/[:.]/g, '-')}`;
+            const form = document.getElementById(formId);
+            if (form) {
+                form.classList.remove('visible');
+                const textarea = form.querySelector('textarea');
+                if (textarea) {
+                    textarea.value = '';
+                }
+            }
+        }
+        
+        // Save a new annotation
+        async function saveLogAnnotation(event, timestamp) {
+            event.stopPropagation();
+            const formId = `annotation-form-${timestamp.replace(/[:.]/g, '-')}`;
+            const form = document.getElementById(formId);
+            if (!form) return;
+            
+            const textarea = form.querySelector('textarea');
+            const saveBtn = form.querySelector('.log-annotation-save-btn');
+            const content = textarea ? textarea.value.trim() : '';
+            
+            if (!content) {
+                return;
+            }
+            
+            // Disable button while saving
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
+            }
+            
+            try {
+                const response = await fetch('/api/log/annotations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        log_timestamp: timestamp,
+                        content: content
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to save annotation');
+                }
+                
+                const data = await response.json();
+                
+                // Add to local cache
+                if (!state.logAnnotations.has(timestamp)) {
+                    state.logAnnotations.set(timestamp, []);
+                }
+                state.logAnnotations.get(timestamp).push(data.annotation);
+                
+                // Re-render the log to show the new annotation
+                renderLog();
+                
+            } catch (err) {
+                console.error('Failed to save annotation:', err);
+                alert('Failed to save note. Please try again.');
+            } finally {
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Note';
+                }
+            }
+        }
+        
+        // Delete an annotation
+        async function deleteLogAnnotation(event, annotationId) {
+            event.stopPropagation();
+            
+            if (!confirm('Delete this note?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/log/annotations/${annotationId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to delete annotation');
+                }
+                
+                // Remove from local cache
+                for (const [timestamp, annotations] of state.logAnnotations.entries()) {
+                    const idx = annotations.findIndex(a => a.id === annotationId);
+                    if (idx !== -1) {
+                        annotations.splice(idx, 1);
+                        if (annotations.length === 0) {
+                            state.logAnnotations.delete(timestamp);
+                        }
+                        break;
+                    }
+                }
+                
+                // Re-render
+                renderLog();
+                
+            } catch (err) {
+                console.error('Failed to delete annotation:', err);
+                alert('Failed to delete note. Please try again.');
+            }
         }
         
         // Collapse all expanded log entries (called on Escape)

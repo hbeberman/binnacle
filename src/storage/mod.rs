@@ -24,7 +24,8 @@ pub use orphan_branch::OrphanBranchBackend;
 
 use crate::models::{
     Agent, AgentStatus, Bug, CommitLink, Doc, DocType, Edge, EdgeDirection, EdgeType, HydratedEdge,
-    Idea, IdeaStatus, Milestone, MilestoneProgress, Queue, Task, TaskStatus, TestNode, TestResult,
+    Idea, IdeaStatus, LogAnnotation, Milestone, MilestoneProgress, Queue, Task, TaskStatus,
+    TestNode, TestResult,
 };
 use crate::{Error, Result};
 use chrono::Utc;
@@ -428,6 +429,18 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_action_logs_command ON action_logs(command);
             CREATE INDEX IF NOT EXISTS idx_action_logs_user ON action_logs(user);
             CREATE INDEX IF NOT EXISTS idx_action_logs_success ON action_logs(success);
+
+            -- Log annotations table (for attaching notes to log entries)
+            CREATE TABLE IF NOT EXISTS log_annotations (
+                id TEXT PRIMARY KEY,
+                log_timestamp TEXT NOT NULL,
+                content TEXT NOT NULL,
+                author TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_log_annotations_timestamp ON log_annotations(log_timestamp);
             "#,
         )?;
 
@@ -561,6 +574,22 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_action_logs_command ON action_logs(command);
             CREATE INDEX IF NOT EXISTS idx_action_logs_user ON action_logs(user);
             CREATE INDEX IF NOT EXISTS idx_action_logs_success ON action_logs(success);
+            "#,
+        )?;
+
+        // Migration: Create log_annotations table if it doesn't exist
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS log_annotations (
+                id TEXT PRIMARY KEY,
+                log_timestamp TEXT NOT NULL,
+                content TEXT NOT NULL,
+                author TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_log_annotations_timestamp ON log_annotations(log_timestamp);
             "#,
         )?;
 
@@ -3896,6 +3925,168 @@ impl Storage {
         self.conn.execute("COMMIT", [])?;
         Ok(imported)
     }
+
+    // ============================================================
+    // Log Annotation methods
+    // ============================================================
+
+    /// Generate a unique ID for a log annotation.
+    pub fn generate_annotation_id(&self, log_timestamp: &str) -> String {
+        generate_id(
+            "bnl",
+            &format!(
+                "{}-{}",
+                log_timestamp,
+                Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            ),
+        )
+    }
+
+    /// Add a log annotation to storage.
+    pub fn add_log_annotation(&self, annotation: &LogAnnotation) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT INTO log_annotations (id, log_timestamp, content, author, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+            params![
+                annotation.id,
+                annotation.log_timestamp,
+                annotation.content,
+                annotation.author,
+                annotation.created_at.to_rfc3339(),
+                annotation.updated_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get a log annotation by ID.
+    pub fn get_log_annotation(&self, id: &str) -> Result<LogAnnotation> {
+        let annotation = self.conn.query_row(
+            "SELECT id, log_timestamp, content, author, created_at, updated_at FROM log_annotations WHERE id = ?1",
+            [id],
+            |row| {
+                let created_at_str: String = row.get(4)?;
+                let updated_at_str: String = row.get(5)?;
+                Ok(LogAnnotation {
+                    id: row.get(0)?,
+                    entity_type: "log_annotation".to_string(),
+                    log_timestamp: row.get(1)?,
+                    content: row.get(2)?,
+                    author: row.get(3)?,
+                    created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now()),
+                    updated_at: chrono::DateTime::parse_from_rfc3339(&updated_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now()),
+                })
+            },
+        )?;
+        Ok(annotation)
+    }
+
+    /// Get all annotations for a specific log entry (by timestamp).
+    pub fn get_annotations_for_log(&self, log_timestamp: &str) -> Result<Vec<LogAnnotation>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, log_timestamp, content, author, created_at, updated_at FROM log_annotations WHERE log_timestamp = ?1 ORDER BY created_at ASC"
+        )?;
+        let annotations = stmt
+            .query_map([log_timestamp], |row| {
+                let created_at_str: String = row.get(4)?;
+                let updated_at_str: String = row.get(5)?;
+                Ok(LogAnnotation {
+                    id: row.get(0)?,
+                    entity_type: "log_annotation".to_string(),
+                    log_timestamp: row.get(1)?,
+                    content: row.get(2)?,
+                    author: row.get(3)?,
+                    created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now()),
+                    updated_at: chrono::DateTime::parse_from_rfc3339(&updated_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now()),
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(annotations)
+    }
+
+    /// List all log annotations, optionally filtered.
+    ///
+    /// * `author_filter` - Filter by author (exact match)
+    /// * `search_filter` - Search in content (partial match)
+    pub fn list_log_annotations(
+        &self,
+        author_filter: Option<&str>,
+        search_filter: Option<&str>,
+    ) -> Result<Vec<LogAnnotation>> {
+        let mut sql = String::from(
+            "SELECT id, log_timestamp, content, author, created_at, updated_at FROM log_annotations WHERE 1=1",
+        );
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![];
+
+        if let Some(author) = author_filter {
+            sql.push_str(" AND author = ?");
+            params.push(Box::new(author.to_string()));
+        }
+
+        if let Some(search) = search_filter {
+            sql.push_str(" AND content LIKE ?");
+            params.push(Box::new(format!("%{}%", search)));
+        }
+
+        sql.push_str(" ORDER BY created_at DESC");
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let annotations = stmt
+            .query_map(params_refs.as_slice(), |row| {
+                let created_at_str: String = row.get(4)?;
+                let updated_at_str: String = row.get(5)?;
+                Ok(LogAnnotation {
+                    id: row.get(0)?,
+                    entity_type: "log_annotation".to_string(),
+                    log_timestamp: row.get(1)?,
+                    content: row.get(2)?,
+                    author: row.get(3)?,
+                    created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now()),
+                    updated_at: chrono::DateTime::parse_from_rfc3339(&updated_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now()),
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(annotations)
+    }
+
+    /// Update an existing log annotation.
+    pub fn update_log_annotation(&self, id: &str, content: &str) -> Result<()> {
+        let updated_at = Utc::now().to_rfc3339();
+        let rows_affected = self.conn.execute(
+            "UPDATE log_annotations SET content = ?1, updated_at = ?2 WHERE id = ?3",
+            params![content, updated_at, id],
+        )?;
+        if rows_affected == 0 {
+            return Err(Error::NotFound(format!("Log annotation not found: {}", id)));
+        }
+        Ok(())
+    }
+
+    /// Delete a log annotation.
+    pub fn delete_log_annotation(&self, id: &str) -> Result<()> {
+        let rows_affected = self
+            .conn
+            .execute("DELETE FROM log_annotations WHERE id = ?1", [id])?;
+        if rows_affected == 0 {
+            return Err(Error::NotFound(format!("Log annotation not found: {}", id)));
+        }
+        Ok(())
+    }
 }
 
 /// Resolve a git worktree's `.git` file to find the main repository root.
@@ -5817,5 +6008,186 @@ mod tests {
             .count_action_logs(None, None, None, None, None)
             .unwrap();
         assert_eq!(count, 3);
+    }
+
+    // ============================================================
+    // Log Annotation tests
+    // ============================================================
+
+    #[test]
+    fn test_log_annotation_add_and_get() {
+        let (_env, storage) = create_test_storage();
+
+        let timestamp = "2026-01-25T12:00:00Z";
+        let id = storage.generate_annotation_id(timestamp);
+
+        let annotation = LogAnnotation::new(
+            id.clone(),
+            timestamp.to_string(),
+            "This command failed because of missing permissions".to_string(),
+            "testuser".to_string(),
+        );
+
+        // Add the annotation
+        storage.add_log_annotation(&annotation).unwrap();
+
+        // Get it back
+        let retrieved = storage.get_log_annotation(&id).unwrap();
+        assert_eq!(retrieved.id, id);
+        assert_eq!(retrieved.log_timestamp, timestamp);
+        assert_eq!(
+            retrieved.content,
+            "This command failed because of missing permissions"
+        );
+        assert_eq!(retrieved.author, "testuser");
+    }
+
+    #[test]
+    fn test_log_annotation_get_by_timestamp() {
+        let (_env, storage) = create_test_storage();
+
+        let timestamp1 = "2026-01-25T12:00:00Z";
+        let timestamp2 = "2026-01-25T13:00:00Z";
+
+        // Add two annotations for timestamp1
+        let id1 = storage.generate_annotation_id(timestamp1);
+        storage
+            .add_log_annotation(&LogAnnotation::new(
+                id1.clone(),
+                timestamp1.to_string(),
+                "First note".to_string(),
+                "alice".to_string(),
+            ))
+            .unwrap();
+
+        // Sleep briefly to get a different ID
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let id2 = storage.generate_annotation_id(timestamp1);
+        storage
+            .add_log_annotation(&LogAnnotation::new(
+                id2.clone(),
+                timestamp1.to_string(),
+                "Second note".to_string(),
+                "bob".to_string(),
+            ))
+            .unwrap();
+
+        // Add one annotation for timestamp2
+        let id3 = storage.generate_annotation_id(timestamp2);
+        storage
+            .add_log_annotation(&LogAnnotation::new(
+                id3.clone(),
+                timestamp2.to_string(),
+                "Note for different entry".to_string(),
+                "alice".to_string(),
+            ))
+            .unwrap();
+
+        // Get annotations for timestamp1
+        let annotations = storage.get_annotations_for_log(timestamp1).unwrap();
+        assert_eq!(annotations.len(), 2);
+
+        // Get annotations for timestamp2
+        let annotations = storage.get_annotations_for_log(timestamp2).unwrap();
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].content, "Note for different entry");
+    }
+
+    #[test]
+    fn test_log_annotation_list_and_filter() {
+        let (_env, storage) = create_test_storage();
+
+        // Add a few annotations
+        let id1 = storage.generate_annotation_id("ts1");
+        storage
+            .add_log_annotation(&LogAnnotation::new(
+                id1,
+                "ts1".to_string(),
+                "Error due to network timeout".to_string(),
+                "alice".to_string(),
+            ))
+            .unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let id2 = storage.generate_annotation_id("ts2");
+        storage
+            .add_log_annotation(&LogAnnotation::new(
+                id2,
+                "ts2".to_string(),
+                "Fixed by restarting service".to_string(),
+                "bob".to_string(),
+            ))
+            .unwrap();
+
+        // List all
+        let all = storage.list_log_annotations(None, None).unwrap();
+        assert_eq!(all.len(), 2);
+
+        // Filter by author
+        let by_alice = storage.list_log_annotations(Some("alice"), None).unwrap();
+        assert_eq!(by_alice.len(), 1);
+        assert_eq!(by_alice[0].author, "alice");
+
+        // Search in content
+        let by_search = storage.list_log_annotations(None, Some("network")).unwrap();
+        assert_eq!(by_search.len(), 1);
+        assert!(by_search[0].content.contains("network"));
+    }
+
+    #[test]
+    fn test_log_annotation_update() {
+        let (_env, storage) = create_test_storage();
+
+        let id = storage.generate_annotation_id("ts");
+        storage
+            .add_log_annotation(&LogAnnotation::new(
+                id.clone(),
+                "ts".to_string(),
+                "Original content".to_string(),
+                "testuser".to_string(),
+            ))
+            .unwrap();
+
+        // Update the content
+        storage
+            .update_log_annotation(&id, "Updated content")
+            .unwrap();
+
+        // Verify the update
+        let retrieved = storage.get_log_annotation(&id).unwrap();
+        assert_eq!(retrieved.content, "Updated content");
+    }
+
+    #[test]
+    fn test_log_annotation_delete() {
+        let (_env, storage) = create_test_storage();
+
+        let id = storage.generate_annotation_id("ts");
+        storage
+            .add_log_annotation(&LogAnnotation::new(
+                id.clone(),
+                "ts".to_string(),
+                "To be deleted".to_string(),
+                "testuser".to_string(),
+            ))
+            .unwrap();
+
+        // Verify it exists
+        assert!(storage.get_log_annotation(&id).is_ok());
+
+        // Delete it
+        storage.delete_log_annotation(&id).unwrap();
+
+        // Verify it's gone
+        assert!(storage.get_log_annotation(&id).is_err());
+    }
+
+    #[test]
+    fn test_log_annotation_delete_not_found() {
+        let (_env, storage) = create_test_storage();
+
+        // Try to delete non-existent annotation
+        let result = storage.delete_log_annotation("bnl-nonexistent");
+        assert!(result.is_err());
     }
 }
