@@ -604,7 +604,8 @@
             flex-direction: column;
             z-index: 100;
             transition: width 0.2s ease;
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: hidden;
         }
 
         .agents-sidebar:hover,
@@ -644,6 +645,7 @@
 
         .agents-sidebar-content {
             flex: 1;
+            min-height: 0;
             overflow-y: auto;
             overflow-x: hidden;
             padding: 0.5rem;
