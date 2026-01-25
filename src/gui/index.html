@@ -5657,7 +5657,7 @@
                 // Pan-through state for multiple new nodes
                 panThroughQueue: [],     // Array of node IDs to visit
                 panThroughState: 'idle', // 'idle', 'panning', 'paused'
-                panThroughPauseDuration: 1200,  // ms to pause on each node
+                panThroughPauseDuration: 3500,  // ms to pause on each node (longer to let users see new nodes)
                 panThroughPauseStart: null,     // Timestamp when pause started
                 focusEndTime: null,             // When focus period ends (after pan-through), null = not focusing
                 userPausedFollow: false,        // True when user manually panned, prevents auto re-centering
