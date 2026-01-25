@@ -419,7 +419,7 @@ fn test_production_scale_export_import_roundtrip() {
     let _total_ideas = idea_ids.len();
 
     // Export to file
-    let export_path = env.path().join("production_backup.tar.gz");
+    let export_path = env.path().join("production_backup.tar.zst");
     let output = bn_in(&env)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
         .assert()
@@ -485,7 +485,7 @@ fn test_production_scale_edge_preservation() {
     let (task_ids, bug_ids, milestone_ids, _idea_ids) = create_production_data(&env);
 
     // Export
-    let export_path = env.path().join("edge_test_backup.tar.gz");
+    let export_path = env.path().join("edge_test_backup.tar.zst");
     bn_in(&env)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
         .assert()

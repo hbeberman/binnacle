@@ -3,16 +3,19 @@
 //! These tests verify the system administration commands:
 //! - `bn system init` - Initialize binnacle repository
 //! - `bn system store show` - Display store summary
-//! - `bn system store export` - Export store to archive
-//! - `bn system store import` - Import store from archive
+//! - `bn system store export` - Export store to archive (uses zstd compression)
+//! - `bn system store import` - Import store from archive (supports both zstd and gzip)
 
 mod common;
 
 use assert_cmd::Command;
 use common::TestEnv;
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use predicates::prelude::*;
 use serde_json::Value;
 use std::fs;
+use std::io::Write;
 
 /// Get a Command for the bn binary in a TestEnv.
 fn bn_in(env: &TestEnv) -> Command {
@@ -309,7 +312,7 @@ fn test_store_export_to_file() {
     let temp = init_binnacle();
     create_task(&temp, "Export Test Task");
 
-    let export_path = temp.path().join("backup.tar.gz");
+    let export_path = temp.path().join("backup.tar.zst");
 
     let output = bn_in(&temp)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
@@ -325,7 +328,7 @@ fn test_store_export_to_file() {
         json["output_path"]
             .as_str()
             .unwrap()
-            .ends_with("backup.tar.gz")
+            .ends_with("backup.tar.zst")
     );
     assert!(json["size_bytes"].as_u64().unwrap() > 0);
     assert_eq!(json["task_count"], 1);
@@ -358,7 +361,7 @@ fn test_store_export_stdout() {
 #[test]
 fn test_store_export_human_format() {
     let temp = init_binnacle();
-    let export_path = temp.path().join("backup.tar.gz");
+    let export_path = temp.path().join("backup.tar.zst");
 
     bn_in(&temp)
         .args([
@@ -371,13 +374,13 @@ fn test_store_export_human_format() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Exported"))
-        .stdout(predicate::str::contains("backup.tar.gz"));
+        .stdout(predicate::str::contains("backup.tar.zst"));
 }
 
 #[test]
 fn test_store_export_not_initialized() {
     let temp = TestEnv::new();
-    let export_path = temp.path().join("backup.tar.gz");
+    let export_path = temp.path().join("backup.tar.zst");
 
     bn_in(&temp)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
@@ -389,7 +392,7 @@ fn test_store_export_not_initialized() {
 #[test]
 fn test_store_export_with_format_flag() {
     let temp = init_binnacle();
-    let export_path = temp.path().join("backup.tar.gz");
+    let export_path = temp.path().join("backup.tar.zst");
 
     bn_in(&temp)
         .args([
@@ -416,7 +419,7 @@ fn test_store_import_replace_mode_clean() {
     create_task(&temp1, "Original Task");
 
     // Export from first repo
-    let export_path = temp1.path().join("backup.tar.gz");
+    let export_path = temp1.path().join("backup.tar.zst");
     bn_in(&temp1)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
         .assert()
@@ -454,7 +457,7 @@ fn test_store_import_replace_mode_clean() {
 #[test]
 fn test_store_import_replace_mode_already_initialized() {
     let temp1 = init_binnacle();
-    let export_path = temp1.path().join("backup.tar.gz");
+    let export_path = temp1.path().join("backup.tar.zst");
     bn_in(&temp1)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
         .assert()
@@ -506,7 +509,7 @@ fn test_store_import_merge_no_collisions() {
     let temp1 = init_binnacle();
     create_task(&temp1, "Task A");
 
-    let export_path = temp1.path().join("backup.tar.gz");
+    let export_path = temp1.path().join("backup.tar.zst");
     bn_in(&temp1)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
         .assert()
@@ -558,7 +561,7 @@ fn test_store_import_merge_with_collisions() {
     let temp1 = init_binnacle();
     let task_id = create_task(&temp1, "Exported Task");
 
-    let export_path = temp1.path().join("backup.tar.gz");
+    let export_path = temp1.path().join("backup.tar.zst");
     bn_in(&temp1)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
         .assert()
@@ -606,7 +609,7 @@ fn test_store_import_dry_run() {
     let temp1 = init_binnacle();
     create_task(&temp1, "Dry Run Task");
 
-    let export_path = temp1.path().join("backup.tar.gz");
+    let export_path = temp1.path().join("backup.tar.zst");
     bn_in(&temp1)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
         .assert()
@@ -651,7 +654,7 @@ fn test_store_import_dry_run_shows_collisions() {
     let temp1 = init_binnacle();
     let task_id = create_task(&temp1, "Original Task");
 
-    let export_path = temp1.path().join("backup.tar.gz");
+    let export_path = temp1.path().join("backup.tar.zst");
     bn_in(&temp1)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
         .assert()
@@ -707,7 +710,7 @@ fn test_store_import_human_format() {
     let temp1 = init_binnacle();
     create_task(&temp1, "Human Format Task");
 
-    let export_path = temp1.path().join("backup.tar.gz");
+    let export_path = temp1.path().join("backup.tar.zst");
     bn_in(&temp1)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
         .assert()
@@ -731,7 +734,7 @@ fn test_store_import_human_format() {
 #[test]
 fn test_store_import_invalid_archive() {
     let temp = TestEnv::new();
-    let bad_file = temp.path().join("bad.tar.gz");
+    let bad_file = temp.path().join("bad.tar.zst");
     fs::write(&bad_file, b"not a real archive").unwrap();
 
     bn_in(&temp)
@@ -744,6 +747,56 @@ fn test_store_import_invalid_archive() {
                 .or(predicate::str::contains("invalid gzip header"))
                 .or(predicate::str::contains("IO error")),
         );
+}
+
+#[test]
+fn test_store_import_gzip_backwards_compatibility() {
+    // Create a gzip archive manually to test backwards compatibility
+    let temp1 = init_binnacle();
+    let _task_id = create_task(&temp1, "Gzip Test Task");
+
+    // Export first to get the correct archive structure
+    let zstd_export = temp1.path().join("export.tar.zst");
+    bn_in(&temp1)
+        .args(["system", "store", "export", zstd_export.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Decompress the zstd archive
+    let zstd_data = fs::read(&zstd_export).unwrap();
+    let tar_data = zstd::decode_all(&zstd_data[..]).unwrap();
+
+    // Re-compress as gzip to create a backwards-compatible archive
+    let gzip_archive = temp1.path().join("legacy.tar.gz");
+    let gzip_file = fs::File::create(&gzip_archive).unwrap();
+    let mut encoder = GzEncoder::new(gzip_file, Compression::default());
+    encoder.write_all(&tar_data).unwrap();
+    encoder.finish().unwrap();
+
+    // Import the gzip archive into a new repo
+    let temp2 = TestEnv::new();
+    bn_in(&temp2)
+        .args(["system", "store", "import", gzip_archive.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Verify the task was imported
+    let output = bn_in(&temp2)
+        .args(["task", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert!(
+        json["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["title"] == "Gzip Test Task"),
+        "Task from gzip archive should be imported"
+    );
 }
 
 // ============================================================================
@@ -780,7 +833,7 @@ fn test_export_import_roundtrip() {
         .success();
 
     // Export
-    let export_path = temp1.path().join("roundtrip.tar.gz");
+    let export_path = temp1.path().join("roundtrip.tar.zst");
     bn_in(&temp1)
         .args(["system", "store", "export", export_path.to_str().unwrap()])
         .assert()
@@ -1632,7 +1685,7 @@ fn test_store_archive_with_config() {
     assert_eq!(json["task_count"], 1);
 
     // Verify archive file exists
-    let archive_path = archive_dir.join("bn_abc123def456.tar.gz");
+    let archive_path = archive_dir.join("bn_abc123def456.tar.zst");
     assert!(archive_path.exists(), "Archive file should exist");
 }
 
@@ -1675,7 +1728,7 @@ fn test_store_archive_creates_directory() {
     // Verify directory was created and archive exists
     assert!(archive_dir.exists(), "Archive directory should be created");
     assert!(
-        archive_dir.join("bn_deadbeef.tar.gz").exists(),
+        archive_dir.join("bn_deadbeef.tar.zst").exists(),
         "Archive file should exist"
     );
 }
