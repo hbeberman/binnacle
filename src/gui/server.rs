@@ -147,6 +147,7 @@ pub async fn start_server(
         .route("/api/bugs", get(get_bugs))
         .route("/api/ideas", get(get_ideas))
         .route("/api/ready", get(get_ready))
+        .route("/api/available-work", get(get_available_work))
         .route("/api/tests", get(get_tests))
         .route("/api/docs", get(get_docs))
         .route("/api/docs/:id", get(get_doc))
@@ -231,6 +232,48 @@ async fn get_ready(State(state): State<AppState>) -> Result<Json<serde_json::Val
         .collect();
 
     Ok(Json(serde_json::json!({ "tasks": ready })))
+}
+
+/// Get available work counts broken down by entity type
+async fn get_available_work(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+
+    // Count ready tasks (pending with no blockers)
+    let tasks = storage
+        .list_tasks(Some("pending"), None, None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let ready_task_count = tasks.iter().filter(|t| t.depends_on.is_empty()).count();
+
+    // Count open bugs (not done, not cancelled)
+    let bugs = storage
+        .list_bugs(None, None, None, None, false) // false excludes done/cancelled
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let open_bug_count = bugs.len();
+
+    // Count open ideas (seed or germinating status - not promoted or discarded)
+    let ideas = storage
+        .list_ideas(None, None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let open_idea_count = ideas
+        .iter()
+        .filter(|i| {
+            matches!(
+                i.status,
+                crate::models::IdeaStatus::Seed | crate::models::IdeaStatus::Germinating
+            )
+        })
+        .count();
+
+    let total = ready_task_count + open_bug_count + open_idea_count;
+
+    Ok(Json(serde_json::json!({
+        "total": total,
+        "tasks": ready_task_count,
+        "bugs": open_bug_count,
+        "ideas": open_idea_count
+    })))
 }
 
 /// Get all tests
