@@ -8707,6 +8707,7 @@
                         type: task.type || 'task',
                         closed_at: task.closed_at,  // Track when node was completed for fade-out
                         _departing: task._departing,  // Track departing agents for fade-out
+                        _agent: task._agent,  // Preserve agent data for double-click modal
                         x: existing.x,
                         y: existing.y,
                         vx: 0,
@@ -8728,6 +8729,7 @@
                         type: task.type || 'task',
                         closed_at: task.closed_at,  // Track when node was completed for fade-out
                         _departing: task._departing,  // Track departing agents for fade-out
+                        _agent: task._agent,  // Preserve agent data for double-click modal
                         x: Math.cos(angle) * radius,
                         y: Math.sin(angle) * radius,
                         vx: 0,
