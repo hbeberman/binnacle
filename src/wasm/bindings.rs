@@ -234,6 +234,79 @@ impl BinnacleViewer {
         Ok(())
     }
 
+    /// Load graph data from a .bng archive (compressed bytes)
+    ///
+    /// The input should be the raw bytes of a .bng file (zstd-compressed tar).
+    /// This method decompresses and parses the archive.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = loadFromBytes))]
+    pub fn load_from_bytes(&mut self, data: &[u8]) -> Result<(), JsValue> {
+        use super::archive::{ArchiveError, GraphData};
+
+        let graph_data = GraphData::from_archive_bytes(data).map_err(|e| {
+            let msg = match e {
+                ArchiveError::DecompressError(s) => format!("Decompression failed: {}", s),
+                ArchiveError::TarError(s) => format!("Archive extraction failed: {}", s),
+                ArchiveError::ParseError(s) => format!("Parse failed: {}", s),
+                ArchiveError::MissingFile(f) => format!("Missing file: {}", f),
+            };
+            JsValue::from_str(&msg)
+        })?;
+
+        // Clear existing data
+        self.state = ViewerState::new();
+        self.entities.clear();
+        self.edge_info.clear();
+
+        // Add entities from archive
+        for (i, entity) in graph_data.entities.iter().enumerate() {
+            // Add layout node with circular initial position
+            let angle =
+                (i as f64) * 2.0 * std::f64::consts::PI / (graph_data.entities.len().max(1) as f64);
+            let radius = 300.0;
+            let x = angle.cos() * radius;
+            let y = angle.sin() * radius;
+
+            let node_type = if entity.id.starts_with("bnq-") {
+                NodeType::Queue
+            } else {
+                NodeType::Normal
+            };
+
+            self.state
+                .engine
+                .add_node(LayoutNode::with_position(&entity.id, x, y).with_type(node_type));
+
+            self.entities.push(EntityInfo {
+                id: entity.id.clone(),
+                entity_type: entity.entity_type.clone(),
+                title: entity.title.clone(),
+                short_name: entity.short_name.clone(),
+                status: entity.status.clone(),
+                priority: entity.priority,
+                tags: entity.tags.clone(),
+                doc_type: entity.doc_type.clone(),
+            });
+        }
+
+        // Add edges from archive
+        for edge in &graph_data.edges {
+            let layout_edge = if edge.edge_type == "child_of" || edge.edge_type == "parent_of" {
+                LayoutEdge::without_spring(&edge.source, &edge.target)
+            } else {
+                LayoutEdge::new(&edge.source, &edge.target)
+            };
+            self.state.engine.add_edge(layout_edge);
+
+            self.edge_info.push(EdgeInfo {
+                source: edge.source.clone(),
+                target: edge.target.clone(),
+                edge_type: edge.edge_type.clone(),
+            });
+        }
+
+        Ok(())
+    }
+
     /// Run the layout algorithm for up to max_iterations
     ///
     /// Returns the number of iterations actually run (may be less if converged early).
@@ -818,5 +891,58 @@ mod tests {
         assert!(!v.is_empty());
         // Should be semver format
         assert!(v.contains('.'));
+    }
+
+    #[test]
+    fn test_binnacle_viewer_load_from_bytes() {
+        use std::io::Write;
+
+        // Create a proper .bng archive (tar + zstd)
+        let mut tar_builder = tar::Builder::new(Vec::new());
+
+        // Add tasks.jsonl
+        let tasks = r#"{"id":"bn-1234","type":"task","title":"Test Task","status":"pending","priority":2,"tags":["test"]}
+{"id":"bnq-5678","type":"queue","title":"Work Queue","status":"active","priority":0,"tags":[]}"#;
+        let mut header = tar::Header::new_gnu();
+        header.set_path("binnacle-export/tasks.jsonl").unwrap();
+        header.set_size(tasks.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar_builder.append(&header, tasks.as_bytes()).unwrap();
+
+        // Add edges.jsonl
+        let edges = r#"{"source":"bn-1234","target":"bnq-5678","edge_type":"queued"}"#;
+        let mut header = tar::Header::new_gnu();
+        header.set_path("binnacle-export/edges.jsonl").unwrap();
+        header.set_size(edges.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar_builder.append(&header, edges.as_bytes()).unwrap();
+
+        let tar_data = tar_builder.into_inner().unwrap();
+
+        // Compress with zstd
+        let mut encoder = zstd::Encoder::new(Vec::new(), 3).unwrap();
+        encoder.write_all(&tar_data).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        // Load the archive
+        let mut viewer = BinnacleViewer::new();
+        viewer.load_from_bytes(&compressed).unwrap();
+
+        assert_eq!(viewer.node_count(), 2);
+        assert_eq!(viewer.edge_count(), 1);
+        assert_eq!(viewer.entities.len(), 2);
+        assert_eq!(viewer.entities[0].id, "bn-1234");
+        assert_eq!(viewer.entities[0].entity_type, "task");
+        assert_eq!(viewer.entities[0].title, "Test Task");
+        assert_eq!(viewer.entities[1].id, "bnq-5678");
+    }
+
+    #[test]
+    fn test_binnacle_viewer_load_from_bytes_invalid() {
+        let mut viewer = BinnacleViewer::new();
+        let result = viewer.load_from_bytes(b"not a valid archive");
+        assert!(result.is_err());
     }
 }
