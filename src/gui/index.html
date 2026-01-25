@@ -384,6 +384,7 @@
             border-radius: 8px;
             padding: 1.5rem;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
         }
 
         .card:hover {
@@ -397,6 +398,8 @@
             font-weight: 600;
             margin-bottom: 0.5rem;
             color: var(--text-primary);
+            overflow-wrap: break-word;
+            word-break: break-word;
         }
 
         .card-meta {
@@ -411,6 +414,8 @@
             color: var(--text-secondary);
             margin-top: 0.5rem;
             line-height: 1.4;
+            overflow-wrap: break-word;
+            word-break: break-word;
         }
 
         /* Card header with queue toggle */
