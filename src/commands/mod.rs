@@ -19,7 +19,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
@@ -13234,6 +13234,64 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
     })
 }
 
+/// Detect if a path is a git worktree and return the parent repo's .git directory.
+///
+/// Git worktrees have a `.git` file (not directory) containing a pointer like:
+/// `gitdir: /path/to/main/repo/.git/worktrees/worktree-name`
+///
+/// This function reads that pointer and finds the parent .git directory by:
+/// 1. Parsing the `gitdir:` line from the `.git` file
+/// 2. Looking for a `commondir` file that points to the main `.git` directory
+/// 3. Falling back to walking up 3 levels from the gitdir path
+///
+/// Returns `Some(path)` if this is a worktree and we found the parent .git,
+/// or `None` if this is a regular repo or resolution fails.
+fn detect_worktree_parent_git(worktree_path: &Path) -> Option<PathBuf> {
+    let git_path = worktree_path.join(".git");
+
+    // Only proceed if .git is a file (worktree), not a directory (regular repo)
+    if !git_path.is_file() {
+        return None;
+    }
+
+    let content = fs::read_to_string(&git_path).ok()?;
+
+    // Parse "gitdir: <path>" line
+    let gitdir_line = content.lines().find(|l| l.starts_with("gitdir:"))?;
+    let gitdir_path_str = gitdir_line.strip_prefix("gitdir:")?.trim();
+
+    // Resolve relative or absolute path
+    let gitdir_path = if Path::new(gitdir_path_str).is_absolute() {
+        PathBuf::from(gitdir_path_str)
+    } else {
+        git_path.parent()?.join(gitdir_path_str)
+    };
+
+    // Look for commondir file which points to the main .git directory
+    let commondir_file = gitdir_path.join("commondir");
+    if commondir_file.exists()
+        && let Ok(commondir_content) = fs::read_to_string(&commondir_file)
+    {
+        let common_path = gitdir_path.join(commondir_content.trim());
+        if let Ok(canonical) = common_path.canonicalize() {
+            return Some(canonical);
+        }
+    }
+
+    // Fallback: try to find main .git by walking up from gitdir
+    // gitdir is typically at /main/repo/.git/worktrees/<name>
+    // So we go up 2 levels to find the main .git
+    let mut candidate = gitdir_path.canonicalize().ok()?;
+    for _ in 0..2 {
+        candidate = candidate.parent()?.to_path_buf();
+    }
+    if candidate.is_dir() && candidate.file_name()? == ".git" {
+        return Some(candidate);
+    }
+
+    None
+}
+
 /// Run a binnacle worker container.
 #[allow(clippy::too_many_arguments)]
 pub fn container_run(
@@ -13370,6 +13428,19 @@ pub fn container_run(
         "type=bind,src={},dst=/binnacle,options=rbind:rw",
         binnacle_data.display()
     ));
+
+    // If this is a git worktree, mount the parent repo's .git directory
+    // so git commands can resolve the worktree reference inside the container.
+    // The .git file in worktrees contains "gitdir: /path/to/parent/.git/worktrees/name"
+    // which git needs to access.
+    if let Some(parent_git_dir) = detect_worktree_parent_git(&worktree_abs) {
+        args.push("--mount".to_string());
+        args.push(format!(
+            "type=bind,src={},dst={},options=rbind:ro",
+            parent_git_dir.display(),
+            parent_git_dir.display()
+        ));
+    }
 
     // Add environment variables
     args.push("--env".to_string());
@@ -20252,5 +20323,56 @@ mod tests {
         assert!(proceed_cmd.contains("-p 1"));
         assert!(proceed_cmd.contains("-t research"));
         assert!(proceed_cmd.contains("-a henry"));
+    }
+
+    #[test]
+    fn test_detect_worktree_parent_git_regular_repo() {
+        // Regular git repo has .git directory, not file
+        let env = TestEnv::new_with_env();
+        let git_dir = env.path().join(".git");
+        std::fs::create_dir_all(&git_dir).unwrap();
+
+        // Should return None for regular repos
+        let result = detect_worktree_parent_git(env.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_detect_worktree_parent_git_no_git() {
+        // Directory with no .git at all
+        let env = TestEnv::new_with_env();
+
+        // Should return None when no .git exists
+        let result = detect_worktree_parent_git(env.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_detect_worktree_parent_git_worktree() {
+        use tempfile::tempdir;
+
+        // Create a mock parent repo with .git directory structure
+        let parent_repo = tempdir().unwrap();
+        let parent_git = parent_repo.path().join(".git");
+        let worktrees_dir = parent_git.join("worktrees").join("test-worktree");
+        std::fs::create_dir_all(&worktrees_dir).unwrap();
+
+        // Create commondir file pointing back to parent .git
+        std::fs::write(worktrees_dir.join("commondir"), "../..\n").unwrap();
+
+        // Create a mock worktree directory with .git file
+        let worktree = tempdir().unwrap();
+        let worktree_git_file = worktree.path().join(".git");
+        std::fs::write(
+            &worktree_git_file,
+            format!("gitdir: {}\n", worktrees_dir.display()),
+        )
+        .unwrap();
+
+        // Should detect the parent .git directory
+        let result = detect_worktree_parent_git(worktree.path());
+        assert!(result.is_some());
+        let parent_git_found = result.unwrap();
+        assert!(parent_git_found.ends_with(".git"));
     }
 }
