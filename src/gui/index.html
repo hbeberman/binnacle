@@ -1004,6 +1004,16 @@
             border-left-width: 4px;
         }
         
+        .log-entry.keyboard-focused {
+            outline: 2px solid var(--accent-primary);
+            outline-offset: -2px;
+            background: var(--bg-tertiary);
+        }
+        
+        .log-entry.keyboard-focused.expanded {
+            background: var(--bg-secondary);
+        }
+        
         .log-expand-indicator {
             font-size: 0.75rem;
             color: var(--text-secondary);
@@ -5000,6 +5010,10 @@
                 customDateTo: '',        // ISO date string for custom range end
                 viewMode: 'flat'         // flat or grouped (session grouping)
             },
+            logKeyboard: {
+                focusedIndex: -1,        // -1 means no entry is focused
+                enabled: false           // Becomes true when user navigates with keyboard
+            },
             agents: [],
             edges: [], // Raw edges from API
             edgeFilters: loadEdgeFilters(), // Which edge types are visible
@@ -5769,6 +5783,10 @@
         });
 
         function switchView(view) {
+            // Clear log keyboard focus when leaving log view
+            if (state.currentView === 'log' && view !== 'log') {
+                clearLogKeyboardFocus();
+            }
             state.currentView = view;
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
             document.querySelector(`[data-view="${view}"]`).classList.add('active');
@@ -11233,6 +11251,192 @@
             });
         }
         
+        // === Log Keyboard Navigation ===
+        
+        // Get all visible log entries (respects current view mode)
+        function getVisibleLogEntries() {
+            const list = document.getElementById('log-list');
+            if (!list) return [];
+            return Array.from(list.querySelectorAll('.log-entry'));
+        }
+        
+        // Clear keyboard focus from log entries
+        function clearLogKeyboardFocus() {
+            document.querySelectorAll('.log-entry.keyboard-focused').forEach(entry => {
+                entry.classList.remove('keyboard-focused');
+            });
+            state.logKeyboard.focusedIndex = -1;
+            state.logKeyboard.enabled = false;
+        }
+        
+        // Set keyboard focus on a log entry by index
+        function setLogKeyboardFocus(index) {
+            const entries = getVisibleLogEntries();
+            if (entries.length === 0) return;
+            
+            // Clear previous focus
+            document.querySelectorAll('.log-entry.keyboard-focused').forEach(entry => {
+                entry.classList.remove('keyboard-focused');
+            });
+            
+            // Clamp index to valid range
+            const clampedIndex = Math.max(0, Math.min(entries.length - 1, index));
+            state.logKeyboard.focusedIndex = clampedIndex;
+            state.logKeyboard.enabled = true;
+            
+            // Apply focus
+            const entry = entries[clampedIndex];
+            if (entry) {
+                entry.classList.add('keyboard-focused');
+                // Scroll into view
+                entry.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+        
+        // Move keyboard focus up/down
+        function moveLogKeyboardFocus(direction) {
+            const entries = getVisibleLogEntries();
+            if (entries.length === 0) return;
+            
+            let newIndex;
+            if (state.logKeyboard.focusedIndex === -1) {
+                // Start from top or bottom depending on direction
+                newIndex = direction > 0 ? 0 : entries.length - 1;
+            } else {
+                newIndex = state.logKeyboard.focusedIndex + direction;
+                // Clamp to valid range
+                newIndex = Math.max(0, Math.min(entries.length - 1, newIndex));
+            }
+            
+            setLogKeyboardFocus(newIndex);
+        }
+        
+        // Toggle expansion on the focused log entry
+        function toggleFocusedLogEntry() {
+            const entries = getVisibleLogEntries();
+            if (state.logKeyboard.focusedIndex < 0 || state.logKeyboard.focusedIndex >= entries.length) return;
+            
+            const entry = entries[state.logKeyboard.focusedIndex];
+            if (entry && entry.dataset.expandable === 'true') {
+                entry.classList.toggle('expanded');
+            }
+        }
+        
+        // Copy CLI command from the focused log entry
+        function copyFocusedLogEntryCommand() {
+            const entries = getVisibleLogEntries();
+            if (state.logKeyboard.focusedIndex < 0 || state.logKeyboard.focusedIndex >= entries.length) return;
+            
+            const entry = entries[state.logKeyboard.focusedIndex];
+            if (!entry) return;
+            
+            // Find the CLI code element within this entry
+            const cliCode = entry.querySelector('.log-cli-code');
+            if (cliCode) {
+                const command = cliCode.textContent.trim();
+                navigator.clipboard.writeText(command).then(() => {
+                    // Show brief feedback
+                    const copyBtn = entry.querySelector('.log-cli-copy');
+                    if (copyBtn) {
+                        const originalText = copyBtn.textContent;
+                        copyBtn.textContent = '✓';
+                        setTimeout(() => { copyBtn.textContent = originalText; }, 1000);
+                    }
+                });
+            }
+        }
+        
+        // Focus the log search input
+        function focusLogSearch() {
+            const searchInput = document.getElementById('log-search');
+            if (searchInput) {
+                searchInput.focus();
+                searchInput.select();
+            }
+        }
+        
+        // Log view keyboard event handler
+        function handleLogKeyboardNavigation(e) {
+            // Only handle when in log view
+            if (state.currentView !== 'log') return;
+            
+            // Don't handle if focus is in an input
+            const activeEl = document.activeElement;
+            const isInInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+            
+            // '/' focuses search even from input (standard shortcut)
+            if (e.key === '/' && !isInInput) {
+                e.preventDefault();
+                focusLogSearch();
+                return;
+            }
+            
+            // Don't handle other keys if in input
+            if (isInInput) return;
+            
+            // Navigation keys
+            switch (e.key) {
+                case 'j':
+                case 'ArrowDown':
+                    e.preventDefault();
+                    moveLogKeyboardFocus(1);
+                    break;
+                    
+                case 'k':
+                case 'ArrowUp':
+                    e.preventDefault();
+                    moveLogKeyboardFocus(-1);
+                    break;
+                    
+                case 'Enter':
+                    if (state.logKeyboard.enabled && state.logKeyboard.focusedIndex >= 0) {
+                        e.preventDefault();
+                        toggleFocusedLogEntry();
+                    }
+                    break;
+                    
+                case 'Escape':
+                    // First collapse expanded entries, then clear focus
+                    const expandedEntries = document.querySelectorAll('.log-entry.expanded');
+                    if (expandedEntries.length > 0) {
+                        e.preventDefault();
+                        collapseAllLogEntries();
+                    } else if (state.logKeyboard.enabled) {
+                        e.preventDefault();
+                        clearLogKeyboardFocus();
+                    }
+                    break;
+                    
+                case 'c':
+                    if (state.logKeyboard.enabled && state.logKeyboard.focusedIndex >= 0) {
+                        e.preventDefault();
+                        copyFocusedLogEntryCommand();
+                    }
+                    break;
+            }
+        }
+        
+        // Add log keyboard navigation listener
+        document.addEventListener('keydown', handleLogKeyboardNavigation);
+        
+        // Clear keyboard focus when clicking elsewhere in log list or switching views
+        document.addEventListener('click', (e) => {
+            if (state.currentView === 'log') {
+                // If clicking on a log entry, update focus to that entry
+                const clickedEntry = e.target.closest('.log-entry');
+                if (clickedEntry) {
+                    const entries = getVisibleLogEntries();
+                    const index = entries.indexOf(clickedEntry);
+                    if (index >= 0) {
+                        setLogKeyboardFocus(index);
+                    }
+                } else {
+                    // Clicked elsewhere, clear focus
+                    clearLogKeyboardFocus();
+                }
+            }
+        });
+
         // Find an entity (task, bug, idea) by ID
         function findEntityById(id) {
             if (!id) return null;
@@ -11508,12 +11712,15 @@
                     e.preventDefault();
                     return;
                 }
-                // Collapse any expanded log entries
-                const expandedEntries = document.querySelectorAll('.log-entry.expanded');
-                if (expandedEntries.length > 0) {
-                    collapseAllLogEntries();
-                    e.preventDefault();
-                    return;
+                // Log entry collapse is handled by handleLogKeyboardNavigation when in log view
+                // Only handle here for other views (e.g., info panel activity log)
+                if (state.currentView !== 'log') {
+                    const expandedEntries = document.querySelectorAll('.log-entry.expanded');
+                    if (expandedEntries.length > 0) {
+                        collapseAllLogEntries();
+                        e.preventDefault();
+                        return;
+                    }
                 }
             }
         });
