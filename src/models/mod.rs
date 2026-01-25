@@ -9,7 +9,9 @@
 //! - `Edge` - Relationships between entities (dependencies, blocks, related, etc.)
 //! - `Agent` - AI agent registration for lifecycle management
 //! - `Editor` - Attribution for document version editors (agent or user)
+//! - `complexity` - Heuristics for detecting complex task descriptions
 
+pub mod complexity;
 pub mod graph;
 
 use chrono::{DateTime, Utc};
