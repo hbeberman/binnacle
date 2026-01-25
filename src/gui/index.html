@@ -210,6 +210,45 @@
             font-size: 0.7rem;
             color: var(--text-secondary);
             margin-top: 0.25rem;
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        /* Emoji count badges for type breakdowns */
+        .emoji-count-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.2rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            font-size: 0.75rem;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .emoji-count-badge .emoji {
+            font-size: 0.85rem;
+        }
+
+        .emoji-count-badge .count {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .emoji-count-badge.type-task {
+            border-color: var(--info);
+        }
+
+        .emoji-count-badge.type-bug {
+            border-color: var(--danger);
+        }
+
+        .emoji-count-badge.type-idea {
+            border-color: var(--idea-pending);
         }
 
         /* Recently completed pane */
@@ -3885,16 +3924,32 @@
         }
         
         /**
+         * Create an emoji count badge element.
+         * @param {string} emoji - The emoji to display
+         * @param {number} count - The count to display
+         * @param {string} type - The type for styling ('task', 'bug', 'idea')
+         * @param {string} label - Accessible label for the badge
+         * @returns {HTMLElement} The badge element
+         */
+        function createEmojiCountBadge(emoji, count, type, label) {
+            const badge = document.createElement('span');
+            badge.className = `emoji-count-badge type-${type}`;
+            badge.title = label;
+            badge.innerHTML = `<span class="emoji">${emoji}</span><span class="count">${count}</span>`;
+            return badge;
+        }
+
+        /**
          * Update the available work counter in the header.
-         * Shows total count of claimable items: ready tasks + open bugs.
+         * Shows total count of claimable items: ready tasks + open bugs + open ideas.
          */
         function updateAvailableWorkPane() {
             const pane = document.getElementById('available-work-pane');
             const countEl = document.getElementById('available-work-count');
             const breakdownEl = document.getElementById('available-work-breakdown');
             
-            // Count ready tasks (pending tasks with no blockers)
-            const readyTasks = (state.ready || []).filter(t => t.type !== 'bug');
+            // Count ready tasks (pending tasks with no blockers, excluding bugs and ideas)
+            const readyTasks = (state.ready || []).filter(t => t.type !== 'bug' && t.type !== 'idea');
             const readyTaskCount = readyTasks.length;
             
             // Count open bugs (not done, not cancelled)
@@ -3905,7 +3960,13 @@
             );
             const openBugCount = openBugs.length;
             
-            const totalCount = readyTaskCount + openBugCount;
+            // Count open ideas (seed or germinating)
+            const openIdeas = (state.ideas || []).filter(idea => 
+                idea.status === 'seed' || idea.status === 'germinating'
+            );
+            const openIdeaCount = openIdeas.length;
+            
+            const totalCount = readyTaskCount + openBugCount + openIdeaCount;
             
             countEl.textContent = totalCount;
             
@@ -3913,11 +3974,17 @@
             pane.classList.remove('has-work', 'no-work');
             pane.classList.add(totalCount > 0 ? 'has-work' : 'no-work');
             
-            // Show breakdown
-            const parts = [];
-            if (readyTaskCount > 0) parts.push(`${readyTaskCount} task${readyTaskCount !== 1 ? 's' : ''}`);
-            if (openBugCount > 0) parts.push(`${openBugCount} bug${openBugCount !== 1 ? 's' : ''}`);
-            breakdownEl.textContent = parts.join(', ');
+            // Show breakdown using emoji badges
+            breakdownEl.innerHTML = '';
+            if (readyTaskCount > 0) {
+                breakdownEl.appendChild(createEmojiCountBadge('📋', readyTaskCount, 'task', `${readyTaskCount} ready task${readyTaskCount !== 1 ? 's' : ''}`));
+            }
+            if (openBugCount > 0) {
+                breakdownEl.appendChild(createEmojiCountBadge('🐛', openBugCount, 'bug', `${openBugCount} open bug${openBugCount !== 1 ? 's' : ''}`));
+            }
+            if (openIdeaCount > 0) {
+                breakdownEl.appendChild(createEmojiCountBadge('💭', openIdeaCount, 'idea', `${openIdeaCount} open idea${openIdeaCount !== 1 ? 's' : ''}`));
+            }
         }
         
         /**
