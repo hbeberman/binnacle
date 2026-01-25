@@ -43,14 +43,17 @@ Reuse existing tasks where possible instead of creating new ones.
 
 ## 4. Create Tasks
 
-Create a parent milestone, then individual tasks:
+Create a parent milestone, then individual tasks linked to the PRD doc:
 
 ```bash
 # Create milestone
-bn milestone create "PRD: Feature Name" -d "Implements PRD at prds/PRD_NAME.md"
+bn milestone create "PRD: Feature Name" -d "Implements PRD doc <doc-id>"
 
 # Create tasks with short names for GUI visibility
 bn task create -s "short name" -p 2 -d "Description" "Full task title"
+
+# Link task to PRD doc (if doc-id was provided)
+bn doc attach <doc-id> <task-id>
 
 # Link to milestone
 bn link add <task-id> <milestone-id> -t child_of
@@ -58,6 +61,8 @@ bn link add <task-id> <milestone-id> -t child_of
 # Set dependencies between tasks (--reason is important!)
 bn link add <task-id> <blocker-id> -t depends_on --reason "why this dependency exists"
 ```
+
+**IMPORTANT**: If a PRD doc ID (bnd-xxxx) was provided, attach each task to the doc.
 
 ## 5. Iterate
 
