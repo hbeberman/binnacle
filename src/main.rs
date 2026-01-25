@@ -1,6 +1,8 @@
 //! Binnacle CLI - A project state tracking tool for AI agents and humans.
 
 use binnacle::action_log;
+#[cfg(feature = "gui")]
+use binnacle::cli::GuiCommands;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
     DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands, LinkCommands,
@@ -1004,22 +1006,37 @@ fn run_command(
         },
         #[cfg(feature = "gui")]
         Some(Commands::Gui {
+            command,
             port,
             host,
-            status,
-            stop,
-            replace,
-        }) => {
-            if stop {
-                stop_gui(repo_path, human)?;
-            } else if status {
+        }) => match command {
+            Some(GuiCommands::Serve {
+                port: sub_port,
+                host: sub_host,
+                replace,
+            }) => {
+                let actual_port = sub_port.or(port);
+                let actual_host = &sub_host;
+                if replace {
+                    replace_gui(repo_path, actual_port, actual_host, human)?;
+                } else {
+                    run_gui(repo_path, actual_port, actual_host)?;
+                }
+            }
+            Some(GuiCommands::Status) => {
                 show_gui_status(repo_path, human)?;
-            } else if replace {
-                replace_gui(repo_path, port, &host, human)?;
-            } else {
+            }
+            Some(GuiCommands::Stop) => {
+                stop_gui(repo_path, human)?;
+            }
+            Some(GuiCommands::Kill { force }) => {
+                kill_gui(repo_path, force, human)?;
+            }
+            None => {
+                // Default: start server (same as `bn gui serve`)
                 run_gui(repo_path, port, &host)?;
             }
-        }
+        },
         None => {
             // Default: show status summary
             match commands::status(repo_path) {
@@ -1392,6 +1409,77 @@ fn stop_gui(repo_path: &Path, human: bool) -> Result<(), binnacle::Error> {
             }
             ProcessStatus::NotRunning | ProcessStatus::Stale => {
                 // Clean up stale PID file
+                pid_file.delete().ok();
+                if human {
+                    println!("GUI server is not running (cleaned up stale PID file)");
+                } else {
+                    println!(r#"{{"status":"not_running","cleaned_stale":true}}"#);
+                }
+            }
+        },
+        None => {
+            if human {
+                println!("GUI server is not running (no PID file)");
+            } else {
+                println!(r#"{{"status":"not_running"}}"#);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Kill a running GUI server (immediate termination)
+#[cfg(feature = "gui")]
+fn kill_gui(repo_path: &Path, force: bool, human: bool) -> Result<(), binnacle::Error> {
+    use binnacle::gui::{GuiPidFile, ProcessStatus};
+    use binnacle::storage::get_storage_dir;
+    use std::thread;
+    use std::time::Duration;
+
+    let storage_dir = get_storage_dir(repo_path)?;
+    let pid_file = GuiPidFile::new(&storage_dir);
+
+    match pid_file
+        .check_running()
+        .map_err(|e| binnacle::Error::Other(format!("Failed to check PID file: {}", e)))?
+    {
+        Some((status, info)) => match status {
+            ProcessStatus::Running => {
+                let pid = info.pid;
+                let signal = if force { Signal::Kill } else { Signal::Term };
+                let signal_name = if force { "SIGKILL" } else { "SIGTERM" };
+
+                if human {
+                    println!("Killing GUI server (PID: {}) with {}...", pid, signal_name);
+                }
+
+                if send_signal(pid, signal) {
+                    // Wait briefly for process to terminate
+                    thread::sleep(Duration::from_millis(500));
+                    pid_file.delete().ok();
+                    if human {
+                        println!("GUI server killed");
+                    } else {
+                        println!(
+                            r#"{{"status":"killed","pid":{},"signal":"{}"}}"#,
+                            pid,
+                            signal_name.to_lowercase()
+                        );
+                    }
+                } else {
+                    pid_file.delete().ok();
+                    if human {
+                        println!("Process already stopped");
+                    } else {
+                        println!(
+                            r#"{{"status":"killed","pid":{},"method":"already_gone"}}"#,
+                            pid
+                        );
+                    }
+                }
+            }
+            ProcessStatus::NotRunning | ProcessStatus::Stale => {
                 pid_file.delete().ok();
                 if human {
                     println!("GUI server is not running (cleaned up stale PID file)");
@@ -2288,15 +2376,27 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
 
         #[cfg(feature = "gui")]
         Some(Commands::Gui {
+            command,
             port,
             host,
-            status,
-            stop,
-            replace,
-        }) => (
-            "gui".to_string(),
-            serde_json::json!({ "port": port, "host": host, "status": status, "stop": stop, "replace": replace }),
-        ),
+        }) => {
+            let subcommand = match command {
+                Some(GuiCommands::Serve {
+                    port: sub_port,
+                    host: sub_host,
+                    replace,
+                }) => {
+                    serde_json::json!({ "subcommand": "serve", "port": sub_port.or(*port), "host": sub_host, "replace": replace })
+                }
+                Some(GuiCommands::Status) => serde_json::json!({ "subcommand": "status" }),
+                Some(GuiCommands::Stop) => serde_json::json!({ "subcommand": "stop" }),
+                Some(GuiCommands::Kill { force }) => {
+                    serde_json::json!({ "subcommand": "kill", "force": force })
+                }
+                None => serde_json::json!({ "subcommand": null, "port": port, "host": host }),
+            };
+            ("gui".to_string(), subcommand)
+        }
 
         None => ("status".to_string(), serde_json::json!({})),
     }
