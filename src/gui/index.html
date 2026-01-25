@@ -3062,6 +3062,55 @@
             transform: translateX(14px);
         }
 
+        /* End goals toggle */
+        .end-goals-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-right: 0.25rem;
+            padding-right: 0.5rem;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .end-goals-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .end-goals-switch {
+            width: 32px;
+            height: 18px;
+            border-radius: 9px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            position: relative;
+            transition: background 0.2s ease, border-color 0.2s ease;
+            padding: 0;
+        }
+
+        .end-goals-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: white;
+            transition: transform 0.2s ease;
+        }
+
+        .end-goals-switch.active {
+            background: #fbbf24;
+            border-color: #fbbf24;
+        }
+
+        .end-goals-switch.active::after {
+            transform: translateX(14px);
+        }
+
         /* Chain length filter */
         .chain-length-filter {
             display: flex;
@@ -4768,6 +4817,10 @@
                         <span class="hide-completed-label">Hide completed</span>
                         <button class="hide-completed-switch" id="hide-completed-switch" title="Hide completed nodes (except in active chains)"></button>
                     </div>
+                    <div class="end-goals-toggle">
+                        <span class="end-goals-label">End goals</span>
+                        <button class="end-goals-switch" id="end-goals-switch" title="Highlight end goal tasks (tasks with no dependants)"></button>
+                    </div>
                     <div class="auto-follow-toggle" style="position: relative;">
                         <span class="auto-follow-label">Follow</span>
                         <select class="agent-selector" id="agent-selector" title="Select target to follow">
@@ -5487,6 +5540,8 @@
                 highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
                 // Hide completed nodes filter
                 hideCompleted: true,  // When true, hide completed nodes except those in active chains
+                // Show end goal indicators
+                showEndGoals: false,  // When true, highlight tasks that have no dependants (final outcomes)
                 // Chain length filter (1 = no filter, 2+ = only show nodes in chains of at least that length)
                 minChainLength: 1,
                 // Search filter
@@ -6854,6 +6909,22 @@
         function updateHideCompletedDisplay() {
             const switchEl = document.getElementById('hide-completed-switch');
             if (state.graph.hideCompleted) {
+                switchEl.classList.add('active');
+            } else {
+                switchEl.classList.remove('active');
+            }
+        }
+
+        // End goals toggle
+        document.getElementById('end-goals-switch').addEventListener('click', () => {
+            state.graph.showEndGoals = !state.graph.showEndGoals;
+            updateEndGoalsDisplay();
+            startAnimation();  // Restart animation to apply highlight
+        });
+
+        function updateEndGoalsDisplay() {
+            const switchEl = document.getElementById('end-goals-switch');
+            if (state.graph.showEndGoals) {
                 switchEl.classList.add('active');
             } else {
                 switchEl.classList.remove('active');
@@ -8893,6 +8964,39 @@
             );
         }
 
+        // Check if a node is an "end goal" (nothing depends on it)
+        // End goals are tasks/bugs that have no depends_on or blocks edges pointing TO them
+        function isEndGoal(nodeId) {
+            // Only tasks and bugs can be end goals
+            const node = state.tasks.find(t => t.id === nodeId) ||
+                         state.bugs?.find(b => b.id === nodeId);
+            if (!node) return false;
+            
+            // Completed/cancelled tasks aren't considered active end goals
+            if (node.status === 'done' || node.status === 'cancelled') return false;
+            
+            // Check if any other node depends on this one
+            // depends_on: source depends on target, so we look for edges where target === nodeId
+            // blocks: source blocks target, so we look for edges where source === nodeId
+            const hasDependants = (state.edges || []).some(edge => {
+                if (edge.edge_type === 'depends_on' && edge.target === nodeId) {
+                    // Something depends on us - check if it's still open
+                    const sourceNode = state.tasks.find(t => t.id === edge.source) ||
+                                      state.bugs?.find(b => b.id === edge.source);
+                    return sourceNode && sourceNode.status !== 'done' && sourceNode.status !== 'cancelled';
+                }
+                if (edge.edge_type === 'blocks' && edge.source === nodeId) {
+                    // We block something - check if it's still open
+                    const targetNode = state.tasks.find(t => t.id === edge.target) ||
+                                      state.bugs?.find(b => b.id === edge.target);
+                    return targetNode && targetNode.status !== 'done' && targetNode.status !== 'cancelled';
+                }
+                return false;
+            });
+            
+            return !hasDependants;
+        }
+
         // Get the reason(s) why a node is blocked
         // Returns an array of reasons from depends_on edges pointing to unclosed tasks
         function getBlockingReasons(nodeId) {
@@ -9146,6 +9250,46 @@
                 }
                 ctx.fillStyle = 'rgba(32, 178, 170, 0.15)';  // --queue-color with transparency
                 ctx.fill();
+            }
+
+            // Draw end goal indicator (golden rays for tasks with no dependants)
+            const showEndGoal = state.graph.showEndGoals && 
+                                (node.type === 'task' || node.type === 'bug') && 
+                                isEndGoal(node.id);
+            if (showEndGoal) {
+                const rayCount = 8;
+                const innerRadius = radius + 8 * zoom;
+                const outerRadius = radius + 16 * zoom;
+                
+                ctx.save();
+                ctx.translate(screenPos.x, screenPos.y);
+                
+                // Draw golden rays (star burst effect)
+                ctx.strokeStyle = '#fbbf24';  // Golden yellow
+                ctx.lineWidth = 2 * zoom;
+                ctx.lineCap = 'round';
+                
+                for (let i = 0; i < rayCount; i++) {
+                    const angle = (i / rayCount) * Math.PI * 2 - Math.PI / 2;
+                    const x1 = Math.cos(angle) * innerRadius;
+                    const y1 = Math.sin(angle) * innerRadius;
+                    const x2 = Math.cos(angle) * outerRadius;
+                    const y2 = Math.sin(angle) * outerRadius;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.stroke();
+                }
+                
+                // Draw a subtle golden glow circle
+                ctx.beginPath();
+                ctx.arc(0, 0, radius + 10 * zoom, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+                ctx.lineWidth = 3 * zoom;
+                ctx.stroke();
+                
+                ctx.restore();
             }
 
             // Draw dotted yellow border for task nodes (visual distinction from bugs/ideas)
