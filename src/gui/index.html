@@ -6417,7 +6417,13 @@
                                           state.graph.isPanning || 
                                           state.graph.followAnimation;
             
-            if (!hasActiveInteraction) {
+            // Check if any nodes require continuous animation (in_progress tasks, active agents)
+            const hasAnimatedNodes = visibleNodes.some(node => 
+                (node.status === 'in_progress' && node.type !== 'queue' && node.type !== 'agent' && node.type !== 'doc') ||
+                (node.type === 'agent' && node.status === 'active')
+            );
+            
+            if (!hasActiveInteraction && !hasAnimatedNodes) {
                 const isStable = visibleNodes.every(node => {
                     const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
                     return speed < state.graph.STABLE_THRESHOLD;
@@ -6434,7 +6440,7 @@
                     state.graph.stableFrameCount = 0;
                 }
             } else {
-                // Reset stability counter during interactions
+                // Reset stability counter during interactions or when animated nodes are present
                 state.graph.stableFrameCount = 0;
             }
 
@@ -6995,6 +7001,60 @@
                 ctx.setLineDash([4 * zoom, 4 * zoom]);  // Dotted pattern
                 ctx.stroke();
                 ctx.setLineDash([]);  // Reset line dash
+            }
+
+            // Draw animated spiral for active agent nodes (design: dark blue #1e3a5f, light grey #d0d0d0)
+            // Performant CSS-style animation using canvas - single spiral that rotates smoothly
+            if (node.type === 'agent' && node.status === 'active') {
+                const animTime = state.graph.animationTime;
+                const rotationSpeed = 0.002; // radians per ms - smooth rotation
+                const spiralRadius = radius * 0.6;
+                
+                ctx.save();
+                ctx.translate(screenPos.x, screenPos.y);
+                ctx.rotate(animTime * rotationSpeed);
+                
+                // Draw spiral arms using arcs - creates a spinning effect
+                const armCount = 3;
+                const armWidth = 3 * zoom;
+                
+                for (let arm = 0; arm < armCount; arm++) {
+                    const baseAngle = (arm * Math.PI * 2) / armCount;
+                    
+                    // Gradient from dark blue to light grey along the arm
+                    const gradient = ctx.createLinearGradient(
+                        Math.cos(baseAngle) * spiralRadius * 0.3,
+                        Math.sin(baseAngle) * spiralRadius * 0.3,
+                        Math.cos(baseAngle) * spiralRadius,
+                        Math.sin(baseAngle) * spiralRadius
+                    );
+                    gradient.addColorStop(0, '#1e3a5f'); // Dark blue center
+                    gradient.addColorStop(1, '#d0d0d0'); // Light grey outer
+                    
+                    ctx.beginPath();
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = armWidth;
+                    ctx.lineCap = 'round';
+                    
+                    // Draw curved arm using quadratic bezier
+                    const startR = spiralRadius * 0.2;
+                    const endR = spiralRadius;
+                    const curveAngle = Math.PI * 0.5; // How much the arm curves
+                    
+                    ctx.moveTo(
+                        Math.cos(baseAngle) * startR,
+                        Math.sin(baseAngle) * startR
+                    );
+                    ctx.quadraticCurveTo(
+                        Math.cos(baseAngle + curveAngle * 0.5) * spiralRadius * 0.7,
+                        Math.sin(baseAngle + curveAngle * 0.5) * spiralRadius * 0.7,
+                        Math.cos(baseAngle + curveAngle) * endR,
+                        Math.sin(baseAngle + curveAngle) * endR
+                    );
+                    ctx.stroke();
+                }
+                
+                ctx.restore();
             }
 
             // Draw active task indicator: counter-rotating hatched rings (Ghost in the Shell style)
