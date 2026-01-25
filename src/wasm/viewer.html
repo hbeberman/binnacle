@@ -1335,24 +1335,39 @@
             const source = worldToScreen(sourceNode.x, sourceNode.y);
             const target = worldToScreen(targetNode.x, targetNode.y);
             
-            // Edge color based on type
+            // Get edge styling
             const color = getEdgeColor(edge.edge_type);
+            const style = getEdgeStyle(edge.edge_type);
             
             ctx.beginPath();
             ctx.moveTo(source.x, source.y);
             ctx.lineTo(target.x, target.y);
             ctx.strokeStyle = color;
-            ctx.lineWidth = 1.5 * state.zoom;
+            ctx.lineWidth = style.lineWidth * state.zoom;
+            
+            // Apply dashed line if needed
+            if (style.dashed) {
+                const dashLen = 6 * state.zoom;
+                ctx.setLineDash([dashLen, dashLen]);
+                // Animated marching ants for working_on edges
+                if (style.animated) {
+                    ctx.lineDashOffset = -state.animationTime * 0.02;
+                }
+            } else {
+                ctx.setLineDash([]);
+            }
+            
             ctx.stroke();
+            ctx.setLineDash([]); // Reset dash
             
             // Draw arrow for directed edges
-            if (['depends_on', 'blocks', 'child_of', 'parent_of'].includes(edge.edge_type)) {
-                drawArrow(ctx, source, target, color);
+            if (style.hasArrow) {
+                drawArrow(ctx, source, target, color, style.arrowSize);
             }
         }
         
-        function drawArrow(ctx, from, to, color) {
-            const headLen = 10 * state.zoom;
+        function drawArrow(ctx, from, to, color, arrowSize = 10) {
+            const headLen = arrowSize * state.zoom;
             const angle = Math.atan2(to.y - from.y, to.x - from.x);
             
             // Arrow position (near target)
@@ -1372,6 +1387,48 @@
             ctx.closePath();
             ctx.fillStyle = color;
             ctx.fill();
+        }
+        
+        // Get edge style based on type (matches GUI render.rs edge_style_for_type)
+        function getEdgeStyle(edgeType) {
+            const styles = {
+                // Blocking/dependency edges - solid, directed
+                depends_on: { lineWidth: 2.0, arrowSize: 10, dashed: false, animated: false, hasArrow: true },
+                blocks: { lineWidth: 2.0, arrowSize: 10, dashed: false, animated: false, hasArrow: true },
+                
+                // Informational edges - dashed, smaller arrows
+                related_to: { lineWidth: 1.5, arrowSize: 8, dashed: true, animated: false, hasArrow: true },
+                caused_by: { lineWidth: 1.5, arrowSize: 8, dashed: true, animated: false, hasArrow: true },
+                duplicates: { lineWidth: 1.5, arrowSize: 8, dashed: true, animated: false, hasArrow: true },
+                supersedes: { lineWidth: 1.5, arrowSize: 8, dashed: true, animated: false, hasArrow: true },
+                
+                // Fix/test edges - solid, directed
+                fixes: { lineWidth: 2.0, arrowSize: 10, dashed: false, animated: false, hasArrow: true },
+                tests: { lineWidth: 2.0, arrowSize: 10, dashed: false, animated: false, hasArrow: true },
+                
+                // Hierarchy edges - solid, directed
+                parent_of: { lineWidth: 2.0, arrowSize: 10, dashed: false, animated: false, hasArrow: true },
+                child_of: { lineWidth: 2.0, arrowSize: 10, dashed: false, animated: false, hasArrow: true },
+                
+                // Queue edges - dashed, directed
+                queued: { lineWidth: 2.0, arrowSize: 10, dashed: true, animated: false, hasArrow: true },
+                
+                // Agent edges
+                working_on: { lineWidth: 3.0, arrowSize: 12, dashed: true, animated: true, hasArrow: true },
+                worked_on: { lineWidth: 2.0, arrowSize: 10, dashed: false, animated: false, hasArrow: true },
+                
+                // Pinned edges - thick, solid
+                pinned: { lineWidth: 3.0, arrowSize: 12, dashed: false, animated: false, hasArrow: true },
+                
+                // Document edges - dashed
+                documents: { lineWidth: 2.0, arrowSize: 10, dashed: true, animated: false, hasArrow: true },
+                attached_to: { lineWidth: 2.0, arrowSize: 10, dashed: true, animated: false, hasArrow: true },
+                
+                // Impact edges - dashed
+                impacts: { lineWidth: 2.0, arrowSize: 10, dashed: true, animated: false, hasArrow: true }
+            };
+            
+            return styles[edgeType] || { lineWidth: 1.5, arrowSize: 8, dashed: false, animated: false, hasArrow: false };
         }
         
         // Shape drawing helpers
@@ -1473,20 +1530,43 @@
             return palette[node.status] || '#4a90e2';
         }
         
+        // Get edge color based on type (matches GUI theme.rs edge_color)
         function getEdgeColor(edgeType) {
             const colors = {
+                // Blocking/dependency edges (red)
                 depends_on: '#e85d5d',
                 blocks: '#e85d5d',
+                
+                // Informational edges (gray)
                 related_to: '#7a8fa3',
+                caused_by: '#7a8fa3',
+                duplicates: '#7a8fa3',
+                supersedes: '#7a8fa3',
+                
+                // Fix/test edges (green)
                 fixes: '#5cb85c',
+                tests: '#5cb85c',
+                
+                // Hierarchy edges (purple)
                 child_of: '#9b6ed8',
                 parent_of: '#9b6ed8',
+                
+                // Queue edges (teal)
                 queued: '#20b2aa',
+                
+                // Agent edges (yellow/gray)
                 working_on: '#f0c040',
                 worked_on: '#6b7a8a',
+                
+                // Pinned edges (green)
+                pinned: '#5cb85c',
+                
+                // Document edges (blue)
                 documents: '#4a90e2',
-                impacts: '#e85d5d',
-                pinned: '#5cb85c'
+                attached_to: '#4a90e2',
+                
+                // Impact edges (red)
+                impacts: '#e85d5d'
             };
             return colors[edgeType] || '#3a4d66';
         }
