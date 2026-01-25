@@ -7208,6 +7208,18 @@ fn validate_entity_exists(storage: &Storage, id: &str) -> Result<()> {
     if storage.get_queue_by_id(id).is_ok() {
         return Ok(());
     }
+    // Try idea
+    if storage.get_idea(id).is_ok() {
+        return Ok(());
+    }
+    // Try doc
+    if storage.get_doc(id).is_ok() {
+        return Ok(());
+    }
+    // Try agent
+    if storage.get_agent_by_id(id).is_ok() {
+        return Ok(());
+    }
     Err(Error::NotFound(format!("Entity not found: {}", id)))
 }
 
@@ -7223,6 +7235,10 @@ fn get_entity_type(storage: &Storage, id: &str) -> Option<&'static str> {
         Some("test")
     } else if storage.get_queue_by_id(id).is_ok() {
         Some("queue")
+    } else if storage.get_idea(id).is_ok() {
+        Some("idea")
+    } else if storage.get_doc(id).is_ok() {
+        Some("doc")
     } else if storage.get_agent_by_id(id).is_ok() {
         Some("agent")
     } else {
