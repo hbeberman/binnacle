@@ -396,6 +396,191 @@ mod gui_enabled {
             "Stale PID file should have been deleted"
         );
     }
+
+    #[test]
+    fn test_gui_kill_when_not_running_human() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle first
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Kill should report not running (human-readable)
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("kill").arg("-H");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains("not running"));
+    }
+
+    #[test]
+    fn test_gui_kill_force_when_not_running_human() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle first
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Kill --force should also report not running (human-readable)
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("kill").arg("--force").arg("-H");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains("not running"));
+    }
+
+    #[test]
+    fn test_gui_kill_9_flag_when_not_running_human() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle first
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Kill -9 -H should report not running (human-readable)
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("kill").arg("-9").arg("-H");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains("not running"));
+    }
+
+    #[test]
+    fn test_gui_kill_cleans_stale_pid_file_human() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle first
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Create a stale PID file manually
+        let storage_dir = binnacle::storage::get_storage_dir(temp.path()).unwrap();
+        let pid_file_path = storage_dir.join("gui.pid");
+        std::fs::create_dir_all(&storage_dir).unwrap();
+        std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
+
+        // Kill should clean up the stale PID file (human-readable)
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("kill").arg("-H");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains("not running"))
+            .stdout(predicates::str::contains("cleaned up stale"));
+
+        // PID file should be cleaned up
+        assert!(
+            !pid_file_path.exists(),
+            "Stale PID file should have been deleted"
+        );
+    }
+
+    #[test]
+    fn test_gui_kill_json_output_structure_not_running() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle first
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Verify JSON structure when not running (no PID file)
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("kill");
+        let output = cmd.assert().success();
+        let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+        let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+
+        assert_eq!(json["status"], "not_running");
+        // When no PID file exists, cleaned_stale should not be present
+        assert!(json.get("cleaned_stale").is_none());
+    }
+
+    #[test]
+    fn test_gui_kill_json_output_structure_stale_pid() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle first
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Create a stale PID file manually
+        let storage_dir = binnacle::storage::get_storage_dir(temp.path()).unwrap();
+        let pid_file_path = storage_dir.join("gui.pid");
+        std::fs::create_dir_all(&storage_dir).unwrap();
+        std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
+
+        // Verify JSON structure when stale PID file exists
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("kill");
+        let output = cmd.assert().success();
+        let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+        let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+
+        assert_eq!(json["status"], "not_running");
+        assert_eq!(json["cleaned_stale"], true);
+    }
+
+    #[test]
+    fn test_gui_kill_force_cleans_stale_pid_file() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle first
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Create a stale PID file manually
+        let storage_dir = binnacle::storage::get_storage_dir(temp.path()).unwrap();
+        let pid_file_path = storage_dir.join("gui.pid");
+        std::fs::create_dir_all(&storage_dir).unwrap();
+        std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
+
+        // Kill --force should also clean up the stale PID file
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("kill").arg("--force");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains("not_running"));
+
+        // PID file should be cleaned up
+        assert!(
+            !pid_file_path.exists(),
+            "Stale PID file should have been deleted"
+        );
+    }
+
+    #[test]
+    fn test_gui_kill_works_without_init() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Kill should work even without initialization
+        // (it just checks for a PID file, and reports not running if none exists)
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.current_dir(&temp);
+        cmd.arg("gui").arg("kill");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains(r#""status":"not_running""#));
+    }
 }
 
 #[cfg(not(feature = "gui"))]
