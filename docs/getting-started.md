@@ -203,6 +203,7 @@ bn queue add bn-xxxx
 - Read the [README](../README.md) for full command reference
 - Explore the [PRD](../PRD.md) for design philosophy
 - Check [CONTRIBUTING.md](../CONTRIBUTING.md) to contribute
+- See [Embedding the Viewer](./embedding-viewer.md) for sharing task graphs
 
 ## Troubleshooting
 
