@@ -10940,7 +10940,7 @@ impl Output for CommitArchiveResult {
 
 /// Generate archive for a commit snapshot.
 ///
-/// Creates `bn_{commit-hash}.tar.zst` in the configured archive directory.
+/// Creates `bn_{commit-hash}.bng` in the configured archive directory.
 /// Returns `None` if `archive.directory` is not configured.
 pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<CommitArchiveResult> {
     // Helper to create a skipped result
@@ -11001,7 +11001,7 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
     }
 
     // Generate archive filename
-    let archive_filename = format!("bn_{}.tar.zst", commit_hash);
+    let archive_filename = format!("bn_{}.bng", commit_hash);
     let archive_path = archive_dir.join(&archive_filename);
 
     // Use the existing export functionality
@@ -11983,7 +11983,7 @@ pub fn system_store_clear(
             eprintln!("  bn system store clear --force");
             eprintln!();
             eprintln!("To create a backup first (recommended):");
-            eprintln!("  bn system store export backup.tar.zst && bn system store clear --force");
+            eprintln!("  bn system store export backup.bng && bn system store clear --force");
         }
 
         return Ok(StoreClearResult {
@@ -12003,7 +12003,7 @@ pub fn system_store_clear(
     // Create backup unless --no-backup is specified
     let backup_path = if !no_backup {
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-        let backup_name = format!("binnacle_backup_{}.tar.zst", timestamp);
+        let backup_name = format!("binnacle_backup_{}.bng", timestamp);
 
         // Try to create backup in the repo directory, fall back to temp
         let backup_file = repo_path.join(&backup_name);

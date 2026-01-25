@@ -133,7 +133,7 @@ fn test_post_commit_hook_with_archive_config() {
     std::thread::sleep(std::time::Duration::from_millis(500));
 
     // Check that archive was created
-    let archive_file = archive_dir.join(format!("bn_{}.tar.zst", commit_hash));
+    let archive_file = archive_dir.join(format!("bn_{}.bng", commit_hash));
     assert!(
         archive_file.exists(),
         "Archive file should exist at {}",
