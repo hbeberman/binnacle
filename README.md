@@ -38,7 +38,28 @@ bn goodbye "summary"            # graceful exit
 ./agent.sh buddy                # helper for adding tasks interactively
 ```
 
-See [container/README.md](container/README.md) for sandboxed execution.
+### Containerized Agents (Quick Start)
+
+Run AI agents in isolated containers with full access to the binnacle task graph:
+
+```bash
+# 1. Install prerequisites (Fedora/RHEL)
+sudo dnf install containerd buildah
+sudo systemctl enable --now containerd
+
+# 2. Create a worktree for the agent to work in
+git worktree add ../agent-work -b agent-feature
+
+# 3. Build the container image
+bn container build
+
+# 4. Run the container
+bn container run ../agent-work
+```
+
+The container mounts your worktree and binnacle data, runs an AI agent (copilot or claude), and auto-merges completed work back to `main`.
+
+See [container/README.md](container/README.md) for full documentation including resource limits, environment variables, and troubleshooting.
 
 ## What It Tracks
 
