@@ -8949,22 +8949,39 @@
             const select = document.getElementById('user-filter');
             const users = [...new Set(state.log.map(e => e.user).filter(Boolean))].sort();
             
+            // Separate agents and humans
+            const agents = users.filter(isAgent);
+            const humans = users.filter(u => !isAgent(u));
+            
             // Keep first 3 options (All, Humans, Agents)
             while (select.options.length > 3) {
                 select.remove(3);
             }
             
-            // Add individual users
-            if (users.length > 0) {
-                const optgroup = document.createElement('optgroup');
-                optgroup.label = 'Individual Users';
-                users.forEach(user => {
+            // Add agents group
+            if (agents.length > 0) {
+                const agentGroup = document.createElement('optgroup');
+                agentGroup.label = '🤖 Agents';
+                agents.forEach(user => {
                     const opt = document.createElement('option');
                     opt.value = user;
-                    opt.textContent = isAgent(user) ? `🤖 ${user}` : `👤 ${user}`;
-                    optgroup.appendChild(opt);
+                    opt.textContent = user;
+                    agentGroup.appendChild(opt);
                 });
-                select.appendChild(optgroup);
+                select.appendChild(agentGroup);
+            }
+            
+            // Add humans group
+            if (humans.length > 0) {
+                const humanGroup = document.createElement('optgroup');
+                humanGroup.label = '👤 Humans';
+                humans.forEach(user => {
+                    const opt = document.createElement('option');
+                    opt.value = user;
+                    opt.textContent = user;
+                    humanGroup.appendChild(opt);
+                });
+                select.appendChild(humanGroup);
             }
         }
 
