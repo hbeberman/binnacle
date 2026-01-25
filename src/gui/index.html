@@ -4294,16 +4294,27 @@
                             }
                         }
                         
-                        // New task/bug detection: show auto-dismissing toast for new additions
-                        // Only show if we've done the initial load (skip first population)
-                        if (state.tasks && initialLoadComplete) {
+                        // New node detection: show auto-dismissing toast for new additions
+                        // Only show if auto-follow is enabled and we've done the initial load
+                        if (state.tasks && initialLoadComplete && state.graph.autoFollow) {
+                            const config = state.graph.autoFollowConfig || { nodeTypes: { task: true, bug: true } };
                             for (const task of state.tasks) {
                                 // Check if this is a new item (not in previous state)
                                 if (prevStatuses[task.id] === undefined) {
-                                    if (task.type === 'bug') {
-                                        showToast(`🐛 Bug added: ${task.id} - ${task.title}`, 'warning', 5000);
-                                    } else if (task.type === 'task') {
-                                        showToast(`📋 Task added: ${task.id} - ${task.title}`, 'info', 5000);
+                                    // Filter by node type based on config toggles
+                                    const nodeType = task.type;
+                                    if (config.nodeTypes && config.nodeTypes[nodeType]) {
+                                        const icons = {
+                                            bug: '🐛',
+                                            task: '📋',
+                                            idea: '💡',
+                                            test: '🧪',
+                                            doc: '📄'
+                                        };
+                                        const icon = icons[nodeType] || '📌';
+                                        const typeName = nodeType.charAt(0).toUpperCase() + nodeType.slice(1);
+                                        const toastType = nodeType === 'bug' ? 'warning' : 'info';
+                                        showToast(`${icon} ${typeName} added: ${task.id} - ${task.title || task.name || ''}`, toastType, 5000);
                                     }
                                 }
                             }
