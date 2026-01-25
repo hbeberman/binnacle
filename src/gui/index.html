@@ -4161,6 +4161,7 @@
                 panThroughState: 'idle', // 'idle', 'panning', 'paused'
                 panThroughPauseDuration: 1200,  // ms to pause on each node
                 panThroughPauseStart: null,     // Timestamp when pause started
+                focusEndTime: null,             // When focus period ends (after pan-through), null = not focusing
                 // Stat highlight filter state (null = no filter active)
                 highlightFilter: null,  // e.g., 'bugs', 'blocked', 'ready', 'ideas', 'milestones'
                 // Hide completed nodes filter
@@ -4262,50 +4263,62 @@
                         // When auto-follow is enabled and we have a selected target,
                         // re-center on the target node if it has moved
                         if (state.graph.autoFollow && state.graph.followTargetId) {
-                            // Find the target node based on followTargetId
-                            let targetNode = null;
-                            if (state.graph.followTargetId === 'auto') {
-                                // Auto mode: follow the agent with the most recent activity
-                                // Use configurable delay (default 10 seconds)
-                                const delaySeconds = state.graph.autoFollowConfig?.focusDelaySeconds || 10;
-                                const FOCUS_SWITCH_DELAY_MS = delaySeconds * 1000;
-                                const mostRecentAgent = findMostRecentlyActiveAgent();
-                                if (mostRecentAgent) {
-                                    const now = Date.now();
-                                    const timeSinceLastSwitch = now - state.graph.lastFocusSwitchTime;
-                                    
-                                    if (state.graph.followingNodeId !== mostRecentAgent.id) {
-                                        // Different agent is most active - check if we can switch
-                                        if (timeSinceLastSwitch >= FOCUS_SWITCH_DELAY_MS || !state.graph.followingNodeId) {
-                                            // Enough time has passed, or no current focus - switch
-                                            targetNode = mostRecentAgent;
-                                            state.graph.lastFocusSwitchTime = now;
-                                        } else {
-                                            // Keep following current agent (delay not met)
-                                            targetNode = state.tasks?.find(t => t.id === state.graph.followingNodeId && t.type === 'agent');
-                                        }
-                                    } else {
-                                        // Same agent - keep following
-                                        targetNode = mostRecentAgent;
-                                    }
-                                }
-                            } else if (state.graph.followTargetId === 'active-task') {
-                                targetNode = state.tasks?.find(t => 
-                                    (t.type === 'task' || t.type === 'bug') && t.status === 'in_progress'
-                                );
-                            } else if (state.graph.followTargetId === 'queue') {
-                                targetNode = state.tasks?.find(t => t.type === 'queue');
+                            // Check if we're in a focus period (after pan-through)
+                            // During focus period, don't resume agent following
+                            const now = Date.now();
+                            if (state.graph.focusEndTime && now < state.graph.focusEndTime) {
+                                // Still in focus period - skip agent follow logic
+                                // (let user view the new nodes without interruption)
                             } else {
-                                targetNode = state.tasks?.find(t => t.id === state.graph.followTargetId && t.type === 'agent');
-                            }
-                            
-                            if (targetNode && state.graph.followingNodeId !== targetNode.id) {
-                                // Target exists but we weren't following it - start following
-                                state.graph.followingNodeId = targetNode.id;
-                                panToNode(targetNode.id, true);
-                            } else if (targetNode) {
-                                // Target is being followed - re-pan to keep it centered
-                                panToNode(targetNode.id, false);  // Don't zoom, just pan
+                                // Focus period expired or not set - clear it and resume normal behavior
+                                if (state.graph.focusEndTime) {
+                                    state.graph.focusEndTime = null;
+                                }
+                                
+                                // Find the target node based on followTargetId
+                                let targetNode = null;
+                                if (state.graph.followTargetId === 'auto') {
+                                    // Auto mode: follow the agent with the most recent activity
+                                    // Use configurable delay (default 10 seconds)
+                                    const delaySeconds = state.graph.autoFollowConfig?.focusDelaySeconds || 10;
+                                    const FOCUS_SWITCH_DELAY_MS = delaySeconds * 1000;
+                                    const mostRecentAgent = findMostRecentlyActiveAgent();
+                                    if (mostRecentAgent) {
+                                        const timeSinceLastSwitch = now - state.graph.lastFocusSwitchTime;
+                                        
+                                        if (state.graph.followingNodeId !== mostRecentAgent.id) {
+                                            // Different agent is most active - check if we can switch
+                                            if (timeSinceLastSwitch >= FOCUS_SWITCH_DELAY_MS || !state.graph.followingNodeId) {
+                                                // Enough time has passed, or no current focus - switch
+                                                targetNode = mostRecentAgent;
+                                                state.graph.lastFocusSwitchTime = now;
+                                            } else {
+                                                // Keep following current agent (delay not met)
+                                                targetNode = state.tasks?.find(t => t.id === state.graph.followingNodeId && t.type === 'agent');
+                                            }
+                                        } else {
+                                            // Same agent - keep following
+                                            targetNode = mostRecentAgent;
+                                        }
+                                    }
+                                } else if (state.graph.followTargetId === 'active-task') {
+                                    targetNode = state.tasks?.find(t => 
+                                        (t.type === 'task' || t.type === 'bug') && t.status === 'in_progress'
+                                    );
+                                } else if (state.graph.followTargetId === 'queue') {
+                                    targetNode = state.tasks?.find(t => t.type === 'queue');
+                                } else {
+                                    targetNode = state.tasks?.find(t => t.id === state.graph.followTargetId && t.type === 'agent');
+                                }
+                                
+                                if (targetNode && state.graph.followingNodeId !== targetNode.id) {
+                                    // Target exists but we weren't following it - start following
+                                    state.graph.followingNodeId = targetNode.id;
+                                    panToNode(targetNode.id, true);
+                                } else if (targetNode) {
+                                    // Target is being followed - re-pan to keep it centered
+                                    panToNode(targetNode.id, false);  // Don't zoom, just pan
+                                }
                             }
                         }
                         
@@ -5059,8 +5072,9 @@
                         if (state.graph.followAnimation && state.graph.autoFollow) {
                             return; // Block panning during auto-follow animation
                         }
-                        // User is manually panning - stop following the node
+                        // User is manually panning - stop following the node and cancel focus period
                         state.graph.followingNodeId = null;
+                        cancelFocusPeriod();  // Cancel any active focus period
                         cancelPanAnimation();  // Cancel any ongoing camera animation
                         state.graph.isPanning = true;
                         state.graph.panStartX = mouseX;
@@ -5915,9 +5929,12 @@
         
         function startNextPanThrough() {
             if (state.graph.panThroughQueue.length === 0) {
-                // Queue empty - return to idle
+                // Queue empty - return to idle and start focus period
                 state.graph.panThroughState = 'idle';
                 state.graph.panThroughPauseStart = null;
+                // Set focus end time based on config (prevents immediate snap back to agent)
+                const delaySeconds = state.graph.autoFollowConfig?.focusDelaySeconds || 10;
+                state.graph.focusEndTime = Date.now() + delaySeconds * 1000;
                 return;
             }
             
@@ -5971,6 +5988,12 @@
             state.graph.panThroughQueue = [];
             state.graph.panThroughState = 'idle';
             state.graph.panThroughPauseStart = null;
+            // Don't clear focusEndTime here - focus period continues after cancel
+        }
+        
+        // Cancel focus period early (called on manual user interaction)
+        function cancelFocusPeriod() {
+            state.graph.focusEndTime = null;
         }
 
         // Continuous follow: keep viewport centered on followed node as it moves
@@ -6370,6 +6393,7 @@
                 if (nodeId) {
                     // Disable auto-follow when user explicitly navigates to a specific node
                     state.graph.autoFollow = false;
+                    cancelFocusPeriod();  // Cancel any active focus period
                     updateAutoFollowDisplay();
                     // Find and select the node
                     const targetNode = state.graph.nodes.find(n => n.id === nodeId);
@@ -7931,6 +7955,7 @@
                 btn.addEventListener('click', (e) => {
                     const nodeId = e.currentTarget.getAttribute('data-task-id');
                     state.graph.autoFollow = false;
+                    cancelFocusPeriod();  // Cancel any active focus period
                     updateAutoFollowDisplay();
                     switchView('graph');
                     panToNode(nodeId, true);
@@ -8239,6 +8264,7 @@
                     const agentId = item.dataset.agentId;
                     // Disable auto-follow when user explicitly navigates to a specific node
                     state.graph.autoFollow = false;
+                    cancelFocusPeriod();  // Cancel any active focus period
                     updateAutoFollowDisplay();
                     panToNode(agentId, true);
                     const node = state.graph.nodes.find(n => n.id === agentId);
@@ -8297,6 +8323,7 @@
             // Disable auto-follow when user explicitly navigates to a specific node
             // This indicates they want to look at that specific node, not have it auto-switch
             state.graph.autoFollow = false;
+            cancelFocusPeriod();  // Cancel any active focus period
             updateAutoFollowDisplay();
             // Switch to graph view
             switchView('graph');
@@ -9127,6 +9154,7 @@
             
             // Disable auto-follow to prevent interference
             state.graph.autoFollow = false;
+            cancelFocusPeriod();  // Cancel any active focus period
             updateAutoFollowDisplay();
             
             // Find and pan to the node
