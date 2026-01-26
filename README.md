@@ -110,6 +110,18 @@ bn system store export data.bng  # export your project data
 # open target/viewer/viewer.html, drop in data.bng
 ```
 
+### Local Hosting
+
+Serve the viewer locally with a pre-loaded archive:
+
+```bash
+just serve-wasm                       # serve on port 8080
+just serve-wasm 3000                  # serve on custom port
+just serve-wasm 8080 path/to/data.bng # serve with pre-loaded archive
+```
+
+Then open `http://localhost:8080` in your browser. If you provided an archive path, it will be auto-loaded via URL parameter.
+
 See [docs/embedding-viewer.md](docs/embedding-viewer.md) for embedding in web pages.
 
 ## Building
