@@ -10,6 +10,7 @@ LABEL org.opencontainers.image.source="https://github.com/hbeberman/binnacle"
 # gcc/make: Required for Rust's C linker (compiling native crates)
 # Rust toolchain is needed for pre-commit hooks (cargo fmt, clippy, audit)
 # diffutils: Required for pre-commit AGENTS.md sync check
+# just: Command runner for justfile recipes
 RUN dnf install -y \
     git \
     curl \
@@ -28,6 +29,7 @@ RUN dnf install -y \
     gcc \
     make \
     diffutils \
+    just \
     && dnf clean all
 
 # Install Rust toolchain via rustup
