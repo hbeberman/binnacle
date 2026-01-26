@@ -22,6 +22,7 @@
     <link rel="stylesheet" href="/css/components/readonly-indicator.css">
     <link rel="stylesheet" href="/css/components/doc-viewer.css">
     <link rel="stylesheet" href="/css/components/edge-info-panel.css">
+    <link rel="stylesheet" href="/css/components/graph-controls.css">
     
     <style>
         /* Additional layout styles for the full app */
@@ -221,6 +222,7 @@
         import { createActiveTaskPane } from './js/components/active-task-pane.js';
         import { mountReadonlyIndicator } from './js/components/readonly-indicator.js';
         import { mountZoomControls } from './js/components/zoom-controls.js';
+        import { mountGraphControls } from './js/components/graph-controls.js';
         
         // Get container element
         const container = document.getElementById('app-container');
@@ -235,6 +237,22 @@
         
         // Mount zoom controls to graph view
         mountZoomControls(graphView);
+        
+        // Mount graph controls to graph view
+        mountGraphControls(graphView, {
+            onSearch: (query) => {
+                console.log('Graph search query:', query);
+                // TODO: Implement graph search filtering
+            },
+            onHideCompletedToggle: (hideCompleted) => {
+                console.log('Hide completed:', hideCompleted);
+                // TODO: Implement hide completed filtering
+            },
+            onAutoFollowToggle: (autoFollow) => {
+                console.log('Auto-follow:', autoFollow);
+                // TODO: Implement auto-follow behavior
+            }
+        });
         
         // Initialize agent list
         initializeAgentList('#agents-list');
