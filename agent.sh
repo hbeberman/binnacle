@@ -65,6 +65,7 @@ TOOLS_FULL=(
     --allow-tool "shell(curl:*)"
     --allow-tool "shell(awk:*)"
     --allow-tool "shell(pgrep:*)"
+    --allow-tool "shell(node:*)"
     --allow-tool "binnacle"
 )
 
