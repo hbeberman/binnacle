@@ -13890,6 +13890,9 @@ pub struct AgentSpawnResult {
     /// Container name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_name: Option<String>,
+    /// Path to agent log file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_path: Option<String>,
     /// Error message if spawn failed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -13902,13 +13905,17 @@ impl Output for AgentSpawnResult {
 
     fn to_human(&self) -> String {
         if self.success {
-            format!(
+            let mut msg = format!(
                 "Spawned {} agent: {} ({})\nContainer: {}",
                 self.agent_type,
                 self.name.as_deref().unwrap_or("unknown"),
                 self.agent_id.as_deref().unwrap_or("unknown"),
                 self.container_name.as_deref().unwrap_or("unknown")
-            )
+            );
+            if let Some(ref log) = self.log_path {
+                msg.push_str(&format!("\nLog: {}", log));
+            }
+            msg
         } else {
             format!(
                 "Failed to spawn {} agent: {}",
@@ -13946,6 +13953,7 @@ pub fn agent_spawn(
             name: None,
             agent_type: agent_type.to_string(),
             container_name: None,
+            log_path: None,
             error: Some(container_deps_missing_message()),
         });
     }
@@ -13963,6 +13971,7 @@ pub fn agent_spawn(
             name: None,
             agent_type: agent_type.to_string(),
             container_name: None,
+            log_path: None,
             error: Some(format!(
                 "Image '{}' not found in containerd.\n\nRun 'bn container build' first to build the worker image.",
                 image_name
@@ -13984,6 +13993,7 @@ pub fn agent_spawn(
             name: None,
             agent_type: agent_type.to_string(),
             container_name: None,
+            log_path: None,
             error: Some(format!(
                 "Worktree path does not exist: {}",
                 worktree_path.display()
@@ -14056,6 +14066,7 @@ pub fn agent_spawn(
             name: Some(agent_name),
             agent_type: agent_type.to_string(),
             container_name: Some(container_name),
+            log_path: None,
             error: Some(
                 "Container user mapping requires Unix. Windows is not supported.".to_string(),
             ),
@@ -14187,6 +14198,7 @@ pub fn agent_spawn(
                 name: Some(agent_name),
                 agent_type: agent_type.to_string(),
                 container_name: Some(container_name),
+                log_path: None,
                 error: Some(
                     "Git identity not configured. Please set your git user.name and user.email:\n  \
                      git config --global user.name \"Your Name\"\n  \
@@ -14202,6 +14214,7 @@ pub fn agent_spawn(
                 name: Some(agent_name),
                 agent_type: agent_type.to_string(),
                 container_name: Some(container_name),
+                log_path: None,
                 error: Some(
                     "Git user.name not configured. Please set it:\n  \
                      git config --global user.name \"Your Name\""
@@ -14216,6 +14229,7 @@ pub fn agent_spawn(
                 name: Some(agent_name),
                 agent_type: agent_type.to_string(),
                 container_name: Some(container_name),
+                log_path: None,
                 error: Some(
                     "Git user.email not configured. Please set it:\n  \
                      git config --global user.email \"you@example.com\""
@@ -14253,33 +14267,45 @@ pub fn agent_spawn(
     args.push("localhost/binnacle-worker:latest".to_string());
     args.push(container_name.clone());
 
-    // Run container with inherited stdio
-    let status = ctr_command(&containerd_mode)
-        .args(&args)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()?;
+    // Create agent logs directory and log file
+    let logs_dir = binnacle_data.join("agentlogs");
+    fs::create_dir_all(&logs_dir)?;
+    let log_path = logs_dir.join(format!("{}.log", agent_id));
+    let log_file = fs::File::create(&log_path)?;
+    let log_path_str = log_path.to_string_lossy().to_string();
 
-    if !status.success() {
-        return Ok(AgentSpawnResult {
+    // Run container with output redirected to log file
+    // Use spawn() instead of status() so we can detach and not block
+    let child = ctr_command(&containerd_mode)
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(log_file.try_clone()?)
+        .stderr(log_file)
+        .spawn();
+
+    match child {
+        Ok(_) => {
+            // Container started successfully in background
+            Ok(AgentSpawnResult {
+                success: true,
+                agent_id: Some(agent_id),
+                name: Some(agent_name),
+                agent_type: agent_type.to_string(),
+                container_name: Some(container_name),
+                log_path: Some(log_path_str),
+                error: None,
+            })
+        }
+        Err(e) => Ok(AgentSpawnResult {
             success: false,
             agent_id: Some(agent_id),
             name: Some(agent_name),
             agent_type: agent_type.to_string(),
             container_name: Some(container_name),
-            error: Some(format!("Container exited with status: {}", status)),
-        });
+            log_path: Some(log_path_str),
+            error: Some(format!("Failed to spawn container: {}", e)),
+        }),
     }
-
-    Ok(AgentSpawnResult {
-        success: true,
-        agent_id: Some(agent_id),
-        name: Some(agent_name),
-        agent_type: agent_type.to_string(),
-        container_name: Some(container_name),
-        error: None,
-    })
 }
 
 /// Result of agent reconciliation operation.
@@ -14321,6 +14347,9 @@ pub struct ReconcileAction {
     /// Agent name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
+    /// Path to agent log file (for spawn actions)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_path: Option<String>,
     /// Reason for the action
     pub reason: String,
     /// Whether the action was executed (false in dry_run mode)
@@ -14428,6 +14457,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
             agent_type: format!("{:?}", agent.agent_type).to_lowercase(),
             agent_id: Some(agent.id.clone()),
             agent_name: Some(agent.name.clone()),
+            log_path: None,
             reason: "Agent called goodbye".to_string(),
             executed,
         });
@@ -14508,8 +14538,8 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
     if current_worker_count < desired_worker_count {
         let to_spawn = desired_worker_count - current_worker_count;
         for _ in 0..to_spawn {
-            let executed = if dry_run {
-                false
+            let (executed, spawned_agent_id, spawned_agent_name, spawned_log_path) = if dry_run {
+                (false, None, None, None)
             } else {
                 // Spawn a worker using agent_spawn
                 match agent_spawn(
@@ -14523,15 +14553,21 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     false,
                     Some(prompts::WORKER_PROMPT),
                 ) {
-                    Ok(result) => result.success,
-                    Err(_) => false,
+                    Ok(result) => (
+                        result.success,
+                        result.agent_id,
+                        result.name,
+                        result.log_path,
+                    ),
+                    Err(_) => (false, None, None, None),
                 }
             };
             actions.push(ReconcileAction {
                 action: "spawn".to_string(),
                 agent_type: "worker".to_string(),
-                agent_id: None,
-                agent_name: None,
+                agent_id: spawned_agent_id,
+                agent_name: spawned_agent_name,
+                log_path: spawned_log_path,
                 reason: format!(
                     "Current count ({}) below desired ({}); {} work items available",
                     current_worker_count, desired_worker_count, work_count
@@ -14559,6 +14595,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                 agent_type: "worker".to_string(),
                 agent_id: Some(agent.id.clone()),
                 agent_name: Some(agent.name.clone()),
+                log_path: None,
                 reason: if work_count == 0 {
                     "No work available".to_string()
                 } else {
@@ -14576,8 +14613,8 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
     if current_planner_count < desired_planner_count {
         let to_spawn = desired_planner_count - current_planner_count;
         for _ in 0..to_spawn {
-            let executed = if dry_run {
-                false
+            let (executed, spawned_agent_id, spawned_agent_name, spawned_log_path) = if dry_run {
+                (false, None, None, None)
             } else {
                 match agent_spawn(
                     repo_path,
@@ -14590,15 +14627,21 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     false,
                     Some(prompts::PRD_PROMPT),
                 ) {
-                    Ok(result) => result.success,
-                    Err(_) => false,
+                    Ok(result) => (
+                        result.success,
+                        result.agent_id,
+                        result.name,
+                        result.log_path,
+                    ),
+                    Err(_) => (false, None, None, None),
                 }
             };
             actions.push(ReconcileAction {
                 action: "spawn".to_string(),
                 agent_type: "planner".to_string(),
-                agent_id: None,
-                agent_name: None,
+                agent_id: spawned_agent_id,
+                agent_name: spawned_agent_name,
+                log_path: spawned_log_path,
                 reason: format!(
                     "Current count ({}) below minimum ({})",
                     current_planner_count, desired_planner_count
@@ -14624,6 +14667,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                 agent_type: "planner".to_string(),
                 agent_id: Some(agent.id.clone()),
                 agent_name: Some(agent.name.clone()),
+                log_path: None,
                 reason: format!(
                     "Current count ({}) above maximum ({})",
                     current_planner_count, planner_scaling.max
@@ -14637,8 +14681,8 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
     if current_buddy_count < desired_buddy_count {
         let to_spawn = desired_buddy_count - current_buddy_count;
         for _ in 0..to_spawn {
-            let executed = if dry_run {
-                false
+            let (executed, spawned_agent_id, spawned_agent_name, spawned_log_path) = if dry_run {
+                (false, None, None, None)
             } else {
                 match agent_spawn(
                     repo_path,
@@ -14651,15 +14695,21 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     false,
                     Some(prompts::BUDDY_PROMPT),
                 ) {
-                    Ok(result) => result.success,
-                    Err(_) => false,
+                    Ok(result) => (
+                        result.success,
+                        result.agent_id,
+                        result.name,
+                        result.log_path,
+                    ),
+                    Err(_) => (false, None, None, None),
                 }
             };
             actions.push(ReconcileAction {
                 action: "spawn".to_string(),
                 agent_type: "buddy".to_string(),
-                agent_id: None,
-                agent_name: None,
+                agent_id: spawned_agent_id,
+                agent_name: spawned_agent_name,
+                log_path: spawned_log_path,
                 reason: format!(
                     "Current count ({}) below minimum ({})",
                     current_buddy_count, desired_buddy_count
@@ -14685,6 +14735,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                 agent_type: "buddy".to_string(),
                 agent_id: Some(agent.id.clone()),
                 agent_name: Some(agent.name.clone()),
+                log_path: None,
                 reason: format!(
                     "Current count ({}) above maximum ({})",
                     current_buddy_count, buddy_scaling.max
@@ -14775,6 +14826,12 @@ pub fn serve(repo_path: &Path, interval_secs: u64, dry_run: bool, human: bool) -
                             "  {} {} {} - {}",
                             status, action.action, action.agent_type, action.reason
                         );
+                        // Print log path for spawn actions
+                        if action.action == "spawn"
+                            && let Some(ref log_path) = action.log_path
+                        {
+                            println!("    Log: {}", log_path);
+                        }
                     }
                 } else {
                     println!(
