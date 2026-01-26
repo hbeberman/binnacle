@@ -13874,6 +13874,400 @@ pub fn agent_rm(
     })
 }
 
+/// Result of agent spawn operation.
+#[derive(Serialize)]
+pub struct AgentSpawnResult {
+    /// Whether the spawn was successful
+    pub success: bool,
+    /// Pre-assigned agent ID (bn-xxxx format)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Agent name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Agent type
+    pub agent_type: String,
+    /// Container name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_name: Option<String>,
+    /// Error message if spawn failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl Output for AgentSpawnResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.success {
+            format!(
+                "Spawned {} agent: {} ({})\nContainer: {}",
+                self.agent_type,
+                self.name.as_deref().unwrap_or("unknown"),
+                self.agent_id.as_deref().unwrap_or("unknown"),
+                self.container_name.as_deref().unwrap_or("unknown")
+            )
+        } else {
+            format!(
+                "Failed to spawn {} agent: {}",
+                self.agent_type,
+                self.error.as_deref().unwrap_or("unknown error")
+            )
+        }
+    }
+}
+
+/// Manually spawn an agent container (bypasses min/max scaling).
+///
+/// This command:
+/// 1. Pre-assigns an agent ID (bn-xxxx)
+/// 2. Generates a container name if not provided
+/// 3. Spawns a container with the agent ID in the environment
+/// 4. The container will use BN_AGENT_ID instead of PID-based registration
+#[allow(clippy::too_many_arguments)]
+pub fn agent_spawn(
+    repo_path: &Path,
+    agent_type: &str,
+    name: Option<String>,
+    cpus: Option<f64>,
+    memory: Option<&str>,
+    worktree: Option<&str>,
+    merge_target: &str,
+    no_merge: bool,
+    prompt: Option<&str>,
+) -> Result<AgentSpawnResult> {
+    // Check for required tools
+    if !command_exists("ctr") {
+        return Ok(AgentSpawnResult {
+            success: false,
+            agent_id: None,
+            name: None,
+            agent_type: agent_type.to_string(),
+            container_name: None,
+            error: Some(container_deps_missing_message()),
+        });
+    }
+
+    // Detect containerd mode (rootless vs system)
+    let containerd_mode = detect_containerd_mode();
+    warn_system_containerd_mode(&containerd_mode);
+
+    // Check if the worker image exists in containerd
+    let image_name = "localhost/binnacle-worker:latest";
+    if !container_image_exists(image_name) {
+        return Ok(AgentSpawnResult {
+            success: false,
+            agent_id: None,
+            name: None,
+            agent_type: agent_type.to_string(),
+            container_name: None,
+            error: Some(format!(
+                "Image '{}' not found in containerd.\n\nRun 'bn container build' first to build the worker image.",
+                image_name
+            )),
+        });
+    }
+
+    // Determine worktree path - either explicitly provided or use repo_path
+    let worktree_path = match worktree {
+        Some(wt) => PathBuf::from(wt),
+        None => repo_path.to_path_buf(),
+    };
+
+    // Validate worktree path exists
+    if !worktree_path.exists() {
+        return Ok(AgentSpawnResult {
+            success: false,
+            agent_id: None,
+            name: None,
+            agent_type: agent_type.to_string(),
+            container_name: None,
+            error: Some(format!(
+                "Worktree path does not exist: {}",
+                worktree_path.display()
+            )),
+        });
+    }
+
+    // Canonicalize the worktree path
+    let worktree_abs = worktree_path.canonicalize()?;
+
+    // Get binnacle data path
+    let binnacle_data = dirs::data_local_dir()
+        .unwrap_or_else(|| Path::new("/tmp").to_path_buf())
+        .join("binnacle");
+
+    // Generate agent ID and name
+    let agent_id = generate_id(
+        "bn",
+        &format!(
+            "agent-{}-{}",
+            agent_type,
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ),
+    );
+    let agent_name = name.unwrap_or_else(|| format!("{}-{}", agent_type, &agent_id[3..])); // e.g., "worker-a1b2"
+
+    // Generate container name
+    let container_name = format!("binnacle-{}-{}", agent_type, &agent_id[3..]);
+
+    // Build ctr run command
+    let mut args = vec![
+        "-n".to_string(),
+        "binnacle".to_string(),
+        "run".to_string(),
+        "--rm".to_string(),
+    ];
+
+    // Check if we have a real terminal
+    use std::io::IsTerminal;
+    let is_tty = std::io::stdin().is_terminal();
+
+    if is_tty {
+        args.push("--tty".to_string());
+    }
+
+    // Host networking for API access
+    args.push("--net-host".to_string());
+
+    // Run as host user's UID/GID
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = fs::metadata(&worktree_abs).map_err(|e| {
+            Error::Other(format!(
+                "Failed to read worktree metadata for user mapping: {}",
+                e
+            ))
+        })?;
+        let uid = meta.uid();
+        let gid = meta.gid();
+        args.push("--user".to_string());
+        args.push(format!("{}:{}", uid, gid));
+    }
+
+    #[cfg(not(unix))]
+    {
+        return Ok(AgentSpawnResult {
+            success: false,
+            agent_id: Some(agent_id),
+            name: Some(agent_name),
+            agent_type: agent_type.to_string(),
+            container_name: Some(container_name),
+            error: Some(
+                "Container user mapping requires Unix. Windows is not supported.".to_string(),
+            ),
+        });
+    }
+
+    // Add resource limits if specified
+    if let Some(cpu_limit) = cpus {
+        args.push("--cpus".to_string());
+        args.push(cpu_limit.to_string());
+    }
+
+    if let Some(mem_limit) = memory {
+        let bytes = parse_memory_limit(mem_limit)?;
+        args.push("--memory-limit".to_string());
+        args.push(bytes.to_string());
+    }
+
+    // Add mounts
+    args.push("--mount".to_string());
+    args.push(format!(
+        "type=bind,src={},dst=/workspace,options=rbind:rw",
+        worktree_abs.display()
+    ));
+
+    args.push("--mount".to_string());
+    args.push(format!(
+        "type=bind,src={},dst=/binnacle,options=rbind:rw",
+        binnacle_data.display()
+    ));
+
+    // If this is a git worktree, mount the parent repo's .git directory
+    if let Some(parent_git_dir) = detect_worktree_parent_git(&worktree_abs) {
+        args.push("--mount".to_string());
+        args.push(format!(
+            "type=bind,src={},dst={},options=rbind:rw",
+            parent_git_dir.display(),
+            parent_git_dir.display()
+        ));
+    }
+
+    // Add environment variables
+    args.push("--env".to_string());
+    args.push(format!("BN_AGENT_TYPE={}", agent_type));
+
+    args.push("--env".to_string());
+    args.push("BN_CONTAINER_MODE=true".to_string());
+
+    args.push("--env".to_string());
+    args.push(format!("BN_MERGE_TARGET={}", merge_target));
+
+    // Tell bn where to find the database
+    args.push("--env".to_string());
+    args.push("BN_DATA_DIR=/binnacle".to_string());
+
+    // Pass pre-assigned agent ID and name
+    args.push("--env".to_string());
+    args.push(format!("BN_AGENT_ID={}", agent_id));
+
+    args.push("--env".to_string());
+    args.push(format!("BN_AGENT_NAME={}", agent_name));
+
+    // Compute storage hash on host and pass to container
+    let repo_root = find_git_root(&worktree_abs).unwrap_or_else(|| worktree_abs.clone());
+    let mut hasher = Sha256::new();
+    hasher.update(repo_root.to_string_lossy().as_bytes());
+    let hash = hasher.finalize();
+    let storage_hash = &format!("{:x}", hash)[..12];
+    args.push("--env".to_string());
+    args.push(format!("BN_STORAGE_HASH={}", storage_hash));
+
+    if no_merge {
+        args.push("--env".to_string());
+        args.push("BN_NO_MERGE=true".to_string());
+    }
+
+    // Pass custom prompt if provided
+    if let Some(custom_prompt) = prompt {
+        args.push("--env".to_string());
+        args.push(format!("BN_INITIAL_PROMPT={}", custom_prompt));
+    }
+
+    // Pass through GitHub tokens if available
+    if let Ok(token) = std::env::var("GH_TOKEN") {
+        args.push("--env".to_string());
+        args.push(format!("GH_TOKEN={}", token));
+    }
+    if let Ok(token) = std::env::var("COPILOT_GITHUB_TOKEN") {
+        args.push("--env".to_string());
+        args.push(format!("COPILOT_GITHUB_TOKEN={}", token));
+    }
+
+    // Pass through git identity from host's git config
+    let git_name = Command::new("git")
+        .args(["config", "--get", "user.name"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let git_email = Command::new("git")
+        .args(["config", "--get", "user.email"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    match (&git_name, &git_email) {
+        (None, None) => {
+            return Ok(AgentSpawnResult {
+                success: false,
+                agent_id: Some(agent_id),
+                name: Some(agent_name),
+                agent_type: agent_type.to_string(),
+                container_name: Some(container_name),
+                error: Some(
+                    "Git identity not configured. Please set your git user.name and user.email:\n  \
+                     git config --global user.name \"Your Name\"\n  \
+                     git config --global user.email \"you@example.com\""
+                        .to_string(),
+                ),
+            });
+        }
+        (None, Some(_)) => {
+            return Ok(AgentSpawnResult {
+                success: false,
+                agent_id: Some(agent_id),
+                name: Some(agent_name),
+                agent_type: agent_type.to_string(),
+                container_name: Some(container_name),
+                error: Some(
+                    "Git user.name not configured. Please set it:\n  \
+                     git config --global user.name \"Your Name\""
+                        .to_string(),
+                ),
+            });
+        }
+        (Some(_), None) => {
+            return Ok(AgentSpawnResult {
+                success: false,
+                agent_id: Some(agent_id),
+                name: Some(agent_name),
+                agent_type: agent_type.to_string(),
+                container_name: Some(container_name),
+                error: Some(
+                    "Git user.email not configured. Please set it:\n  \
+                     git config --global user.email \"you@example.com\""
+                        .to_string(),
+                ),
+            });
+        }
+        (Some(name), Some(email)) => {
+            args.push("--env".to_string());
+            args.push(format!("GIT_AUTHOR_NAME={}", name));
+            args.push("--env".to_string());
+            args.push(format!("GIT_COMMITTER_NAME={}", name));
+            args.push("--env".to_string());
+            args.push(format!("GIT_AUTHOR_EMAIL={}", email));
+            args.push("--env".to_string());
+            args.push(format!("GIT_COMMITTER_EMAIL={}", email));
+        }
+    }
+
+    // Pass through timezone
+    if let Ok(tz) = std::env::var("TZ") {
+        if !tz.is_empty() {
+            args.push("--env".to_string());
+            args.push(format!("TZ={}", tz));
+        }
+    } else if let Ok(contents) = fs::read_to_string("/etc/timezone") {
+        let tz = contents.trim();
+        if !tz.is_empty() {
+            args.push("--env".to_string());
+            args.push(format!("TZ={}", tz));
+        }
+    }
+
+    // Add image and container name
+    args.push("localhost/binnacle-worker:latest".to_string());
+    args.push(container_name.clone());
+
+    // Run container with inherited stdio
+    let status = ctr_command(&containerd_mode)
+        .args(&args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
+
+    if !status.success() {
+        return Ok(AgentSpawnResult {
+            success: false,
+            agent_id: Some(agent_id),
+            name: Some(agent_name),
+            agent_type: agent_type.to_string(),
+            container_name: Some(container_name),
+            error: Some(format!("Container exited with status: {}", status)),
+        });
+    }
+
+    Ok(AgentSpawnResult {
+        success: true,
+        agent_id: Some(agent_id),
+        name: Some(agent_name),
+        agent_type: agent_type.to_string(),
+        container_name: Some(container_name),
+        error: None,
+    })
+}
+
 /// Force kill a process with SIGKILL (no graceful termination).
 #[cfg(unix)]
 fn force_kill_process(pid: u32) -> bool {

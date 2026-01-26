@@ -1580,6 +1580,41 @@ pub enum AgentCommands {
         #[arg(long = "type", short = 't', value_parser = ["worker", "planner", "buddy"])]
         agent_type: Option<String>,
     },
+
+    /// Manually spawn an agent container (bypasses min/max scaling)
+    Spawn {
+        /// Agent type: worker, planner, buddy
+        #[arg(value_parser = ["worker", "planner", "buddy"])]
+        agent_type: String,
+
+        /// Custom name for the agent (auto-generated if not provided)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// CPU limit (e.g., 1.5 for 1.5 CPUs, 0.5 for half a CPU)
+        #[arg(long)]
+        cpus: Option<f64>,
+
+        /// Memory limit (e.g., "512m", "1g", "2048m")
+        #[arg(long)]
+        memory: Option<String>,
+
+        /// Path to git worktree to use (defaults to current repo's directory)
+        #[arg(long)]
+        worktree: Option<String>,
+
+        /// Branch to merge into on exit (default: main)
+        #[arg(long, default_value = "main")]
+        merge_target: String,
+
+        /// Disable auto-merge on exit
+        #[arg(long)]
+        no_merge: bool,
+
+        /// Custom initial prompt for the AI agent
+        #[arg(long)]
+        prompt: Option<String>,
+    },
 }
 
 /// Container management subcommands (requires containerd/buildah)

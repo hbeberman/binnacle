@@ -1093,6 +1093,29 @@ fn run_command(
                 let result = commands::agent_rm(repo_path, target, force, all, agent_type)?;
                 output(&result, human);
             }
+            AgentCommands::Spawn {
+                agent_type,
+                name,
+                cpus,
+                memory,
+                worktree,
+                merge_target,
+                no_merge,
+                prompt,
+            } => {
+                let result = commands::agent_spawn(
+                    repo_path,
+                    &agent_type,
+                    name,
+                    cpus,
+                    memory.as_deref(),
+                    worktree.as_deref(),
+                    &merge_target,
+                    no_merge,
+                    prompt.as_deref(),
+                )?;
+                output(&result, human);
+            }
         },
         Some(Commands::Container { command }) => match command {
             ContainerCommands::Build { tag, no_cache } => {
@@ -2575,6 +2598,28 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             } => (
                 "agent rm".to_string(),
                 serde_json::json!({ "target": target, "force": force, "all": all, "agent_type": agent_type }),
+            ),
+            AgentCommands::Spawn {
+                agent_type,
+                name,
+                cpus,
+                memory,
+                worktree,
+                merge_target,
+                no_merge,
+                prompt,
+            } => (
+                "agent spawn".to_string(),
+                serde_json::json!({
+                    "agent_type": agent_type,
+                    "name": name,
+                    "cpus": cpus,
+                    "memory": memory,
+                    "worktree": worktree,
+                    "merge_target": merge_target,
+                    "no_merge": no_merge,
+                    "prompt": prompt.is_some()
+                }),
             ),
         },
 
