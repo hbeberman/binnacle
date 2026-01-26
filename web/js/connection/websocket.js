@@ -27,13 +27,24 @@ export class WebSocketConnection {
      * @param {Function} [options.onClose] - Called when connection closes (receives CloseEvent)
      * @param {Function} [options.onError] - Called on connection error (receives Error)
      * @param {Function} [options.onMessage] - Called for each message (receives parsed JSON)
+     * @param {boolean} [options.autoReconnect=true] - Automatically reconnect on disconnect
+     * @param {number} [options.reconnectInitialDelay=2000] - Initial reconnect delay in ms (default: 2s)
+     * @param {number} [options.reconnectMaxDelay=30000] - Max reconnect delay in ms (default: 30s)
      */
     constructor(options = {}) {
-        this.options = options;
+        this.options = {
+            autoReconnect: true,
+            reconnectInitialDelay: 2000,
+            reconnectMaxDelay: 30000,
+            ...options
+        };
         this.ws = null;
         this.state = ConnectionState.DISCONNECTED;
         this.url = null;
         this.serverVersion = null;
+        this.reconnectAttempts = 0;
+        this.reconnectTimer = null;
+        this.manualDisconnect = false;
     }
 
     /**
@@ -63,6 +74,7 @@ export class WebSocketConnection {
             // Connection opened
             this.ws.onopen = () => {
                 this.state = ConnectionState.CONNECTED;
+                this.reconnectAttempts = 0; // Reset on successful connection
                 console.log(`WebSocket connected to ${url}`);
             };
 
@@ -106,6 +118,11 @@ export class WebSocketConnection {
                 if (!wasConnected) {
                     reject(new Error(`Connection closed before established: ${event.reason}`));
                 }
+
+                // Auto-reconnect if not manually disconnected
+                if (!this.manualDisconnect && this.options.autoReconnect) {
+                    this._scheduleReconnect();
+                }
             };
 
             // Handle errors
@@ -126,6 +143,9 @@ export class WebSocketConnection {
      * Disconnect from WebSocket server
      */
     disconnect() {
+        this.manualDisconnect = true;
+        this._cancelReconnect();
+        
         if (this.ws) {
             this.ws.close(1000, 'Client disconnect');
             this.ws = null;
@@ -133,6 +153,7 @@ export class WebSocketConnection {
         this.state = ConnectionState.DISCONNECTED;
         this.url = null;
         this.serverVersion = null;
+        this.reconnectAttempts = 0;
     }
 
     /**
@@ -186,6 +207,60 @@ export class WebSocketConnection {
      */
     getUrl() {
         return this.url;
+    }
+
+    /**
+     * Get reconnect attempts count
+     * @returns {number} Number of reconnection attempts
+     */
+    getReconnectAttempts() {
+        return this.reconnectAttempts;
+    }
+
+    /**
+     * Calculate reconnect delay using exponential backoff
+     * Starts at 2s, doubles each time, caps at 30s
+     * @private
+     * @returns {number} Delay in milliseconds
+     */
+    _calculateReconnectDelay() {
+        const delay = this.options.reconnectInitialDelay * Math.pow(2, this.reconnectAttempts);
+        return Math.min(delay, this.options.reconnectMaxDelay);
+    }
+
+    /**
+     * Schedule a reconnection attempt
+     * @private
+     */
+    _scheduleReconnect() {
+        // Cancel any existing reconnect timer
+        this._cancelReconnect();
+
+        const delay = this._calculateReconnectDelay();
+        this.reconnectAttempts++;
+        this.state = ConnectionState.RECONNECTING;
+
+        console.log(`Scheduling reconnect attempt #${this.reconnectAttempts} in ${delay}ms`);
+
+        this.reconnectTimer = setTimeout(() => {
+            console.log(`Attempting reconnect #${this.reconnectAttempts} to ${this.url}`);
+            this.manualDisconnect = false; // Reset flag for reconnect
+            this.connect(this.url).catch((error) => {
+                console.error('Reconnect failed:', error);
+                // _scheduleReconnect will be called again by onclose handler
+            });
+        }, delay);
+    }
+
+    /**
+     * Cancel scheduled reconnection
+     * @private
+     */
+    _cancelReconnect() {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
     }
 
     /**
