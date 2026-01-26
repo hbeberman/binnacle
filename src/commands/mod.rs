@@ -11193,15 +11193,28 @@ pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet>
                     }
 
                     // Validate value is a non-negative integer
-                    match value.parse::<u32>() {
-                        Ok(_) => {}
+                    let parsed_value = match value.parse::<u32>() {
+                        Ok(v) => v,
                         Err(_) => {
                             return Err(Error::Other(format!(
                                 "Invalid value for {}: '{}'. Must be a non-negative integer.",
                                 key, value
                             )));
                         }
-                    }
+                    };
+
+                    // Use config_set_agent_scaling to persist to KDL
+                    let (min, max) = if field == "min" {
+                        (Some(parsed_value), None)
+                    } else {
+                        (None, Some(parsed_value))
+                    };
+                    config_set_agent_scaling(repo_path, agent_type, min, max)?;
+
+                    return Ok(ConfigSet {
+                        key: key.to_string(),
+                        value: value.to_string(),
+                    });
                 }
             }
             // No validation for other unknown keys (for forward compatibility)
@@ -11330,12 +11343,9 @@ pub fn config_get_agent_scaling(repo_path: &Path) -> Result<AgentScalingConfigs>
     let storage = Storage::open(repo_path)?;
 
     let get_scaling = |agent_type: &str| -> AgentScalingConfig {
-        // Try KDL first
-        if let Ok((min, max)) = storage.get_agent_scaling_kdl(agent_type) {
-            // Check if we got non-default values from KDL
-            if min != 0 || max != 1 {
-                return AgentScalingConfig { min, max };
-            }
+        // Try KDL first - if explicitly configured, use those values
+        if let Ok(Some((min, max))) = storage.get_agent_scaling_kdl(agent_type) {
+            return AgentScalingConfig { min, max };
         }
 
         // Fall back to SQLite (for migration from old configs)
@@ -11381,12 +11391,9 @@ pub fn config_get_agent_scaling_for_type(
 
     let storage = Storage::open(repo_path)?;
 
-    // Try KDL first
-    if let Ok((min, max)) = storage.get_agent_scaling_kdl(agent_type) {
-        // Check if we got non-default values from KDL
-        if min != 0 || max != 1 {
-            return Ok(AgentScalingConfig { min, max });
-        }
+    // Try KDL first - if explicitly configured, use those values
+    if let Ok(Some((min, max))) = storage.get_agent_scaling_kdl(agent_type) {
+        return Ok(AgentScalingConfig { min, max });
     }
 
     // Fall back to SQLite (for migration from old configs)
@@ -22388,8 +22395,9 @@ mod tests {
         let temp = setup();
 
         // Set via the general config_set function (validates the key format)
-        config_set(temp.path(), "agents.worker.min", "2").unwrap();
+        // Set max first to avoid min > max validation error
         config_set(temp.path(), "agents.worker.max", "4").unwrap();
+        config_set(temp.path(), "agents.worker.min", "2").unwrap();
 
         // Verify via specialized getter
         let scaling = config_get_agent_scaling_for_type(temp.path(), "worker").unwrap();
