@@ -1,0 +1,112 @@
+/**
+ * Recently Completed Pane Component Styles
+ * 
+ * Displays the last N completed tasks/bugs
+ */
+
+.recently-completed-pane {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-left: 1rem;
+    display: flex;
+    flex-direction: column;
+    min-width: 300px;
+    max-width: 400px;
+}
+
+.recently-completed-pane-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+}
+
+.completed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.completed-placeholder {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    opacity: 0.6;
+    font-style: italic;
+    padding: 0.5rem 0;
+    text-align: center;
+}
+
+.completed-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.completed-item:hover {
+    background: var(--bg-primary);
+    border-color: var(--accent);
+}
+
+.completed-item-id {
+    font-family: var(--font-mono, 'SF Mono', 'Monaco', 'Menlo', monospace);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--success);
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    border-radius: 3px;
+    background: rgba(var(--success-rgb, 46, 160, 67), 0.15);
+    transition: background-color 0.2s ease;
+    flex-shrink: 0;
+}
+
+.completed-item-id:hover {
+    background: rgba(var(--success-rgb, 46, 160, 67), 0.25);
+}
+
+.completed-item-title {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.completed-item-time {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono, 'SF Mono', 'Monaco', 'Menlo', monospace);
+    flex-shrink: 0;
+}
+
+/* Type-specific styling */
+.completed-item.type-bug .completed-item-id {
+    color: var(--error);
+    background: rgba(var(--error-rgb, 255, 69, 58), 0.15);
+}
+
+.completed-item.type-bug .completed-item-id:hover {
+    background: rgba(var(--error-rgb, 255, 69, 58), 0.25);
+}
+
+/* Subtle success indicator for completed items */
+.recently-completed-pane.has-items {
+    border-color: rgba(var(--success-rgb, 46, 160, 67), 0.3);
+}
+
+.recently-completed-pane.no-items {
+    border-color: var(--border-color);
+}
