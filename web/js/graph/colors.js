@@ -188,6 +188,38 @@ export function getEdgeStyle(edgeType) {
 }
 
 /**
+ * Get the color for an edge category (used in filters)
+ * @param {string} category - Edge category (blocking, informational, fixes, hierarchy, queued, agent, pinned, documents, impacts)
+ * @returns {string} CSS color string
+ */
+export function getEdgeCategoryColor(category) {
+    const styles = getComputedStyle(document.documentElement);
+    
+    switch (category) {
+        case 'blocking':
+            return styles.getPropertyValue('--edge-blocking').trim() || '#e85d5d';
+        case 'informational':
+            return styles.getPropertyValue('--edge-informational').trim() || '#7a8fa3';
+        case 'fixes':
+            return styles.getPropertyValue('--edge-fixes').trim() || '#5cb85c';
+        case 'hierarchy':
+            return styles.getPropertyValue('--edge-hierarchy').trim() || '#9b6ed8';
+        case 'queued':
+            return styles.getPropertyValue('--edge-queued').trim() || '#20b2aa';
+        case 'agent':
+            return styles.getPropertyValue('--edge-agent').trim() || '#f0c040';
+        case 'pinned':
+            return styles.getPropertyValue('--edge-pinned').trim() || '#5cb85c';
+        case 'documents':
+            return styles.getPropertyValue('--edge-documents').trim() || '#4a90e2';
+        case 'impacts':
+            return styles.getPropertyValue('--edge-impacts').trim() || '#e85d5d';
+        default:
+            return styles.getPropertyValue('--edge-default').trim() || '#3a4d66';
+    }
+}
+
+/**
  * Get CSS variables from the document root
  * @returns {Object} Object with commonly used color variables
  */
