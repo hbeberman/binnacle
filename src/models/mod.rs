@@ -1099,6 +1099,11 @@ pub struct Agent {
     /// GUI uses this to show agent for 5 seconds after goodbye before fading out
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goodbye_at: Option<DateTime<Utc>>,
+
+    /// Container ID if the agent is running inside a container.
+    /// Used for tracking containerized agent lifecycles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
 }
 
 fn agent_entity_type() -> String {
@@ -1142,6 +1147,7 @@ impl Agent {
             status: AgentStatus::default(),
             current_action: None,
             goodbye_at: None,
+            container_id: None,
         }
     }
 
@@ -1171,6 +1177,7 @@ impl Agent {
             status: AgentStatus::default(),
             current_action: None,
             goodbye_at: None,
+            container_id: None,
         }
     }
 
