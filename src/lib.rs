@@ -24,54 +24,9 @@ pub mod wasm;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod test_utils {
     use std::path::Path;
-    use std::sync::OnceLock;
     use tempfile::TempDir;
 
     use crate::storage::Storage;
-
-    /// Global test data directory for tests that need env var isolation.
-    /// This is set once per process and shared by all tests.
-    ///
-    /// Using `OnceLock` ensures the `TempDir` stays alive for the process lifetime
-    /// without requiring `static mut`.
-    static TEST_DATA_DIR: OnceLock<TempDir> = OnceLock::new();
-
-    /// Initialize the shared test data directory via BN_DATA_DIR env var.
-    ///
-    /// This is for tests that call the command/MCP layer which doesn't support DI.
-    /// Uses `OnceLock` to ensure the env var is set exactly once per process.
-    ///
-    /// # Thread Safety Note (Test Code Only)
-    ///
-    /// The `set_var` call is inherently unsafe in multi-threaded POSIX contexts
-    /// because `setenv(3)` is not thread-safe. However, this is acceptable here:
-    ///
-    /// 1. This code only runs in `#[cfg(test)]` builds
-    /// 2. `OnceLock::get_or_init` ensures initialization happens exactly once
-    /// 3. Tests calling `new_with_env()` early in setup will see the same value
-    /// 4. Integration tests use per-subprocess env vars (completely safe)
-    ///
-    /// For production code, use the `*_with_data_dir()` DI methods instead.
-    pub fn init_test_env_var() {
-        TEST_DATA_DIR.get_or_init(|| {
-            let dir = TempDir::new().unwrap();
-            // SAFETY: set_var/remove_var is technically unsafe on POSIX due to setenv(3) not being
-            // thread-safe. This is acceptable in test code because:
-            // 1. OnceLock ensures this runs exactly once
-            // 2. Tests call new_with_env() early in setup
-            // 3. Integration tests use per-subprocess env vars (completely safe)
-            unsafe {
-                std::env::set_var("BN_DATA_DIR", dir.path());
-                // Clear agent-related env vars to prevent test pollution from the calling shell
-                // (e.g., when running tests from an agent session with BN_AGENT_ID set)
-                std::env::remove_var("BN_AGENT_ID");
-                std::env::remove_var("BN_AGENT_SESSION");
-                std::env::remove_var("BN_MCP_SESSION");
-                std::env::remove_var("BN_CONTAINER_MODE");
-            }
-            dir
-        });
-    }
 
     /// Test environment with isolated storage using dependency injection.
     ///
@@ -96,9 +51,17 @@ pub(crate) mod test_utils {
 
         /// Create a new test environment that uses BN_DATA_DIR env var.
         /// Use this for command/MCP layer tests that call the public API.
+        ///
+        /// IMPORTANT: Tests using this MUST be marked with #[serial] to avoid
+        /// environment variable races between parallel tests.
         pub fn new_with_env() -> Self {
-            init_test_env_var();
-            Self::new()
+            let env = Self::new();
+            // Set BN_DATA_DIR to this test's isolated data directory
+            // SAFETY: This is safe because tests using new_with_env() are marked #[serial]
+            unsafe {
+                std::env::set_var("BN_DATA_DIR", env.data_path());
+            }
+            env
         }
 
         /// Get the path to the simulated repository.
