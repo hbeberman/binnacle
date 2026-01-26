@@ -81,6 +81,9 @@ function onMouseMove(e) {
         
         applyPan(dx, dy);
         
+        // Pause auto-follow on manual pan
+        pauseAutoFollow();
+        
         dragStartX = e.clientX;
         dragStartY = e.clientY;
         
@@ -204,6 +207,9 @@ function onWheel(e) {
     const centerY = e.clientY - rect.top;
     
     applyZoom(zoomDelta, centerX, centerY, canvas);
+    
+    // Pause auto-follow on manual zoom
+    pauseAutoFollow();
 }
 
 /**
@@ -212,6 +218,7 @@ function onWheel(e) {
 export function zoomIn() {
     if (!canvas) return;
     applyZoom(1.2, undefined, undefined, canvas);
+    pauseAutoFollow();
 }
 
 /**
@@ -220,6 +227,7 @@ export function zoomIn() {
 export function zoomOut() {
     if (!canvas) return;
     applyZoom(1 / 1.2, undefined, undefined, canvas);
+    pauseAutoFollow();
 }
 
 /**
@@ -227,4 +235,28 @@ export function zoomOut() {
  */
 export function resetCamera() {
     resetViewport();
+}
+
+/**
+ * Pause auto-follow due to user interaction
+ * Sets the userPaused flag to prevent auto-follow from moving the camera
+ */
+function pauseAutoFollow() {
+    const autoFollow = state.get('ui.autoFollow');
+    const userPaused = state.get('ui.userPaused');
+    
+    // Only pause if auto-follow is enabled and not already paused
+    if (autoFollow && !userPaused) {
+        state.set('ui.userPaused', true);
+        console.log('Auto-follow paused by user interaction');
+    }
+}
+
+/**
+ * Resume auto-follow after user pause
+ * Clears the userPaused flag to allow auto-follow to continue
+ */
+export function resumeAutoFollow() {
+    state.set('ui.userPaused', false);
+    console.log('Auto-follow resumed');
 }

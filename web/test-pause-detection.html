@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test: Auto-Follow Pause Detection</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: system-ui, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        
+        h1 { font-size: 1.5rem; margin-bottom: 1rem; }
+        
+        .status-panel {
+            background: #2a2a2a;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-family: monospace;
+        }
+        
+        .status-item {
+            margin: 0.5rem 0;
+        }
+        
+        .status-item strong {
+            display: inline-block;
+            width: 200px;
+        }
+        
+        .true { color: #4ade80; }
+        .false { color: #f87171; }
+        
+        .controls {
+            margin: 1rem 0;
+        }
+        
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-right: 0.5rem;
+        }
+        
+        button:hover {
+            background: #2563eb;
+        }
+        
+        canvas {
+            border: 2px solid #3b82f6;
+            border-radius: 8px;
+            cursor: grab;
+        }
+        
+        canvas.dragging {
+            cursor: grabbing;
+        }
+        
+        .log {
+            background: #2a2a2a;
+            padding: 1rem;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+        
+        .log-entry {
+            margin: 0.25rem 0;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <h1>Auto-Follow Pause Detection Test</h1>
+    
+    <div class="status-panel">
+        <div class="status-item">
+            <strong>Auto-Follow Enabled:</strong>
+            <span id="autoFollowStatus" class="false">false</span>
+        </div>
+        <div class="status-item">
+            <strong>User Paused:</strong>
+            <span id="userPausedStatus" class="false">false</span>
+        </div>
+        <div class="status-item">
+            <strong>Viewport Pan:</strong>
+            <span id="panStatus">0, 0</span>
+        </div>
+        <div class="status-item">
+            <strong>Viewport Zoom:</strong>
+            <span id="zoomStatus">1.0</span>
+        </div>
+    </div>
+    
+    <div class="controls">
+        <button id="resumeBtn">Resume Auto-Follow</button>
+        <button id="resetBtn">Reset Camera</button>
+        <button id="clearLogBtn">Clear Log</button>
+    </div>
+    
+    <canvas id="testCanvas" width="800" height="600"></canvas>
+    
+    <h2 style="margin-top: 2rem;">Event Log</h2>
+    <div id="log" class="log"></div>
+    
+    <script type="module">
+        import * as state from './js/state.js';
+        import * as camera from './js/graph/camera.js';
+        
+        // Initialize state with auto-follow enabled
+        state.set('ui.autoFollow', true);
+        state.set('ui.userPaused', false);
+        
+        const canvas = document.getElementById('testCanvas');
+        const autoFollowStatus = document.getElementById('autoFollowStatus');
+        const userPausedStatus = document.getElementById('userPausedStatus');
+        const panStatus = document.getElementById('panStatus');
+        const zoomStatus = document.getElementById('zoomStatus');
+        const logDiv = document.getElementById('log');
+        
+        // Initialize camera controls
+        camera.init(canvas, {
+            onNodeHover: (node, x, y) => {
+                // Not testing node interaction
+            },
+            onEdgeHover: (edge, x, y) => {
+                // Not testing edge interaction
+            },
+            onHoverEnd: () => {
+                // Not testing hover end
+            }
+        });
+        
+        function addLogEntry(message) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateStatus() {
+            const autoFollow = state.get('ui.autoFollow');
+            const userPaused = state.get('ui.userPaused');
+            const viewport = state.get('ui.viewport');
+            
+            autoFollowStatus.textContent = String(autoFollow);
+            autoFollowStatus.className = autoFollow ? 'true' : 'false';
+            
+            userPausedStatus.textContent = String(userPaused);
+            userPausedStatus.className = userPaused ? 'true' : 'false';
+            
+            panStatus.textContent = `${viewport.panX.toFixed(2)}, ${viewport.panY.toFixed(2)}`;
+            zoomStatus.textContent = viewport.zoom.toFixed(2);
+        }
+        
+        // Subscribe to state changes
+        state.subscribe('ui.autoFollow', (value) => {
+            addLogEntry(`Auto-follow: ${value}`);
+            updateStatus();
+        });
+        
+        state.subscribe('ui.userPaused', (value) => {
+            addLogEntry(`User paused: ${value}`);
+            updateStatus();
+        });
+        
+        state.subscribe('ui.viewport', (value) => {
+            updateStatus();
+        });
+        
+        // Button handlers
+        document.getElementById('resumeBtn').addEventListener('click', () => {
+            camera.resumeAutoFollow();
+            addLogEntry('Resume button clicked');
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            camera.resetCamera();
+            addLogEntry('Camera reset');
+        });
+        
+        document.getElementById('clearLogBtn').addEventListener('click', () => {
+            logDiv.innerHTML = '';
+        });
+        
+        // Draw a simple test pattern on canvas
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(50, 50, 700, 500);
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '16px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Try panning (click and drag) or zooming (scroll wheel)', canvas.width / 2, canvas.height / 2);
+        ctx.fillText('Auto-follow should pause when you interact', canvas.width / 2, canvas.height / 2 + 30);
+        
+        // Initial status update
+        updateStatus();
+        addLogEntry('Test initialized');
+        addLogEntry('Auto-follow is enabled, userPaused is false');
+    </script>
+</body>
+</html>
