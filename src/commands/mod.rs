@@ -14136,6 +14136,7 @@ pub fn container_run(
     cpus: Option<f64>,
     memory: Option<&str>,
     shell: bool,
+    prompt: Option<&str>,
 ) -> Result<ContainerRunResult> {
     // Check for required tools
     if !command_exists("ctr") {
@@ -14310,6 +14311,12 @@ pub fn container_run(
     if no_merge {
         args.push("--env".to_string());
         args.push("BN_NO_MERGE=true".to_string());
+    }
+
+    // Pass custom prompt if provided
+    if let Some(custom_prompt) = prompt {
+        args.push("--env".to_string());
+        args.push(format!("BN_INITIAL_PROMPT={}", custom_prompt));
     }
 
     // Pass through GitHub tokens if available

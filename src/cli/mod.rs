@@ -1575,6 +1575,10 @@ pub enum ContainerCommands {
         /// Start an interactive shell instead of the AI agent
         #[arg(long)]
         shell: bool,
+
+        /// Custom initial prompt for the AI agent
+        #[arg(long)]
+        prompt: Option<String>,
     },
 
     /// Stop a running binnacle container
