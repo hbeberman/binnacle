@@ -2181,3 +2181,42 @@ fn test_store_archive_creates_directory() {
         "Archive file should exist"
     );
 }
+
+// ============================================================================
+// bn system build-info Tests
+// ============================================================================
+
+#[test]
+fn test_system_build_info_json_output() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "build-info"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert!(json["version"].is_string());
+    assert!(json["commit"].is_string());
+    assert!(json["built"].is_string());
+
+    // Verify version format
+    let version = json["version"].as_str().unwrap();
+    assert!(!version.is_empty());
+}
+
+#[test]
+fn test_system_build_info_human_output() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "build-info"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Version:"))
+        .stdout(predicate::str::contains("Commit:"))
+        .stdout(predicate::str::contains("Built:"));
+}

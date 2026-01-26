@@ -1026,6 +1026,20 @@ fn run_command(
                 let result = commands::migrate_bugs(repo_path, dry_run, remove_tag)?;
                 output(&result, human);
             }
+            SystemCommands::BuildInfo => {
+                let result = serde_json::json!({
+                    "version": binnacle::cli::package_version(),
+                    "commit": binnacle::cli::git_commit(),
+                    "built": binnacle::cli::build_timestamp(),
+                });
+                if human {
+                    println!("Version: {}", binnacle::cli::package_version());
+                    println!("Commit:  {}", binnacle::cli::git_commit());
+                    println!("Built:   {}", binnacle::cli::build_timestamp());
+                } else {
+                    println!("{}", result);
+                }
+            }
             SystemCommands::Hooks { command } => match command {
                 HooksCommands::Uninstall => {
                     let result = commands::hooks_uninstall(repo_path)?;
@@ -2574,6 +2588,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 "system migrate-bugs".to_string(),
                 serde_json::json!({ "dry_run": dry_run, "remove_tag": remove_tag }),
             ),
+            SystemCommands::BuildInfo => ("system build-info".to_string(), serde_json::json!({})),
             SystemCommands::Hooks { command } => match command {
                 HooksCommands::Uninstall => {
                     ("system hooks uninstall".to_string(), serde_json::json!({}))

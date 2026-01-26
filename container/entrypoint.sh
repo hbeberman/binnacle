@@ -107,6 +107,10 @@ if [ -z "${GIT_AUTHOR_NAME:-}" ] || [ -z "${GIT_AUTHOR_EMAIL:-}" ]; then
 fi
 echo "👤 Git identity: ${GIT_AUTHOR_NAME} <${GIT_AUTHOR_EMAIL}>"
 
+# Display build information
+echo "🔨 Build info:"
+bn system build-info -H | sed 's/^/   /'
+
 # Orient the agent
 echo "🧭 Orienting agent (type: $BN_AGENT_TYPE)..."
 bn orient --type "$BN_AGENT_TYPE" -H

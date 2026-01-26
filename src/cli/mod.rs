@@ -8,6 +8,21 @@ const BUILD_TIMESTAMP: &str = env!("BN_BUILD_TIMESTAMP");
 /// Git commit hash injected by build.rs
 const GIT_COMMIT: &str = env!("BN_GIT_COMMIT");
 
+/// Get build timestamp (public accessor for build metadata)
+pub fn build_timestamp() -> &'static str {
+    BUILD_TIMESTAMP
+}
+
+/// Get git commit hash (public accessor for build metadata)
+pub fn git_commit() -> &'static str {
+    GIT_COMMIT
+}
+
+/// Get package version
+pub fn package_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 /// Build version string with timestamp and commit
 fn build_version() -> &'static str {
     // Use a static to ensure we only format this once
@@ -1481,6 +1496,9 @@ pub enum SystemCommands {
         #[arg(long)]
         remove_tag: bool,
     },
+
+    /// Display build metadata (timestamp, commit hash)
+    BuildInfo,
 }
 
 /// Hooks management subcommands
