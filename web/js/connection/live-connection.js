@@ -11,7 +11,7 @@
 import { WebSocketConnection, ConnectionState, createConnection } from './websocket.js';
 import { handleMessage, setReloadCallback } from './message-handlers.js';
 import * as state from '../state.js';
-import { ConnectionMode } from '../state.js';
+import { ConnectionMode, ConnectionStatus } from '../state.js';
 
 // Module-level connection instance
 let connection = null;
@@ -41,6 +41,9 @@ export async function connect(wsUrl, options = {}) {
         connection = null;
     }
     
+    // Set connection status to connecting
+    state.setConnectionStatus(ConnectionStatus.CONNECTING);
+    
     // Derive base URL from WebSocket URL
     const baseUrl = deriveBaseUrl(wsUrl);
     
@@ -51,6 +54,7 @@ export async function connect(wsUrl, options = {}) {
     connection = new WebSocketConnection({
         onOpen: (message) => {
             console.log('Connected to binnacle server');
+            state.setConnectionStatus(ConnectionStatus.CONNECTED);
             state.setMode(ConnectionMode.WEBSOCKET, { wsUrl });
             
             // Fetch initial data from REST API
@@ -67,12 +71,14 @@ export async function connect(wsUrl, options = {}) {
         },
         onClose: (event) => {
             console.log('Disconnected from binnacle server');
+            state.setConnectionStatus(ConnectionStatus.DISCONNECTED);
             if (options.onDisconnected) {
                 options.onDisconnected(event);
             }
         },
         onError: (error) => {
             console.error('WebSocket error:', error);
+            state.setConnectionStatus(ConnectionStatus.ERROR);
             if (options.onError) {
                 options.onError(error);
             }
@@ -140,6 +146,8 @@ export function disconnect() {
         connection.disconnect();
         connection = null;
     }
+    
+    state.setConnectionStatus(ConnectionStatus.DISCONNECTED);
     
     if (pendingReload) {
         clearTimeout(pendingReload);

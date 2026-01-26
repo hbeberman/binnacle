@@ -1,0 +1,154 @@
+/* Connection Status Indicator Component
+ * Shows WebSocket connection state with colored dot:
+ * - Green: Connected
+ * - Red: Disconnected/Error
+ * - Yellow: Connecting/Reconnecting
+ */
+
+/* ==========================================================================
+   Connection Status Indicator
+   ========================================================================== */
+
+.connection-status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.625rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    cursor: default;
+    user-select: none;
+    transition: all 0.2s ease;
+}
+
+.connection-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted, #666);
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.connection-status-text {
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+/* ==========================================================================
+   Connection States
+   ========================================================================== */
+
+/* Connected - Green */
+.connection-status-indicator.connected .connection-status-dot {
+    background: var(--success, #28a745);
+    box-shadow: 0 0 6px var(--success, #28a745);
+}
+
+.connection-status-indicator.connected {
+    color: var(--success, #28a745);
+}
+
+.connection-status-indicator.connected .connection-status-dot {
+    animation: pulse-connected 2s ease-in-out infinite;
+}
+
+/* Disconnected - Red */
+.connection-status-indicator.disconnected .connection-status-dot {
+    background: var(--danger, #dc3545);
+    box-shadow: none;
+}
+
+.connection-status-indicator.disconnected {
+    color: var(--danger, #dc3545);
+}
+
+/* Error - Red with warning */
+.connection-status-indicator.error .connection-status-dot {
+    background: var(--danger, #dc3545);
+    box-shadow: 0 0 8px var(--danger, #dc3545);
+    animation: pulse-error 1s ease-in-out infinite;
+}
+
+.connection-status-indicator.error {
+    color: var(--danger, #dc3545);
+}
+
+/* Connecting - Yellow */
+.connection-status-indicator.connecting .connection-status-dot {
+    background: var(--warning, #ffc107);
+    animation: pulse-connecting 0.8s ease-in-out infinite;
+}
+
+.connection-status-indicator.connecting {
+    color: var(--warning, #ffc107);
+}
+
+/* Reconnecting - Yellow */
+.connection-status-indicator.reconnecting .connection-status-dot {
+    background: var(--warning, #ffc107);
+    animation: pulse-connecting 0.6s ease-in-out infinite;
+}
+
+.connection-status-indicator.reconnecting {
+    color: var(--warning, #ffc107);
+}
+
+/* ==========================================================================
+   Animations
+   ========================================================================== */
+
+@keyframes pulse-connected {
+    0%, 100% {
+        opacity: 1;
+        box-shadow: 0 0 4px var(--success, #28a745);
+    }
+    50% {
+        opacity: 0.8;
+        box-shadow: 0 0 8px var(--success, #28a745);
+    }
+}
+
+@keyframes pulse-error {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(1.1);
+    }
+}
+
+@keyframes pulse-connecting {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.4;
+    }
+}
+
+/* ==========================================================================
+   Hover States
+   ========================================================================== */
+
+.connection-status-indicator:hover {
+    background: var(--bg-secondary);
+}
+
+/* ==========================================================================
+   Responsive / Compact Mode
+   ========================================================================== */
+
+@media (max-width: 768px) {
+    .connection-status-text {
+        display: none;
+    }
+    
+    .connection-status-indicator {
+        padding: 0.25rem;
+    }
+}
