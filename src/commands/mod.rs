@@ -14165,13 +14165,16 @@ pub fn agent_spawn(
     // This ensures the GUI shows the agent immediately
     if let Ok(mut storage) = Storage::open(repo_path) {
         let parsed_agent_type = parse_agent_type(agent_type).unwrap_or(AgentType::Worker);
-        let agent = Agent::new_with_id(
+        let mut agent = Agent::new_with_id(
             agent_id.clone(),
             0, // PID will be set when container's bn orient runs
             0, // Parent PID not applicable for container agents
             agent_name.clone(),
             parsed_agent_type,
         );
+        // Set container_id so is_alive() knows this is a container agent
+        // and can check container status instead of /proc/pid
+        agent.container_id = Some(container_name.clone());
         let _ = storage.register_agent(&agent);
     }
 
@@ -16007,13 +16010,16 @@ pub fn container_run(
     // This ensures the GUI shows the agent immediately
     if let Ok(mut storage) = Storage::open(repo_path) {
         let parsed_agent_type = parse_agent_type(agent_type).unwrap_or(AgentType::Worker);
-        let agent = Agent::new_with_id(
+        let mut agent = Agent::new_with_id(
             agent_id.clone(),
             0, // PID will be set when container's bn orient runs
             0, // Parent PID not applicable for container agents
             agent_name.clone(),
             parsed_agent_type,
         );
+        // Set container_id so is_alive() knows this is a container agent
+        // and can check container status instead of /proc/pid
+        agent.container_id = Some(container_name.clone());
         let _ = storage.register_agent(&agent);
     }
 

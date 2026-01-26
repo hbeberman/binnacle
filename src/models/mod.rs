@@ -1268,10 +1268,20 @@ impl Agent {
     }
 
     /// Check if the agent process is still alive.
+    /// For agents with pid=0 (container agents or external agents identified by explicit ID),
+    /// this returns true since PID-based liveness detection doesn't apply to them.
+    /// Container agent lifecycle is managed by the reconcile loop via goodbye_at and container_stop.
+    /// External agents (e.g., MCP sessions) manage their own lifecycle.
     #[cfg(unix)]
     pub fn is_alive(&self) -> bool {
         use std::path::Path;
-        // On Linux/Unix, check if /proc/<pid> exists
+        // Agents with pid=0 are identified by explicit ID (BN_AGENT_ID), not by PID.
+        // This includes container agents and external agents (e.g., MCP sessions).
+        // PID-based liveness check doesn't apply - they manage their own lifecycle.
+        if self.pid == 0 {
+            return true;
+        }
+        // For regular agents, check if /proc/<pid> exists
         Path::new(&format!("/proc/{}", self.pid)).exists()
     }
 
