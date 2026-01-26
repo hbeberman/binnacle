@@ -3748,9 +3748,54 @@ impl Storage {
         Ok(())
     }
 
+    /// Add a task to an agent's working set (by agent object) and create a working_on edge.
+    pub fn agent_add_task_by_agent(&mut self, mut agent: Agent, task_id: &str) -> Result<()> {
+        if !agent.tasks.contains(&task_id.to_string()) {
+            agent.tasks.push(task_id.to_string());
+            self.register_agent(&agent)?;
+
+            // Create a working_on edge from agent to task
+            let edge_id = self.generate_edge_id(&agent.id, task_id, EdgeType::WorkingOn);
+            let edge = Edge::new(
+                edge_id,
+                agent.id.clone(),
+                task_id.to_string(),
+                EdgeType::WorkingOn,
+            );
+            self.add_edge(&edge)?;
+        }
+        Ok(())
+    }
+
     /// Remove a task from an agent's working set and delete the working_on edge.
     pub fn agent_remove_task(&mut self, pid: u32, task_id: &str) -> Result<()> {
         let mut agent = self.get_agent(pid)?;
+        if agent.tasks.contains(&task_id.to_string()) {
+            agent.tasks.retain(|t| t != task_id);
+            self.register_agent(&agent)?;
+
+            // Transition working_on edge to worked_on (historical record)
+            // First remove the working_on edge
+            if self
+                .remove_edge(&agent.id, task_id, EdgeType::WorkingOn)
+                .is_ok()
+            {
+                // Create a worked_on edge to record the completed work
+                let edge_id = self.generate_edge_id(&agent.id, task_id, EdgeType::WorkedOn);
+                let worked_on_edge = Edge::new(
+                    edge_id,
+                    agent.id.clone(),
+                    task_id.to_string(),
+                    EdgeType::WorkedOn,
+                );
+                let _ = self.add_edge(&worked_on_edge); // Ignore error if it already exists
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove a task from an agent's working set (by agent object) and delete the working_on edge.
+    pub fn agent_remove_task_by_agent(&mut self, mut agent: Agent, task_id: &str) -> Result<()> {
         if agent.tasks.contains(&task_id.to_string()) {
             agent.tasks.retain(|t| t != task_id);
             self.register_agent(&agent)?;
