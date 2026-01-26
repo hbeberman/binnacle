@@ -766,7 +766,9 @@ fn test_container_mode_requires_bn_agent_id_for_orient() {
     cmd.current_dir(env.repo_path());
     cmd.env("BN_DATA_DIR", &container_data);
     cmd.env("BN_CONTAINER_MODE", "true");
-    // Note: NOT setting BN_AGENT_ID
+    // Explicitly clear BN_AGENT_ID to prevent inheriting from parent shell
+    cmd.env_remove("BN_AGENT_ID");
+    cmd.env_remove("BN_AGENT_SESSION");
     cmd.args(["orient", "--type", "worker"]);
     cmd.assert()
         .failure()

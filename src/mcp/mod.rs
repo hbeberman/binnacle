@@ -1,10 +1,11 @@
 //! Simplified MCP (Model Context Protocol) server implementation.
 //!
-//! This module provides a subprocess wrapper approach to MCP with 4 tools:
+//! This module provides a subprocess wrapper approach to MCP with 5 tools:
 //! - `binnacle-set_agent` - Initialize MCP session with path and optional session_id
 //! - `binnacle-orient` - Register agent and get project overview (limited via MCP)
 //! - `binnacle-goodbye` - End agent session (limited via MCP)
 //! - `bn_run` - Execute any bn CLI command as subprocess
+//! - `binnacle-debug` - Dump server state and env vars for diagnostics
 //!
 //! Instead of 38+ individual tool handlers, this just executes the CLI directly.
 
@@ -287,6 +288,7 @@ impl McpServer {
             "binnacle-orient" => self.tool_orient(args),
             "binnacle-goodbye" => self.tool_goodbye(args),
             "bn_run" => self.tool_bn_run(args),
+            "binnacle-debug" => self.tool_debug(args),
             _ => Err(format!("Unknown tool: {}", name)),
         }
     }
@@ -455,20 +457,35 @@ impl McpServer {
 
         // Execute with BN_MCP_SESSION to track this as an MCP call
         // Use spawn + wait_timeout to prevent hanging on blocking commands
-        let mut child = Command::new(&self.bn_path)
-            .args(&cmd_args)
+        let mut cmd = Command::new(&self.bn_path);
+        cmd.args(&cmd_args)
             .current_dir(cwd)
             .env("BN_MCP_SESSION", &self.session_id)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    format!("bn binary not found at '{}'", self.bn_path.display())
-                } else {
-                    format!("Failed to execute command: {}", e)
-                }
-            })?;
+            .stderr(Stdio::piped());
+
+        // Pass through binnacle-specific env vars for storage resolution and agent identity
+        for var in [
+            "BN_DATA_DIR",
+            "BN_CONTAINER_MODE",
+            "BN_STORAGE_HASH",
+            "BN_AGENT_ID",
+            "BN_AGENT_SESSION",
+            "BN_AGENT_NAME",
+            "BN_AGENT_TYPE",
+        ] {
+            if let Ok(val) = std::env::var(var) {
+                cmd.env(var, val);
+            }
+        }
+
+        let mut child = cmd.spawn().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                format!("bn binary not found at '{}'", self.bn_path.display())
+            } else {
+                format!("Failed to execute command: {}", e)
+            }
+        })?;
 
         // Wait with configurable timeout (default 30s)
         let timeout_secs = std::env::var("BN_MCP_TIMEOUT")
@@ -519,6 +536,24 @@ impl McpServer {
             }
             Err(e) => Err(format!("Failed to wait for command: {}", e)),
         }
+    }
+
+    fn tool_debug(&self, _args: &Value) -> Result<String, String> {
+        // Collect binnacle-specific env vars
+        let bn_vars: Vec<(String, String)> = std::env::vars()
+            .filter(|(k, _)| k.starts_with("BN_"))
+            .collect();
+
+        Ok(json!({
+            "mcp_server_state": {
+                "cwd": self.cwd.as_ref().map(|p| p.display().to_string()),
+                "session_id": &self.session_id,
+                "session_id_is_external": self.session_id_is_external,
+                "bn_path": self.bn_path.display().to_string(),
+            },
+            "binnacle_env_vars": bn_vars.into_iter().collect::<std::collections::HashMap<_, _>>(),
+        })
+        .to_string())
     }
 
     fn read_resource(&self, uri: &str) -> Result<String, String> {
@@ -622,6 +657,15 @@ fn get_tool_definitions() -> Vec<ToolDef> {
                 "required": ["args"]
             }),
         },
+        ToolDef {
+            name: "binnacle-debug".to_string(),
+            description: "Debug tool: dumps MCP server state and environment variables. Use this to diagnose storage/path issues.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
     ]
 }
 
@@ -709,11 +753,12 @@ mod tests {
     #[test]
     fn test_tool_definitions() {
         let tools = get_tool_definitions();
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 5);
         assert!(tools.iter().any(|t| t.name == "binnacle-set_agent"));
         assert!(tools.iter().any(|t| t.name == "binnacle-orient"));
         assert!(tools.iter().any(|t| t.name == "binnacle-goodbye"));
         assert!(tools.iter().any(|t| t.name == "bn_run"));
+        assert!(tools.iter().any(|t| t.name == "binnacle-debug"));
     }
 
     #[test]
@@ -917,7 +962,7 @@ mod tests {
         let response = server.handle_request(&request);
         assert!(response.result.is_some());
         let tools = &response.result.unwrap()["tools"];
-        assert_eq!(tools.as_array().unwrap().len(), 4);
+        assert_eq!(tools.as_array().unwrap().len(), 5);
     }
 
     #[test]

@@ -68,7 +68,7 @@ pub enum Commands {
     /// The --init flag is for AI agents needing non-interactive setup.
     Orient {
         /// Agent type (required): worker, planner, or buddy
-        #[arg(long = "type", short = 't', value_parser = ["worker", "planner", "buddy"])]
+        #[arg(long = "type", short = 't', value_parser = ["worker", "planner", "buddy"], value_name = "worker|planner|buddy")]
         agent_type: String,
         /// Initialize database non-interactively (conservative defaults, for AI agents)
         #[arg(long)]
@@ -277,13 +277,13 @@ pub enum Commands {
 
 ROOTLESS SETUP (recommended to avoid sudo):
 
-By default, binnacle uses system containerd which requires 'sudo'. For a better experience 
+By default, binnacle uses system containerd which requires 'sudo'. For a better experience
 without sudo, set up rootless containerd:
 
 1. Install containerd with rootless support:
    # Fedora/RHEL
    sudo dnf install containerd rootlesskit slirp4netns
-   
+
    # Debian/Ubuntu
    sudo apt install containerd rootlesskit slirp4netns uidmap
 
@@ -292,7 +292,7 @@ without sudo, set up rootless containerd:
 
 3. Enable and start rootless containerd:
    containerd-rootless-setuptool.sh install
-   
+
    # Or use systemd user service:
    systemctl --user enable --now containerd
    loginctl enable-linger $USER
@@ -1539,6 +1539,10 @@ pub enum EmitTemplate {
     McpVscode,
     /// GitHub Copilot CLI MCP configuration JSON
     McpCopilot,
+    /// MCP lifecycle guidance for worker agents (orient + goodbye must use shell)
+    McpLifecycle,
+    /// MCP lifecycle guidance for planner agents (orient only, no goodbye)
+    McpLifecyclePlanner,
 }
 
 /// Store management subcommands

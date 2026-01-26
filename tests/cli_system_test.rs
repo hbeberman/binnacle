@@ -1855,6 +1855,7 @@ fn test_system_emit_mcp_copilot() {
         mcp_json["mcpServers"]["binnacle"]["tools"].is_array(),
         "should have tools array"
     );
+    // Note: env vars are injected dynamically by entrypoint.sh, not in the static config
 }
 
 // ============================================================================

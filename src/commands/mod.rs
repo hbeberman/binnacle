@@ -1046,6 +1046,44 @@ Run `bn goodbye "session complete"` to gracefully terminate your agent session w
 /// Free agent prompt - general purpose with binnacle orientation
 pub const FREE_PROMPT: &str = r#"You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
 
+/// MCP lifecycle guidance - appended to worker agent prompts
+/// Explains why orient/goodbye must use shell commands instead of MCP tools
+pub const MCP_LIFECYCLE_BLURB: &str = r#"
+IMPORTANT - Binnacle MCP Lifecycle:
+You have access to binnacle MCP tools, but orient and goodbye MUST use shell commands:
+- Use `bn orient --type "agent type"` via shell (NOT binnacle-orient MCP tool)
+- Use `bn goodbye "summary"` via shell (NOT binnacle-goodbye MCP tool)
+- Other bn commands should use the MCP tools for preference.
+
+To link your MCP session to your shell agent registration:
+1. Run `bn orient --type "agent type"` via shell - note the `agent_id` (e.g., "bna-1234") in the output
+2. Call binnacle-set_agent MCP tool with path="/your/repo" and session_id="<agent_id from step 1>"
+3. Now all MCP bn_run calls will be attributed to your agent session
+
+This is because MCP tools cannot terminate your process - only shell goodbye can do that.
+The MCP orient/goodbye tools are blocked for this reason.
+
+FALLBACK - If MCP Tools Are Unavailable:
+If binnacle MCP tools are not available you may use the `bn` shell commands directly as a last resort fallback (excepting orient and goodbye)."#;
+
+/// MCP lifecycle guidance for planner agents - orient only, no goodbye
+/// Planners should NOT call goodbye (they produce artifacts, not long sessions)
+pub const MCP_LIFECYCLE_BLURB_PLANNER: &str = r#"
+IMPORTANT - Binnacle MCP Lifecycle:
+You have access to binnacle MCP tools, but orient MUST use shell commands:
+- Use `bn orient --type "agent type"` via shell (NOT binnacle-orient MCP tool)
+- Other bn commands should use the MCP tools for preference.
+
+To link your MCP session to your shell agent registration:
+1. Run `bn orient --type "agent type"` via shell - note the `agent_id` (e.g., "bna-1234") in the output
+2. Call binnacle-set_agent MCP tool with path="/your/repo" and session_id="<agent_id from step 1>"
+3. Now all MCP bn_run calls will be attributed to your agent session
+
+Note: Planner agents should NOT call bn goodbye - they produce artifacts but do not run long-lived sessions.
+
+FALLBACK - If MCP Tools Are Unavailable:
+If binnacle MCP tools are not available you may use the `bn` shell commands directly as a last resort fallback (excepting orient)."#;
+
 /// Claude Desktop MCP configuration template.
 /// Add this to ~/.config/claude/claude_desktop_config.json under "mcpServers".
 pub const MCP_CLAUDE_CONFIG: &str = r#"{
@@ -1071,6 +1109,9 @@ pub const MCP_VSCODE_CONFIG: &str = r#"{
 
 /// GitHub Copilot CLI MCP configuration template.
 /// Add this to ~/.copilot/mcp-config.json under "mcpServers".
+/// Note: No env block - Copilot MCP zeros out env vars except PATH, and unset
+/// ${VAR} placeholders become literal strings. For containers, the entrypoint
+/// injects only the vars that are actually set.
 pub const MCP_COPILOT_CONFIG: &str = r#"{
   "mcpServers": {
     "binnacle": {
@@ -1227,6 +1268,9 @@ fn write_mcp_copilot_config() -> Result<bool> {
 
     // Add or update binnacle entry
     // Note: "type": "local" and "tools": ["*"] are required by GitHub Copilot
+    // No env block - Copilot MCP zeros out env vars except PATH, and unset
+    // ${VAR} placeholders become literal strings. For containers, the entrypoint
+    // injects only the vars that are actually set.
     let binnacle_config = serde_json::json!({
         "type": "local",
         "command": "bn",
@@ -15322,10 +15366,13 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     // - Worker agents: should terminate after goodbye
     // - Planner agents: should NOT terminate (they produce artifacts, not long sessions)
     //   unless --force is used
-    // In MCP/env ID mode, should_terminate is always false (we don't terminate parent processes)
-    let should_terminate = if mcp_session_id.is_some() || env_agent_id.is_some() {
+    // - BN_AGENT_ID mode: should_terminate is false (container manages lifecycle externally)
+    // - BN_MCP_SESSION mode: should_terminate follows normal rules (agent self-terminates)
+    let should_terminate = if env_agent_id.is_some() {
+        // Container mode: container manages lifecycle, don't signal termination
         false
     } else {
+        // Normal mode or MCP mode: follow planner/worker rules
         !is_planner || force
     };
 

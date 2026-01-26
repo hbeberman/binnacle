@@ -12,27 +12,6 @@ BLOCKED_TOOLS=(
     --deny-tool "binnacle(binnacle-goodbye)"
 )
 
-# MCP lifecycle guidance - appended to prompts for agents launched via this script
-# This explains why orient/goodbye must use shell instead of MCP tools
-MCP_LIFECYCLE_BLURB='
-
-IMPORTANT - Binnacle MCP Lifecycle:
-You have access to binnacle MCP tools, but orient and goodbye MUST use shell commands:
-- Use `bn orient --type "agent type"` via shell (NOT binnacle-orient MCP tool)
-- Use `bn goodbye "summary"` via shell (NOT binnacle-goodbye MCP tool)
-- Other bn commands should use the MCP tools for preference.
-
-To link your MCP session to your shell agent registration:
-1. Run `bn orient --type "agent type"` via shell - note the `agent_id` (e.g., "bna-1234") in the output
-2. Call binnacle-set_agent MCP tool with path="/your/repo" and session_id="<agent_id from step 1>"
-3. Now all MCP bn_run calls will be attributed to your agent session
-
-This is because MCP tools cannot terminate your process - only shell goodbye can do that.
-The MCP orient/goodbye tools are blocked for this reason.
-
-FALLBACK - If MCP Tools Are Unavailable:
-If binnacle MCP tools are not available you may use the `bn` shell commands directly as a last resort fallback (excepting orient and goodbye).'
-
 # Tool permission sets (using arrays to properly handle arguments with spaces)
 TOOLS_FULL=(
     --allow-tool "write"
@@ -133,11 +112,23 @@ fi
 AGENT_TYPE="$1"
 shift
 
+# Helper function to safely emit templates with error handling
+emit_template() {
+    local template="$1"
+    local output
+    if ! output=$(bn system emit "$template" -H 2>&1); then
+        echo "❌ Failed to emit template: $template" >&2
+        echo "   Error: $output" >&2
+        exit 1
+    fi
+    echo "$output"
+}
+
 case "$AGENT_TYPE" in
     auto)
         echo "Launching Auto Worker Agent"
-        PROMPT=$(bn system emit auto-worker -H)
-        PROMPT+="$MCP_LIFECYCLE_BLURB"
+        PROMPT=$(emit_template auto-worker)
+        PROMPT+=$(emit_template mcp-lifecycle)
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     do)
@@ -147,24 +138,26 @@ case "$AGENT_TYPE" in
         echo "Launching Make Agent: $DESC"
         # Get template and substitute {description} placeholder
         # Use awk with -v to safely handle arbitrary strings (special chars, slashes, etc.)
-        PROMPT=$(bn system emit do-agent -H | awk -v desc="$DESC" '{gsub(/{description}/, desc); print}')
-        PROMPT+="$MCP_LIFECYCLE_BLURB"
+        PROMPT=$(emit_template do-agent | awk -v desc="$DESC" '{gsub(/{description}/, desc); print}')
+        PROMPT+=$(emit_template mcp-lifecycle)
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     prd)
         echo "Launching PRD Writer Agent"
-        PROMPT=$(bn system emit prd-writer -H)
+        PROMPT=$(emit_template prd-writer)
+        PROMPT+=$(emit_template mcp-lifecycle-planner)
         TOOLS=("${TOOLS_PRD[@]}")
         ;;
     buddy)
         echo "Launching Buddy Agent"
-        PROMPT=$(bn system emit buddy -H)
+        PROMPT=$(emit_template buddy)
+        PROMPT+=$(emit_template mcp-lifecycle)
         TOOLS=("${TOOLS_BUDDY[@]}")
         ;;
     free)
         echo "Launching Free Agent"
-        PROMPT=$(bn system emit free -H)
-        PROMPT+="$MCP_LIFECYCLE_BLURB"
+        PROMPT=$(emit_template free)
+        PROMPT+=$(emit_template mcp-lifecycle)
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     *)

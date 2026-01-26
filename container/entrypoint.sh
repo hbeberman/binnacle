@@ -80,6 +80,58 @@ EOF
     echo "🔑 GitHub SSH host keys added to known_hosts"
 fi
 
+# Generate MCP config for copilot CLI
+# This enables binnacle MCP tools inside the container
+#
+# Env var flow:
+#   1. entrypoint.sh writes ${VAR} placeholders into mcp-config.json
+#   2. Copilot expands these placeholders when spawning the MCP server process
+#   3. MCP server (bn mcp serve) passes actual values to bn subprocesses
+#
+# We start with the base config and inject env vars that are actually set,
+# since Copilot MCP zeros out all env vars except PATH and unset ${VAR}
+# placeholders become literal strings.
+echo "🔌 Generating MCP configuration..."
+mkdir -p "$HOME/.copilot"
+
+# Generate base config
+if ! bn --human system emit mcp-copilot > "$HOME/.copilot/mcp-config.json"; then
+    echo "❌ Failed to generate MCP configuration"
+    echo "   bn system emit mcp-copilot failed"
+    exit 1
+fi
+
+# Build env block with only vars that are actually set
+# These use ${VAR} syntax which Copilot will expand when starting the MCP server
+# Use jq --arg for each variable to safely escape values
+#
+# Note: BN_AGENT_SESSION is intentionally omitted here - it's set dynamically
+# via 'export BN_AGENT_SESSION=1' later in this script (after git hooks config).
+# The MCP server passes it through to subprocesses from the runtime environment.
+ENV_JSON="{}"
+INJECTED_VARS=""
+for var in BN_DATA_DIR BN_CONTAINER_MODE BN_STORAGE_HASH BN_AGENT_ID BN_AGENT_NAME BN_AGENT_TYPE; do
+    # Use indirect expansion to get the value of the variable
+    val="${!var:-}"
+    if [ -n "$val" ]; then
+        # Use jq --arg to safely escape the variable name and build ${VAR} reference
+        ENV_JSON=$(echo "$ENV_JSON" | jq --arg k "$var" --arg v "\${$var}" '. + {($k): $v}')
+        if [ -n "$INJECTED_VARS" ]; then
+            INJECTED_VARS="$INJECTED_VARS, $var"
+        else
+            INJECTED_VARS="$var"
+        fi
+    fi
+done
+
+# If we have any env vars, inject them into the config using jq
+if [ "$ENV_JSON" != "{}" ]; then
+    jq --argjson env "$ENV_JSON" '.mcpServers.binnacle.env = $env' "$HOME/.copilot/mcp-config.json" > "$HOME/.copilot/mcp-config.json.tmp"
+    mv "$HOME/.copilot/mcp-config.json.tmp" "$HOME/.copilot/mcp-config.json"
+    echo "   Injected env vars: $INJECTED_VARS"
+fi
+echo "✅ MCP config written to $HOME/.copilot/mcp-config.json"
+
 # Configure git hooks path so commit-msg hook adds co-author trailer
 # The hooks/ directory in the repo contains the commit-msg hook that adds
 # "Co-authored-by: binnacle-bot <noreply@binnacle.bot>" when BN_AGENT_SESSION=1
@@ -134,8 +186,14 @@ echo "--- SYSTEM PROMPT ---"
 echo "$BN_INITIAL_PROMPT"
 echo "--- END PROMPT ---"
 
+# Blocked MCP tools - orient/goodbye must use shell for proper agent lifecycle
+BLOCKED_TOOLS=(
+    --deny-tool "binnacle(binnacle-orient)"
+    --deny-tool "binnacle(binnacle-goodbye)"
+)
+
 if command -v copilot &> /dev/null; then
-    copilot --allow-all -p "$BN_INITIAL_PROMPT"
+    copilot --allow-all "${BLOCKED_TOOLS[@]}" -p "$BN_INITIAL_PROMPT"
     AGENT_EXIT=$?
 elif command -v claude &> /dev/null; then
     claude -p "$BN_INITIAL_PROMPT"
