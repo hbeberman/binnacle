@@ -39,6 +39,7 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 ## Git Rules (CRITICAL)
 
 - **NEVER run `git push`** - The human operator handles all pushes. Your job is to commit locally.
+- **NEVER run `git config user.email` or `git config user.name`** - Git identity is provided by the host. If git complains about missing identity, report the error - do not attempt to fix it.
 - Commit early and often with clear messages
 - Always run `just check` before committing
 

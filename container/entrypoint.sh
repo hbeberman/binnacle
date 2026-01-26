@@ -79,12 +79,21 @@ fi
 # Mark this as an agent session for the commit-msg hook
 export BN_AGENT_SESSION=1
 
-# Git identity: respect existing configuration.
-# The container inherits git identity from:
-# 1. GIT_AUTHOR_*/GIT_COMMITTER_* env vars passed by the host
-# 2. The mounted workspace's .git/config
-# 3. The host's ~/.gitconfig (if HOME is mounted)
-# We do NOT set fallback defaults - commits should use the user's identity.
+# Git identity: REQUIRE it from environment variables.
+# The container MUST receive git identity from:
+# 1. GIT_AUTHOR_*/GIT_COMMITTER_* env vars passed by the host (required)
+# We do NOT set fallback defaults and do NOT allow the agent to set them.
+# This prevents AI agents from polluting local git config with fake identities.
+if [ -z "${GIT_AUTHOR_NAME:-}" ] || [ -z "${GIT_AUTHOR_EMAIL:-}" ]; then
+    echo "❌ Git identity not provided via environment variables"
+    echo "   GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME:-<not set>}"
+    echo "   GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL:-<not set>}"
+    echo ""
+    echo "   This should be set automatically by 'bn container run'."
+    echo "   If you're running the container directly, set these env vars."
+    exit 1
+fi
+echo "👤 Git identity: ${GIT_AUTHOR_NAME} <${GIT_AUTHOR_EMAIL}>"
 
 # Orient the agent
 echo "🧭 Orienting agent (type: $BN_AGENT_TYPE)..."
