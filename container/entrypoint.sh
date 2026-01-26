@@ -225,6 +225,16 @@ git fetch origin "$BN_MERGE_TARGET" 2>/dev/null || true
 git checkout "$BN_MERGE_TARGET"
 if git merge --ff-only "$WORK_BRANCH"; then
     echo "✅ Successfully merged $WORK_BRANCH into $BN_MERGE_TARGET"
+    
+    # Generate graph snapshot for the merge commit on main branch
+    # This preserves the graph state at this point in the commit history
+    MERGE_COMMIT=$(git rev-parse HEAD)
+    echo "📸 Creating graph snapshot for commit $MERGE_COMMIT..."
+    if bn system store archive "$MERGE_COMMIT" > /dev/null 2>&1; then
+        echo "✅ Graph snapshot created"
+    else
+        echo "⚠️  Warning: Failed to create graph snapshot (archive.directory may not be configured)"
+    fi
 else
     echo "❌ Fast-forward merge failed - manual intervention required"
     echo "   Branch $WORK_BRANCH has diverged from $BN_MERGE_TARGET"
