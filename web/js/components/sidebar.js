@@ -148,9 +148,11 @@ export function initializeSidebarSearch(onSearch) {
  * Initialize the sidebar component
  * @param {HTMLElement} container - Container element to append sidebar to
  * @param {Function} onSearch - Optional callback for search functionality
+ * @param {Object} options - Optional configuration
+ * @param {boolean} options.initializeFilters - Whether to initialize filter buttons (default: false)
  * @returns {HTMLElement} The created sidebar element
  */
-export function initializeSidebar(container, onSearch = null) {
+export function initializeSidebar(container, onSearch = null, options = {}) {
     const sidebar = createSidebar();
     container.appendChild(sidebar);
     
@@ -160,6 +162,17 @@ export function initializeSidebar(container, onSearch = null) {
     // Initialize search
     if (onSearch) {
         initializeSidebarSearch(onSearch);
+    }
+    
+    // Initialize filters if requested
+    if (options.initializeFilters) {
+        // Import and initialize filters dynamically
+        import('./filters.js').then(({ initializeNodeTypeFilters, initializeEdgeTypeFilters }) => {
+            initializeNodeTypeFilters();
+            initializeEdgeTypeFilters();
+        }).catch(err => {
+            console.error('Failed to load filter components:', err);
+        });
     }
     
     return sidebar;
