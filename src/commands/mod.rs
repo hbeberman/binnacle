@@ -14332,6 +14332,52 @@ pub fn container_run(
         args.push(format!("COPILOT_GITHUB_TOKEN={}", token));
     }
 
+    // Pass through git identity from host's git config
+    // This ensures container commits use the same author as the host
+    if let Some(output) = Command::new("git")
+        .args(["config", "--get", "user.name"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+    {
+        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !name.is_empty() {
+            args.push("--env".to_string());
+            args.push(format!("GIT_AUTHOR_NAME={}", name));
+            args.push("--env".to_string());
+            args.push(format!("GIT_COMMITTER_NAME={}", name));
+        }
+    }
+    if let Some(output) = Command::new("git")
+        .args(["config", "--get", "user.email"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+    {
+        let email = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !email.is_empty() {
+            args.push("--env".to_string());
+            args.push(format!("GIT_AUTHOR_EMAIL={}", email));
+            args.push("--env".to_string());
+            args.push(format!("GIT_COMMITTER_EMAIL={}", email));
+        }
+    }
+
+    // Pass through timezone from TZ env var or /etc/timezone
+    // This ensures commit timestamps use the host's timezone
+    if let Ok(tz) = std::env::var("TZ") {
+        if !tz.is_empty() {
+            args.push("--env".to_string());
+            args.push(format!("TZ={}", tz));
+        }
+    } else if let Ok(contents) = fs::read_to_string("/etc/timezone") {
+        let tz = contents.trim();
+        if !tz.is_empty() {
+            args.push("--env".to_string());
+            args.push(format!("TZ={}", tz));
+        }
+    }
+
     // Add image and container name
     args.push("localhost/binnacle-worker:latest".to_string());
     args.push(container_name.clone());
