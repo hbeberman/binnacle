@@ -2740,10 +2740,77 @@
 
         .status-connected { background: var(--success); }
         .status-disconnected { background: var(--danger); animation: none; }
+        .status-connecting { background: var(--warning); }
+        .status-error { background: var(--danger); animation: pulse-error 1s infinite; }
+        .status-reconnecting { background: var(--warning); animation: pulse 0.6s infinite; }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
+        }
+
+        @keyframes pulse-error {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+
+        /* Header connection status indicator */
+        .header-connection-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-left: 0.75rem;
+            padding: 0.25rem 0.6rem;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            vertical-align: middle;
+        }
+
+        .header-connection-status .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .header-connection-status.connected {
+            color: var(--success);
+        }
+
+        .header-connection-status.connected .status-dot {
+            background: var(--success);
+            box-shadow: 0 0 6px var(--success);
+        }
+
+        .header-connection-status.disconnected {
+            color: var(--danger);
+        }
+
+        .header-connection-status.disconnected .status-dot {
+            background: var(--danger);
+            animation: none;
+        }
+
+        .header-connection-status.connecting,
+        .header-connection-status.reconnecting {
+            color: var(--warning);
+        }
+
+        .header-connection-status.connecting .status-dot,
+        .header-connection-status.reconnecting .status-dot {
+            background: var(--warning);
+            animation: pulse 0.8s infinite;
+        }
+
+        .header-connection-status.error {
+            color: var(--danger);
+        }
+
+        .header-connection-status.error .status-dot {
+            background: var(--danger);
+            animation: pulse-error 1s infinite;
         }
 
         .empty-state {
@@ -5042,7 +5109,7 @@
     <div class="container">
         <header>
             <div class="header-left">
-                <h1>🧭 Binnacle</h1>
+                <h1>🧭 Binnacle <span class="header-connection-status disconnected" id="header-connection-status" title="Connection status"><span class="status-dot"></span><span class="status-text">Disconnected</span></span></h1>
                 <p class="subtitle">Project State Tracker</p>
                 <nav>
                     <button class="nav-btn active" data-view="graph">Graph</button>
@@ -5956,6 +6023,8 @@
 
         function connectWebSocket() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            // Update status to "connecting" before creating WebSocket
+            updateConnectionStatus(false, 'connecting');
             state.ws = new WebSocket(`${protocol}//${location.host}/ws`);
 
             state.ws.onopen = async () => {
@@ -6144,7 +6213,8 @@
             };
 
             state.ws.onclose = () => {
-                updateConnectionStatus(false);
+                // Show "reconnecting" if we were previously connected, otherwise "disconnected"
+                updateConnectionStatus(false, wasConnected ? 'reconnecting' : null);
                 // Show disconnect toast if we were connected (and don't have one already)
                 if (wasConnected && !disconnectToast) {
                     disconnectToast = showToast('Connection lost, reconnecting...', 'warning', 0);
@@ -6153,15 +6223,50 @@
             };
 
             state.ws.onerror = () => {
-                updateConnectionStatus(false);
+                updateConnectionStatus(false, 'error');
             };
         }
 
-        function updateConnectionStatus(connected) {
+        function updateConnectionStatus(connected, state = null) {
+            // Update bottom-right indicator
             const dot = document.getElementById('status-dot');
             const text = document.getElementById('status-text');
             dot.className = `status-dot status-${connected ? 'connected' : 'disconnected'}`;
             text.textContent = connected ? 'Connected' : 'Disconnected';
+            
+            // Update header indicator
+            const headerStatus = document.getElementById('header-connection-status');
+            if (headerStatus) {
+                const headerText = headerStatus.querySelector('.status-text');
+                // Determine the status class
+                let statusClass = 'disconnected';
+                let statusText = 'Disconnected';
+                let title = 'Not connected to server';
+                
+                if (state === 'connecting') {
+                    statusClass = 'connecting';
+                    statusText = 'Connecting...';
+                    title = 'Establishing connection';
+                } else if (state === 'reconnecting') {
+                    statusClass = 'reconnecting';
+                    statusText = 'Reconnecting...';
+                    title = 'Attempting to reconnect';
+                } else if (state === 'error') {
+                    statusClass = 'error';
+                    statusText = 'Error';
+                    title = 'Connection error';
+                } else if (connected) {
+                    statusClass = 'connected';
+                    statusText = 'Connected';
+                    title = 'Connected to server';
+                }
+                
+                headerStatus.className = `header-connection-status ${statusClass}`;
+                headerStatus.title = title;
+                if (headerText) {
+                    headerText.textContent = statusText;
+                }
+            }
         }
 
         // Data loading

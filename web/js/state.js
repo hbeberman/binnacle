@@ -14,10 +14,20 @@ export const ConnectionMode = Object.freeze({
     ARCHIVE: 'archive'      // Static .bng archive file
 });
 
+// Connection states (matches ConnectionState from websocket.js)
+export const ConnectionStatus = Object.freeze({
+    DISCONNECTED: 'disconnected',
+    CONNECTING: 'connecting',
+    CONNECTED: 'connected',
+    RECONNECTING: 'reconnecting',
+    ERROR: 'error'
+});
+
 // Default state structure
 const createDefaultState = () => ({
     // Connection state
     mode: ConnectionMode.NONE,
+    connectionStatus: ConnectionStatus.DISCONNECTED,
     readonly: false,
     wsUrl: null,
     archiveUrl: null,
@@ -358,6 +368,14 @@ export function setSelectedEdge(edgeId) {
 
 export function setViewport(viewport) {
     set('ui.viewport', { ...state.ui.viewport, ...viewport });
+}
+
+export function getConnectionStatus() {
+    return state.connectionStatus;
+}
+
+export function setConnectionStatus(status) {
+    set('connectionStatus', status);
 }
 
 // ============================================
