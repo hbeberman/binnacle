@@ -29,6 +29,8 @@ sudo apt install containerd buildah
 sudo systemctl enable --now containerd
 ```
 
+> **Tip:** For rootless operation without `sudo`, see the [Rootless Setup](#rootless-setup) section below.
+
 ## Overview
 
 The container worker provides:
@@ -185,15 +187,118 @@ Environment variables are automatically passed to the container:
 5. **Execute**: AI agent picks and completes tasks
 6. **Merge**: On success, work is merged to target branch
 
+## Rootless Setup
+
+By default, binnacle uses system containerd which requires `sudo`. For a better experience without `sudo`, set up rootless containerd:
+
+### Prerequisites
+
+Rootless containerd requires:
+- Linux kernel 5.11+ (for unprivileged user namespaces)
+- containerd 1.5+ with rootless support
+
+### Installation (Fedora/RHEL)
+
+```bash
+# Install containerd with rootless support
+sudo dnf install containerd rootlesskit slirp4netns
+
+# Enable user namespaces (if not already enabled)
+sudo sysctl -w kernel.unprivileged_userns_clone=1
+echo 'kernel.unprivileged_userns_clone=1' | sudo tee /etc/sysctl.d/userns.conf
+
+# Set up subuid/subgid ranges for your user
+sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER
+```
+
+### Installation (Debian/Ubuntu)
+
+```bash
+# Install containerd with rootless support
+sudo apt install containerd rootlesskit slirp4netns uidmap
+
+# Set up subuid/subgid ranges for your user
+sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER
+```
+
+### Start Rootless Containerd
+
+```bash
+# Create the rootless containerd directory
+mkdir -p ~/.local/share/containerd
+
+# Start rootless containerd (runs in foreground, use & or a separate terminal)
+containerd-rootless-setuptool.sh install
+
+# Or manually start it:
+# XDG_RUNTIME_DIR must be set (usually /run/user/$(id -u))
+containerd --config ~/.config/containerd/config.toml --root ~/.local/share/containerd --state $XDG_RUNTIME_DIR/containerd &
+
+# Verify the socket exists
+ls $XDG_RUNTIME_DIR/containerd/containerd.sock
+```
+
+### Enable Rootless Containerd at Login
+
+To start rootless containerd automatically:
+
+```bash
+# Using systemd user service
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/containerd.service << 'EOF'
+[Unit]
+Description=Rootless containerd
+
+[Service]
+ExecStart=/usr/bin/containerd --config %h/.config/containerd/config.toml --root %h/.local/share/containerd --state %t/containerd
+Restart=always
+
+[Install]
+WantedBy=default.target
+EOF
+
+# Enable and start
+systemctl --user daemon-reload
+systemctl --user enable --now containerd
+
+# Enable lingering so it starts on boot
+loginctl enable-linger $USER
+```
+
+### Verify Rootless Setup
+
+```bash
+# Check if binnacle detects rootless containerd
+bn container list
+# Should NOT show "⚠️ Using system containerd (requires sudo)"
+
+# Manually verify the socket
+ctr -a $XDG_RUNTIME_DIR/containerd/containerd.sock version
+```
+
+### How Binnacle Detects Rootless Mode
+
+Binnacle automatically detects rootless containerd by checking for:
+1. `$XDG_RUNTIME_DIR/containerd/containerd.sock`
+
+If found, it uses `ctr -a <socket_path>` without `sudo`. Otherwise, it falls back to system containerd with `sudo ctr`.
+
 ## Troubleshooting
 
 ### containerd not found
 
 Install containerd and ensure the service is running:
 
+**System containerd:**
 ```bash
 sudo systemctl status containerd
 sudo systemctl start containerd
+```
+
+**Rootless containerd:**
+```bash
+systemctl --user status containerd
+systemctl --user start containerd
 ```
 
 ### Image not found
@@ -206,8 +311,14 @@ bn container build
 
 Verify it's imported to containerd:
 
+**System containerd:**
 ```bash
 sudo ctr -n binnacle images list
+```
+
+**Rootless containerd:**
+```bash
+ctr -a $XDG_RUNTIME_DIR/containerd/containerd.sock -n binnacle images list
 ```
 
 ### Authentication errors
@@ -239,7 +350,7 @@ git merge --no-ff agent-feature
 - Container only accesses the specific worktree, not entire filesystem
 - Uses dedicated `binnacle` namespace to isolate from other workloads
 - Resource limits prevent runaway processes
-- Currently requires root/sudo for containerd access
+- Supports both rootless (no sudo) and system containerd (requires sudo)
 - **`--no-verify` is blocked** - agents cannot bypass commit hooks
 
 ### Git Hook Enforcement
