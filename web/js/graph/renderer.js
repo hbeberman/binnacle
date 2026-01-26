@@ -247,6 +247,85 @@ export function stopAnimation() {
 }
 
 /**
+ * Apply force-directed layout physics to graph nodes
+ */
+function applyPhysics() {
+    const REPULSION_STRENGTH = 5000;  // Nodes repel each other
+    const EDGE_ATTRACTION = 0.01;      // Edges pull nodes together
+    const CENTER_GRAVITY = 0.001;      // Weak pull toward center
+    const DAMPING = 0.85;              // Friction to stabilize
+    const MIN_DISTANCE = 50;           // Minimum separation
+    
+    // Reset forces
+    for (const node of visibleNodes) {
+        node.fx = 0;
+        node.fy = 0;
+    }
+    
+    // Node-node repulsion (all pairs)
+    for (let i = 0; i < visibleNodes.length; i++) {
+        for (let j = i + 1; j < visibleNodes.length; j++) {
+            const a = visibleNodes[i];
+            const b = visibleNodes[j];
+            
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const distSq = dx * dx + dy * dy;
+            const dist = Math.sqrt(distSq) || 1;
+            
+            if (dist < MIN_DISTANCE) continue;
+            
+            const force = REPULSION_STRENGTH / distSq;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            
+            a.fx -= fx;
+            a.fy -= fy;
+            b.fx += fx;
+            b.fy += fy;
+        }
+    }
+    
+    // Edge attraction (connected nodes)
+    const visibleNodeMap = new Map(visibleNodes.map(n => [n.id, n]));
+    for (const edge of graphEdges) {
+        const source = visibleNodeMap.get(edge.from);
+        const target = visibleNodeMap.get(edge.to);
+        
+        if (!source || !target) continue;
+        
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        
+        const fx = dx * EDGE_ATTRACTION;
+        const fy = dy * EDGE_ATTRACTION;
+        
+        source.fx += fx;
+        source.fy += fy;
+        target.fx -= fx;
+        target.fy -= fy;
+    }
+    
+    // Center gravity
+    for (const node of visibleNodes) {
+        node.fx -= node.x * CENTER_GRAVITY;
+        node.fy -= node.y * CENTER_GRAVITY;
+    }
+    
+    // Update velocities and positions
+    for (const node of visibleNodes) {
+        // Skip dragged nodes
+        if (node === draggedNode) continue;
+        
+        node.vx = (node.vx + node.fx) * DAMPING;
+        node.vy = (node.vy + node.fy) * DAMPING;
+        
+        node.x += node.vx;
+        node.y += node.vy;
+    }
+}
+
+/**
  * Animation loop
  */
 function animate() {
@@ -264,6 +343,9 @@ function animate() {
             departingAgents.delete(agentId);
         }
     }
+    
+    // Apply physics simulation
+    applyPhysics();
     
     // Render the graph
     render();
