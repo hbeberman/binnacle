@@ -14173,6 +14173,50 @@ fn command_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Containerd runtime mode.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContainerdMode {
+    /// System-wide containerd using sudo (default socket at /run/containerd/containerd.sock)
+    System,
+    /// Rootless containerd (socket at $XDG_RUNTIME_DIR/containerd/containerd.sock)
+    Rootless { socket_path: String },
+}
+
+/// Detect the containerd runtime mode.
+/// Checks for rootless containerd first, falls back to system containerd.
+pub fn detect_containerd_mode() -> ContainerdMode {
+    // Check for rootless containerd socket at XDG_RUNTIME_DIR/containerd/containerd.sock
+    if let Ok(xdg_runtime) = std::env::var("XDG_RUNTIME_DIR") {
+        let rootless_socket = format!("{}/containerd/containerd.sock", xdg_runtime);
+        if Path::new(&rootless_socket).exists() {
+            return ContainerdMode::Rootless {
+                socket_path: rootless_socket,
+            };
+        }
+    }
+
+    // Fall back to system containerd
+    ContainerdMode::System
+}
+
+/// Create a Command for ctr with the appropriate mode.
+/// For rootless mode, uses -a flag with socket path and no sudo.
+/// For system mode, uses sudo.
+fn ctr_command(mode: &ContainerdMode) -> Command {
+    match mode {
+        ContainerdMode::Rootless { socket_path } => {
+            let mut cmd = Command::new("ctr");
+            cmd.arg("-a").arg(socket_path);
+            cmd
+        }
+        ContainerdMode::System => {
+            let mut cmd = Command::new("sudo");
+            cmd.arg("ctr");
+            cmd
+        }
+    }
+}
+
 /// Get the helpful installation message for container dependencies.
 fn container_deps_missing_message() -> String {
     r#"Error: containerd or buildah not found
@@ -14193,9 +14237,10 @@ For more info, see: https://github.com/containerd/containerd"#
 
 /// Check if the binnacle worker image exists in containerd.
 fn container_image_exists(image_name: &str) -> bool {
+    let mode = detect_containerd_mode();
     let filter = format!("name=={}", image_name);
-    Command::new("sudo")
-        .args(["ctr", "-n", "binnacle", "images", "check", &filter])
+    ctr_command(&mode)
+        .args(["-n", "binnacle", "images", "check", &filter])
         .output()
         .map(|o| {
             // If the command succeeds and has output lines beyond the header, the image exists
@@ -14356,8 +14401,9 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
     }
 
     eprintln!("📥 Importing image to containerd...");
-    let import_output = Command::new("sudo")
-        .args(["ctr", "-n", "binnacle", "images", "import", temp_archive])
+    let mode = detect_containerd_mode();
+    let import_output = ctr_command(&mode)
+        .args(["-n", "binnacle", "images", "import", temp_archive])
         .output()?;
 
     // Clean up temp file
@@ -14462,6 +14508,9 @@ pub fn container_run(
             error: Some(container_deps_missing_message()),
         });
     }
+
+    // Detect containerd mode (rootless vs system)
+    let containerd_mode = detect_containerd_mode();
 
     // Check if the worker image exists in containerd
     let image_name = "localhost/binnacle-worker:latest";
@@ -14745,8 +14794,7 @@ pub fn container_run(
     // Inherit stdio so container output is visible.
     // With --tty (TTY mode), ctr allocates a PTY for interactive programs.
     // Without --tty (non-TTY mode), output still streams but interactive programs may not work.
-    let status = Command::new("sudo")
-        .arg("ctr")
+    let status = ctr_command(&containerd_mode)
         .args(&args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -14780,12 +14828,15 @@ pub fn container_stop(name: Option<String>, all: bool) -> Result<ContainerStopRe
         });
     }
 
+    // Detect containerd mode (rootless vs system)
+    let containerd_mode = detect_containerd_mode();
+
     let mut stopped = Vec::new();
 
     if all {
         // Get list of containers in binnacle namespace
-        let output = Command::new("sudo")
-            .args(["ctr", "-n", "binnacle", "containers", "list", "-q"])
+        let output = ctr_command(&containerd_mode)
+            .args(["-n", "binnacle", "containers", "list", "-q"])
             .output()?;
 
         if !output.status.success() {
@@ -14805,13 +14856,13 @@ pub fn container_stop(name: Option<String>, all: bool) -> Result<ContainerStopRe
 
         for container in containers {
             // Kill task first
-            let _ = Command::new("sudo")
-                .args(["ctr", "-n", "binnacle", "tasks", "kill", &container])
+            let _ = ctr_command(&containerd_mode)
+                .args(["-n", "binnacle", "tasks", "kill", &container])
                 .output();
 
             // Remove container
-            let rm_output = Command::new("sudo")
-                .args(["ctr", "-n", "binnacle", "containers", "rm", &container])
+            let rm_output = ctr_command(&containerd_mode)
+                .args(["-n", "binnacle", "containers", "rm", &container])
                 .output()?;
 
             if rm_output.status.success() {
@@ -14820,13 +14871,13 @@ pub fn container_stop(name: Option<String>, all: bool) -> Result<ContainerStopRe
         }
     } else if let Some(container_name) = name {
         // Kill task first
-        let _ = Command::new("sudo")
-            .args(["ctr", "-n", "binnacle", "tasks", "kill", &container_name])
+        let _ = ctr_command(&containerd_mode)
+            .args(["-n", "binnacle", "tasks", "kill", &container_name])
             .output();
 
         // Remove container
-        let rm_output = Command::new("sudo")
-            .args(["ctr", "-n", "binnacle", "containers", "rm", &container_name])
+        let rm_output = ctr_command(&containerd_mode)
+            .args(["-n", "binnacle", "containers", "rm", &container_name])
             .output()?;
 
         if rm_output.status.success() {
@@ -14867,9 +14918,12 @@ pub fn container_list(all: bool, _quiet: bool) -> Result<ContainerListResult> {
         });
     }
 
+    // Detect containerd mode (rootless vs system)
+    let containerd_mode = detect_containerd_mode();
+
     // Get list of containers
-    let output = Command::new("sudo")
-        .args(["ctr", "-n", "binnacle", "containers", "list"])
+    let output = ctr_command(&containerd_mode)
+        .args(["-n", "binnacle", "containers", "list"])
         .output()?;
 
     if !output.status.success() {
@@ -14881,8 +14935,8 @@ pub fn container_list(all: bool, _quiet: bool) -> Result<ContainerListResult> {
     }
 
     // Get running tasks to determine status
-    let tasks_output = Command::new("sudo")
-        .args(["ctr", "-n", "binnacle", "tasks", "list"])
+    let tasks_output = ctr_command(&containerd_mode)
+        .args(["-n", "binnacle", "tasks", "list"])
         .output()?;
 
     let running_tasks: std::collections::HashSet<String> = if tasks_output.status.success() {
@@ -22172,5 +22226,69 @@ mod tests {
             "Expected path ending with /archives, got: {:?}",
             path
         );
+    }
+
+    #[test]
+    fn test_containerd_mode_system_default() {
+        // When XDG_RUNTIME_DIR is not set or socket doesn't exist, should use System mode
+        // SAFETY: Test runs in single thread and we're modifying test-specific env vars
+        unsafe {
+            std::env::remove_var("XDG_RUNTIME_DIR");
+        }
+        let mode = detect_containerd_mode();
+        assert_eq!(mode, ContainerdMode::System);
+    }
+
+    #[test]
+    fn test_containerd_mode_rootless_detection() {
+        use std::fs;
+        use tempfile::tempdir;
+
+        // Create a fake XDG_RUNTIME_DIR with containerd socket
+        let temp = tempdir().unwrap();
+        let containerd_dir = temp.path().join("containerd");
+        fs::create_dir_all(&containerd_dir).unwrap();
+        let socket_path = containerd_dir.join("containerd.sock");
+        fs::write(&socket_path, "").unwrap(); // Create empty file as mock socket
+
+        // SAFETY: Test runs in single thread and we're modifying test-specific env vars
+        unsafe {
+            std::env::set_var("XDG_RUNTIME_DIR", temp.path());
+        }
+
+        let mode = detect_containerd_mode();
+
+        // Clean up env var
+        // SAFETY: Test runs in single thread and we're modifying test-specific env vars
+        unsafe {
+            std::env::remove_var("XDG_RUNTIME_DIR");
+        }
+
+        match mode {
+            ContainerdMode::Rootless { socket_path: path } => {
+                assert!(path.ends_with("containerd/containerd.sock"));
+            }
+            ContainerdMode::System => {
+                panic!("Expected Rootless mode but got System");
+            }
+        }
+    }
+
+    #[test]
+    fn test_ctr_command_system_mode() {
+        let mode = ContainerdMode::System;
+        let cmd = ctr_command(&mode);
+        // In system mode, program should be "sudo"
+        assert_eq!(cmd.get_program(), "sudo");
+    }
+
+    #[test]
+    fn test_ctr_command_rootless_mode() {
+        let mode = ContainerdMode::Rootless {
+            socket_path: "/run/user/1000/containerd/containerd.sock".to_string(),
+        };
+        let cmd = ctr_command(&mode);
+        // In rootless mode, program should be "ctr"
+        assert_eq!(cmd.get_program(), "ctr");
     }
 }
