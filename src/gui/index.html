@@ -379,6 +379,19 @@
             color: var(--text-secondary);
         }
 
+        .version-badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            margin-left: 0.75rem;
+            font-weight: 500;
+            vertical-align: middle;
+        }
+
         nav {
             display: flex;
             gap: 1rem;
@@ -5119,7 +5132,7 @@
     <div class="container">
         <header>
             <div class="header-left">
-                <h1>🧭 Binnacle <span class="header-connection-status disconnected" id="header-connection-status" title="Connection status"><span class="status-dot"></span><span class="status-text">Disconnected</span></span></h1>
+                <h1>🧭 Binnacle <span class="version-badge" id="version-badge">v0.0.0</span> <span class="header-connection-status disconnected" id="header-connection-status" title="Connection status"><span class="status-dot"></span><span class="status-text">Disconnected</span></span></h1>
                 <p class="subtitle">Project State Tracker</p>
                 <nav>
                     <button class="nav-btn active" data-view="graph">Graph</button>
@@ -14620,6 +14633,25 @@
         updateHideCompletedDisplay();
         initializeGraphSearch();
         initializeViewSearch();
+        
+        // Fetch and display version
+        async function fetchVersion() {
+            try {
+                const response = await fetch('/api/version');
+                if (response.ok) {
+                    const data = await response.json();
+                    const versionBadge = document.getElementById('version-badge');
+                    if (versionBadge && data.version) {
+                        versionBadge.textContent = `v${data.version}`;
+                        versionBadge.title = `Version ${data.version} (${data.timestamp})`;
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to fetch version:', error);
+            }
+        }
+        fetchVersion();
+        
         connectWebSocket();
         
         // Periodically refresh the recently completed pane to keep "time ago" display current
