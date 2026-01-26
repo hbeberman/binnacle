@@ -13,6 +13,22 @@ The binnacle viewer is a WebAssembly (WASM) application that renders task graphs
 - Archive project snapshots for historical reference
 - Create standalone reports that work offline
 
+## Quick Start: npm Package
+
+The easiest way to use the viewer is via the npm package:
+
+```bash
+npm install @binnacle/viewer
+```
+
+```javascript
+const { viewerPath } = require('@binnacle/viewer');
+// viewerPath is the absolute path to viewer.html
+// Copy it to your static assets or serve it directly
+```
+
+See the [@binnacle/viewer README](../npm/README.md) for detailed usage examples.
+
 ## Building the Viewer
 
 ### Prerequisites
