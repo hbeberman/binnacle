@@ -257,6 +257,11 @@ pub enum Commands {
         /// Used when no subcommand is given (starts server)
         #[arg(long, env = "BN_GUI_HOST", default_value = "0.0.0.0", global = true)]
         host: String,
+
+        /// Start in readonly mode (disables all write operations)
+        /// Used when no subcommand is given (starts server)
+        #[arg(long, env = "BN_GUI_READONLY", global = true)]
+        readonly: bool,
     },
 }
 
@@ -1020,6 +1025,10 @@ pub enum GuiCommands {
         /// Stop any running GUI server first and start a new one
         #[arg(long)]
         replace: bool,
+
+        /// Start in readonly mode (disables all write operations)
+        #[arg(long, env = "BN_GUI_READONLY")]
+        readonly: bool,
     },
 
     /// Show status of running GUI server

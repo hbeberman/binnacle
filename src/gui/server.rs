@@ -43,6 +43,16 @@ pub fn find_available_port(host: &str, start_port: u16) -> Option<u16> {
 use crate::models::{Edge, EdgeType, LogAnnotation, Queue, TaskStatus};
 use crate::storage::{Storage, generate_id};
 
+/// Error response for readonly mode rejection
+fn readonly_error() -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::FORBIDDEN,
+        Json(serde_json::json!({
+            "error": "Server is in readonly mode - write operations are disabled"
+        })),
+    )
+}
+
 /// WebSocket performance metrics
 #[derive(Default)]
 pub struct WebSocketMetrics {
@@ -107,6 +117,8 @@ pub struct AppState {
     pub ws_metrics: Arc<WebSocketMetrics>,
     /// Repository path for git operations
     pub repo_path: PathBuf,
+    /// Whether the server is in readonly mode (write operations disabled)
+    pub readonly: bool,
 }
 
 /// Start the GUI web server
@@ -114,6 +126,7 @@ pub async fn start_server(
     repo_path: &Path,
     port: u16,
     host: &str,
+    readonly: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let storage = Storage::open(repo_path)?;
     let storage_dir = crate::storage::get_storage_dir(repo_path)?;
@@ -132,6 +145,7 @@ pub async fn start_server(
         project_name,
         ws_metrics: Arc::new(WebSocketMetrics::new()),
         repo_path: repo_path.to_path_buf(),
+        readonly,
     };
 
     // Start file watcher in background
@@ -179,7 +193,11 @@ pub async fn start_server(
         .parse()
         .map_err(|e| format!("Invalid host address '{}': {}", host, e))?;
     let addr = SocketAddr::from((host_addr, port));
-    println!("Starting binnacle GUI at http://{}", addr);
+    if readonly {
+        println!("Starting binnacle GUI at http://{} (READONLY MODE)", addr);
+    } else {
+        println!("Starting binnacle GUI at http://{}", addr);
+    }
     println!("Press Ctrl+C to stop");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -193,10 +211,11 @@ async fn serve_index() -> impl IntoResponse {
     Html(include_str!("index.html"))
 }
 
-/// Get configuration info (project name, etc.)
+/// Get configuration info (project name, readonly mode, etc.)
 async fn get_config(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
-        "project_name": state.project_name
+        "project_name": state.project_name,
+        "readonly": state.readonly
     }))
 }
 
@@ -451,11 +470,21 @@ async fn get_agents(State(state): State<AppState>) -> Result<Json<serde_json::Va
 async fn kill_agent(
     State(state): State<AppState>,
     AxumPath(pid): AxumPath<u32>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Check readonly mode
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
     let mut storage = state.storage.lock().await;
 
     // Verify the agent exists
-    let agent = storage.get_agent(pid).map_err(|_| StatusCode::NOT_FOUND)?;
+    let agent = storage.get_agent(pid).map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Agent not found"})),
+        )
+    })?;
 
     // Send SIGTERM to the process
     #[cfg(unix)]
@@ -710,6 +739,11 @@ async fn add_log_annotation(
     State(state): State<AppState>,
     Json(request): Json<AddLogAnnotationRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Check readonly mode
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
     let storage = state.storage.lock().await;
 
     // Get the current user if author not provided
@@ -747,6 +781,11 @@ async fn delete_log_annotation(
     State(state): State<AppState>,
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Check readonly mode
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
     let storage = state.storage.lock().await;
 
     storage.delete_log_annotation(&id).map_err(|e| {
@@ -775,6 +814,11 @@ async fn add_edge(
     State(state): State<AppState>,
     Json(request): Json<AddEdgeRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Check readonly mode
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
     let mut storage = state.storage.lock().await;
 
     // Parse edge type
@@ -828,6 +872,11 @@ async fn toggle_queue_membership(
     State(state): State<AppState>,
     Json(request): Json<ToggleQueueRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Check readonly mode
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
     let mut storage = state.storage.lock().await;
 
     // Get or create the queue

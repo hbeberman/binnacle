@@ -1084,18 +1084,21 @@ fn run_command(
             command,
             port,
             host,
+            readonly,
         }) => match command {
             Some(GuiCommands::Serve {
                 port: sub_port,
                 host: sub_host,
                 replace,
+                readonly: sub_readonly,
             }) => {
                 let actual_port = sub_port.or(port);
                 let actual_host = &sub_host;
+                let actual_readonly = sub_readonly || readonly;
                 if replace {
-                    replace_gui(repo_path, actual_port, actual_host, human)?;
+                    replace_gui(repo_path, actual_port, actual_host, actual_readonly, human)?;
                 } else {
-                    run_gui(repo_path, actual_port, actual_host)?;
+                    run_gui(repo_path, actual_port, actual_host, actual_readonly)?;
                 }
             }
             Some(GuiCommands::Status) => {
@@ -1109,7 +1112,7 @@ fn run_command(
             }
             None => {
                 // Default: start server (same as `bn gui serve`)
-                run_gui(repo_path, port, &host)?;
+                run_gui(repo_path, port, &host, readonly)?;
             }
         },
         None => {
@@ -1145,7 +1148,12 @@ fn output<T: Output>(result: &T, human: bool) {
 
 /// Run the GUI web server
 #[cfg(feature = "gui")]
-fn run_gui(repo_path: &Path, port: Option<u16>, host: &str) -> Result<(), binnacle::Error> {
+fn run_gui(
+    repo_path: &Path,
+    port: Option<u16>,
+    host: &str,
+    readonly: bool,
+) -> Result<(), binnacle::Error> {
     use binnacle::gui::{DEFAULT_PORT, GuiPidFile, GuiPidInfo, ProcessStatus, find_available_port};
     use binnacle::storage::{Storage, get_storage_dir};
 
@@ -1204,7 +1212,7 @@ fn run_gui(repo_path: &Path, port: Option<u16>, host: &str) -> Result<(), binnac
         .build()
         .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?
         .block_on(async {
-            binnacle::gui::start_server(repo_path, actual_port, host)
+            binnacle::gui::start_server(repo_path, actual_port, host, readonly)
                 .await
                 .map_err(|e| binnacle::Error::Other(format!("GUI server error: {}", e)))
         });
@@ -1221,6 +1229,7 @@ fn replace_gui(
     repo_path: &Path,
     port: Option<u16>,
     host: &str,
+    readonly: bool,
     human: bool,
 ) -> Result<(), binnacle::Error> {
     use binnacle::gui::{DEFAULT_PORT, GuiPidFile, GuiPidInfo, ProcessStatus, find_available_port};
@@ -1327,7 +1336,7 @@ fn replace_gui(
         .build()
         .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?
         .block_on(async {
-            binnacle::gui::start_server(repo_path, actual_port, host)
+            binnacle::gui::start_server(repo_path, actual_port, host, readonly)
                 .await
                 .map_err(|e| binnacle::Error::Other(format!("GUI server error: {}", e)))
         });
@@ -2541,14 +2550,16 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             command,
             port,
             host,
+            readonly,
         }) => {
             let subcommand = match command {
                 Some(GuiCommands::Serve {
                     port: sub_port,
                     host: sub_host,
                     replace,
+                    readonly: sub_readonly,
                 }) => {
-                    serde_json::json!({ "subcommand": "serve", "port": sub_port.or(*port), "host": sub_host, "replace": replace })
+                    serde_json::json!({ "subcommand": "serve", "port": sub_port.or(*port), "host": sub_host, "replace": replace, "readonly": *sub_readonly || *readonly })
                 }
                 Some(GuiCommands::Status) => serde_json::json!({ "subcommand": "status" }),
                 Some(GuiCommands::Stop { force }) => {
@@ -2557,7 +2568,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 Some(GuiCommands::Kill { force }) => {
                     serde_json::json!({ "subcommand": "kill", "force": force })
                 }
-                None => serde_json::json!({ "subcommand": null, "port": port, "host": host }),
+                None => {
+                    serde_json::json!({ "subcommand": null, "port": port, "host": host, "readonly": readonly })
+                }
             };
             ("gui".to_string(), subcommand)
         }
