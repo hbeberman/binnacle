@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Version Conflict Detection Tests</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        h1 {
+            color: #4ec9b0;
+        }
+        pre {
+            background: #252526;
+            padding: 10px;
+            border-left: 3px solid #4ec9b0;
+            overflow-x: auto;
+        }
+        .pass {
+            color: #4ec9b0;
+        }
+        .fail {
+            color: #f48771;
+        }
+    </style>
+</head>
+<body>
+    <h1>Version Conflict Detection Tests</h1>
+    <pre id="output">Running tests...</pre>
+    
+    <script type="module">
+        // Capture console output
+        const outputEl = document.getElementById('output');
+        const originalLog = console.log;
+        const originalAssert = console.assert;
+        
+        let output = '';
+        console.log = (...args) => {
+            const message = args.join(' ');
+            output += message + '\n';
+            outputEl.textContent = output;
+            originalLog.apply(console, args);
+        };
+        
+        console.assert = (condition, ...args) => {
+            if (!condition) {
+                const message = '✗ ASSERTION FAILED: ' + args.join(' ');
+                output += message + '\n';
+                outputEl.innerHTML = output.replace(/✓/g, '<span class="pass">✓</span>').replace(/✗/g, '<span class="fail">✗</span>');
+                originalAssert.apply(console, [condition, ...args]);
+            }
+        };
+        
+        // Import and run the tests
+        try {
+            await import('./js/connection/version-conflict.test.js');
+            outputEl.innerHTML = output.replace(/✓/g, '<span class="pass">✓</span>').replace(/✗/g, '<span class="fail">✗</span>');
+        } catch (error) {
+            output += '\n✗ ERROR: ' + error.message + '\n' + error.stack;
+            outputEl.innerHTML = output.replace(/✓/g, '<span class="pass">✓</span>').replace(/✗/g, '<span class="fail">✗</span>');
+        }
+    </script>
+</body>
+</html>

@@ -8,6 +8,7 @@
  */
 
 import * as state from '../state.js';
+import { checkVersionConflict } from './version-conflict.js';
 
 /**
  * Message handler callbacks registry
@@ -109,6 +110,13 @@ registerHandler('sync', (message) => {
     
     console.log(`Processing sync message (version: ${version})`);
     
+    // Check for version conflicts before processing
+    // Note: sync messages reset the version, so we don't reject them
+    // but we do log if there was a gap
+    if (version !== undefined) {
+        checkVersionConflict(version);
+    }
+    
     // Update sync metadata
     state.set('sync.version', version);
     state.set('sync.lastSync', timestamp);
@@ -176,6 +184,11 @@ registerHandler('reload', async (message) => {
     const { version, timestamp } = message;
     
     console.log(`Processing reload message (version: ${version})`);
+    
+    // Check for version conflicts
+    if (version !== undefined) {
+        checkVersionConflict(version);
+    }
     
     // Update sync metadata
     state.set('sync.version', version);
@@ -298,6 +311,12 @@ registerHandler('entity_added', (message) => {
     
     console.log(`Adding ${entity_type} ${id} (version: ${version})`);
     
+    // Check for version conflicts and skip processing if gap detected
+    if (version !== undefined && !checkVersionConflict(version)) {
+        console.log(`Skipping entity_added (${entity_type} ${id}) - waiting for full sync`);
+        return;
+    }
+    
     // Update sync metadata
     state.set('sync.version', version);
     state.set('sync.lastSync', timestamp);
@@ -335,6 +354,12 @@ registerHandler('entity_updated', (message) => {
     
     console.log(`Updating ${entity_type} ${id} (version: ${version})`);
     
+    // Check for version conflicts and skip processing if gap detected
+    if (version !== undefined && !checkVersionConflict(version)) {
+        console.log(`Skipping entity_updated (${entity_type} ${id}) - waiting for full sync`);
+        return;
+    }
+    
     // Update sync metadata
     state.set('sync.version', version);
     state.set('sync.lastSync', timestamp);
@@ -371,6 +396,12 @@ registerHandler('entity_removed', (message) => {
     
     console.log(`Removing ${entity_type} ${id} (version: ${version})`);
     
+    // Check for version conflicts and skip processing if gap detected
+    if (version !== undefined && !checkVersionConflict(version)) {
+        console.log(`Skipping entity_removed (${entity_type} ${id}) - waiting for full sync`);
+        return;
+    }
+    
     // Update sync metadata
     state.set('sync.version', version);
     state.set('sync.lastSync', timestamp);
@@ -406,6 +437,12 @@ registerHandler('edge_added', (message) => {
     
     console.log(`Adding edge ${id} (version: ${version})`);
     
+    // Check for version conflicts and skip processing if gap detected
+    if (version !== undefined && !checkVersionConflict(version)) {
+        console.log(`Skipping edge_added (${id}) - waiting for full sync`);
+        return;
+    }
+    
     // Update sync metadata
     state.set('sync.version', version);
     state.set('sync.lastSync', timestamp);
@@ -436,6 +473,12 @@ registerHandler('edge_removed', (message) => {
     }
     
     console.log(`Removing edge ${id} (version: ${version})`);
+    
+    // Check for version conflicts and skip processing if gap detected
+    if (version !== undefined && !checkVersionConflict(version)) {
+        console.log(`Skipping edge_removed (${id}) - waiting for full sync`);
+        return;
+    }
     
     // Update sync metadata
     state.set('sync.version', version);
