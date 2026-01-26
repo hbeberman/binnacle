@@ -145,13 +145,113 @@ For rootless operation without sudo, see the [Rootless Setup](#rootless-setup) s
 
 ## GUI
 
+### Building with GUI Support
+
+The web interface requires the `gui` feature flag:
+
 ```bash
+# Install to ~/.local/bin with GUI enabled (recommended)
+just install
+
+# Or build manually
+cargo build --release --features gui
 cargo install --path . --features gui
-bn gui
-# open http://localhost:3030
 ```
 
-Interactive graph of tasks and dependencies with live updates.
+### Launching the GUI
+
+**Option 1: Using `bn gui` (direct command)**
+
+```bash
+bn gui              # Start on default port (3030)
+bn gui -p 8080      # Start on custom port
+bn gui --readonly   # Start in read-only mode
+```
+
+The server will start and print the URL to access the interface. Open it in your browser:
+```
+http://localhost:3030
+```
+
+**Option 2: Using `just gui` (with hot reload)**
+
+For development, use the justfile recipe which provides hot restart:
+
+```bash
+just gui            # Build, install, and launch with hot restart
+just gui nobuild    # Launch without rebuilding (uses existing binary)
+```
+
+The `just gui` recipe offers faster iteration during development:
+- Starts immediately with the existing binary
+- Rebuilds in the background
+- Automatically restarts with the new build
+
+**Environment Variables:**
+- `BN_GUI_PORT`: Override default port (default: 3030)
+- `BN_GUI_HOST`: Override bind address (default: 0.0.0.0)
+- `BN_GUI_READONLY`: Start in read-only mode
+
+### GUI Management Commands
+
+```bash
+bn gui status       # Check if GUI is running
+bn gui stop         # Gracefully stop the GUI (SIGTERM)
+bn gui kill         # Force kill the GUI immediately
+```
+
+### Testing the GUI
+
+1. **Launch the GUI:**
+   ```bash
+   just gui
+   ```
+
+2. **Open in browser:**
+   ```
+   http://localhost:3030
+   ```
+
+3. **Verify features:**
+   - Graph visualization displays tasks and their relationships
+   - Nodes are color-coded by status (pending, in_progress, done, blocked)
+   - Click nodes to see details in the info panel
+   - Use the search bar to filter nodes
+   - Use filters to show/hide node and edge types
+   - Live updates reflect changes made via CLI
+
+4. **Test live updates:**
+   ```bash
+   # In another terminal, make changes
+   bn task create "Test task"
+   bn task update bn-xxxx --status in_progress
+   ```
+   
+   The GUI should update automatically without refresh.
+
+5. **Test connection recovery:**
+   - Stop the server: `bn gui stop`
+   - Restart it: `bn gui`
+   - The viewer should automatically reconnect
+
+### Troubleshooting
+
+**Port already in use:**
+```bash
+# Use a different port
+BN_GUI_PORT=8080 bn gui
+```
+
+**Can't connect from another machine:**
+- Ensure the server is bound to 0.0.0.0 (default)
+- Check firewall settings
+- Use `bn gui --host 0.0.0.0` explicitly if needed
+
+**GUI won't stop:**
+```bash
+# Force kill
+bn gui kill
+```
 
 ## Viewer (WASM)
 
