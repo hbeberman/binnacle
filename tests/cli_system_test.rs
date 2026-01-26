@@ -1633,7 +1633,42 @@ fn test_store_archive_without_config() {
     // Create some data
     create_task(&env, "Task to archive");
 
-    // Archive without configuring archive.directory should succeed but not create file
+    // Archive without configuring archive.directory should use default location
+    // and create an archive there
+    let output = bn_in(&env)
+        .args(["system", "store", "archive", "abc123def456"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    // With default archive directory, archive is created
+    assert_eq!(json["created"], true);
+    assert_eq!(json["commit_hash"], "abc123def456");
+    assert!(json["task_count"].as_u64().unwrap() >= 1);
+
+    // Clean up the archive in the default directory
+    if let Some(output_path) = json["output_path"].as_str() {
+        let _ = fs::remove_file(output_path);
+    }
+}
+
+#[test]
+fn test_store_archive_explicitly_disabled() {
+    let env = init_binnacle();
+
+    // Explicitly disable archiving by setting to empty
+    bn_in(&env)
+        .args(["config", "set", "archive.directory", ""])
+        .assert()
+        .success();
+
+    // Create some data
+    create_task(&env, "Task to archive");
+
+    // Archive should not be created when explicitly disabled
     let output = bn_in(&env)
         .args(["system", "store", "archive", "abc123def456"])
         .assert()
@@ -1693,7 +1728,38 @@ fn test_store_archive_with_config() {
 fn test_store_archive_human_readable() {
     let env = init_binnacle();
 
-    // Archive without config - human readable
+    // Archive without config - human readable (uses default location)
+    let output = bn_in(&env)
+        .args(["-H", "system", "store", "archive", "abc123"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Created archive"))
+        .stdout(predicate::str::contains("abc123"))
+        .get_output()
+        .stdout
+        .clone();
+
+    // Clean up the archive in the default directory
+    // Parse the path from output like "Path: /path/to/file.bng"
+    let output_str = String::from_utf8_lossy(&output);
+    if let Some(line) = output_str.lines().find(|l| l.contains("Path:"))
+        && let Some(path) = line.split("Path:").nth(1)
+    {
+        let _ = fs::remove_file(path.trim());
+    }
+}
+
+#[test]
+fn test_store_archive_human_readable_disabled() {
+    let env = init_binnacle();
+
+    // Explicitly disable archiving
+    bn_in(&env)
+        .args(["config", "set", "archive.directory", ""])
+        .assert()
+        .success();
+
+    // Archive with disabled config - human readable
     bn_in(&env)
         .args(["-H", "system", "store", "archive", "abc123"])
         .assert()

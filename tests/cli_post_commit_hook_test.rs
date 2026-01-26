@@ -147,7 +147,7 @@ fn test_post_commit_hook_install_function() {
     init_git(&env);
     init_binnacle(&env);
 
-    // Manually install the post-commit hook
+    // Archive should be created in default directory (BN_DATA_DIR/archives/)
     let output = env
         .bn()
         .args(["system", "store", "archive", "test123"])
@@ -157,9 +157,50 @@ fn test_post_commit_hook_install_function() {
         .stdout
         .clone();
 
-    // Should report not created (no config)
+    // With default archive directory, archive should be created
     let stdout = String::from_utf8_lossy(&output);
-    assert!(stdout.contains("\"created\":false"));
+    assert!(
+        stdout.contains("\"created\":true"),
+        "Archive should be created in default directory. Got: {}",
+        stdout
+    );
+
+    // Clean up: parse output_path and remove the archive file
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout)
+        && let Some(path) = json.get("output_path").and_then(|v| v.as_str())
+    {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[test]
+fn test_post_commit_hook_archive_disabled() {
+    let env = TestEnv::new();
+    init_git(&env);
+    init_binnacle(&env);
+
+    // Explicitly disable archiving
+    env.bn()
+        .args(["config", "set", "archive.directory", ""])
+        .assert()
+        .success();
+
+    let output = env
+        .bn()
+        .args(["system", "store", "archive", "test123"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    // Should report not created when explicitly disabled
+    let stdout = String::from_utf8_lossy(&output);
+    assert!(
+        stdout.contains("\"created\":false"),
+        "Archive should not be created when disabled. Got: {}",
+        stdout
+    );
 }
 
 #[test]

@@ -10656,17 +10656,59 @@ pub fn config_get_string(repo_path: &Path, key: &str, default: &str) -> String {
     }
 }
 
-/// Get the archive directory configuration.
+/// Get the archive directory for storing binnacle graph snapshots.
 ///
-/// Returns `Some(PathBuf)` if `archive.directory` is set and non-empty,
-/// `None` if not set or empty (feature disabled).
+/// Returns a path based on configuration or the default location:
+/// 1. If `archive.directory` is explicitly set, uses that value
+/// 2. If `archive.directory` is set to empty string (""), archiving is disabled
+/// 3. Otherwise, uses the default `~/.local/share/binnacle/archives/`
+///
+/// Returns `None` only if archiving is explicitly disabled or the home directory
+/// cannot be determined.
 pub fn config_get_archive_directory(repo_path: &Path) -> Option<std::path::PathBuf> {
-    let value = config_get_string(repo_path, "archive.directory", "");
-    if value.trim().is_empty() {
-        None
-    } else {
-        Some(std::path::PathBuf::from(value))
+    // Check if archiving is explicitly disabled (set to empty)
+    // We check the raw config to distinguish "not set" from "set to empty"
+    let storage = match crate::storage::Storage::open(repo_path) {
+        Ok(s) => s,
+        Err(_) => {
+            // Storage not initialized - use default
+            return get_default_archive_directory();
+        }
+    };
+
+    // If explicitly configured, use that value (or None if empty)
+    if let Ok(Some(configured)) = storage.get_config("archive.directory") {
+        if configured.trim().is_empty() {
+            return None; // Explicitly disabled
+        }
+        return Some(std::path::PathBuf::from(configured));
     }
+
+    // Not configured - use default location
+    get_default_archive_directory()
+}
+
+/// Get the default archive directory path.
+///
+/// Returns the archives subdirectory based on:
+/// 1. `BN_DATA_DIR` environment variable (if set)
+/// 2. `/binnacle/archives` (if container mode detected)
+/// 3. `~/.local/share/binnacle/archives/` on Unix systems,
+///    or the equivalent data directory on other platforms.
+pub fn get_default_archive_directory() -> Option<std::path::PathBuf> {
+    // Respect BN_DATA_DIR for test environments and custom setups
+    if let Ok(data_dir) = std::env::var("BN_DATA_DIR") {
+        return Some(PathBuf::from(data_dir).join("archives"));
+    }
+
+    // Check for container mode
+    let container_path = Path::new("/binnacle");
+    if std::env::var("BN_CONTAINER_MODE").is_ok() || container_path.exists() {
+        return Some(container_path.join("archives"));
+    }
+
+    // Fall back to standard data directory
+    dirs::data_dir().map(|d| d.join("binnacle").join("archives"))
 }
 
 /// Result of config set command.
@@ -21284,5 +21326,21 @@ mod tests {
         assert!(result.is_some());
         let parent_git_found = result.unwrap();
         assert!(parent_git_found.ends_with(".git"));
+    }
+
+    #[test]
+    fn test_get_default_archive_directory_returns_archive_path() {
+        // Just test that the function returns a path ending with /archives
+        // We can't easily manipulate env vars in Rust 2024 without unsafe
+        let dir = get_default_archive_directory();
+
+        // Should always return Some on systems with a data directory
+        assert!(dir.is_some());
+        let path = dir.unwrap();
+        assert!(
+            path.to_str().unwrap().ends_with("/archives"),
+            "Expected path ending with /archives, got: {:?}",
+            path
+        );
     }
 }
