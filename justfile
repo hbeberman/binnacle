@@ -140,6 +140,52 @@ npm-package:
 # Build viewer and prepare npm package in one step
 npm-build: build-viewer-release npm-package
 
+# Serve the bundled WASM viewer locally
+# Usage: just serve-wasm [port] [path-to-bng]
+# Examples:
+#   just serve-wasm                    # Serve on port 8080, no archive
+#   just serve-wasm 3000               # Serve on port 3000
+#   just serve-wasm 8080 /path/to.bng  # Pre-load a .bng archive
+serve-wasm port="8080" archive="":
+    #!/usr/bin/env bash
+    set -e
+    
+    VIEWER_PATH="target/viewer/viewer.html"
+    
+    # Check if viewer exists, offer to build if not
+    if [ ! -f "$VIEWER_PATH" ]; then
+        echo "Viewer not found at $VIEWER_PATH"
+        echo "Building viewer first..."
+        just build-viewer
+    fi
+    
+    # Create a temp directory to serve from
+    SERVE_DIR=$(mktemp -d)
+    trap "rm -rf '$SERVE_DIR'" EXIT
+    
+    # Copy viewer.html to the temp directory as index.html
+    cp "$VIEWER_PATH" "$SERVE_DIR/index.html"
+    
+    # If archive provided, copy it and create a redirect
+    ARCHIVE_PARAM=""
+    if [ -n "{{archive}}" ]; then
+        ARCHIVE_FILE="{{archive}}"
+        if [ ! -f "$ARCHIVE_FILE" ]; then
+            echo "Error: Archive not found: $ARCHIVE_FILE"
+            exit 1
+        fi
+        ARCHIVE_NAME=$(basename "$ARCHIVE_FILE")
+        cp "$ARCHIVE_FILE" "$SERVE_DIR/$ARCHIVE_NAME"
+        ARCHIVE_PARAM="?file=$ARCHIVE_NAME"
+        echo "Archive available at: http://localhost:{{port}}/$ARCHIVE_NAME"
+    fi
+    
+    echo "Serving WASM viewer at: http://localhost:{{port}}/$ARCHIVE_PARAM"
+    echo "Press Ctrl+C to stop"
+    
+    # Use Python's built-in HTTP server (most portable)
+    cd "$SERVE_DIR" && python3 -m http.server {{port}}
+
 # Build the container image (builds release binary first)
 container tag="binnacle-worker:latest":
     @echo "Building release binary..."
