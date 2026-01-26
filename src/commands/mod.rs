@@ -16251,6 +16251,28 @@ pub fn container_run(
         binnacle_data.display()
     ));
 
+    // Mount the archive directory if configured (to persist .bng graph snapshots)
+    // The archive directory may be outside the standard binnacle data path,
+    // so we need to mount it separately to ensure archives are persisted to the host.
+    if let Some(archive_dir) = config_get_archive_directory(repo_path)
+        && (archive_dir.exists() || archive_dir.parent().map(|p| p.exists()).unwrap_or(false))
+    {
+        // Create the directory if it doesn't exist
+        if !archive_dir.exists() {
+            let _ = fs::create_dir_all(&archive_dir);
+        }
+
+        // Only mount if the directory now exists
+        if archive_dir.exists() {
+            args.push("--mount".to_string());
+            args.push(format!(
+                "type=bind,src={},dst={},options=rbind:rw",
+                archive_dir.display(),
+                archive_dir.display()
+            ));
+        }
+    }
+
     // If this is a git worktree, mount the parent repo's .git directory
     // so git commands can resolve the worktree reference inside the container.
     // The .git file in worktrees contains "gitdir: /path/to/parent/.git/worktrees/name"
