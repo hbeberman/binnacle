@@ -159,6 +159,15 @@ impl EntitySnapshot {
             entities.insert(queue.id.clone(), value);
         }
 
+        // Load agents
+        if let Ok(agents) = storage.list_agents(None) {
+            for agent in agents {
+                if let Ok(value) = serde_json::to_value(&agent) {
+                    entities.insert(agent.id.clone(), value);
+                }
+            }
+        }
+
         Self { entities }
     }
 
