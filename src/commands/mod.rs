@@ -14920,6 +14920,17 @@ pub fn serve(repo_path: &Path, interval_secs: u64, dry_run: bool, human: bool) -
     #[cfg(unix)]
     let sudo_ctx = crate::sys::detect_sudo_context();
 
+    // 1a. Warn if running as root without SUDO_USER (files will be owned by root)
+    #[cfg(unix)]
+    {
+        use nix::unistd::geteuid;
+        let is_root = geteuid().is_root();
+        if is_root && sudo_ctx.is_none() {
+            eprintln!("⚠️  Running as root without SUDO_USER - files will be owned by root");
+            eprintln!("   To preserve user ownership, run with: sudo bn serve");
+        }
+    }
+
     // 2. Open/detect containerd socket while still root (if running under sudo)
     // This ensures we can access /run/containerd/containerd.sock if using system containerd
     let _containerd_mode = detect_containerd_mode();
@@ -15758,6 +15769,33 @@ fn warn_system_containerd_mode(mode: &ContainerdMode) {
     }
 }
 
+/// Check if an error message indicates permission denied on containerd socket
+/// and provide a helpful error message.
+fn check_containerd_permission_error(stderr: &str) -> Option<String> {
+    let stderr_lower = stderr.to_lowercase();
+
+    // Common permission denied patterns for containerd socket
+    if (stderr_lower.contains("permission denied")
+        && (stderr_lower.contains("containerd.sock")
+            || stderr_lower.contains("/run/containerd")
+            || stderr_lower.contains("connect to containerd")))
+        || stderr_lower.contains("failed to dial")
+    {
+        return Some(
+            "Permission denied accessing containerd socket.\n\
+             \n\
+             To fix this, run with sudo:\n\
+             \n\
+             \x20   sudo bn serve\n\
+             \n\
+             Or set up rootless containerd (see: bn help container)"
+                .to_string(),
+        );
+    }
+
+    None
+}
+
 /// Get the helpful installation message for container dependencies.
 fn container_deps_missing_message() -> String {
     r#"Error: containerd or buildah not found
@@ -15953,13 +15991,19 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
     let _ = fs::remove_file(temp_archive);
 
     if !import_output.status.success() {
+        let stderr = String::from_utf8_lossy(&import_output.stderr);
+
+        // Check for permission denied errors and provide helpful message
+        let error_msg = if let Some(helpful_msg) = check_containerd_permission_error(&stderr) {
+            helpful_msg
+        } else {
+            format!("Failed to import image to containerd: {}", stderr)
+        };
+
         return Ok(ContainerBuildResult {
             success: false,
             tag: tag.to_string(),
-            error: Some(format!(
-                "Failed to import image to containerd: {}",
-                String::from_utf8_lossy(&import_output.stderr)
-            )),
+            error: Some(error_msg),
         });
     }
 
@@ -16609,10 +16653,19 @@ pub fn container_list(all: bool, _quiet: bool) -> Result<ContainerListResult> {
         .output()?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        // Check for permission denied errors and provide helpful message
+        let error_msg = if let Some(helpful_msg) = check_containerd_permission_error(&stderr) {
+            helpful_msg
+        } else {
+            stderr.to_string()
+        };
+
         return Ok(ContainerListResult {
             success: false,
             containers: vec![],
-            error: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+            error: Some(error_msg),
         });
     }
 

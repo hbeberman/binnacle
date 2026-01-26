@@ -119,6 +119,9 @@ pub fn detect_sudo_context() -> Option<SudoContext> {
 pub fn drop_privileges(uid: u32, gid: u32) -> Result<(), String> {
     use nix::unistd::{Gid, Uid, setgid, setuid};
 
+    // Get username for friendlier message
+    let username = std::env::var("SUDO_USER").unwrap_or_else(|_| format!("UID {}", uid));
+
     // Drop GID first - we can't change GID after dropping UID
     let target_gid = Gid::from_raw(gid);
     setgid(target_gid).map_err(|e| format!("Failed to set GID to {}: {}", gid, e))?;
@@ -127,7 +130,10 @@ pub fn drop_privileges(uid: u32, gid: u32) -> Result<(), String> {
     let target_uid = Uid::from_raw(uid);
     setuid(target_uid).map_err(|e| format!("Failed to set UID to {}: {}", uid, e))?;
 
-    eprintln!("Dropped privileges to UID {} GID {}", uid, gid);
+    eprintln!(
+        "ℹ️  Dropping privileges to user {} (UID: {}, GID: {})",
+        username, uid, gid
+    );
 
     Ok(())
 }
