@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edge Info Panel Component Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/edge-info-panel.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: var(--bg-primary, #1a1a1a);
+            padding: 2rem;
+        }
+        
+        .content {
+            color: var(--text-primary, #e0e0e0);
+        }
+        
+        .test-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        
+        .test-btn {
+            padding: 0.5rem 1rem;
+            background: var(--accent-blue);
+            border: none;
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        
+        .test-btn:hover {
+            background: var(--accent-light);
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="container">
+        <div class="content">
+            <h1>Edge Info Panel Component Test</h1>
+            <p>Click the buttons below to test the edge info panel with different edge types:</p>
+            
+            <div class="test-buttons">
+                <button class="test-btn" id="show-depends-on">Depends On</button>
+                <button class="test-btn" id="show-blocks">Blocks</button>
+                <button class="test-btn" id="show-child-of">Child Of</button>
+                <button class="test-btn" id="show-queued">Queued</button>
+                <button class="test-btn" id="show-with-reason">With Reason</button>
+                <button class="test-btn" id="hide-panel">Hide Panel</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as state from './js/state.js';
+        import {
+            createEdgeInfoPanel,
+            initializeEdgeInfoPanel,
+            updateEdgeInfoPanelContent,
+            hideEdgeInfoPanel
+        } from './js/components/edge-info-panel.js';
+        
+        // Initialize state with mock data
+        state.init();
+        state.set('entities.tasks', [
+            { id: 'bn-a1b2', title: 'Implement authentication middleware', type: 'task' },
+            { id: 'bn-c3d4', title: 'Create user database schema', type: 'task' },
+            { id: 'bn-e5f6', title: 'Add JWT token validation', type: 'task' }
+        ]);
+        
+        state.set('entities.bugs', [
+            { id: 'bn-b0b6', title: 'Memory leak in graph renderer', type: 'bug' }
+        ]);
+        
+        state.set('entities.queues', [
+            { id: 'bnq-0001', name: 'Work Queue', type: 'queue' }
+        ]);
+        
+        const container = document.getElementById('container');
+        
+        // Create and append edge info panel
+        const panel = createEdgeInfoPanel();
+        container.appendChild(panel);
+        
+        // Initialize with callbacks
+        initializeEdgeInfoPanel(panel, {
+            onClose: () => console.log('Edge panel closed')
+        });
+        
+        // Test data
+        const sampleEdges = {
+            dependsOn: {
+                from: 'bn-a1b2',
+                to: 'bn-c3d4',
+                edge_type: 'depends_on',
+                created_at: '2026-01-26T10:30:00Z'
+            },
+            blocks: {
+                from: 'bn-b0b6',
+                to: 'bn-a1b2',
+                edge_type: 'blocks',
+                reason: 'Critical bug must be fixed before implementing new features'
+            },
+            childOf: {
+                from: 'bn-e5f6',
+                to: 'bn-a1b2',
+                edge_type: 'child_of',
+                created_at: '2026-01-26T11:00:00Z'
+            },
+            queued: {
+                from: 'bn-a1b2',
+                to: 'bnq-0001',
+                edge_type: 'queued',
+                created_at: '2026-01-26T14:15:00Z'
+            },
+            withReason: {
+                from: 'bn-a1b2',
+                to: 'bn-e5f6',
+                edge_type: 'depends_on',
+                reason: 'JWT validation is required for the auth middleware to work correctly',
+                created_at: '2026-01-26T09:00:00Z'
+            }
+        };
+        
+        // Test buttons
+        document.getElementById('show-depends-on').addEventListener('click', () => {
+            updateEdgeInfoPanelContent(panel, sampleEdges.dependsOn);
+        });
+        
+        document.getElementById('show-blocks').addEventListener('click', () => {
+            updateEdgeInfoPanelContent(panel, sampleEdges.blocks);
+        });
+        
+        document.getElementById('show-child-of').addEventListener('click', () => {
+            updateEdgeInfoPanelContent(panel, sampleEdges.childOf);
+        });
+        
+        document.getElementById('show-queued').addEventListener('click', () => {
+            updateEdgeInfoPanelContent(panel, sampleEdges.queued);
+        });
+        
+        document.getElementById('show-with-reason').addEventListener('click', () => {
+            updateEdgeInfoPanelContent(panel, sampleEdges.withReason);
+        });
+        
+        document.getElementById('hide-panel').addEventListener('click', () => {
+            hideEdgeInfoPanel();
+        });
+    </script>
+</body>
+</html>
