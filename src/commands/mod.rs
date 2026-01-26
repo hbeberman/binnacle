@@ -14118,6 +14118,20 @@ pub fn agent_spawn(
     args.push("--env".to_string());
     args.push(format!("BN_AGENT_NAME={}", agent_name));
 
+    // Create agent record before starting container
+    // This ensures the GUI shows the agent immediately
+    if let Ok(mut storage) = Storage::open(repo_path) {
+        let parsed_agent_type = parse_agent_type(agent_type).unwrap_or(AgentType::Worker);
+        let agent = Agent::new_with_id(
+            agent_id.clone(),
+            0, // PID will be set when container's bn orient runs
+            0, // Parent PID not applicable for container agents
+            agent_name.clone(),
+            parsed_agent_type,
+        );
+        let _ = storage.register_agent(&agent);
+    }
+
     // Compute storage hash on host and pass to container
     let repo_root = find_git_root(&worktree_abs).unwrap_or_else(|| worktree_abs.clone());
     let mut hasher = Sha256::new();
@@ -14661,6 +14675,12 @@ pub struct ContainerRunResult {
     /// Container name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Pre-assigned agent ID (bn-xxxx format)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Agent name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
     /// Error message if run failed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -14673,10 +14693,19 @@ impl Output for ContainerRunResult {
 
     fn to_human(&self) -> String {
         if self.success {
-            format!(
-                "Started container: {}",
-                self.name.as_deref().unwrap_or("unknown")
-            )
+            if let (Some(name), Some(agent_id)) = (&self.agent_name, &self.agent_id) {
+                format!(
+                    "Started container: {} (agent: {} / {})",
+                    self.name.as_deref().unwrap_or("unknown"),
+                    name,
+                    agent_id
+                )
+            } else {
+                format!(
+                    "Started container: {}",
+                    self.name.as_deref().unwrap_or("unknown")
+                )
+            }
         } else {
             format!(
                 "Failed to start container: {}",
@@ -15110,8 +15139,15 @@ fn detect_worktree_parent_git(worktree_path: &Path) -> Option<PathBuf> {
 }
 
 /// Run a binnacle worker container.
+///
+/// This command:
+/// 1. Pre-assigns an agent ID (bn-xxxx)
+/// 2. Creates agent record in storage before starting container
+/// 3. Spawns a container with the agent ID in the environment
+/// 4. The container will use BN_AGENT_ID instead of PID-based registration
 #[allow(clippy::too_many_arguments)]
 pub fn container_run(
+    repo_path: &Path,
     worktree_path: &str,
     agent_type: &str,
     name: Option<String>,
@@ -15127,6 +15163,8 @@ pub fn container_run(
         return Ok(ContainerRunResult {
             success: false,
             name: None,
+            agent_id: None,
+            agent_name: None,
             error: Some(container_deps_missing_message()),
         });
     }
@@ -15141,6 +15179,8 @@ pub fn container_run(
         return Ok(ContainerRunResult {
             success: false,
             name: None,
+            agent_id: None,
+            agent_name: None,
             error: Some(format!(
                 "Image '{}' not found in containerd.\n\nRun 'bn container build' first to build the worker image.",
                 image_name
@@ -15154,6 +15194,8 @@ pub fn container_run(
         return Ok(ContainerRunResult {
             success: false,
             name: None,
+            agent_id: None,
+            agent_name: None,
             error: Some(format!("Worktree path does not exist: {}", worktree_path)),
         });
     }
@@ -15166,9 +15208,22 @@ pub fn container_run(
         .unwrap_or_else(|| Path::new("/tmp").to_path_buf())
         .join("binnacle");
 
-    // Generate container name if not provided
+    // Generate agent ID and name
+    let agent_id = generate_id(
+        "bn",
+        &format!(
+            "agent-{}-{}",
+            agent_type,
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ),
+    );
+    let agent_name = name
+        .clone()
+        .unwrap_or_else(|| format!("{}-{}", agent_type, &agent_id[3..])); // e.g., "worker-a1b2"
+
+    // Generate container name from agent ID
     let container_name =
-        name.unwrap_or_else(|| format!("binnacle-worker-{}", chrono::Utc::now().timestamp()));
+        name.unwrap_or_else(|| format!("binnacle-{}-{}", agent_type, &agent_id[3..]));
 
     // Build ctr run command
     let mut args = vec![
@@ -15219,6 +15274,8 @@ pub fn container_run(
         return Ok(ContainerRunResult {
             success: false,
             name: None,
+            agent_id: Some(agent_id),
+            agent_name: Some(agent_name),
             error: Some(
                 "Container user mapping requires Unix. Windows is not supported.".to_string(),
             ),
@@ -15301,6 +15358,27 @@ pub fn container_run(
         args.push("BN_NO_MERGE=true".to_string());
     }
 
+    // Pass pre-assigned agent ID and name
+    args.push("--env".to_string());
+    args.push(format!("BN_AGENT_ID={}", agent_id));
+
+    args.push("--env".to_string());
+    args.push(format!("BN_AGENT_NAME={}", agent_name));
+
+    // Create agent record before starting container
+    // This ensures the GUI shows the agent immediately
+    if let Ok(mut storage) = Storage::open(repo_path) {
+        let parsed_agent_type = parse_agent_type(agent_type).unwrap_or(AgentType::Worker);
+        let agent = Agent::new_with_id(
+            agent_id.clone(),
+            0, // PID will be set when container's bn orient runs
+            0, // Parent PID not applicable for container agents
+            agent_name.clone(),
+            parsed_agent_type,
+        );
+        let _ = storage.register_agent(&agent);
+    }
+
     // Pass custom prompt if provided
     if let Some(custom_prompt) = prompt {
         args.push("--env".to_string());
@@ -15346,6 +15424,8 @@ pub fn container_run(
             return Ok(ContainerRunResult {
                 success: false,
                 name: None,
+                agent_id: Some(agent_id),
+                agent_name: Some(agent_name),
                 error: Some(
                     "Git identity not configured. Please set your git user.name and user.email:\n  \
                      git config --global user.name \"Your Name\"\n  \
@@ -15359,6 +15439,8 @@ pub fn container_run(
             return Ok(ContainerRunResult {
                 success: false,
                 name: None,
+                agent_id: Some(agent_id),
+                agent_name: Some(agent_name),
                 error: Some(
                     "Git user.name not configured. Please set it:\n  \
                      git config --global user.name \"Your Name\""
@@ -15370,6 +15452,8 @@ pub fn container_run(
             return Ok(ContainerRunResult {
                 success: false,
                 name: None,
+                agent_id: Some(agent_id),
+                agent_name: Some(agent_name),
                 error: Some(
                     "Git user.email not configured. Please set it:\n  \
                      git config --global user.email \"you@example.com\""
@@ -15377,11 +15461,11 @@ pub fn container_run(
                 ),
             });
         }
-        (Some(name), Some(email)) => {
+        (Some(git_user_name), Some(email)) => {
             args.push("--env".to_string());
-            args.push(format!("GIT_AUTHOR_NAME={}", name));
+            args.push(format!("GIT_AUTHOR_NAME={}", git_user_name));
             args.push("--env".to_string());
-            args.push(format!("GIT_COMMITTER_NAME={}", name));
+            args.push(format!("GIT_COMMITTER_NAME={}", git_user_name));
             args.push("--env".to_string());
             args.push(format!("GIT_AUTHOR_EMAIL={}", email));
             args.push("--env".to_string());
@@ -15428,6 +15512,8 @@ pub fn container_run(
         return Ok(ContainerRunResult {
             success: false,
             name: Some(container_name),
+            agent_id: Some(agent_id),
+            agent_name: Some(agent_name),
             error: Some(format!("Container exited with status: {}", status)),
         });
     }
@@ -15435,6 +15521,8 @@ pub fn container_run(
     Ok(ContainerRunResult {
         success: true,
         name: Some(container_name),
+        agent_id: Some(agent_id),
+        agent_name: Some(agent_name),
         error: None,
     })
 }
