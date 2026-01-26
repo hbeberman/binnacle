@@ -12,6 +12,7 @@
 import { 
     subscribe, 
     getTasks,
+    getBugs,
     getMode,
     ConnectionMode
 } from '../state.js';
@@ -54,13 +55,16 @@ function calculateElapsed(updatedAt) {
 }
 
 /**
- * Find the active (in_progress) task
- * @returns {Object|null} The in_progress task, or null if none
+ * Find the active (in_progress) task or bug
+ * @returns {Object|null} The in_progress task/bug, or null if none
  */
 function findActiveTask() {
     const tasks = getTasks() || [];
-    // Find first in_progress task (should only be one per agent session)
-    return tasks.find(t => t.status === 'in_progress') || null;
+    const bugs = getBugs() || [];
+    // Find first in_progress task or bug (should only be one per agent session)
+    const activeTask = tasks.find(t => t.status === 'in_progress');
+    if (activeTask) return activeTask;
+    return bugs.find(b => b.status === 'in_progress') || null;
 }
 
 /**
@@ -170,6 +174,7 @@ export function createActiveTaskPane() {
     
     // Subscribe to state changes that affect active task
     subscribe('entities.tasks', update);
+    subscribe('entities.bugs', update);
     subscribe('mode', update);
     
     // Initialize with current state
