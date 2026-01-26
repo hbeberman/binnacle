@@ -39,11 +39,16 @@ emit_exit_code=$?
 
 if [ $emit_exit_code -ne 0 ]; then
     echo "  ⚠ Skipping AGENTS.md sync check (build failed)"
-elif [ -n "$expected_section" ] && ! diff -q <(echo "$current_section") <(echo "$expected_section") >/dev/null 2>&1; then
-    echo ""
-    echo "❌ AGENTS.md binnacle section is out of sync!"
-    echo "   Run 'cargo run -- system init --write-agents-md -y' to update, then stage AGENTS.md"
-    exit 1
+elif [ -n "$expected_section" ]; then
+    # Check if diff is available
+    if ! command -v diff &> /dev/null; then
+        echo "  ⚠ Skipping AGENTS.md sync check (diff not installed)"
+    elif ! diff -q <(echo "$current_section") <(echo "$expected_section") >/dev/null 2>&1; then
+        echo ""
+        echo "❌ AGENTS.md binnacle section is out of sync!"
+        echo "   Run 'cargo run -- system init --write-agents-md -y' to update, then stage AGENTS.md"
+        exit 1
+    fi
 fi
 
 # Run cargo audit for security vulnerabilities

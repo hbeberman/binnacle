@@ -9,6 +9,7 @@ LABEL org.opencontainers.image.source="https://github.com/hbeberman/binnacle"
 # Install system dependencies
 # gcc/make: Required for Rust's C linker (compiling native crates)
 # Rust toolchain is needed for pre-commit hooks (cargo fmt, clippy, audit)
+# diffutils: Required for pre-commit AGENTS.md sync check
 RUN dnf install -y \
     git \
     curl \
@@ -26,6 +27,7 @@ RUN dnf install -y \
     nss_wrapper \
     gcc \
     make \
+    diffutils \
     && dnf clean all
 
 # Install Rust toolchain via rustup
@@ -56,6 +58,10 @@ COPY ${BN_BINARY_PATH} /usr/local/bin/bn
 # This ensures agents cannot bypass commit hooks
 COPY container/git-wrapper.sh /usr/local/bin/git
 RUN chmod +x /usr/local/bin/git
+
+# Copy AGENTS.md for pre-commit hook verification
+# The pre-commit hook checks if AGENTS.md is in sync with the embedded blurb
+COPY AGENTS.md /workspace/AGENTS.md
 
 # Install GitHub Copilot CLI globally using npm
 # Note: Requires COPILOT_GITHUB_TOKEN at runtime for auth
