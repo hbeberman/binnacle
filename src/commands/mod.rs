@@ -14685,6 +14685,132 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
     })
 }
 
+/// Run the agent supervisor daemon.
+///
+/// Continuously monitors agent scaling configuration and reconciles agent counts.
+/// Prints status updates when reconciliation takes action or every 30 seconds when idle.
+pub fn serve(repo_path: &Path, interval_secs: u64, dry_run: bool, human: bool) -> Result<()> {
+    use std::io::{self, Write};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    // Set up signal handling for graceful shutdown
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
+
+    let mode_str = if dry_run { " (dry-run)" } else { "" };
+    if human {
+        println!(
+            "[{}] Starting bn serve{} with {}s interval...",
+            chrono::Local::now().format("%H:%M:%S"),
+            mode_str,
+            interval_secs
+        );
+        println!("Press Ctrl+C to stop.\n");
+    } else {
+        println!(
+            r#"{{"event": "start", "timestamp": "{}", "interval": {}, "dry_run": {}}}"#,
+            chrono::Utc::now().to_rfc3339(),
+            interval_secs,
+            dry_run
+        );
+    }
+
+    let interval = Duration::from_secs(interval_secs);
+    let status_interval = Duration::from_secs(30);
+    let mut last_status_print = Instant::now();
+
+    while running.load(Ordering::SeqCst) {
+        let result = agent_reconcile(repo_path, dry_run)?;
+
+        let has_actions = !result.actions.is_empty();
+        let time_since_status = last_status_print.elapsed();
+
+        // Print status if: there were actions, OR 30 seconds elapsed
+        if has_actions || time_since_status >= status_interval {
+            let timestamp = chrono::Local::now().format("%H:%M:%S");
+            if human {
+                if has_actions {
+                    println!(
+                        "[{}] Reconciliation: {} action(s)",
+                        timestamp,
+                        result.actions.len()
+                    );
+                    for action in &result.actions {
+                        let status = if dry_run {
+                            "would"
+                        } else if action.executed {
+                            "did"
+                        } else {
+                            "failed to"
+                        };
+                        println!(
+                            "  {} {} {} - {}",
+                            status, action.action, action.agent_type, action.reason
+                        );
+                    }
+                } else {
+                    println!(
+                        "[{}] Status: workers={}/{}, planners={}/{}, buddies={}/{}, work={}",
+                        timestamp,
+                        result.current_counts.worker,
+                        result.desired_counts.worker,
+                        result.current_counts.planner,
+                        result.desired_counts.planner,
+                        result.current_counts.buddy,
+                        result.desired_counts.buddy,
+                        result.work_count
+                    );
+                }
+                io::stdout().flush().ok();
+            } else {
+                println!(
+                    r#"{{"event": "reconcile", "timestamp": "{}", "actions": {}, "current": {{"worker": {}, "planner": {}, "buddy": {}}}, "desired": {{"worker": {}, "planner": {}, "buddy": {}}}, "work_count": {}}}"#,
+                    chrono::Utc::now().to_rfc3339(),
+                    result.actions.len(),
+                    result.current_counts.worker,
+                    result.current_counts.planner,
+                    result.current_counts.buddy,
+                    result.desired_counts.worker,
+                    result.desired_counts.planner,
+                    result.desired_counts.buddy,
+                    result.work_count
+                );
+            }
+            last_status_print = Instant::now();
+        }
+
+        // Sleep for interval, but check running flag more frequently for responsiveness
+        let sleep_chunk = Duration::from_millis(500);
+        let mut slept = Duration::ZERO;
+        while slept < interval && running.load(Ordering::SeqCst) {
+            thread::sleep(sleep_chunk);
+            slept += sleep_chunk;
+        }
+    }
+
+    if human {
+        println!(
+            "\n[{}] Shutting down...",
+            chrono::Local::now().format("%H:%M:%S")
+        );
+    } else {
+        println!(
+            r#"{{"event": "shutdown", "timestamp": "{}"}}"#,
+            chrono::Utc::now().to_rfc3339()
+        );
+    }
+
+    Ok(())
+}
+
 /// Force kill a process with SIGKILL (no graceful termination).
 #[cfg(unix)]
 fn force_kill_process(pid: u32) -> bool {

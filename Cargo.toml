@@ -56,6 +56,9 @@ flate2 = "1.0"
 zstd = "0.13"
 base64 = "0.22"
 
+# Signal handling for graceful shutdown
+ctrlc = "3"
+
 # GUI dependencies (feature-gated)
 axum = { version = "0.7", features = ["ws"], optional = true }
 tokio = { version = "1", features = ["full"], optional = true }

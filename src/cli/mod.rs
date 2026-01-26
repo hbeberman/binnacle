@@ -283,6 +283,21 @@ pub enum Commands {
         #[arg(long, env = "BN_GUI_READONLY", global = true)]
         readonly: bool,
     },
+
+    /// Run agent supervisor daemon (continuously reconciles agent counts)
+    ///
+    /// Monitors agent scaling configuration and spawns/stops containers
+    /// to match desired counts. Prints status updates on each reconciliation
+    /// or every 30 seconds when idle.
+    Serve {
+        /// Reconciliation interval in seconds (default: 10)
+        #[arg(long, default_value = "10")]
+        interval: u64,
+
+        /// Show what would be done without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// Task subcommands
