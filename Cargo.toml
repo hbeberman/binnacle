@@ -38,8 +38,14 @@ sha2 = "0.10"
 # XDG directories
 dirs = "5"
 
+# UUID generation
+uuid = { version = "1", features = ["v4"] }
+
 # Error handling
 thiserror = "1"
+
+# Subprocess timeout
+wait-timeout = "0.2"
 
 # Archive/compression
 tar = "0.4"

@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "binnacle": {
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "~/.cargo/bin/bn",
+      "cwd": "${workspaceFolder}",
+      "type": "stdio"
+    }
+  }
+}

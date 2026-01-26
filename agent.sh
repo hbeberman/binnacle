@@ -6,7 +6,32 @@ set -e
 # Note: bn goodbye is allowed - agents SHOULD terminate themselves gracefully when done
 BLOCKED_TOOLS=(
     --deny-tool "shell(bn agent kill:*)"
+    # Block MCP lifecycle tools to force shell usage for proper agent termination
+    # See PRD_MCP_SIMPLIFICATION.md Part 3: Agent Lifecycle for MCP
+    --deny-tool "binnacle(binnacle-orient)"
+    --deny-tool "binnacle(binnacle-goodbye)"
 )
+
+# MCP lifecycle guidance - appended to prompts for agents launched via this script
+# This explains why orient/goodbye must use shell instead of MCP tools
+MCP_LIFECYCLE_BLURB='
+
+IMPORTANT - Binnacle MCP Lifecycle:
+You have access to binnacle MCP tools, but orient and goodbye MUST use shell commands:
+- Use `bn orient --type "agent type"` via shell (NOT binnacle-orient MCP tool)
+- Use `bn goodbye "summary"` via shell (NOT binnacle-goodbye MCP tool)
+- Other bn commands should use the MCP tools for preference.
+
+To link your MCP session to your shell agent registration:
+1. Run `bn orient --type "agent type"` via shell - note the `agent_id` (e.g., "bna-1234") in the output
+2. Call binnacle-set_agent MCP tool with path="/your/repo" and session_id="<agent_id from step 1>"
+3. Now all MCP bn_run calls will be attributed to your agent session
+
+This is because MCP tools cannot terminate your process - only shell goodbye can do that.
+The MCP orient/goodbye tools are blocked for this reason.
+
+FALLBACK - If MCP Tools Are Unavailable:
+If binnacle MCP tools are not available you may use the `bn` shell commands directly as a last resort fallback (excepting orient and goodbye).'
 
 # Tool permission sets (using arrays to properly handle arguments with spaces)
 TOOLS_FULL=(
@@ -40,6 +65,7 @@ TOOLS_FULL=(
     --allow-tool "shell(curl:*)"
     --allow-tool "shell(awk:*)"
     --allow-tool "shell(pgrep:*)"
+    --allow-tool "binnacle"
 )
 
 TOOLS_PRD=(
@@ -51,6 +77,7 @@ TOOLS_PRD=(
     --allow-tool "shell(git commit)"
     --allow-tool "shell(git:*)"
     --allow-tool "shell(jq:*)"
+    --allow-tool "binnacle"
 )
 
 TOOLS_BUDDY=(
@@ -61,6 +88,7 @@ TOOLS_BUDDY=(
     --allow-tool "shell(git commit)"
     --allow-tool "shell(git:*)"
     --allow-tool "shell(jq:*)"
+    --allow-tool "binnacle"
 )
 
 usage() {
@@ -107,7 +135,8 @@ shift
 case "$AGENT_TYPE" in
     auto)
         echo "Launching Auto Worker Agent"
-        PROMPT='Run `bn orient --type worker` to get oriented with the project. Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Run `bn ready` to find available tasks and bugs. IMPORTANT: Prioritize queued items first (items with "queued": true in the JSON output) - these have been explicitly marked as high priority by an operator. Among queued items, pick by priority (lower number = higher priority). If no queued items exist, pick the highest priority non-queued item. Claim your chosen item with `bn task update ID --status in_progress` or `bn bug update ID --status in_progress`, and start working immediately. Remember to mark it complete when you finish. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done.'
+        PROMPT=$(bn system emit auto-worker -H)
+        PROMPT+="$MCP_LIFECYCLE_BLURB"
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     do)
@@ -115,69 +144,26 @@ case "$AGENT_TYPE" in
         [[ $# -gt 1 ]] && { echo "Error: Too many arguments. Did you forget to quote the description?"; echo "  Try: ./agent.sh do \"$*\""; exit 1; }
         DESC="$1"
         echo "Launching Make Agent: $DESC"
-        PROMPT="Run \`bn orient --type worker\` to get oriented with the project. Read PRD.md. Then work on the following: $DESC. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work. Run \`bn goodbye \"summary of what was accomplished\"\` to gracefully terminate your agent session when all work is done."
+        # Get template and substitute {description} placeholder
+        # Use awk with -v to safely handle arbitrary strings (special chars, slashes, etc.)
+        PROMPT=$(bn system emit do-agent -H | awk -v desc="$DESC" '{gsub(/{description}/, desc); print}')
+        PROMPT+="$MCP_LIFECYCLE_BLURB"
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     prd)
         echo "Launching PRD Writer Agent"
-        PROMPT='Run `bn orient --type planner` to get oriented with the project. Read PRD.md. Your job is to help render ideas into proper PRDs. First, ask the user: "Do you have a specific idea or topic in mind, or would you like me to pick one from the open ideas?" 
-
-CRITICAL: Before writing ANY PRD, ALWAYS run `bn idea list -H` to search for existing ideas related to the topic. This ensures you build upon existing thoughts and do not duplicate work. If you find related ideas:
-1. Reference them in the PRD (e.g., "Related ideas: bn-xxxx, bn-yyyy")
-2. Incorporate their insights into the PRD content
-3. Consider whether the PRD should supersede/combine multiple related ideas
-
-If the user provides a topic, search ideas for that topic first, then work on it. If no topic provided, check `bn idea list` for candidates and pick the most promising one. Then STOP and ask clarifying questions before writing the PRD. Ask about: scope boundaries (what is in/out), target users, success criteria, implementation constraints, dependencies on other work, and priority relative to other features.
-
-IMPORTANT - Store PRDs as doc nodes, not files:
-After gathering requirements and writing the PRD content, use `bn doc create` to store it in the task graph:
-  bn doc create <related-entity-id> --type prd --title "PRD: Feature Name" --content "...prd content..."
-Or to read from a file:
-  bn doc create <related-entity-id> --type prd --title "PRD: Feature Name" --file /tmp/prd.md
-The <related-entity-id> should be the idea being promoted, or a task/milestone this PRD relates to.
-
-Do NOT save PRDs to prds/ directory - use doc nodes so PRDs are tracked, linked, and versioned in the graph.
-Do NOT run `bn goodbye` - planner agents produce artifacts but do not run long-lived sessions.'
+        PROMPT=$(bn system emit prd-writer -H)
         TOOLS=("${TOOLS_PRD[@]}")
         ;;
     buddy)
         echo "Launching Buddy Agent"
-        PROMPT='You are a binnacle buddy. Your job is to help the user quickly insert bugs, tasks, and ideas into the binnacle task graph. Run `bn orient --type buddy` to understand the current state. Then ask the user what they would like to add or modify in binnacle. Keep interactions quick and focused on bn operations.
-
-IMPORTANT - Use the correct entity type and ALWAYS include a short name (-s):
-- `bn idea create -s "short" "Full title"` for rough thoughts, exploratory concepts, or "what if" suggestions that need discussion/refinement before becoming actionable work
-- `bn task create -s "short" "Full title"` for specific, actionable work items that are ready to be implemented
-- `bn bug create -s "short" "Full title"` for defects, problems, or issues that need fixing
-
-Short names appear in the GUI and make entities much easier to scan. Keep them to 2-4 words.
-
-When the user says "idea", "thought", "what if", "maybe we could", "explore", or similar exploratory language, ALWAYS use `bn idea create`. Ideas are low-stakes and can be promoted to tasks later.
-
-TASK DECOMPOSITION - Break down tasks into subtasks:
-When creating a task, look for opportunities to decompose it into 2-4 smaller, independent subtasks. This helps agents work on focused pieces. To decompose:
-1. Create the parent task first: `bn task create "Parent task title" -s "short name" -d "description"`
-2. Create each subtask: `bn task create "Subtask title" -s "subtask short" -d "description"`
-3. Link subtasks to parent: `bn link add <subtask-id> <parent-id> -t child_of`
-
-Good candidates for decomposition:
-- Tasks with multiple distinct steps (e.g., "add X and test Y" → separate implementation and testing tasks)
-- Tasks touching multiple components (e.g., "update CLI and GUI" → separate CLI and GUI tasks)
-- Tasks with setup requirements (e.g., "configure X then implement Y" → separate configuration and implementation)
-
-Do NOT decompose:
-- Simple, single-action tasks (e.g., "fix typo in README")
-- Tasks that are already focused and atomic
-- Ideas (decomposition happens when ideas are promoted to tasks)
-
-CRITICAL - Always check the graph for latest state:
-When answering questions about bugs, tasks, or ideas (even ones you created earlier in this session), ALWAYS run `bn show <id>` to check the current state. Never assume an entity is still open just because you created it - another agent or human may have closed it. The graph is the source of truth, not your session memory.
-
-Run `bn goodbye "session complete"` to gracefully terminate your agent session when the user is done.'
+        PROMPT=$(bn system emit buddy -H)
         TOOLS=("${TOOLS_BUDDY[@]}")
         ;;
     free)
         echo "Launching Free Agent"
-        PROMPT='You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done.'
+        PROMPT=$(bn system emit free -H)
+        PROMPT+="$MCP_LIFECYCLE_BLURB"
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     *)
@@ -196,7 +182,7 @@ BN_AGENT_MARKER=""
 if [[ -n "$GIT_DIR" ]]; then
     BN_AGENT_MARKER="$GIT_DIR/bn-agent-session"
     echo "$$" > "$BN_AGENT_MARKER"
-    
+
     # Clean up marker file on exit
     cleanup_marker() {
         [[ -n "$BN_AGENT_MARKER" ]] && rm -f "$BN_AGENT_MARKER"
@@ -215,7 +201,7 @@ if [[ "$LOOP_MODE" == "true" ]]; then
     # Track consecutive Ctrl+C presses for clean exit
     SIGINT_COUNT=0
     LAST_SIGINT=0
-    
+
     handle_sigint() {
         local now
         now=$(date +%s)
@@ -226,7 +212,7 @@ if [[ "$LOOP_MODE" == "true" ]]; then
             SIGINT_COUNT=1
         fi
         LAST_SIGINT=$now
-        
+
         if [[ $SIGINT_COUNT -ge 2 ]]; then
             echo ""
             echo "Ctrl+C pressed twice - exiting loop mode"
@@ -235,9 +221,9 @@ if [[ "$LOOP_MODE" == "true" ]]; then
         echo ""
         echo "(Press Ctrl+C again within 2 seconds to exit loop mode)"
     }
-    
+
     trap handle_sigint INT
-    
+
     while true; do
         # Reset SIGINT count at start of each iteration
         SIGINT_COUNT=0

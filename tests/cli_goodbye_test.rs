@@ -295,8 +295,10 @@ fn test_mcp_session_registers_and_deregisters_agent() {
     assert!(json["was_registered"].as_bool().unwrap());
     assert_eq!(json["agent_name"].as_str().unwrap(), "mcp-agent");
 
-    // MCP mode should set should_terminate to false
-    assert!(!json["should_terminate"].as_bool().unwrap());
+    // MCP mode: should_terminate is true (agent should terminate), but
+    // terminated is false (bn didn't kill the process; agent must self-terminate)
+    assert!(json["should_terminate"].as_bool().unwrap());
+    assert!(!json["terminated"].as_bool().unwrap());
 }
 
 #[test]
