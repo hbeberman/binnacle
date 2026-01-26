@@ -47,9 +47,9 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 if ! $SKIP_BUILD; then
     log_info "Building WASM module..."
     if $RELEASE_MODE; then
-        wasm-pack build --target web --features wasm --release "$PROJECT_ROOT"
+        wasm-pack build "$PROJECT_ROOT" --target web --release -- --features wasm
     else
-        wasm-pack build --target web --features wasm "$PROJECT_ROOT"
+        wasm-pack build "$PROJECT_ROOT" --target web -- --features wasm
     fi
 fi
 
