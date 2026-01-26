@@ -34,6 +34,7 @@ async function initWasm() {
             '../../../pkg/binnacle.js',     // Development: relative to web/js/connection/
             '/pkg/binnacle.js',             // Deployed: absolute path
             './pkg/binnacle.js',            // Same directory fallback
+            'https://hbeberman.github.io/binnacle/pkg/binnacle.js', // GitHub Pages release
         ];
         
         let lastError = null;
