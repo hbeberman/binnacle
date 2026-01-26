@@ -7,7 +7,7 @@
 Task tracker for AI agents. Stores data outside your repo so it doesn't pollute your codebase.
 
 > [!WARNING]
-> Early alpha. Things may break.
+> Early alpha. Things *will* break.
 
 ## Build Prerequisites
 
