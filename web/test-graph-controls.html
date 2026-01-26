@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Controls Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/themes/dark.css">
+    <link rel="stylesheet" href="css/components/graph-controls.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: var(--bg-primary, #1a1a1a);
+        }
+        
+        .content {
+            padding: 2rem;
+            color: var(--text-primary, #e0e0e0);
+        }
+        
+        .state-display {
+            background: var(--bg-secondary, #2a2a2a);
+            padding: 1rem;
+            border-radius: 4px;
+            margin-top: 1rem;
+            max-width: 600px;
+        }
+        
+        .state-display h3 {
+            margin-top: 0;
+            color: var(--accent-blue, #4a90e2);
+        }
+        
+        .state-display pre {
+            background: var(--bg-primary, #1a1a1a);
+            padding: 0.5rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="container">
+        <div class="content">
+            <h1>Graph Controls Test</h1>
+            <p>The graph controls should appear in the top-right corner of the page.</p>
+            <p>Test the following:</p>
+            <ul>
+                <li>Search box - type to filter nodes</li>
+                <li>Hide completed toggle - click to toggle state</li>
+                <li>Auto-follow toggle - click to enable/disable</li>
+                <li>Auto-follow config button (⚙) - click to open popover</li>
+            </ul>
+            
+            <div class="state-display">
+                <h3>Current State</h3>
+                <h4>Search Query:</h4>
+                <pre id="search-display"></pre>
+                <h4>Hide Completed:</h4>
+                <pre id="hide-completed-display"></pre>
+                <h4>Auto-Follow:</h4>
+                <pre id="auto-follow-display"></pre>
+                <h4>Auto-Follow Config:</h4>
+                <pre id="auto-follow-config-display"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { mountGraphControls } from './js/components/graph-controls.js';
+        import * as State from './js/state.js';
+        
+        const container = document.getElementById('container');
+        
+        // Initialize state from localStorage
+        State.initFromStorage();
+        
+        // Mount graph controls
+        mountGraphControls(container, {
+            onSearch: (query) => {
+                console.log('Search query:', query);
+                updateDisplay();
+            },
+            onHideCompletedToggle: (hideCompleted) => {
+                console.log('Hide completed:', hideCompleted);
+                updateDisplay();
+            },
+            onAutoFollowToggle: (autoFollow) => {
+                console.log('Auto-follow:', autoFollow);
+                updateDisplay();
+            }
+        });
+        
+        // Display current state
+        function updateDisplay() {
+            const searchQuery = State.get('ui.searchQuery') || '';
+            const hideCompleted = State.get('ui.hideCompleted');
+            const autoFollow = State.get('ui.autoFollow');
+            const autoFollowConfig = State.get('ui.autoFollowConfig');
+            
+            document.getElementById('search-display').textContent = 
+                JSON.stringify(searchQuery, null, 2);
+            document.getElementById('hide-completed-display').textContent = 
+                JSON.stringify(hideCompleted, null, 2);
+            document.getElementById('auto-follow-display').textContent = 
+                JSON.stringify(autoFollow, null, 2);
+            document.getElementById('auto-follow-config-display').textContent = 
+                JSON.stringify(autoFollowConfig, null, 2);
+        }
+        
+        // Subscribe to state changes
+        State.subscribe('ui.searchQuery', updateDisplay);
+        State.subscribe('ui.hideCompleted', updateDisplay);
+        State.subscribe('ui.autoFollow', updateDisplay);
+        State.subscribe('ui.autoFollowConfig', updateDisplay);
+        
+        // Initial display
+        updateDisplay();
+        
+        console.log('Graph controls initialized');
+    </script>
+</body>
+</html>

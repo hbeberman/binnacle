@@ -122,7 +122,8 @@ fn test_doctor_detects_legacy_tar_gz_archives() {
     create_queue(&temp);
 
     // Create a fake archive directory with a legacy .tar.gz file
-    let archive_dir = temp.path().join(".archives");
+    // Use /tmp to avoid cleanup issues
+    let archive_dir = std::path::PathBuf::from("/tmp/test_archives_legacy");
     std::fs::create_dir_all(&archive_dir).unwrap();
 
     // Configure archive directory
@@ -147,6 +148,9 @@ fn test_doctor_detects_legacy_tar_gz_archives() {
         .stdout(predicate::str::contains("\"healthy\":false"))
         .stdout(predicate::str::contains("legacy .tar.gz archive"))
         .stdout(predicate::str::contains("--fix-archives"));
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&archive_dir);
 }
 
 #[test]
@@ -154,8 +158,8 @@ fn test_doctor_ignores_migrated_archives() {
     let temp = init_binnacle();
     create_queue(&temp);
 
-    // Create a fake archive directory
-    let archive_dir = temp.path().join(".archives");
+    // Create a fake archive directory (stable location)
+    let archive_dir = std::path::PathBuf::from("/tmp/test_archives_migrated");
     std::fs::create_dir_all(&archive_dir).unwrap();
 
     // Configure archive directory
@@ -179,6 +183,9 @@ fn test_doctor_ignores_migrated_archives() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"healthy\":true"));
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&archive_dir);
 }
 
 // === Doctor Fix Tests ===
@@ -536,8 +543,12 @@ fn test_config_archive_directory_empty() {
 fn test_config_archive_directory_valid() {
     let temp = init_binnacle();
 
-    // Setting to temp directory should work (parent exists)
-    let archive_dir = temp.path().join("archives");
+    // Archive directory must be OUTSIDE the repository
+    // Create a sibling directory (not inside the repo)
+    let parent_dir = temp.path().parent().unwrap();
+    let archive_dir = parent_dir.join("archives_external");
+    std::fs::create_dir_all(&archive_dir).unwrap();
+
     bn_in(&temp)
         .args([
             "config",
@@ -570,6 +581,26 @@ fn test_config_archive_directory_invalid_parent() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("Parent directory does not exist"));
+}
+
+#[test]
+fn test_config_archive_directory_rejects_repo_path() {
+    let temp = init_binnacle();
+
+    // Setting to a path inside the repository should fail
+    let archive_dir = temp.path().join("archives");
+    bn_in(&temp)
+        .args([
+            "config",
+            "set",
+            "archive.directory",
+            archive_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Archive directory must be OUTSIDE the repository",
+        ));
 }
 
 // === Not Initialized Tests ===
