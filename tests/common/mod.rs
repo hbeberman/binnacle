@@ -39,11 +39,19 @@ impl TestEnv {
 
     /// Get a Command for the bn binary with isolated data directory.
     ///
-    /// Sets `BN_DATA_DIR` per-command for parallel safety.
+    /// Sets `BN_DATA_DIR` per-command for parallel safety and clears
+    /// agent-specific environment variables for test isolation.
     pub fn bn(&self) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(self.repo_dir.path());
         cmd.env("BN_DATA_DIR", self.data_dir.path());
+        // Clear agent-specific env vars for test isolation
+        cmd.env_remove("BN_AGENT_ID");
+        cmd.env_remove("BN_AGENT_NAME");
+        cmd.env_remove("BN_AGENT_TYPE");
+        cmd.env_remove("BN_MCP_SESSION");
+        cmd.env_remove("BN_AGENT_SESSION");
+        cmd.env_remove("BN_CONTAINER_MODE");
         cmd
     }
 

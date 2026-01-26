@@ -57,9 +57,16 @@ pub(crate) mod test_utils {
         pub fn new_with_env() -> Self {
             let env = Self::new();
             // Set BN_DATA_DIR to this test's isolated data directory
+            // Clear agent-specific env vars to ensure test isolation
             // SAFETY: This is safe because tests using new_with_env() are marked #[serial]
             unsafe {
                 std::env::set_var("BN_DATA_DIR", env.data_path());
+                std::env::remove_var("BN_AGENT_ID");
+                std::env::remove_var("BN_AGENT_NAME");
+                std::env::remove_var("BN_AGENT_TYPE");
+                std::env::remove_var("BN_MCP_SESSION");
+                std::env::remove_var("BN_AGENT_SESSION");
+                std::env::remove_var("BN_CONTAINER_MODE");
             }
             env
         }

@@ -8,9 +8,7 @@
 //!
 //! Note: Tests use --dry-run to avoid actually terminating processes.
 
-use assert_cmd::Command;
-use predicates::prelude::*;
-use tempfile::TempDir;
+mod common;
 
 /// Get a Command for the bn binary, running in a temp directory.
 /// Clears BN_AGENT_ID to prevent interference from the outer environment
@@ -22,11 +20,9 @@ fn bn_in(dir: &TempDir) -> Command {
     cmd
 }
 
-/// Initialize binnacle in a temp directory and return the temp dir.
-fn init_binnacle() -> TempDir {
-    let temp = TempDir::new().unwrap();
-    bn_in(&temp).args(["system", "init"]).assert().success();
-    temp
+/// Initialize binnacle and return the TestEnv.
+fn init_binnacle() -> TestEnv {
+    TestEnv::init()
 }
 
 // === bn goodbye Tests ===
@@ -139,7 +135,7 @@ fn test_goodbye_removes_agent_from_registry() {
 
 #[test]
 fn test_goodbye_help() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .args(["goodbye", "--help"])
@@ -212,7 +208,7 @@ fn test_goodbye_json_includes_warning_field() {
 
 #[test]
 fn test_goodbye_force_flag_documented_in_help() {
-    let temp = TempDir::new().unwrap();
+    let temp = TestEnv::new();
 
     bn_in(&temp)
         .args(["goodbye", "--help"])
@@ -298,9 +294,9 @@ fn test_mcp_session_registers_and_deregisters_agent() {
     assert!(json["was_registered"].as_bool().unwrap());
     assert_eq!(json["agent_name"].as_str().unwrap(), "mcp-agent");
 
-    // MCP mode: should_terminate is true (agent should terminate), but
-    // terminated is false (bn didn't kill the process; agent must self-terminate)
-    assert!(json["should_terminate"].as_bool().unwrap());
+    // MCP mode: should_terminate is false (bn doesn't manage MCP agent lifecycle),
+    // and terminated is false (bn didn't kill the process)
+    assert!(!json["should_terminate"].as_bool().unwrap());
     assert!(!json["terminated"].as_bool().unwrap());
 }
 
