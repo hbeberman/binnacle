@@ -13691,6 +13691,203 @@ pub fn agent_kill(repo_path: &Path, target: &str, timeout_secs: u64) -> Result<A
     })
 }
 
+// === Agent Remove Command ===
+
+/// Information about a single removed agent.
+#[derive(Serialize)]
+pub struct AgentRemoveInfo {
+    pub pid: u32,
+    pub name: String,
+    pub agent_type: String,
+    pub was_running: bool,
+    pub terminated: bool,
+}
+
+/// Result of agent remove command.
+#[derive(Serialize)]
+pub struct AgentRemoveResult {
+    /// Agents that were removed
+    pub removed: Vec<AgentRemoveInfo>,
+    /// Total count of agents removed
+    pub count: usize,
+    /// Whether force mode was used
+    pub force: bool,
+}
+
+impl Output for AgentRemoveResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.removed.is_empty() {
+            return "No agents removed.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        for agent in &self.removed {
+            let status = if agent.terminated {
+                "terminated"
+            } else if !agent.was_running {
+                "already stopped"
+            } else {
+                "removed from registry (process may still be running)"
+            };
+            lines.push(format!(
+                "{} ({}, PID {}): {}",
+                agent.name, agent.agent_type, agent.pid, status
+            ));
+        }
+        lines.push(format!("\nTotal removed: {}", self.count));
+        lines.join("\n")
+    }
+}
+
+/// Remove agent(s) from the registry (bypasses min count).
+///
+/// This command:
+/// 1. Looks up agent(s) by target ID/PID/name or by type (with --all)
+/// 2. Terminates the process (SIGTERM or SIGKILL with --force)
+/// 3. Removes agent(s) from registry
+///
+/// Use --force to immediately send SIGKILL instead of graceful SIGTERM.
+/// Use --type TYPE --all to remove all agents of a specific type.
+pub fn agent_rm(
+    repo_path: &Path,
+    target: Option<String>,
+    force: bool,
+    all: bool,
+    agent_type: Option<String>,
+) -> Result<AgentRemoveResult> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Clean up stale agents first
+    let _ = storage.cleanup_stale_agents();
+
+    // Determine which agents to remove
+    let agents_to_remove: Vec<Agent> = if all {
+        // --all requires --type
+        let type_filter = agent_type.ok_or_else(|| {
+            Error::Other("--all requires --type to specify which agent type to remove".to_string())
+        })?;
+
+        // Parse the type filter
+        let filter_type = parse_agent_type(&type_filter)?;
+
+        // Get all agents of the specified type
+        storage
+            .list_agents(None)?
+            .into_iter()
+            .filter(|a| a.agent_type == filter_type)
+            .collect()
+    } else {
+        // Single target required
+        let target = target.ok_or_else(|| {
+            Error::Other(
+                "Target agent ID, PID, or name required (or use --all with --type)".to_string(),
+            )
+        })?;
+
+        // Try to find agent by ID, PID, or name
+        let agent = if target.starts_with("bn-") {
+            // Target is an agent ID - look up by ID
+            storage.get_agent_by_id(&target)?
+        } else if let Ok(pid) = target.parse::<u32>() {
+            // Target is a PID
+            storage.get_agent(pid)?
+        } else {
+            // Target is a name
+            storage.get_agent_by_name(&target)?
+        };
+        vec![agent]
+    };
+
+    if agents_to_remove.is_empty() {
+        return Ok(AgentRemoveResult {
+            removed: vec![],
+            count: 0,
+            force,
+        });
+    }
+
+    // Remove each agent
+    let mut removed = Vec::new();
+    for agent in agents_to_remove {
+        let pid = agent.pid;
+        let name = agent.name.clone();
+        let agent_type_str = format!("{:?}", agent.agent_type).to_lowercase();
+
+        // Check if process is still running
+        let was_running = agent.is_alive();
+
+        let terminated = if was_running {
+            if force {
+                // Immediate SIGKILL
+                force_kill_process(pid)
+            } else {
+                // Graceful termination with short timeout
+                terminate_process(pid, 5)
+            }
+        } else {
+            true
+        };
+
+        // Remove from registry regardless of termination result
+        let _ = storage.remove_agent(pid);
+
+        removed.push(AgentRemoveInfo {
+            pid,
+            name,
+            agent_type: agent_type_str,
+            was_running,
+            terminated,
+        });
+    }
+
+    let count = removed.len();
+
+    Ok(AgentRemoveResult {
+        removed,
+        count,
+        force,
+    })
+}
+
+/// Force kill a process with SIGKILL (no graceful termination).
+#[cfg(unix)]
+fn force_kill_process(pid: u32) -> bool {
+    use std::process::Command;
+
+    // Check if process exists first
+    let exists = Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+
+    if !exists {
+        return false;
+    }
+
+    // Send SIGKILL directly
+    Command::new("kill")
+        .args(["-KILL", &pid.to_string()])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+/// Force kill a process on Windows.
+#[cfg(windows)]
+fn force_kill_process(pid: u32) -> bool {
+    use std::process::Command;
+    Command::new("taskkill")
+        .args(["/F", "/PID", &pid.to_string()])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
 // === Goodbye Command ===
 
 /// Result of goodbye command.

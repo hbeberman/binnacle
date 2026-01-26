@@ -1562,6 +1562,24 @@ pub enum AgentCommands {
         #[arg(long)]
         max: Option<u32>,
     },
+
+    /// Remove agent(s) from the registry (bypasses min count)
+    Rm {
+        /// Agent identifier (ID, PID, or name). Required unless --all is used.
+        target: Option<String>,
+
+        /// Force removal even if process is still running (sends SIGKILL immediately)
+        #[arg(long)]
+        force: bool,
+
+        /// Remove all agents of the specified type (requires --type)
+        #[arg(long)]
+        all: bool,
+
+        /// Agent type filter for --all (worker, planner, buddy)
+        #[arg(long = "type", short = 't', value_parser = ["worker", "planner", "buddy"])]
+        agent_type: Option<String>,
+    },
 }
 
 /// Container management subcommands (requires containerd/buildah)
