@@ -109,9 +109,15 @@ with open(wasm_base64_file, 'r') as f:
 with open(src_viewer, 'r') as f:
     template = f.read()
 
-# Read JS glue
+# Read JS glue and strip ES module exports (since it's embedded in an IIFE)
 with open(js_file, 'r') as f:
     js_glue = f.read()
+
+# Remove 'export' keywords - they're not valid inside a regular function
+# Handle: export class, export function, export { ... }
+js_glue = re.sub(r'^export (class|function|async function)', r'\1', js_glue, flags=re.MULTILINE)
+# Handle: export { initSync, __wbg_init as default }; - remove the entire line
+js_glue = re.sub(r'^export \{[^}]+\};?\s*$', '', js_glue, flags=re.MULTILINE)
 
 # The embedded WASM initialization code
 # This replaces the try/catch block in initWasm()
@@ -149,11 +155,16 @@ embedded_init = f'''
             return createWasmModule;
 '''
 
-# Pattern to match the placeholder comment through the throw statement
-pattern = r'// __WASM_INIT_PLACEHOLDER__.*?throw new Error\([\'"]WASM module not available[^\)]*\);'
+# Pattern to match the placeholder comment through the catch block closing brace
+# Includes: placeholder comment, try block, catch block with throw, and ONE closing brace (the catch block)
+pattern = r'// __WASM_INIT_PLACEHOLDER__.*?throw new Error\([\'"]WASM module not available[^\)]*\);\s*\}'
 
 # Use DOTALL to match across newlines
-new_content = re.sub(pattern, embedded_init.strip(), template, flags=re.DOTALL)
+# IMPORTANT: Escape backslashes in replacement string since re.sub interprets escape sequences
+# Use a lambda to return the raw string, avoiding re.sub's backslash processing
+def replacement_func(match):
+    return embedded_init.strip()
+new_content = re.sub(pattern, replacement_func, template, flags=re.DOTALL)
 
 # Verify replacement happened
 if '__WASM_INIT_PLACEHOLDER__' in new_content:
