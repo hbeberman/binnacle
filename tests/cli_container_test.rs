@@ -744,3 +744,41 @@ fn test_entrypoint_nss_wrapper_setup() {
         "entrypoint.sh should set NSS_WRAPPER_PASSWD"
     );
 }
+
+#[test]
+fn test_container_mode_requires_bn_agent_id_for_orient() {
+    // Container agents MUST have BN_AGENT_ID set by their creator.
+    // Using parent PID in containers is dangerous because PID 1 is init.
+    let env = TestEnv::new();
+
+    let container_data = env.repo_path().join("binnacle_data");
+    fs::create_dir_all(&container_data).unwrap();
+
+    // Initialize binnacle first
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.env("BN_DATA_DIR", &container_data);
+    cmd.args(["system", "init", "-y"]);
+    cmd.assert().success();
+
+    // Running orient with BN_CONTAINER_MODE but WITHOUT BN_AGENT_ID should fail
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.env("BN_DATA_DIR", &container_data);
+    cmd.env("BN_CONTAINER_MODE", "true");
+    // Note: NOT setting BN_AGENT_ID
+    cmd.args(["orient", "--type", "worker"]);
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("BN_AGENT_ID"));
+
+    // But with BN_AGENT_ID set, it should succeed
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.env("BN_DATA_DIR", &container_data);
+    cmd.env("BN_CONTAINER_MODE", "true");
+    cmd.env("BN_AGENT_ID", "bn-test");
+    cmd.env("BN_AGENT_NAME", "test-agent");
+    cmd.args(["orient", "--type", "worker"]);
+    cmd.assert().success();
+}
