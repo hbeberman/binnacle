@@ -341,9 +341,39 @@
             // Fetch version
             await fetchVersion();
             
-            // Detect connection mode and connect
-            const mode = connection.detectMode();
-            await connection.applyDetectedMode(mode);
+            // Detect connection mode
+            const detection = connection.detectMode();
+            
+            // If no mode detected and we're served from a server (not file://),
+            // auto-connect to WebSocket on the same origin
+            if (detection.mode === state.ConnectionMode.NONE && 
+                window.location.protocol !== 'file:') {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+                
+                console.log('Auto-connecting to WebSocket:', wsUrl);
+                
+                await connection.connect(wsUrl, {
+                    onStateChange: () => {
+                        // Trigger graph update when data changes
+                        console.log('State updated from server');
+                    }
+                });
+            } else {
+                // Apply detected mode (archive or explicit WebSocket URL)
+                await connection.applyDetectedMode(detection);
+                
+                // If WebSocket mode, connect
+                if (detection.mode === state.ConnectionMode.WEBSOCKET && detection.wsUrl) {
+                    await connection.connect(detection.wsUrl, {
+                        onStateChange: () => {
+                            console.log('State updated from server');
+                        }
+                    });
+                }
+                // TODO: If archive mode, load archive
+                // TODO: If NONE mode on file://, show connection picker
+            }
             
             // Start graph animation
             graph.startAnimation();
