@@ -1183,6 +1183,65 @@ impl Agent {
         }
     }
 
+    /// Create a new agent with a specific ID (for BN_AGENT_ID env var support).
+    pub fn new_with_id(
+        id: String,
+        pid: u32,
+        parent_pid: u32,
+        name: String,
+        agent_type: AgentType,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            entity_type: "agent".to_string(),
+            pid,
+            parent_pid,
+            name,
+            agent_type,
+            purpose: None,
+            mcp_session_id: None,
+            started_at: now,
+            last_activity_at: now,
+            tasks: Vec::new(),
+            command_count: 0,
+            status: AgentStatus::default(),
+            current_action: None,
+            goodbye_at: None,
+            container_id: None,
+        }
+    }
+
+    /// Create a new agent with a specific ID and purpose.
+    pub fn new_with_id_and_purpose(
+        id: String,
+        pid: u32,
+        parent_pid: u32,
+        name: String,
+        agent_type: AgentType,
+        purpose: String,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            entity_type: "agent".to_string(),
+            pid,
+            parent_pid,
+            name,
+            agent_type,
+            purpose: Some(purpose),
+            mcp_session_id: None,
+            started_at: now,
+            last_activity_at: now,
+            tasks: Vec::new(),
+            command_count: 0,
+            status: AgentStatus::default(),
+            current_action: None,
+            goodbye_at: None,
+            container_id: None,
+        }
+    }
+
     /// Returns the display purpose - "UNREGISTERED" if no purpose was provided.
     pub fn display_purpose(&self) -> &str {
         self.purpose.as_deref().unwrap_or("UNREGISTERED")
