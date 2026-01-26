@@ -1034,6 +1034,7 @@ fn run_command(
                 cpus,
                 memory,
                 shell,
+                prompt,
             } => {
                 let result = commands::container_run(
                     &worktree_path,
@@ -1044,6 +1045,7 @@ fn run_command(
                     cpus,
                     memory.as_deref(),
                     shell,
+                    prompt.as_deref(),
                 )?;
                 output(&result, human);
             }
@@ -2483,6 +2485,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 cpus,
                 memory,
                 shell,
+                prompt,
             } => (
                 "container run".to_string(),
                 serde_json::json!({
@@ -2493,7 +2496,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "no_merge": no_merge,
                     "cpus": cpus,
                     "memory": memory,
-                    "shell": shell
+                    "shell": shell,
+                    "prompt": prompt.is_some()
                 }),
             ),
             ContainerCommands::Stop { name, all } => (
