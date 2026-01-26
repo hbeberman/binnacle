@@ -6,7 +6,8 @@ LABEL org.opencontainers.image.title="binnacle-worker"
 LABEL org.opencontainers.image.description="AI agent worker with binnacle task tracking"
 LABEL org.opencontainers.image.source="https://github.com/hbeberman/binnacle"
 
-# Install system dependencies (no Rust needed - we copy pre-built binary)
+# Install system dependencies
+# Rust toolchain is needed for pre-commit hooks (cargo fmt, clippy, audit)
 RUN dnf install -y \
     git \
     curl \
@@ -23,6 +24,16 @@ RUN dnf install -y \
     npm \
     nss_wrapper \
     && dnf clean all
+
+# Install Rust toolchain via rustup
+# Required for pre-commit hooks: cargo fmt, cargo clippy, cargo audit
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal && \
+    rustup component add rustfmt clippy && \
+    cargo install cargo-audit && \
+    chmod -R a+rw $RUSTUP_HOME $CARGO_HOME
 
 # Create nss_wrapper template files for default (non-sudo) mode
 # Used by entrypoint.sh to provide user identity for Node.js os.userInfo(), git, etc.
