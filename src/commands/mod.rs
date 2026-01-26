@@ -418,6 +418,7 @@ If you absolutely must initialize without human intervention, use `bn orient --i
 ## Git Rules (CRITICAL)
 
 - **NEVER run `git push`** - The human operator handles all pushes. Your job is to commit locally.
+- **NEVER run `git config user.email` or `git config user.name`** - Git identity is provided by the host. If git complains about missing identity, report the error - do not attempt to fix it.
 - Commit early and often with clear messages
 - Always run `just check` before committing
 
@@ -636,6 +637,7 @@ Links connect entities in the task graph to model dependencies, relationships, a
 ## Git Rules (CRITICAL)
 
 - **NEVER run `git push`** - The human operator handles all pushes. Your job is to commit locally.
+- **NEVER run `git config user.email` or `git config user.name`** - Git identity is provided by the host. If git complains about missing identity, report the error - do not attempt to fix it.
 - Commit early and often with clear messages
 - Always run `just check` before committing (or equivalent for the project)
 
@@ -14334,28 +14336,67 @@ pub fn container_run(
 
     // Pass through git identity from host's git config
     // This ensures container commits use the same author as the host
-    if let Some(output) = Command::new("git")
+    // CRITICAL: Git identity MUST be set, otherwise the AI agent inside the container
+    // may attempt to set its own identity (e.g., "agent@binnacle.dev"), which pollutes
+    // the local git config. We require git identity to be configured on the host.
+    let git_name = Command::new("git")
         .args(["config", "--get", "user.name"])
         .output()
         .ok()
         .filter(|o| o.status.success())
-    {
-        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !name.is_empty() {
-            args.push("--env".to_string());
-            args.push(format!("GIT_AUTHOR_NAME={}", name));
-            args.push("--env".to_string());
-            args.push(format!("GIT_COMMITTER_NAME={}", name));
-        }
-    }
-    if let Some(output) = Command::new("git")
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let git_email = Command::new("git")
         .args(["config", "--get", "user.email"])
         .output()
         .ok()
         .filter(|o| o.status.success())
-    {
-        let email = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !email.is_empty() {
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    // Require both name and email to be set
+    match (&git_name, &git_email) {
+        (None, None) => {
+            return Ok(ContainerRunResult {
+                success: false,
+                name: None,
+                error: Some(
+                    "Git identity not configured. Please set your git user.name and user.email:\n  \
+                     git config --global user.name \"Your Name\"\n  \
+                     git config --global user.email \"you@example.com\"\n\n\
+                     This is required to ensure container commits use your identity, not a default."
+                        .to_string(),
+                ),
+            });
+        }
+        (None, Some(_)) => {
+            return Ok(ContainerRunResult {
+                success: false,
+                name: None,
+                error: Some(
+                    "Git user.name not configured. Please set it:\n  \
+                     git config --global user.name \"Your Name\""
+                        .to_string(),
+                ),
+            });
+        }
+        (Some(_), None) => {
+            return Ok(ContainerRunResult {
+                success: false,
+                name: None,
+                error: Some(
+                    "Git user.email not configured. Please set it:\n  \
+                     git config --global user.email \"you@example.com\""
+                        .to_string(),
+                ),
+            });
+        }
+        (Some(name), Some(email)) => {
+            args.push("--env".to_string());
+            args.push(format!("GIT_AUTHOR_NAME={}", name));
+            args.push("--env".to_string());
+            args.push(format!("GIT_COMMITTER_NAME={}", name));
             args.push("--env".to_string());
             args.push(format!("GIT_AUTHOR_EMAIL={}", email));
             args.push("--env".to_string());
