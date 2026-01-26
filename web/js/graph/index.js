@@ -61,3 +61,11 @@ export {
     QUEUE_COLOR,
     TEST_STATUS_COLORS
 } from './colors.js';
+
+// Re-export camera controls
+export {
+    init as initCamera,
+    zoomIn,
+    zoomOut,
+    resetCamera
+} from './camera.js';
