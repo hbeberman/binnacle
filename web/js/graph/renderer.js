@@ -166,7 +166,7 @@ function filterVisibleNodes() {
     
     visibleNodes = graphNodes.filter(node => {
         // Apply node type filter
-        if (!nodeFilters[node.type]) return false;
+        if (nodeFilters[node.type] === false) return false;
         
         // Apply hide completed filter
         if (hideCompleted && (node.status === 'done' || node.status === 'cancelled')) {
@@ -277,7 +277,7 @@ function animate() {
     
     const hasAnimatedEdges = graphEdges.some(edge => {
         const edgeFilters = state.get('ui.edgeTypeFilters') || {};
-        if (!edgeFilters[edge.edge_type]) return false;
+        if (edgeFilters[edge.edge_type] === false) return false;
         if (!visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) return false;
         const style = getEdgeStyle(edge.edge_type);
         return style.animated;
@@ -327,7 +327,7 @@ function render() {
     // Draw edges first (below nodes)
     const edgeFilters = state.get('ui.edgeTypeFilters') || {};
     for (const edge of graphEdges) {
-        if (!edgeFilters[edge.edge_type]) continue;
+        if (edgeFilters[edge.edge_type] === false) continue;
         
         const fromNode = graphNodes.find(n => n.id === edge.from);
         const toNode = graphNodes.find(n => n.id === edge.to);
@@ -890,7 +890,7 @@ export function findEdgeAtPosition(screenX, screenY, threshold = 8) {
     
     for (const edge of graphEdges) {
         // Skip edges that are filtered out
-        if (!edgeFilters[edge.edge_type]) continue;
+        if (edgeFilters[edge.edge_type] === false) continue;
         
         // Skip edges where either endpoint is hidden
         if (!visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) {
