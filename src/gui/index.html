@@ -11257,6 +11257,30 @@
             // Clean up excessive newlines
             html = html.replace(/\n{3,}/g, '\n\n');
             
+            // Linkify entity IDs (bn-xxxx, bnt-xxxx, bnq-xxxx) while preserving code blocks
+            // Store code elements to protect them from linkification
+            const codeElements = [];
+            html = html.replace(/<code[^>]*>[\s\S]*?<\/code>/gi, (match) => {
+                const index = codeElements.length;
+                codeElements.push(match);
+                return `__CODE_ELEMENT_${index}__`;
+            });
+            
+            // Also protect pre blocks (in case they don't have code children)
+            const preElements = [];
+            html = html.replace(/<pre[^>]*>[\s\S]*?<\/pre>/gi, (match) => {
+                const index = preElements.length;
+                preElements.push(match);
+                return `__PRE_ELEMENT_${index}__`;
+            });
+            
+            // Apply entity ID linkification
+            html = linkifyEntityIds(html);
+            
+            // Restore code and pre elements
+            html = html.replace(/__PRE_ELEMENT_(\d+)__/g, (match, index) => preElements[parseInt(index)]);
+            html = html.replace(/__CODE_ELEMENT_(\d+)__/g, (match, index) => codeElements[parseInt(index)]);
+            
             return html;
         }
 
@@ -11475,6 +11499,10 @@
                 } else {
                     contentEl.innerHTML = '';
                 }
+                
+                // Attach click handlers for entity links in both summary and content
+                attachEntityLinkHandlers(summaryContentEl);
+                attachEntityLinkHandlers(contentEl);
                 
                 // Render version history sidebar
                 if (historyResponse.ok) {
@@ -13482,6 +13510,9 @@
         // Navigate to an entity in the graph view
         function navigateToEntity(entityId) {
             if (!entityId) return;
+            
+            // Close any open modals (doc viewer, etc.)
+            closeDocViewer();
             
             // Switch to graph view
             switchView('graph');
