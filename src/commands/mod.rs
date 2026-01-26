@@ -2378,6 +2378,21 @@ fn find_ancestor_agent(_storage: &Storage) -> Option<u32> {
     None
 }
 
+/// Get the current agent (by ID if BN_AGENT_ID is set, otherwise by PID).
+/// Returns the agent object if found.
+fn get_current_agent(storage: &Storage) -> Option<Agent> {
+    // Check if BN_AGENT_ID is set (for containerized agents)
+    if let Ok(agent_id) = std::env::var("BN_AGENT_ID") {
+        return storage.get_agent_by_id(&agent_id).ok();
+    }
+
+    // Fall back to PID-based lookup
+    let agent_pid = find_ancestor_agent(storage)
+        .or_else(get_parent_pid)
+        .unwrap_or_else(std::process::id);
+    storage.get_agent(agent_pid).ok()
+}
+
 // === Generic Show Command ===
 
 /// Result for generic show command - contains entity type and data.
@@ -3739,12 +3754,9 @@ pub fn task_update(
         if new_status == TaskStatus::Done {
             task.closed_at = Some(Utc::now());
             // Remove task from agent's tasks list
-            // First try to find the ancestor agent (for when bn commands run in subprocesses)
-            // Fall back to parent_pid for backwards compatibility
-            let agent_pid = find_ancestor_agent(&storage)
-                .or_else(get_parent_pid)
-                .unwrap_or_else(std::process::id);
-            let _ = storage.agent_remove_task(agent_pid, id);
+            if let Some(agent) = get_current_agent(&storage) {
+                let _ = storage.agent_remove_task_by_agent(agent, id);
+            }
         }
 
         // Track if we're setting status to done (for commit validation later)
@@ -3752,13 +3764,8 @@ pub fn task_update(
 
         // If setting status to in_progress, track task association for registered agents
         if new_status == TaskStatus::InProgress {
-            // First try to find the ancestor agent (for when bn commands run in subprocesses)
-            // Fall back to parent_pid for backwards compatibility
-            let agent_pid = find_ancestor_agent(&storage)
-                .or_else(get_parent_pid)
-                .unwrap_or_else(std::process::id);
-            // Check if agent is registered and already has tasks
-            if let Ok(agent) = storage.get_agent(agent_pid)
+            // Get the current agent (by ID if BN_AGENT_ID is set, otherwise by PID)
+            if let Some(agent) = get_current_agent(&storage)
                 && !agent.tasks.is_empty()
                 && !force
             {
@@ -3774,8 +3781,10 @@ pub fn task_update(
                     id
                 )));
             }
-            // Silently ignore errors - agent tracking is optional
-            let _ = storage.agent_add_task(agent_pid, id);
+            // Add task to agent (ignore errors - agent tracking is optional)
+            if let Some(agent) = get_current_agent(&storage) {
+                let _ = storage.agent_add_task_by_agent(agent, id);
+            }
         }
 
         task.status = new_status;
@@ -4891,20 +4900,17 @@ pub fn bug_update(
         let new_status = parse_status(s)?;
 
         // If transitioning away from in_progress, remove agent task association
-        if bug.status == TaskStatus::InProgress && new_status != TaskStatus::InProgress {
-            let agent_pid = find_ancestor_agent(&storage)
-                .or_else(get_parent_pid)
-                .unwrap_or_else(std::process::id);
-            let _ = storage.agent_remove_task(agent_pid, id);
+        if bug.status == TaskStatus::InProgress
+            && new_status != TaskStatus::InProgress
+            && let Some(agent) = get_current_agent(&storage)
+        {
+            let _ = storage.agent_remove_task_by_agent(agent, id);
         }
 
         // If setting status to in_progress, track bug association for registered agents
         if new_status == TaskStatus::InProgress {
-            let agent_pid = find_ancestor_agent(&storage)
-                .or_else(get_parent_pid)
-                .unwrap_or_else(std::process::id);
-            // Check if agent is registered and already has tasks
-            if let Ok(agent) = storage.get_agent(agent_pid)
+            // Get the current agent (by ID if BN_AGENT_ID is set, otherwise by PID)
+            if let Some(agent) = get_current_agent(&storage)
                 && !agent.tasks.is_empty()
                 && !force
             {
@@ -4920,8 +4926,10 @@ pub fn bug_update(
                     id
                 )));
             }
-            // Silently ignore errors - agent tracking is optional
-            let _ = storage.agent_add_task(agent_pid, id);
+            // Add bug to agent (ignore errors - agent tracking is optional)
+            if let Some(agent) = get_current_agent(&storage) {
+                let _ = storage.agent_add_task_by_agent(agent, id);
+            }
         }
 
         bug.status = new_status;
