@@ -3629,19 +3629,33 @@ impl Storage {
     }
 
     /// Remove an agent from the registry.
-    /// Also cleans up any working_on/worked_on edges associated with this agent.
+    /// Transitions any working_on edges to worked_on (historical record) before cleanup.
     pub fn remove_agent(&mut self, pid: u32) -> Result<()> {
         // Get the agent first so we have its ID for edge cleanup
         let agent = self
             .get_agent(pid)
             .map_err(|_| Error::NotFound(format!("Agent not found with PID: {}", pid)))?;
 
-        // Clean up working_on and worked_on edges where this agent is the source
-        // We delete by source ID pattern to catch all agent edges
-        self.conn.execute(
-            "DELETE FROM edges WHERE source = ?1 AND (edge_type = 'working_on' OR edge_type = 'worked_on')",
-            params![&agent.id],
-        )?;
+        // Transition working_on edges to worked_on (historical record)
+        // This preserves the history of what the agent worked on
+        let working_on_edges = self.list_edges(Some(EdgeType::WorkingOn), Some(&agent.id), None)?;
+        for edge in working_on_edges {
+            // Remove the working_on edge
+            if self
+                .remove_edge(&edge.source, &edge.target, EdgeType::WorkingOn)
+                .is_ok()
+            {
+                // Create a worked_on edge to record the historical work
+                let edge_id = self.generate_edge_id(&edge.source, &edge.target, EdgeType::WorkedOn);
+                let worked_on_edge = Edge::new(
+                    edge_id,
+                    edge.source.clone(),
+                    edge.target.clone(),
+                    EdgeType::WorkedOn,
+                );
+                let _ = self.add_edge(&worked_on_edge); // Ignore error if it already exists
+            }
+        }
 
         // Remove from cache (JSONL is append-only, so we just remove from cache)
         self.conn
@@ -6444,5 +6458,65 @@ mod tests {
         // Try to delete non-existent annotation
         let result = storage.delete_log_annotation("bnl-nonexistent");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remove_agent_transitions_working_on_to_worked_on() {
+        let (_env, mut storage) = create_test_storage();
+
+        // Create a task
+        let task = Task::new("bn-test".to_string(), "Test task".to_string());
+        storage.create_task(&task).unwrap();
+
+        // Create an agent with a specific PID
+        let test_pid = 99999_u32;
+        let parent_pid = 1_u32;
+        let agent = Agent::new(
+            test_pid,
+            parent_pid,
+            "test-agent".to_string(),
+            AgentType::Worker,
+        );
+        storage.register_agent(&agent).unwrap();
+
+        // Add a working_on edge from the agent to the task
+        let edge_id = storage.generate_edge_id(&agent.id, &task.core.id, EdgeType::WorkingOn);
+        let working_on_edge = Edge::new(
+            edge_id,
+            agent.id.clone(),
+            task.core.id.clone(),
+            EdgeType::WorkingOn,
+        );
+        storage.add_edge(&working_on_edge).unwrap();
+
+        // Verify the working_on edge exists
+        let edges_before = storage
+            .list_edges(Some(EdgeType::WorkingOn), Some(&agent.id), None)
+            .unwrap();
+        assert_eq!(edges_before.len(), 1);
+        assert_eq!(edges_before[0].target, task.core.id);
+
+        // Verify no worked_on edge exists yet
+        let worked_on_before = storage
+            .list_edges(Some(EdgeType::WorkedOn), Some(&agent.id), None)
+            .unwrap();
+        assert_eq!(worked_on_before.len(), 0);
+
+        // Remove the agent
+        storage.remove_agent(test_pid).unwrap();
+
+        // Verify the working_on edge is gone
+        let edges_after = storage
+            .list_edges(Some(EdgeType::WorkingOn), Some(&agent.id), None)
+            .unwrap();
+        assert_eq!(edges_after.len(), 0);
+
+        // Verify a worked_on edge now exists (historical record)
+        let worked_on_after = storage
+            .list_edges(Some(EdgeType::WorkedOn), Some(&agent.id), None)
+            .unwrap();
+        assert_eq!(worked_on_after.len(), 1);
+        assert_eq!(worked_on_after[0].source, agent.id);
+        assert_eq!(worked_on_after[0].target, task.core.id);
     }
 }
