@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recently Completed Pane - Component Test</title>
+    <link rel="stylesheet" href="css/themes/dark.css">
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/recently-completed-pane.css">
+    <style>
+        body {
+            padding: 2rem;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        .test-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .test-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            background: var(--accent);
+            color: var(--text-primary);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+        }
+        button:hover {
+            background: var(--accent-light);
+        }
+        .state-display {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 2rem;
+            font-family: monospace;
+            font-size: 0.875rem;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1 class="test-header">Recently Completed Pane - Component Test</h1>
+        
+        <div class="controls">
+            <button id="btn-no-completed">No Completed</button>
+            <button id="btn-few-completed">Few Completed (3)</button>
+            <button id="btn-many-completed">Many Completed (10)</button>
+            <button id="btn-mixed-types">Mixed Tasks & Bugs (7)</button>
+            <button id="btn-recent-activity">Recent Activity (staggered times)</button>
+        </div>
+        
+        <div id="pane-container"></div>
+        
+        <div class="state-display" id="state-display">State will appear here...</div>
+    </div>
+
+    <script type="module">
+        import { 
+            setEntities, 
+            getTasks,
+            getBugs,
+            subscribe
+        } from './js/state.js';
+        import { mountRecentlyCompletedPane } from './js/components/recently-completed-pane.js';
+
+        // Mount the component
+        const pane = mountRecentlyCompletedPane('#pane-container', { limit: 5 });
+
+        // Subscribe to state changes and update display
+        function updateStateDisplay() {
+            const tasks = getTasks() || [];
+            const bugs = getBugs() || [];
+            const completed = [...tasks, ...bugs].filter(item => item.status === 'done');
+            
+            document.getElementById('state-display').textContent = JSON.stringify({
+                totalTasks: tasks.length,
+                totalBugs: bugs.length,
+                completedCount: completed.length,
+                completedItems: completed.map(item => ({
+                    id: item.id,
+                    type: item.type,
+                    title: item.short_name || item.title,
+                    closed_at: item.closed_at
+                }))
+            }, null, 2);
+        }
+
+        subscribe('*', updateStateDisplay);
+
+        // Helper to create timestamp N minutes ago
+        function minutesAgo(minutes) {
+            return new Date(Date.now() - minutes * 60 * 1000).toISOString();
+        }
+
+        // Helper to create timestamp N hours ago
+        function hoursAgo(hours) {
+            return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+        }
+
+        // Helper to create timestamp N days ago
+        function daysAgo(days) {
+            return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        }
+
+        // Test controls
+        document.getElementById('btn-no-completed').addEventListener('click', () => {
+            setEntities('tasks', [
+                {
+                    id: 'bn-test1',
+                    type: 'task',
+                    title: 'Pending Task 1',
+                    short_name: 'Pending 1',
+                    status: 'pending',
+                    priority: 1
+                },
+                {
+                    id: 'bn-test2',
+                    type: 'task',
+                    title: 'In Progress Task',
+                    short_name: 'In Progress',
+                    status: 'in_progress',
+                    priority: 2
+                }
+            ]);
+            setEntities('bugs', []);
+        });
+
+        document.getElementById('btn-few-completed').addEventListener('click', () => {
+            setEntities('tasks', [
+                {
+                    id: 'bn-done1',
+                    type: 'task',
+                    title: 'Completed Task 1',
+                    short_name: 'Completed 1',
+                    status: 'done',
+                    priority: 1,
+                    closed_at: minutesAgo(5)
+                },
+                {
+                    id: 'bn-done2',
+                    type: 'task',
+                    title: 'Completed Task 2',
+                    short_name: 'Completed 2',
+                    status: 'done',
+                    priority: 2,
+                    closed_at: hoursAgo(2)
+                },
+                {
+                    id: 'bn-done3',
+                    type: 'task',
+                    title: 'Completed Task 3',
+                    short_name: 'Completed 3',
+                    status: 'done',
+                    priority: 1,
+                    closed_at: daysAgo(1)
+                }
+            ]);
+            setEntities('bugs', []);
+        });
+
+        document.getElementById('btn-many-completed').addEventListener('click', () => {
+            const tasks = Array.from({ length: 10 }, (_, i) => ({
+                id: `bn-done${i}`,
+                type: 'task',
+                title: `Completed Task ${i + 1}`,
+                short_name: `Task ${i + 1}`,
+                status: 'done',
+                priority: 1,
+                closed_at: minutesAgo(i * 10)
+            }));
+            setEntities('tasks', tasks);
+            setEntities('bugs', []);
+        });
+
+        document.getElementById('btn-mixed-types').addEventListener('click', () => {
+            setEntities('tasks', [
+                {
+                    id: 'bn-done1',
+                    type: 'task',
+                    title: 'Port recently completed pane',
+                    short_name: 'Recently completed',
+                    status: 'done',
+                    priority: 2,
+                    closed_at: minutesAgo(5)
+                },
+                {
+                    id: 'bn-done2',
+                    type: 'task',
+                    title: 'Fix authentication bug',
+                    short_name: 'Auth fix',
+                    status: 'done',
+                    priority: 1,
+                    closed_at: hoursAgo(1)
+                },
+                {
+                    id: 'bn-done3',
+                    type: 'task',
+                    title: 'Update documentation',
+                    short_name: 'Docs update',
+                    status: 'done',
+                    priority: 3,
+                    closed_at: hoursAgo(3)
+                }
+            ]);
+            setEntities('bugs', [
+                {
+                    id: 'bn-bug1',
+                    type: 'bug',
+                    title: 'Critical database connection issue',
+                    short_name: 'DB connection bug',
+                    status: 'done',
+                    priority: 0,
+                    severity: 'critical',
+                    closed_at: minutesAgo(15)
+                },
+                {
+                    id: 'bn-bug2',
+                    type: 'bug',
+                    title: 'UI rendering glitch',
+                    short_name: 'UI glitch',
+                    status: 'done',
+                    priority: 2,
+                    severity: 'low',
+                    closed_at: hoursAgo(6)
+                },
+                {
+                    id: 'bn-bug3',
+                    type: 'bug',
+                    title: 'Memory leak in websocket handler',
+                    short_name: 'WS memory leak',
+                    status: 'done',
+                    priority: 1,
+                    severity: 'high',
+                    closed_at: daysAgo(2)
+                }
+            ]);
+        });
+
+        document.getElementById('btn-recent-activity').addEventListener('click', () => {
+            setEntities('tasks', [
+                {
+                    id: 'bn-just-now',
+                    type: 'task',
+                    title: 'Just completed this second',
+                    short_name: 'Just now',
+                    status: 'done',
+                    priority: 1,
+                    closed_at: new Date().toISOString()
+                },
+                {
+                    id: 'bn-30s',
+                    type: 'task',
+                    title: 'Completed 30 seconds ago',
+                    short_name: '30 seconds',
+                    status: 'done',
+                    priority: 2,
+                    closed_at: new Date(Date.now() - 30000).toISOString()
+                },
+                {
+                    id: 'bn-5m',
+                    type: 'task',
+                    title: 'Completed 5 minutes ago',
+                    short_name: '5 minutes',
+                    status: 'done',
+                    priority: 1,
+                    closed_at: minutesAgo(5)
+                },
+                {
+                    id: 'bn-2h',
+                    type: 'task',
+                    title: 'Completed 2 hours ago',
+                    short_name: '2 hours',
+                    status: 'done',
+                    priority: 2,
+                    closed_at: hoursAgo(2)
+                },
+                {
+                    id: 'bn-1d',
+                    type: 'task',
+                    title: 'Completed 1 day ago',
+                    short_name: '1 day',
+                    status: 'done',
+                    priority: 3,
+                    closed_at: daysAgo(1)
+                },
+                {
+                    id: 'bn-3d',
+                    type: 'task',
+                    title: 'Completed 3 days ago',
+                    short_name: '3 days',
+                    status: 'done',
+                    priority: 2,
+                    closed_at: daysAgo(3)
+                }
+            ]);
+            setEntities('bugs', []);
+        });
+
+        // Initialize with mixed types scenario
+        document.getElementById('btn-mixed-types').click();
+    </script>
+</body>
+</html>
