@@ -1933,6 +1933,21 @@ pub fn orient(
     // Check for explicit agent ID (for container/external agent management)
     let env_agent_id = std::env::var("BN_AGENT_ID").ok();
 
+    // Check if we're running in container mode
+    let is_container_mode = std::env::var("BN_CONTAINER_MODE").is_ok();
+
+    // SAFETY: Container agents MUST have BN_AGENT_ID set by their creator.
+    // Using parent PID in containers is dangerous because PID 1 is the init process,
+    // not a valid agent. Container agents must be explicitly named.
+    if is_container_mode && env_agent_id.is_none() {
+        return Err(Error::Other(
+            "Container agents must have BN_AGENT_ID set. \
+             This should be set by 'bn container run'. \
+             If running manually in a container, set BN_AGENT_ID environment variable."
+                .to_string(),
+        ));
+    }
+
     // In dry-run mode, skip agent registration and session state writing
     let agent_id = if dry_run {
         // Return a placeholder ID for dry-run mode
@@ -1946,7 +1961,17 @@ pub fn orient(
         // bn commands. This prevents agents from being immediately cleaned up as "stale".
         let bn_pid = std::process::id();
         let parent_pid = get_parent_pid().unwrap_or(bn_pid);
-        let agent_pid = parent_pid;
+
+        // When BN_AGENT_ID is set (container/external agent mode), use 0 as PID since:
+        // 1. Identification is by explicit ID, not PID
+        // 2. Parent PID inside containers is typically 1 (init), which is invalid
+        // 3. This matches the initial registration in container_run (PID=0)
+        // For regular agents, use parent_pid for stale detection.
+        let agent_pid = if env_agent_id.is_some() {
+            0
+        } else {
+            parent_pid
+        };
 
         // Use provided name, or BN_AGENT_NAME env var, or auto-generate (with parent PID for uniqueness)
         let agent_name = name
