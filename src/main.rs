@@ -1111,6 +1111,7 @@ fn run_command(
                 prompt,
             } => {
                 let result = commands::container_run(
+                    repo_path,
                     &worktree_path,
                     &agent_type,
                     name,
