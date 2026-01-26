@@ -122,6 +122,27 @@ bn mcp serve                    # MCP server for agents
 
 Run `bn --help` for everything else.
 
+## Agent Supervisor (`bn serve`)
+
+Run a daemon that continuously manages containerized AI agents based on your scaling configuration:
+
+```bash
+sudo bn serve
+```
+
+**Why sudo?** The `bn serve` command needs to access the containerd socket at `/run/containerd/containerd.sock`, which requires root privileges. However, binnacle automatically detects when running under sudo and:
+
+1. Opens the containerd socket while elevated
+2. Drops privileges back to your user (via `SUDO_USER` detection)
+3. Sets `HOME` to your user's home directory
+4. Creates all files with your user's ownership
+
+This means you run as sudo but **all files remain owned by you**, not root. The process only retains elevated privileges for the containerd socket connection.
+
+If you see a warning like "Running as root without SUDO_USER", it means you're running directly as root (not via sudo), and files will be owned by root. To preserve user ownership, always run with `sudo bn serve`.
+
+For rootless operation without sudo, see the [Rootless Setup](#rootless-setup) section in [container/README.md](container/README.md).
+
 ## GUI
 
 ```bash
