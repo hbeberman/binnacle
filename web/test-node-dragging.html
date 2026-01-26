@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Node Dragging</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/themes/dark.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        #instructions {
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+        
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #graph-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: grab;
+        }
+        
+        #graph-canvas.dragging-node {
+            cursor: grabbing;
+        }
+        
+        #graph-canvas.dragging {
+            cursor: grabbing;
+        }
+        
+        #status {
+            background: var(--bg-tertiary);
+            padding: 0.5rem 1rem;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">
+        <h2>Node Dragging Test</h2>
+        <p>This test verifies that nodes can be dragged individually:</p>
+        <ul>
+            <li><strong>Click and drag on a node</strong> - The node should move with your cursor</li>
+            <li><strong>Click and drag on empty space</strong> - The canvas should pan</li>
+            <li><strong>Mouse wheel</strong> - The canvas should zoom</li>
+        </ul>
+        <p>Status will update below the canvas.</p>
+    </div>
+    
+    <div id="canvas-container">
+        <canvas id="graph-canvas"></canvas>
+    </div>
+    
+    <div id="status">Ready. Try dragging a node or panning the canvas.</div>
+    
+    <script type="module">
+        import * as state from './js/state.js';
+        import * as graph from './js/graph/index.js';
+        
+        const canvas = document.getElementById('graph-canvas');
+        const status = document.getElementById('status');
+        
+        // Initialize graph
+        graph.init(canvas);
+        
+        // Create some test nodes
+        const testNodes = [
+            {
+                id: 'bn-test1',
+                type: 'task',
+                title: 'Draggable Task Node',
+                status: 'pending',
+                priority: 1,
+                tags: []
+            },
+            {
+                id: 'bn-test2',
+                type: 'bug',
+                title: 'Draggable Bug Node',
+                status: 'in_progress',
+                priority: 2,
+                severity: 'critical',
+                tags: []
+            },
+            {
+                id: 'bn-test3',
+                type: 'milestone',
+                title: 'Draggable Milestone',
+                status: 'pending',
+                priority: 1,
+                tags: []
+            }
+        ];
+        
+        // Set test data in state
+        state.set('entities.tasks', [testNodes[0]]);
+        state.set('entities.bugs', [testNodes[1]]);
+        state.set('entities.milestones', [testNodes[2]]);
+        state.set('edges', []);
+        
+        // Start animation
+        graph.startAnimation();
+        
+        // Monitor drag events
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const node = graph.findNodeAtPosition(x, y);
+            
+            if (node) {
+                status.textContent = `Started dragging node: ${node.id} - ${node.title}`;
+            } else {
+                status.textContent = 'Started panning canvas';
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (canvas.classList.contains('dragging-node')) {
+                status.textContent = 'Dragging node (physics should react)...';
+            } else if (canvas.classList.contains('dragging')) {
+                status.textContent = 'Panning canvas...';
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            status.textContent = 'Released. Ready for next interaction.';
+        });
+        
+        // Window resize
+        window.addEventListener('resize', () => {
+            graph.resizeCanvas();
+        });
+        
+        console.log('Test initialized with', testNodes.length, 'nodes');
+        console.log('Try dragging the nodes or panning the canvas');
+    </script>
+</body>
+</html>
