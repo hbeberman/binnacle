@@ -4637,6 +4637,48 @@
             color: var(--warning);
         }
 
+        /* Superseded Banner - Warning for outdated documents */
+        .doc-viewer-superseded-banner {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05));
+            border: 1px solid var(--warning);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .doc-viewer-superseded-banner .banner-icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+
+        .doc-viewer-superseded-banner .banner-content {
+            flex: 1;
+        }
+
+        .doc-viewer-superseded-banner .banner-title {
+            font-weight: 600;
+            color: var(--warning);
+            margin-bottom: 0.25rem;
+        }
+
+        .doc-viewer-superseded-banner .banner-message {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .doc-viewer-superseded-banner .banner-link {
+            color: var(--accent-light);
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
+        .doc-viewer-superseded-banner .banner-link:hover {
+            color: var(--accent-blue);
+        }
+
         /* Doc Viewer Layout with Sidebar */
         .doc-viewer-body-wrapper {
             display: flex;
@@ -5416,6 +5458,16 @@
                 </div>
                 <div class="doc-viewer-body-wrapper">
                     <div class="doc-viewer-main">
+                        <div id="doc-viewer-superseded-banner" class="doc-viewer-superseded-banner" style="display: none;">
+                            <span class="banner-icon">⚠️</span>
+                            <div class="banner-content">
+                                <div class="banner-title">Outdated Document</div>
+                                <div class="banner-message">
+                                    This document has been superseded by a newer version: 
+                                    <span id="doc-viewer-superseded-link" class="banner-link"></span>
+                                </div>
+                            </div>
+                        </div>
                         <div class="doc-viewer-summary" id="doc-viewer-summary">
                             <div class="doc-viewer-summary-header">
                                 <span>📋</span> Summary
@@ -11330,6 +11382,8 @@
             const dirtyIndicator = document.getElementById('doc-viewer-dirty-indicator');
             const historySidebar = document.getElementById('doc-viewer-history-sidebar');
             const historyList = document.getElementById('doc-viewer-history-list');
+            const supersededBanner = document.getElementById('doc-viewer-superseded-banner');
+            const supersededLink = document.getElementById('doc-viewer-superseded-link');
             
             // Show loading state
             modal.classList.add('visible');
@@ -11340,6 +11394,7 @@
             dirtyIndicator.style.display = 'none';
             historySidebar.classList.remove('visible');
             historyList.innerHTML = '';
+            supersededBanner.style.display = 'none';
             
             try {
                 // Fetch doc content and history in parallel
@@ -11365,6 +11420,15 @@
                 } else {
                     dirtyIndicator.style.display = 'none';
                     summaryEl.classList.remove('dirty');
+                }
+                
+                // Show superseded banner if this document has been replaced by a newer version
+                if (doc.superseded_by) {
+                    supersededLink.textContent = doc.superseded_by;
+                    supersededLink.onclick = () => openDocViewer(doc.superseded_by);
+                    supersededBanner.style.display = 'flex';
+                } else {
+                    supersededBanner.style.display = 'none';
                 }
                 
                 // Build meta badges

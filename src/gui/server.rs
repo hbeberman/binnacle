@@ -343,6 +343,9 @@ async fn get_doc(
     // Get the summary section separately
     let summary = doc.get_summary().unwrap_or_default();
 
+    // Check if this doc has been superseded by another doc
+    let superseded_by = storage.get_doc_superseded_by(&id).unwrap_or(None);
+
     Ok(Json(serde_json::json!({
         "doc": {
             "id": doc.core.id,
@@ -356,6 +359,7 @@ async fn get_doc(
             "summary_dirty": doc.summary_dirty,
             "editors": doc.editors,
             "supersedes": doc.supersedes,
+            "superseded_by": superseded_by,
             "created_at": doc.core.created_at,
             "updated_at": doc.core.updated_at
         }

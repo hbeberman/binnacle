@@ -1525,6 +1525,19 @@ impl Storage {
         latest.ok_or_else(|| Error::NotFound(format!("Doc not found: {}", id)))
     }
 
+    /// Find the document that supersedes the given document ID.
+    /// Returns None if no document supersedes this one (i.e., this is the latest version).
+    pub fn get_doc_superseded_by(&self, id: &str) -> Result<Option<String>> {
+        let superseding_id: Option<String> = self
+            .conn
+            .query_row("SELECT id FROM docs WHERE supersedes = ?", [id], |row| {
+                row.get(0)
+            })
+            .ok();
+
+        Ok(superseding_id)
+    }
+
     /// List all docs, optionally filtered.
     ///
     /// # Arguments
