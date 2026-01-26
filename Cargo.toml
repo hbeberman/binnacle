@@ -47,6 +47,9 @@ thiserror = "1"
 # Subprocess timeout
 wait-timeout = "0.2"
 
+# Configuration file format
+kdl = "6"
+
 # Archive/compression
 tar = "0.4"
 flate2 = "1.0"

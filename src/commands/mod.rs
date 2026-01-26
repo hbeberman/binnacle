@@ -11300,10 +11300,20 @@ impl Output for AgentScalingConfigs {
 pub const VALID_AGENT_TYPES: &[&str] = &["worker", "planner", "buddy"];
 
 /// Get agent scaling configuration for all types.
+/// Reads from config.kdl first, falls back to SQLite for migration.
 pub fn config_get_agent_scaling(repo_path: &Path) -> Result<AgentScalingConfigs> {
     let storage = Storage::open(repo_path)?;
 
     let get_scaling = |agent_type: &str| -> AgentScalingConfig {
+        // Try KDL first
+        if let Ok((min, max)) = storage.get_agent_scaling_kdl(agent_type) {
+            // Check if we got non-default values from KDL
+            if min != 0 || max != 1 {
+                return AgentScalingConfig { min, max };
+            }
+        }
+
+        // Fall back to SQLite (for migration from old configs)
         let min_key = format!("agents.{}.min", agent_type);
         let max_key = format!("agents.{}.max", agent_type);
 
@@ -11331,6 +11341,7 @@ pub fn config_get_agent_scaling(repo_path: &Path) -> Result<AgentScalingConfigs>
 }
 
 /// Get agent scaling configuration for a specific type.
+/// Reads from config.kdl first, falls back to SQLite for migration.
 pub fn config_get_agent_scaling_for_type(
     repo_path: &Path,
     agent_type: &str,
@@ -11344,6 +11355,16 @@ pub fn config_get_agent_scaling_for_type(
     }
 
     let storage = Storage::open(repo_path)?;
+
+    // Try KDL first
+    if let Ok((min, max)) = storage.get_agent_scaling_kdl(agent_type) {
+        // Check if we got non-default values from KDL
+        if min != 0 || max != 1 {
+            return Ok(AgentScalingConfig { min, max });
+        }
+    }
+
+    // Fall back to SQLite (for migration from old configs)
     let min_key = format!("agents.{}.min", agent_type);
     let max_key = format!("agents.{}.max", agent_type);
 
@@ -11360,7 +11381,7 @@ pub fn config_get_agent_scaling_for_type(
 }
 
 /// Set agent scaling configuration for a specific type.
-/// Validates that min <= max.
+/// Validates that min <= max. Persists to config.kdl.
 pub fn config_set_agent_scaling(
     repo_path: &Path,
     agent_type: &str,
@@ -11389,17 +11410,10 @@ pub fn config_set_agent_scaling(
         )));
     }
 
-    let mut storage = Storage::open(repo_path)?;
+    let storage = Storage::open(repo_path)?;
 
-    if min.is_some() {
-        let min_key = format!("agents.{}.min", agent_type);
-        storage.set_config(&min_key, &new_min.to_string())?;
-    }
-
-    if max.is_some() {
-        let max_key = format!("agents.{}.max", agent_type);
-        storage.set_config(&max_key, &new_max.to_string())?;
-    }
+    // Persist to config.kdl
+    storage.set_agent_scaling_kdl(agent_type, new_min, new_max)?;
 
     Ok(AgentScalingConfig {
         min: new_min,
@@ -21196,6 +21210,71 @@ mod tests {
         assert_eq!(all.planner.max, 1);
         assert_eq!(all.buddy.min, 2);
         assert_eq!(all.buddy.max, 5);
+    }
+
+    #[test]
+    fn test_agent_scaling_config_persists_to_kdl() {
+        let temp = setup();
+
+        // Set scaling config
+        config_set_agent_scaling(temp.path(), "worker", Some(2), Some(4)).unwrap();
+
+        // Verify config.kdl file was created
+        let storage = Storage::open(temp.path()).unwrap();
+        let kdl_path = storage.config_kdl_path();
+        assert!(kdl_path.exists(), "config.kdl should be created");
+
+        // Read and verify content
+        let content = std::fs::read_to_string(&kdl_path).unwrap();
+        assert!(
+            content.contains("agents"),
+            "config.kdl should have agents section"
+        );
+        assert!(
+            content.contains("worker"),
+            "config.kdl should have worker type"
+        );
+        assert!(content.contains("min=2"), "config.kdl should have min=2");
+        assert!(content.contains("max=4"), "config.kdl should have max=4");
+    }
+
+    #[test]
+    fn test_agent_scaling_config_reads_from_kdl() {
+        let temp = setup();
+
+        // Manually write config.kdl
+        let storage = Storage::open(temp.path()).unwrap();
+        std::fs::write(
+            storage.config_kdl_path(),
+            "agents {\n    worker min=3 max=5\n}\n",
+        )
+        .unwrap();
+
+        // Read via the function
+        let scaling = config_get_agent_scaling_for_type(temp.path(), "worker").unwrap();
+        assert_eq!(scaling.min, 3);
+        assert_eq!(scaling.max, 5);
+    }
+
+    #[test]
+    fn test_agent_scaling_config_updates_existing_kdl() {
+        let temp = setup();
+
+        // Set initial config
+        config_set_agent_scaling(temp.path(), "worker", Some(1), Some(2)).unwrap();
+        config_set_agent_scaling(temp.path(), "planner", Some(0), Some(1)).unwrap();
+
+        // Update worker config
+        config_set_agent_scaling(temp.path(), "worker", Some(3), Some(5)).unwrap();
+
+        // Verify both configs exist and worker is updated
+        let worker = config_get_agent_scaling_for_type(temp.path(), "worker").unwrap();
+        assert_eq!(worker.min, 3);
+        assert_eq!(worker.max, 5);
+
+        let planner = config_get_agent_scaling_for_type(temp.path(), "planner").unwrap();
+        assert_eq!(planner.min, 0);
+        assert_eq!(planner.max, 1);
     }
 
     #[test]
