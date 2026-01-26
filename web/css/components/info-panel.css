@@ -178,10 +178,35 @@
     margin: 0;
 }
 
-.info-panel-relationships li {
+.relationship-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     font-size: 0.85rem;
     color: var(--text-primary);
-    padding: 0.25rem 0;
+    padding: 0.4rem 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s ease;
+}
+
+.relationship-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.relationship-direction {
+    color: var(--text-secondary);
+    font-weight: bold;
+}
+
+.relationship-id {
+    font-family: monospace;
+    color: var(--accent-light);
+}
+
+.relationship-type {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
 }
 
 .info-panel-closed-reason {

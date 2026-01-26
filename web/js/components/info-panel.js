@@ -10,6 +10,29 @@
 const INFO_PANEL_ACTIVE_TAB_KEY = 'binnacle_info_panel_active_tab';
 
 /**
+ * Format edge type name for display
+ * @param {string} edgeType - Raw edge type
+ * @returns {string} Formatted type name
+ */
+function formatEdgeType(edgeType) {
+    const typeNames = {
+        'depends_on': 'depends on',
+        'blocks': 'blocks',
+        'child_of': 'child of',
+        'parent_of': 'parent of',
+        'related_to': 'related to',
+        'tests': 'tests',
+        'tested_by': 'tested by',
+        'documents': 'documents',
+        'documented_by': 'documented by',
+        'queued': 'queued',
+        'working_on': 'working on',
+        'informational': 'informational'
+    };
+    return typeNames[edgeType] || edgeType.replace(/_/g, ' ');
+}
+
+/**
  * Load last active tab from localStorage
  * @returns {string} Tab name (details, activity, or commits)
  */
@@ -116,6 +139,7 @@ export function createInfoPanel() {
  * @param {Function} options.onQueueToggle - Callback when queue toggle is clicked
  * @param {Function} options.onDocOpen - Callback when doc open is clicked
  * @param {Function} options.onViewFullLog - Callback when view full log is clicked
+ * @param {Function} options.onRelationshipClick - Callback when a relationship is clicked (nodeId)
  */
 export function initializeInfoPanel(panel, options = {}) {
     const {
@@ -123,8 +147,16 @@ export function initializeInfoPanel(panel, options = {}) {
         onTabChange = () => {},
         onQueueToggle = () => {},
         onDocOpen = () => {},
-        onViewFullLog = () => {}
+        onViewFullLog = () => {},
+        onRelationshipClick = () => {}
     } = options;
+    
+    // Store callback reference for relationship clicks
+    if (onRelationshipClick) {
+        panel.addEventListener('relationship-click', (e) => {
+            onRelationshipClick(e.detail.nodeId);
+        });
+    }
     
     // Close button
     const closeBtn = panel.querySelector('#info-panel-close');
@@ -273,6 +305,39 @@ export function updateInfoPanelContent(panel, node) {
         depsEl.innerHTML = node.depends_on.map(dep => `<li>${dep}</li>`).join('');
     } else {
         depsSection.style.display = 'none';
+    }
+    
+    // Update relationships (edges)
+    const relationshipsSection = panel.querySelector('#info-panel-relationships-section');
+    const relationshipsEl = panel.querySelector('#info-panel-relationships');
+    if (node.edges && node.edges.length > 0) {
+        relationshipsSection.style.display = 'block';
+        relationshipsEl.innerHTML = node.edges.map(edge => {
+            const direction = edge.direction === 'outbound' ? '→' : '←';
+            const edgeTypeFormatted = formatEdgeType(edge.edge_type);
+            return `<li class="relationship-item" data-node-id="${edge.related_id}">
+                <span class="relationship-direction">${direction}</span>
+                <span class="relationship-id">${edge.related_id}</span>
+                <span class="relationship-type">(${edgeTypeFormatted})</span>
+            </li>`;
+        }).join('');
+        
+        // Make relationship items clickable
+        relationshipsEl.querySelectorAll('.relationship-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const nodeId = item.dataset.nodeId;
+                if (nodeId) {
+                    // Trigger a custom event that can be handled by the main app
+                    const event = new CustomEvent('relationship-click', { 
+                        detail: { nodeId },
+                        bubbles: true 
+                    });
+                    panel.dispatchEvent(event);
+                }
+            });
+        });
+    } else {
+        relationshipsSection.style.display = 'none';
     }
     
     // Update closed reason (if closed)
