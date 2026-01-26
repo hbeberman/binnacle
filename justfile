@@ -121,6 +121,25 @@ build-viewer:
 build-viewer-release:
     ./scripts/embed_wasm.sh --release
 
+# Build npm package for @binnacle/viewer
+# Requires: just build-viewer-release first
+# Output: npm/viewer.html (ready for npm publish)
+npm-package:
+    #!/usr/bin/env bash
+    set -e
+    if [ ! -f target/viewer/viewer.html ]; then
+        echo "Error: target/viewer/viewer.html not found"
+        echo "Run 'just build-viewer-release' first"
+        exit 1
+    fi
+    cp target/viewer/viewer.html npm/viewer.html
+    echo "✓ Copied viewer.html to npm/"
+    echo "Package ready at npm/"
+    echo "To publish: cd npm && npm publish --access public"
+
+# Build viewer and prepare npm package in one step
+npm-build: build-viewer-release npm-package
+
 # Build the container image (builds release binary first)
 container tag="binnacle-worker:latest":
     @echo "Building release binary..."

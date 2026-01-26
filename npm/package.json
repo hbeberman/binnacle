@@ -1,0 +1,40 @@
+{
+  "name": "@binnacle/viewer",
+  "version": "0.0.1-alpha.4",
+  "description": "Self-contained web viewer for binnacle task graphs",
+  "author": "Henry Beberman",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hbeberman/binnacle.git",
+    "directory": "npm"
+  },
+  "homepage": "https://github.com/hbeberman/binnacle#readme",
+  "bugs": {
+    "url": "https://github.com/hbeberman/binnacle/issues"
+  },
+  "keywords": [
+    "binnacle",
+    "task-graph",
+    "viewer",
+    "wasm",
+    "webassembly",
+    "visualization",
+    "project-management",
+    "ai-agents"
+  ],
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "viewer.html",
+    "README.md"
+  ],
+  "scripts": {
+    "prepublishOnly": "echo 'Ensure viewer.html is built with: just build-viewer-release'"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
