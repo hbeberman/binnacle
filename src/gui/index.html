@@ -5663,6 +5663,7 @@
             },
             agents: [],
             departingAgents: new Map(), // Map<agent_id, departure_timestamp> for fade-out animation
+            goodbyeParticleSpawned: new Set(), // Set<agent_id> for tracking which agents have had goodbye particles spawned
             goodbyeParticles: [], // Particles for goodbye animation effect
             edges: [], // Raw edges from API
             edgeFilters: loadEdgeFilters(), // Which edge types are visible
@@ -6087,6 +6088,20 @@
                 // Keep original agent data for reference
                 _agent: agent
             }));
+            
+            // Spawn goodbye particles when an agent's goodbye_at is first detected
+            // This triggers the animation when `bn goodbye` is called, not when the agent is removed
+            for (const agent of workerAgents) {
+                const agentId = agent.id || `agent-${agent.pid}`;
+                if (agent.goodbye_at && !state.goodbyeParticleSpawned.has(agentId)) {
+                    state.goodbyeParticleSpawned.add(agentId);
+                    // Find the agent's node to get its position for particles
+                    const agentNode = (state.tasks || []).find(t => t.id === agentId && t.type === 'agent');
+                    if (agentNode) {
+                        spawnGoodbyeParticles(agentNode.x, agentNode.y, agentId);
+                    }
+                }
+            }
             
             // Combine active agents with departing agents (for fade-out animation)
             const allAgentNodes = [...normalizedAgents, ...departingAgentNodes];
@@ -9021,6 +9036,8 @@
             for (const [agentId, departureTime] of state.departingAgents.entries()) {
                 if (now - departureTime >= AGENT_DEPARTURE_FADE_MS) {
                     state.departingAgents.delete(agentId);
+                    // Also clean up the goodbye particle tracking for this agent
+                    state.goodbyeParticleSpawned.delete(agentId);
                 }
             }
 
