@@ -23,3 +23,7 @@ target
 # Block archive files from upload
 *.tar.gz
 *.bng
+
+# WASM build artifacts (wasm-pack output)
+pkg/
+*.wasm
