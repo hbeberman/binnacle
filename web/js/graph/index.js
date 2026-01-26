@@ -34,7 +34,9 @@ export {
     centerOn,
     resetViewport,
     getVisibleBounds,
-    isInViewport
+    isInViewport,
+    panToNode,
+    cancelPanAnimation
 } from './transform.js';
 
 // Re-export shape drawing functions
@@ -68,5 +70,6 @@ export {
     init as initCamera,
     zoomIn,
     zoomOut,
-    resetCamera
+    resetCamera,
+    resumeAutoFollow
 } from './camera.js';

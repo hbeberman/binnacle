@@ -173,3 +173,123 @@ export function isInViewport(worldX, worldY, margin, canvas) {
         worldY <= bounds.maxY + margin
     );
 }
+
+// Animation state for pan-to-node
+let panAnimation = null;
+
+/**
+ * Ease-in-out-cubic timing function
+ * @param {number} t - Progress value from 0 to 1
+ * @returns {number} Eased progress value
+ */
+function easeInOutCubic(t) {
+    return t < 0.5 
+        ? 4 * t * t * t 
+        : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/**
+ * Calculate adaptive animation duration based on distance
+ * @param {number} distance - Distance in screen pixels
+ * @returns {number} Duration in milliseconds
+ */
+function calculateDuration(distance) {
+    if (distance < 300) return 300;
+    if (distance < 800) return 500;
+    return 800;
+}
+
+/**
+ * Smoothly pan camera to center on a world position with optional zoom
+ * @param {number} targetX - Target world X coordinate
+ * @param {number} targetY - Target world Y coordinate
+ * @param {Object} options - Animation options
+ * @param {number} [options.targetZoom] - Optional target zoom level
+ * @param {number} [options.duration] - Override duration in ms (default: adaptive)
+ * @param {Function} [options.onComplete] - Callback when animation completes
+ * @param {HTMLCanvasElement} [options.canvas] - Canvas element (for distance calculation)
+ */
+export function panToNode(targetX, targetY, options = {}) {
+    // Cancel any existing animation
+    if (panAnimation) {
+        cancelAnimationFrame(panAnimation.frameId);
+    }
+    
+    const viewport = state.get('ui.viewport');
+    const startPanX = viewport.panX;
+    const startPanY = viewport.panY;
+    const startZoom = viewport.zoom;
+    
+    const targetPanX = -targetX;
+    const targetPanY = -targetY;
+    const targetZoom = options.targetZoom !== undefined ? options.targetZoom : startZoom;
+    
+    // Calculate distance for adaptive duration
+    let duration = options.duration;
+    if (duration === undefined && options.canvas) {
+        const canvas = options.canvas;
+        const startScreen = worldToScreen(targetX, targetY, canvas);
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const distance = Math.sqrt(
+            Math.pow(startScreen.x - centerX, 2) + 
+            Math.pow(startScreen.y - centerY, 2)
+        );
+        duration = calculateDuration(distance);
+    } else if (duration === undefined) {
+        duration = 500; // Default duration if no canvas provided
+    }
+    
+    const startTime = performance.now();
+    
+    // Animation state
+    panAnimation = {
+        frameId: null,
+        cancelled: false
+    };
+    
+    function animate(currentTime) {
+        if (panAnimation.cancelled) {
+            return;
+        }
+        
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1.0);
+        const eased = easeInOutCubic(progress);
+        
+        // Interpolate pan and zoom
+        const currentPanX = startPanX + (targetPanX - startPanX) * eased;
+        const currentPanY = startPanY + (targetPanY - startPanY) * eased;
+        const currentZoom = startZoom + (targetZoom - startZoom) * eased;
+        
+        // Update viewport
+        state.set('ui.viewport.panX', currentPanX);
+        state.set('ui.viewport.panY', currentPanY);
+        state.set('ui.viewport.zoom', currentZoom);
+        
+        if (progress < 1.0) {
+            panAnimation.frameId = requestAnimationFrame(animate);
+        } else {
+            // Animation complete
+            panAnimation = null;
+            if (options.onComplete) {
+                options.onComplete();
+            }
+        }
+    }
+    
+    panAnimation.frameId = requestAnimationFrame(animate);
+}
+
+/**
+ * Cancel any ongoing pan animation
+ */
+export function cancelPanAnimation() {
+    if (panAnimation) {
+        panAnimation.cancelled = true;
+        if (panAnimation.frameId) {
+            cancelAnimationFrame(panAnimation.frameId);
+        }
+        panAnimation = null;
+    }
+}
