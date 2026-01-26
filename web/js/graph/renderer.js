@@ -258,7 +258,6 @@ function applyPhysics() {
     const EDGE_ATTRACTION = 0.01;      // Edges pull nodes together
     const CENTER_GRAVITY = 0.001;      // Weak pull toward center
     const DAMPING = 0.85;              // Friction to stabilize
-    const MIN_DISTANCE = 50;           // Minimum separation
     
     // Reset forces
     for (const node of visibleNodes) {
@@ -275,10 +274,11 @@ function applyPhysics() {
             const dx = b.x - a.x;
             const dy = b.y - a.y;
             const distSq = dx * dx + dy * dy;
-            const dist = Math.sqrt(distSq) || 1;
             
-            if (dist < MIN_DISTANCE) continue;
+            // Skip if nodes are at exactly the same position
+            if (distSq === 0) continue;
             
+            const dist = Math.sqrt(distSq);
             const force = REPULSION_STRENGTH / distSq;
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
