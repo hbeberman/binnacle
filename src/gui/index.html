@@ -3963,6 +3963,50 @@
 
         .queue-toggle-switch.active::after {
             transform: translateX(18px);
+        }
+
+        /* Doc open button in info panel */
+        .info-panel-doc-open-section {
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .info-panel-doc-open-label {
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .info-panel-doc-open-label::before {
+            content: '📄';
+        }
+
+        .doc-open-btn {
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            background: var(--accent-blue);
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: background 0.2s ease, transform 0.1s ease;
+        }
+
+        .doc-open-btn:hover {
+            background: #3b82f6;
+            transform: translateY(-1px);
+        }
+
+        .doc-open-btn:active {
+            transform: translateY(0);
             background: white;
         }
 
@@ -5063,6 +5107,10 @@
                         <div id="info-panel-queue-section" class="info-panel-queue-section" style="display: none;">
                             <span class="info-panel-queue-label">In Queue</span>
                             <button id="queue-toggle-btn" class="queue-toggle-switch" title="Toggle queue membership"></button>
+                        </div>
+                        <div id="info-panel-doc-open-section" class="info-panel-doc-open-section" style="display: none;">
+                            <span class="info-panel-doc-open-label">View Document</span>
+                            <button id="doc-open-btn" class="doc-open-btn" title="Open document viewer">Open</button>
                         </div>
                         <div id="info-panel-description-section" class="info-panel-section">
                             <div class="info-panel-section-title">Description</div>
@@ -6859,6 +6907,13 @@
                         return true;
                     }
                     
+                    // Check if it's a doc node - open doc viewer
+                    if (node.type === 'doc') {
+                        openDocViewer(node.id);
+                        e.preventDefault();
+                        return true;
+                    }
+                    
                     // Toggle selection for non-agent nodes
                     if (state.graph.selectedNode === node) {
                         state.graph.selectedNode = null;
@@ -8199,6 +8254,15 @@
                 queueSection.style.display = 'none';
             }
 
+            // Doc open button - only show for doc nodes
+            const docOpenSection = document.getElementById('info-panel-doc-open-section');
+            if (task.type === 'doc') {
+                docOpenSection.style.display = 'flex';
+                docOpenSection.dataset.docId = task.id;
+            } else {
+                docOpenSection.style.display = 'none';
+            }
+
             // Show panel
             panel.classList.add('visible');
         }
@@ -8585,6 +8649,15 @@
                 showToast('Failed to toggle queue: ' + err.message, 'error');
             } finally {
                 queueToggle.disabled = false;
+            }
+        });
+
+        // Doc open button click handler
+        document.getElementById('doc-open-btn').addEventListener('click', () => {
+            const docOpenSection = document.getElementById('info-panel-doc-open-section');
+            const docId = docOpenSection.dataset.docId;
+            if (docId) {
+                openDocViewer(docId);
             }
         });
 
