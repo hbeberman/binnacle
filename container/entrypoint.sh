@@ -68,16 +68,12 @@ BN_AUTO_MERGE="${BN_AUTO_MERGE:-true}"
 
 cd /workspace
 
-# Configure git identity via environment variables.
-# This is the most reliable way to set identity in containers since:
-# 1. It doesn't require writing to .git/config (which may be shared with host)
-# 2. It works regardless of HOME directory permissions
-# 3. It overrides any existing config without modifying files
-# The host can pre-configure these by passing GIT_AUTHOR_* / GIT_COMMITTER_* env vars.
-export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-binnacle-worker@container.local}"
-export GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-binnacle-worker@container.local}"
-export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-Binnacle Worker}"
-export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-Binnacle Worker}"
+# Git identity: respect existing configuration.
+# The container inherits git identity from:
+# 1. GIT_AUTHOR_*/GIT_COMMITTER_* env vars passed by the host
+# 2. The mounted workspace's .git/config
+# 3. The host's ~/.gitconfig (if HOME is mounted)
+# We do NOT set fallback defaults - commits should use the user's identity.
 
 # Orient the agent
 echo "🧭 Orienting agent (type: $BN_AGENT_TYPE)..."
