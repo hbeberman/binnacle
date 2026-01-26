@@ -93,14 +93,10 @@ fi
 # Run the AI agent
 echo "🤖 Starting AI agent..."
 
-# Print the system prompt with visible header/footer for log visibility
-echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-echo "║                              SYSTEM PROMPT                                   ║"
-echo "╠══════════════════════════════════════════════════════════════════════════════╣"
-echo "$BN_INITIAL_PROMPT" | while IFS= read -r line; do
-    echo "║ $line"
-done
-echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+# Print the system prompt for log visibility
+echo "--- SYSTEM PROMPT ---"
+echo "$BN_INITIAL_PROMPT"
+echo "--- END PROMPT ---"
 
 if command -v copilot &> /dev/null; then
     copilot --allow-all -p "$BN_INITIAL_PROMPT"
