@@ -257,6 +257,37 @@ pub enum Commands {
     },
 
     /// Container management commands (requires containerd/buildah)
+    #[command(
+        long_about = "Container management commands (requires containerd/buildah)
+
+ROOTLESS SETUP (recommended to avoid sudo):
+
+By default, binnacle uses system containerd which requires 'sudo'. For a better experience 
+without sudo, set up rootless containerd:
+
+1. Install containerd with rootless support:
+   # Fedora/RHEL
+   sudo dnf install containerd rootlesskit slirp4netns
+   
+   # Debian/Ubuntu
+   sudo apt install containerd rootlesskit slirp4netns uidmap
+
+2. Set up subuid/subgid ranges for your user:
+   sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER
+
+3. Enable and start rootless containerd:
+   containerd-rootless-setuptool.sh install
+   
+   # Or use systemd user service:
+   systemctl --user enable --now containerd
+   loginctl enable-linger $USER
+
+4. Verify the socket exists:
+   ls $XDG_RUNTIME_DIR/containerd/containerd.sock
+
+For detailed instructions, see: container/README.md
+"
+    )]
     Container {
         #[command(subcommand)]
         command: ContainerCommands,
