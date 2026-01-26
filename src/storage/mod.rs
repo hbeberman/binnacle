@@ -1822,6 +1822,26 @@ impl Storage {
         Ok(bugs)
     }
 
+    /// Get milestones that are in the queue.
+    pub fn get_queued_milestones(&self) -> Result<Vec<Milestone>> {
+        let queue = match self.get_queue() {
+            Ok(q) => q,
+            Err(_) => return Ok(Vec::new()),
+        };
+
+        let edges = self.list_edges(Some(EdgeType::Queued), None, Some(&queue.id))?;
+        let mut milestones = Vec::new();
+        for edge in edges {
+            if let Ok(milestone) = self.get_milestone(&edge.source) {
+                milestones.push(milestone);
+            }
+        }
+
+        // Sort by priority
+        milestones.sort_by_key(|m| m.priority);
+        Ok(milestones)
+    }
+
     /// Cache a queue in the SQLite database.
     fn cache_queue(&self, queue: &Queue) -> Result<()> {
         self.conn.execute(

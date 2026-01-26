@@ -38,6 +38,18 @@ fn extract_queue_id(output: &std::process::Output) -> String {
     stdout[id_start + 6..id_end].to_string()
 }
 
+/// Extract milestone ID from JSON output containing "id":"bn-xxxx"
+/// Note: Milestones use the standard "bn-" prefix, same as tasks
+fn extract_milestone_id(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Milestones use "bn-" prefix like tasks - extract from output
+    let id_start = stdout
+        .find("\"id\":\"bn-")
+        .expect("milestone id not found");
+    let id_end = stdout[id_start + 6..].find('"').unwrap() + id_start + 6;
+    stdout[id_start + 6..id_end].to_string()
+}
+
 // === Queue CRUD Tests ===
 
 #[test]
@@ -801,3 +813,37 @@ fn test_queue_add_accepts_open_bug() {
         .success()
         .stdout(predicate::str::contains("item_id"));
 }
+
+#[test]
+fn test_add_milestone_to_queue() {
+    let temp = init_binnacle();
+
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    let milestone_output = bn_in(&temp)
+        .args(["milestone", "create", "Release 1.0"])
+        .output()
+        .unwrap();
+    let milestone_id = extract_milestone_id(&milestone_output);
+
+    // Add milestone to queue using queue add command
+    bn_in(&temp)
+        .args(["queue", "add", &milestone_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&queue_id))
+        .stdout(predicate::str::contains(&milestone_id));
+
+    // Verify milestone appears in queue show
+    bn_in(&temp)
+        .args(["queue", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&milestone_id))
+        .stdout(predicate::str::contains("Release 1.0"));
+}
+

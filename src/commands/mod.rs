@@ -3837,17 +3837,17 @@ impl Output for TaskClosed {
     }
 }
 
-/// Remove a task from all queues it's in (queued links) when it's closed.
-/// Returns the list of queue IDs the task was removed from.
-fn remove_task_from_queues(storage: &mut Storage, task_id: &str) -> Result<Vec<String>> {
+/// Remove an entity (task, bug, or milestone) from all queues it's in (queued links) when it's closed.
+/// Returns the list of queue IDs the entity was removed from.
+fn remove_entity_from_queues(storage: &mut Storage, entity_id: &str) -> Result<Vec<String>> {
     use crate::models::EdgeType;
 
-    // Find all queued edges where this task is the source
-    let queued_edges = storage.list_edges(Some(EdgeType::Queued), Some(task_id), None)?;
+    // Find all queued edges where this entity is the source
+    let queued_edges = storage.list_edges(Some(EdgeType::Queued), Some(entity_id), None)?;
 
     let mut removed_queues = Vec::new();
     for edge in queued_edges {
-        // Remove the edge (task -> queue)
+        // Remove the edge (entity -> queue)
         if storage
             .remove_edge(&edge.source, &edge.target, EdgeType::Queued)
             .is_ok()
@@ -3857,6 +3857,11 @@ fn remove_task_from_queues(storage: &mut Storage, task_id: &str) -> Result<Vec<S
     }
 
     Ok(removed_queues)
+}
+
+/// Backwards compatibility alias
+fn remove_task_from_queues(storage: &mut Storage, task_id: &str) -> Result<Vec<String>> {
+    remove_entity_from_queues(storage, task_id)
 }
 
 fn promote_partial_tasks(storage: &mut Storage) -> Result<Vec<String>> {
@@ -6904,6 +6909,9 @@ pub fn milestone_close(
 
     storage.update_milestone(&milestone)?;
 
+    // Auto-remove milestone from any queues it's in
+    let _ = remove_entity_from_queues(&mut storage, id);
+
     Ok(MilestoneClosed {
         id: id.to_string(),
         reason,
@@ -7031,6 +7039,7 @@ pub struct QueueShowResult {
     pub queue: Queue,
     pub tasks: Vec<Task>,
     pub bugs: Vec<Bug>,
+    pub milestones: Vec<Milestone>,
 }
 
 impl Output for QueueShowResult {
@@ -7050,7 +7059,7 @@ impl Output for QueueShowResult {
         }
         lines.push(String::new());
 
-        let total_items = self.tasks.len() + self.bugs.len();
+        let total_items = self.tasks.len() + self.bugs.len() + self.milestones.len();
         if total_items == 0 {
             lines.push("  No items in queue".to_string());
         } else {
@@ -7067,21 +7076,33 @@ impl Output for QueueShowResult {
                     bug.priority, bug.core.id, bug.core.title
                 ));
             }
+            for milestone in &self.milestones {
+                lines.push(format!(
+                    "    [P{}] {}: {} (milestone)",
+                    milestone.priority, milestone.core.id, milestone.core.title
+                ));
+            }
         }
 
         lines.join("\n")
     }
 }
 
-/// Show the queue and its items (tasks and bugs).
+/// Show the queue and its items (tasks, bugs, and milestones).
 pub fn queue_show(repo_path: &Path) -> Result<QueueShowResult> {
     let storage = Storage::open(repo_path)?;
 
     let queue = storage.get_queue()?;
     let tasks = storage.get_queued_tasks()?;
     let bugs = storage.get_queued_bugs()?;
+    let milestones = storage.get_queued_milestones()?;
 
-    Ok(QueueShowResult { queue, tasks, bugs })
+    Ok(QueueShowResult {
+        queue,
+        tasks,
+        bugs,
+        milestones,
+    })
 }
 
 #[derive(Serialize)]
@@ -7132,16 +7153,17 @@ impl Output for QueueItemAdded {
     }
 }
 
-/// Add a task or bug to the queue.
+/// Add a task, bug, or milestone to the queue.
 pub fn queue_add(repo_path: &Path, item_id: &str) -> Result<QueueItemAdded> {
     let mut storage = Storage::open(repo_path)?;
 
     // Verify item exists and check if it's closed
     let task_result = storage.get_task(item_id);
     let bug_result = storage.get_bug(item_id);
+    let milestone_result = storage.get_milestone(item_id);
 
-    match (&task_result, &bug_result) {
-        (Ok(task), _) => {
+    match (&task_result, &bug_result, &milestone_result) {
+        (Ok(task), _, _) => {
             // Check if task is closed (Done or Cancelled)
             if task.status == TaskStatus::Done || task.status == TaskStatus::Cancelled {
                 return Err(Error::Other(format!(
@@ -7153,7 +7175,7 @@ pub fn queue_add(repo_path: &Path, item_id: &str) -> Result<QueueItemAdded> {
                 )));
             }
         }
-        (_, Ok(bug)) => {
+        (_, Ok(bug), _) => {
             // Check if bug is closed (Done or Cancelled)
             if bug.status == TaskStatus::Done || bug.status == TaskStatus::Cancelled {
                 return Err(Error::Other(format!(
@@ -7165,9 +7187,21 @@ pub fn queue_add(repo_path: &Path, item_id: &str) -> Result<QueueItemAdded> {
                 )));
             }
         }
+        (_, _, Ok(milestone)) => {
+            // Check if milestone is closed (Done or Cancelled)
+            if milestone.status == TaskStatus::Done || milestone.status == TaskStatus::Cancelled {
+                return Err(Error::Other(format!(
+                    "Cannot add {} to queue: milestone is closed (status: {})",
+                    item_id,
+                    serde_json::to_string(&milestone.status)
+                        .unwrap_or_else(|_| "unknown".to_string())
+                        .trim_matches('"')
+                )));
+            }
+        }
         _ => {
             return Err(Error::Other(format!(
-                "Item {} is not a task or bug",
+                "Item {} is not a task, bug, or milestone",
                 item_id
             )));
         }
@@ -7220,7 +7254,7 @@ impl Output for QueueItemRemoved {
     }
 }
 
-/// Remove a task or bug from the queue.
+/// Remove a task, bug, or milestone from the queue.
 pub fn queue_rm(repo_path: &Path, item_id: &str) -> Result<QueueItemRemoved> {
     let mut storage = Storage::open(repo_path)?;
 
@@ -7867,10 +7901,10 @@ fn validate_edge_type_constraints(
             }
         }
         EdgeType::Queued => {
-            // Task/Bug → Queue
-            if source_type != "task" && source_type != "bug" {
+            // Task/Bug/Milestone → Queue
+            if source_type != "task" && source_type != "bug" && source_type != "milestone" {
                 return Err(Error::Other(format!(
-                    "queued edge requires source to be a task or bug, got: {}",
+                    "queued edge requires source to be a task, bug, or milestone, got: {}",
                     source_type
                 )));
             }

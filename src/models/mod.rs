@@ -1440,7 +1440,7 @@ pub enum EdgeType {
     ChildOf,
     /// Test verifies this work (Test → Task/Bug)
     Tests,
-    /// Task is in the queue for prioritized work (Task → Queue)
+    /// Task/Milestone is in the queue for prioritized work (Task/Milestone → Queue)
     Queued,
     /// Bug impacts this entity (Bug → Task/PRD/Milestone)
     Impacts,
