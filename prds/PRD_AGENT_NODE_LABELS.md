@@ -49,7 +49,7 @@ In `drawNode()` function, after drawing the agent person shape, add text renderi
 ```javascript
 // After drawing agent node shape
 if (node.type === 'agent') {
-    const label = node.name || node.id.split('-').pop(); // "d6ea" from "bna-d6ea"
+    const label = node.name || node.id.split('-').pop(); // "d6ea" from "bn-d6ea"
     
     ctx.save();
     ctx.font = 'bold 17px Inter, system-ui, sans-serif';
@@ -73,7 +73,7 @@ if (node.type === 'agent') {
 The agent node should support an optional `name` field:
 ```json
 {
-  "id": "bna-d6ea",
+  "id": "bn-d6ea",
   "type": "agent",
   "name": "planner",  // optional custom name
   "status": "active",
@@ -81,7 +81,7 @@ The agent node should support an optional `name` field:
 }
 ```
 
-If `name` is not set or empty, display the ID suffix (last 4 chars after "bna-").
+If `name` is not set or empty, display the ID suffix (last 4 chars after "bn-").
 
 ## Tasks
 

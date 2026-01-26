@@ -114,17 +114,17 @@ impl fmt::Display for EditorType {
 /// ```
 /// use binnacle::models::{Editor, EditorType};
 ///
-/// let agent_editor = Editor::agent("bna-57f9".to_string());
+/// let agent_editor = Editor::agent("bn-57f9".to_string());
 /// let user_editor = Editor::user("henry".to_string());
 ///
 /// assert_eq!(agent_editor.editor_type, EditorType::Agent);
-/// assert_eq!(agent_editor.identifier, "bna-57f9");
+/// assert_eq!(agent_editor.identifier, "bn-57f9");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Editor {
     /// Whether this is an agent or user edit
     pub editor_type: EditorType,
-    /// Identifier: agent ID (e.g., "bna-57f9") or username (e.g., "henry")
+    /// Identifier: agent ID (e.g., "bn-57f9") or username (e.g., "henry")
     pub identifier: String,
 }
 
@@ -1039,8 +1039,9 @@ pub enum AgentType {
 /// An AI agent registered with Binnacle for lifecycle management.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
-    /// Unique identifier (e.g., "bna-a1b2")
-    /// Generated from PID and start time for uniqueness
+    /// Unique identifier (e.g., "bn-a1b2")
+    /// Uses standard bn- prefix with entity_type=agent to distinguish from tasks.
+    /// Generated from PID and start time for uniqueness.
     /// For backward compatibility, defaults to a placeholder that gets replaced on registration
     #[serde(default = "agent_placeholder_id")]
     pub id: String,
@@ -1112,19 +1113,20 @@ fn agent_entity_type() -> String {
 
 fn agent_placeholder_id() -> String {
     // Placeholder ID for backward compatibility during deserialization
-    // Gets replaced with a proper bna-xxxx ID when calling ensure_id()
+    // Gets replaced with a proper bn-xxxx ID when calling ensure_id()
     String::new()
 }
 
 impl Agent {
     /// Generate a unique agent ID from PID and timestamp.
+    /// Uses standard bn- prefix with entity_type=agent to distinguish from tasks.
     fn generate_id(pid: u32, started_at: &DateTime<Utc>) -> String {
         let seed = format!("{}:{}", pid, started_at.timestamp_nanos_opt().unwrap_or(0));
         let mut hasher = Sha256::new();
         hasher.update(seed.as_bytes());
         let hash = hasher.finalize();
         let hash_hex = format!("{:x}", hash);
-        format!("bna-{}", &hash_hex[..4])
+        format!("bn-{}", &hash_hex[..4])
     }
 
     /// Create a new agent with the given PID, name, and type.
@@ -2122,9 +2124,9 @@ mod tests {
         assert_eq!(agent.status, AgentStatus::Active);
         // ID should be empty before ensure_id
         assert!(agent.id.is_empty());
-        // After ensure_id, it should have a proper bna-xxxx ID
+        // After ensure_id, it should have a proper bn-xxxx ID (with entity_type=agent)
         agent.ensure_id();
-        assert!(agent.id.starts_with("bna-"));
+        assert!(agent.id.starts_with("bn-"));
     }
 
     #[test]
@@ -2435,7 +2437,7 @@ mod tests {
 
     #[test]
     fn test_schema_fingerprint_editor() {
-        let editor = super::Editor::agent("bna-57f9".to_string());
+        let editor = super::Editor::agent("bn-57f9".to_string());
 
         let json = serde_json::to_string(&editor).unwrap();
         let keys = extract_json_keys(&json);
@@ -2450,11 +2452,11 @@ mod tests {
 
     #[test]
     fn test_editor_serialization_roundtrip() {
-        let agent_editor = super::Editor::agent("bna-57f9".to_string());
+        let agent_editor = super::Editor::agent("bn-57f9".to_string());
         let json = serde_json::to_string(&agent_editor).unwrap();
         let parsed: super::Editor = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.editor_type, super::EditorType::Agent);
-        assert_eq!(parsed.identifier, "bna-57f9");
+        assert_eq!(parsed.identifier, "bn-57f9");
 
         let user_editor = super::Editor::user("henry".to_string());
         let json = serde_json::to_string(&user_editor).unwrap();
@@ -2465,8 +2467,8 @@ mod tests {
 
     #[test]
     fn test_editor_display() {
-        let agent = super::Editor::agent("bna-57f9".to_string());
-        assert_eq!(format!("{}", agent), "agent:bna-57f9");
+        let agent = super::Editor::agent("bn-57f9".to_string());
+        assert_eq!(format!("{}", agent), "agent:bn-57f9");
 
         let user = super::Editor::user("henry".to_string());
         assert_eq!(format!("{}", user), "user:henry");
@@ -2580,7 +2582,7 @@ mod tests {
         let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
         doc.add_editor(super::Editor::user("henry".to_string()));
         doc.add_editor(super::Editor::user("henry".to_string())); // Duplicate
-        doc.add_editor(super::Editor::agent("bna-57f9".to_string()));
+        doc.add_editor(super::Editor::agent("bn-57f9".to_string()));
         assert_eq!(doc.editors.len(), 2);
     }
 
@@ -2663,7 +2665,7 @@ mod tests {
         doc.summary_dirty = true;
         doc.editors = vec![
             super::Editor::user("henry".to_string()),
-            super::Editor::agent("bna-57f9".to_string()),
+            super::Editor::agent("bn-57f9".to_string()),
         ];
         doc.supersedes = Some("bn-old1".to_string());
         doc.set_content("# Summary\nTest summary\n\n# Content\nTest content")

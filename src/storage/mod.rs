@@ -48,6 +48,7 @@ pub enum EntityType {
     Edge,
     Queue,
     Doc,
+    Agent,
 }
 
 impl std::fmt::Display for EntityType {
@@ -61,6 +62,7 @@ impl std::fmt::Display for EntityType {
             EntityType::Edge => write!(f, "edge"),
             EntityType::Queue => write!(f, "queue"),
             EntityType::Doc => write!(f, "doc"),
+            EntityType::Agent => write!(f, "agent"),
         }
     }
 }
@@ -2631,6 +2633,11 @@ impl Storage {
             return Ok(EntityType::Doc);
         }
 
+        // Try agent
+        if self.get_agent_by_id(id).is_ok() {
+            return Ok(EntityType::Agent);
+        }
+
         Err(Error::NotFound(id.to_string()))
     }
 
@@ -3593,7 +3600,7 @@ impl Storage {
         Ok(())
     }
 
-    /// Get agent by binnacle ID (bna-xxxx).
+    /// Get agent by binnacle ID (bn-xxxx with entity_type=agent).
     pub fn get_agent_by_id(&self, id: &str) -> Result<Agent> {
         use rusqlite::OptionalExtension;
         // First try to find in cache
@@ -5764,7 +5771,7 @@ mod tests {
         doc.content = "# Summary\nTest content".to_string();
         doc.summary_dirty = true;
         doc.editors = vec![
-            Editor::agent("bna-1234".to_string()),
+            Editor::agent("bn-1234".to_string()),
             Editor::user("henry".to_string()),
         ];
         doc.supersedes = Some("bn-doc1".to_string());

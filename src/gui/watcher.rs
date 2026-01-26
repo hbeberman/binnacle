@@ -184,7 +184,7 @@ impl EntitySnapshot {
                     if old_value != new_value {
                         updated.push(EntityChange {
                             id: id.clone(),
-                            entity_type: entity_type_from_id(id),
+                            entity_type: entity_type_from_value(new_value),
                             entity: new_value.clone(),
                         });
                     }
@@ -192,7 +192,7 @@ impl EntitySnapshot {
                 None => {
                     added.push(EntityChange {
                         id: id.clone(),
-                        entity_type: entity_type_from_id(id),
+                        entity_type: entity_type_from_value(new_value),
                         entity: new_value.clone(),
                     });
                 }
@@ -200,11 +200,12 @@ impl EntitySnapshot {
         }
 
         // Find removed entities
-        for id in self.entities.keys() {
+        // Note: For removed entities, we use the old entity's type (stored before removal)
+        for (id, old_value) in &self.entities {
             if !new.entities.contains_key(id) {
                 removed.push(EntityRemoval {
                     id: id.clone(),
-                    entity_type: entity_type_from_id(id),
+                    entity_type: entity_type_from_value(old_value),
                 });
             }
         }
@@ -217,7 +218,34 @@ impl EntitySnapshot {
     }
 }
 
-/// Determine entity type from ID prefix
+/// Determine entity type from entity JSON value.
+/// Extracts the "type" field from the entity, falling back to ID prefix detection.
+fn entity_type_from_value(value: &Value) -> &'static str {
+    // Try to get the type from the entity's "type" field
+    if let Some(type_str) = value.get("type").and_then(|t| t.as_str()) {
+        match type_str {
+            "task" => return "task",
+            "bug" => return "bug",
+            "idea" => return "idea",
+            "test" => return "test",
+            "milestone" => return "milestone",
+            "edge" => return "edge",
+            "queue" => return "queue",
+            "doc" => return "doc",
+            "agent" => return "agent",
+            _ => {}
+        }
+    }
+
+    // Fallback to ID prefix detection
+    if let Some(id) = value.get("id").and_then(|i| i.as_str()) {
+        entity_type_from_id(id)
+    } else {
+        "unknown"
+    }
+}
+
+/// Determine entity type from ID prefix (fallback for legacy IDs)
 fn entity_type_from_id(id: &str) -> &'static str {
     if id.starts_with("bnt-") {
         "test"
@@ -232,6 +260,9 @@ fn entity_type_from_id(id: &str) -> &'static str {
     } else if id.starts_with("bni-") {
         "idea"
     } else if id.starts_with("bn-") {
+        // Note: bn- prefix now includes both tasks and agents
+        // The entity_type_from_value function handles this correctly
+        // This is a fallback only
         "task"
     } else {
         "unknown"

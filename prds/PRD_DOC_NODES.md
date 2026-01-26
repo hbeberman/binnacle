@@ -37,7 +37,7 @@ Currently, binnacle entities have only titles and short descriptions. When worki
 ```json
 {
   "editor_type": "agent",  // "agent" | "user"
-  "identifier": "bna-57f9" // agent ID or username
+  "identifier": "bn-57f9"  // agent ID or username
 }
 ```
 
@@ -126,7 +126,7 @@ Doc bn-abc1 "Architecture Overview"
 3 versions:
 
   bn-abc1 (current) - 2026-01-24 by user:henry
-  bn-9f3e           - 2026-01-23 by agent:bna-57f9
+  bn-9f3e           - 2026-01-23 by agent:bn-57f9
   bn-2d4a (original)- 2026-01-22 by user:henry
 
 $ bn doc show bn-9f3e --full   # View specific version
@@ -206,7 +206,7 @@ Docs are not included in orient output to keep it focused on actionable items.
 
 ```bash
 bn doc list --type prd                    # All PRDs
-bn doc list --edited-by agent:bna-57f9    # Docs edited by specific agent
+bn doc list --edited-by agent:bn-57f9     # Docs edited by specific agent
 bn doc list --edited-by user:henry        # Docs edited by user
 bn doc list --for bn-task-123             # Docs linked to entity
 bn doc list --type prd --for bn-milestone-1  # PRDs for a milestone
@@ -273,7 +273,7 @@ bn doc list --type prd --for bn-milestone-1  # PRDs for a milestone
   "summary_dirty": false,
   "editors": [
     {"editor_type": "user", "identifier": "henry"},
-    {"editor_type": "agent", "identifier": "bna-57f9"}
+    {"editor_type": "agent", "identifier": "bn-57f9"}
   ],
   "supersedes": "bn-9f3e",
   "created_at": "2026-01-24T10:00:00Z",

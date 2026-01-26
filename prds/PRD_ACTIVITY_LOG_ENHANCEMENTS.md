@@ -59,7 +59,7 @@ Add a dropdown/chip filter for command categories:
 
 Filter by the `user` field in log entries:
 - Dropdown populated from unique users in loaded logs
-- Special handling for agent IDs (e.g., `bna-xxxx`)
+- Special handling for agent IDs (e.g., `bn-xxxx` with entity_type=agent)
 - "Human only" / "Agents only" quick filters
 
 ### 1.3 Success/Failure Toggle
@@ -495,7 +495,7 @@ Feature flags:
   "success": true,
   "error": null,
   "duration_ms": 42,
-  "user": "bna-e6e8"
+  "user": "bn-e6e8"
 }
 ```
 

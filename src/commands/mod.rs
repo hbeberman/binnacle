@@ -382,7 +382,7 @@ pub const AGENTS_MD_BLURB: &str = r#"<!-- BEGIN BINNACLE SECTION -->
 
 This project uses **bn** (binnacle) for long-horizon task/test status tracking. Run `bn orient` to get started!
 
-**After running `bn orient`**, report your assigned `agent_id` (e.g., `bna-486c`) to the user. This ID identifies your session in binnacle's tracking system.
+**After running `bn orient`**, report your assigned `agent_id` (e.g., `bn-486c`) to the user. This ID identifies your session in binnacle's tracking system.
 
 For new projects, the human should run `bn system init` which provides helpful prompts for setup.
 If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
@@ -620,7 +620,7 @@ Links connect entities in the task graph to model dependencies, relationships, a
 ## Task Workflow
 
 1. **ONE TASK AT A TIME**: Focus on a single task or bug. Complete one fully before moving to the next.
-2. **Start of session**: Run `bn orient` to understand project state, then **report your assigned `agent_id`** (e.g., `bna-486c`) to the user
+2. **Start of session**: Run `bn orient` to understand project state, then **report your assigned `agent_id`** (e.g., `bn-486c`) to the user
 3. **CLAIM before working**:
    - Run `bn ready` to see available tasks
    - **Claim your task**: `bn task update <id> --status in_progress` (required before starting!)
@@ -664,7 +664,7 @@ Links connect entities in the task graph to model dependencies, relationships, a
 ```bash
 # Start of session
 bn orient
-# Output includes agent_id (e.g., "bna-486c") - report this to the user!
+# Output includes agent_id (e.g., "bn-486c") - report this to the user!
 
 # See what's ready
 bn ready
@@ -1747,7 +1747,7 @@ pub struct OrientResult {
     /// True only if this call just initialized the store (first time setup).
     /// False if the store was already initialized before this call.
     pub just_initialized: bool,
-    /// The agent ID assigned to the calling agent (e.g., "bna-1234").
+    /// The agent ID assigned to the calling agent (e.g., "bn-1234").
     /// Agents should store this and can use it for subsequent commands.
     pub agent_id: String,
     pub total_tasks: usize,
@@ -2285,6 +2285,8 @@ pub struct GenericShowResult {
     pub queue: Option<Queue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<Doc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<Agent>,
 }
 
 impl Output for GenericShowResult {
@@ -2360,6 +2362,31 @@ impl Output for GenericShowResult {
                     "Doc data not available".to_string()
                 }
             }
+            EntityType::Agent => {
+                if let Some(ref agent) = self.agent {
+                    format!(
+                        "Agent: {} ({})\n  Name: {}\n  Type: {:?}\n  Status: {:?}\n  PID: {}\n  Started: {}\n  Last activity: {}{}",
+                        agent.id,
+                        agent
+                            .purpose
+                            .clone()
+                            .unwrap_or_else(|| "UNREGISTERED".to_string()),
+                        agent.name,
+                        agent.agent_type,
+                        agent.status,
+                        agent.pid,
+                        agent.started_at,
+                        agent.last_activity_at,
+                        agent
+                            .current_action
+                            .as_ref()
+                            .map(|a| format!("\n  Current action: {}", a))
+                            .unwrap_or_default()
+                    )
+                } else {
+                    "Agent data not available".to_string()
+                }
+            }
         }
     }
 }
@@ -2379,6 +2406,7 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
         edge: None,
         queue: None,
         doc: None,
+        agent: None,
     };
 
     match entity_type {
@@ -2411,6 +2439,9 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
         }
         EntityType::Doc => {
             result.doc = Some(storage.get_doc(id)?);
+        }
+        EntityType::Agent => {
+            result.agent = Some(storage.get_agent_by_id(id)?);
         }
     }
 
@@ -6197,7 +6228,7 @@ pub fn doc_update(
     })
 }
 
-/// Parse an editor string like "agent:bna-1234" or "user:henry" into an Editor.
+/// Parse an editor string like "agent:bn-1234" or "user:henry" into an Editor.
 fn parse_editor(s: &str) -> Result<Editor> {
     let parts: Vec<&str> = s.splitn(2, ':').collect();
     if parts.len() != 2 {
