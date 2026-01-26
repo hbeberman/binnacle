@@ -15,6 +15,8 @@ pub mod mcp;
 pub mod models;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod storage;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod sys;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 

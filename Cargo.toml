@@ -75,6 +75,10 @@ wasm = ["wasm-bindgen", "js-sys", "web-sys", "console_error_panic_hook", "getran
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }
 
+# Unix-specific dependencies
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30", features = ["user"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
