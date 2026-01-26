@@ -19,7 +19,8 @@ build mode="debug" features="":
 # Install release build with GUI to ~/.local/bin
 install: (build "release" "gui")
     mkdir -p ~/.local/bin
-    cp target/release/bn ~/.local/bin/
+    cp target/release/bn ~/.local/bin/bn.tmp
+    mv ~/.local/bin/bn.tmp ~/.local/bin/bn
     @echo "Installed bn to ~/.local/bin/bn (with GUI feature)"
 
 gui nobuild="":
