@@ -288,3 +288,155 @@
     font-size: 0.8rem;
     font-style: italic;
 }
+
+/* Node filter buttons */
+.node-filter-btn {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    width: 100%;
+}
+
+.node-filter-btn:hover {
+    border-color: var(--accent-blue);
+}
+
+.node-filter-btn.active {
+    background: #3a7bc8;
+    border-color: var(--accent-light);
+    color: white;
+}
+
+.node-filter-all {
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 0.25rem;
+    padding-bottom: 0.5rem;
+}
+
+.node-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+}
+
+.node-filter-row .node-filter-btn {
+    flex: 1;
+}
+
+.node-visibility-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 0.85rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+}
+
+.node-visibility-btn:hover {
+    border-color: var(--accent-blue);
+    opacity: 0.8;
+}
+
+.node-visibility-btn.active {
+    background: var(--info);
+    border-color: var(--info);
+    color: white;
+    opacity: 1;
+}
+
+/* Edge filter buttons */
+.edge-filter-btn {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    width: 100%;
+}
+
+.edge-filter-btn:hover {
+    border-color: var(--accent-blue);
+}
+
+.edge-filter-btn.active {
+    background: #3a7bc8;
+    border-color: var(--accent-light);
+    color: white;
+}
+
+.edge-filter-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.edge-filter-all {
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 0.25rem;
+    padding-bottom: 0.5rem;
+}
+
+.edge-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+}
+
+.edge-filter-row .edge-filter-btn {
+    flex: 1;
+}
+
+.edge-visibility-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 0.85rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+}
+
+.edge-visibility-btn:hover {
+    border-color: var(--accent-blue);
+    opacity: 0.8;
+}
+
+.edge-visibility-btn.active {
+    background: var(--info);
+    border-color: var(--info);
+    color: white;
+    opacity: 1;
+}
