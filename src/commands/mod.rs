@@ -14872,6 +14872,30 @@ pub fn serve(repo_path: &Path, interval_secs: u64, dry_run: bool, human: bool) -
     use std::thread;
     use std::time::{Duration, Instant};
 
+    // 1. Check for sudo context early (before opening containerd socket)
+    #[cfg(unix)]
+    let sudo_ctx = crate::sys::detect_sudo_context();
+
+    // 2. Open/detect containerd socket while still root (if running under sudo)
+    // This ensures we can access /run/containerd/containerd.sock if using system containerd
+    let _containerd_mode = detect_containerd_mode();
+
+    // 3. Drop privileges if sudo context exists
+    #[cfg(unix)]
+    if let Some(ref ctx) = sudo_ctx {
+        crate::sys::drop_privileges(ctx.uid, ctx.gid)
+            .map_err(|e| Error::Other(format!("Failed to drop privileges: {}", e)))?;
+
+        // 4. Set HOME env var to original user's home
+        // This ensures all file operations use the correct user's home directory
+        // SAFETY: This is safe because we're setting the HOME env var early in the
+        // process startup, before any threads are spawned or before any code
+        // reads the HOME env var
+        unsafe {
+            std::env::set_var("HOME", &ctx.home);
+        }
+    }
+
     // Set up signal handling for graceful shutdown
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
