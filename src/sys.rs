@@ -18,12 +18,14 @@ pub struct SudoContext {
 /// Returns `Some(SudoContext)` with the original user's uid, gid, and home
 /// directory if all of the following are true:
 /// 1. The process is running as root (UID 0)
-/// 2. SUDO_USER environment variable is set
+/// 2. SUDO_USER environment variable is set and not "root"
 /// 3. SUDO_UID and SUDO_GID environment variables are set and parseable
+/// 4. SUDO_UID is not 0 (not root)
 ///
 /// Returns `None` if:
 /// - Not running as root
 /// - SUDO_USER is not set (direct root login, not via sudo)
+/// - SUDO_USER is "root" or SUDO_UID is 0 (no point dropping privileges to root)
 /// - SUDO_UID or SUDO_GID cannot be parsed
 ///
 /// # Examples
@@ -49,8 +51,19 @@ pub fn detect_sudo_context() -> Option<SudoContext> {
     // Check for SUDO_USER environment variable
     let sudo_user = std::env::var("SUDO_USER").ok()?;
 
+    // Azure DevOps and some CI systems set SUDO_USER=root
+    // No point dropping privileges to root, so return None
+    if sudo_user == "root" {
+        return None;
+    }
+
     // Parse SUDO_UID and SUDO_GID
     let uid: u32 = std::env::var("SUDO_UID").ok()?.parse().ok()?;
+
+    // If SUDO_UID is 0 (root), no point dropping privileges to root
+    if uid == 0 {
+        return None;
+    }
 
     let gid: u32 = std::env::var("SUDO_GID").ok()?.parse().ok()?;
 
@@ -195,5 +208,100 @@ mod tests {
         let result = super::drop_privileges(1000, 1000);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Windows"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_detect_sudo_context_with_sudo_user_root() {
+        // Test the Azure DevOps edge case: SUDO_USER=root
+        // Even if running as root with SUDO_USER set, if SUDO_USER="root",
+        // we should return None (no point dropping privileges to root)
+
+        // We can't easily test this while actually running as root,
+        // but we can test the logic by temporarily setting env vars
+        // and checking that our function handles them correctly.
+
+        // Save original env
+        let orig_sudo_user = std::env::var("SUDO_USER").ok();
+        let orig_sudo_uid = std::env::var("SUDO_UID").ok();
+        let orig_sudo_gid = std::env::var("SUDO_GID").ok();
+
+        // Set SUDO_USER=root, SUDO_UID=0, SUDO_GID=0
+        unsafe {
+            std::env::set_var("SUDO_USER", "root");
+            std::env::set_var("SUDO_UID", "0");
+            std::env::set_var("SUDO_GID", "0");
+        }
+
+        // If we're actually running as root, this should return None
+        let current_uid = nix::unistd::geteuid();
+        if current_uid.is_root() {
+            assert_eq!(
+                detect_sudo_context(),
+                None,
+                "SUDO_USER=root should return None (no point dropping to root)"
+            );
+        }
+
+        // Restore original env
+        unsafe {
+            match orig_sudo_user {
+                Some(v) => std::env::set_var("SUDO_USER", v),
+                None => std::env::remove_var("SUDO_USER"),
+            }
+            match orig_sudo_uid {
+                Some(v) => std::env::set_var("SUDO_UID", v),
+                None => std::env::remove_var("SUDO_UID"),
+            }
+            match orig_sudo_gid {
+                Some(v) => std::env::set_var("SUDO_GID", v),
+                None => std::env::remove_var("SUDO_GID"),
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_detect_sudo_context_with_sudo_uid_zero() {
+        // Test edge case: SUDO_UID=0
+        // Even if SUDO_USER is not "root", if SUDO_UID=0, we should return None
+
+        // Save original env
+        let orig_sudo_user = std::env::var("SUDO_USER").ok();
+        let orig_sudo_uid = std::env::var("SUDO_UID").ok();
+        let orig_sudo_gid = std::env::var("SUDO_GID").ok();
+
+        // Set SUDO_USER=someuser but SUDO_UID=0
+        unsafe {
+            std::env::set_var("SUDO_USER", "someuser");
+            std::env::set_var("SUDO_UID", "0");
+            std::env::set_var("SUDO_GID", "0");
+        }
+
+        // If we're actually running as root, this should return None
+        let current_uid = nix::unistd::geteuid();
+        if current_uid.is_root() {
+            assert_eq!(
+                detect_sudo_context(),
+                None,
+                "SUDO_UID=0 should return None (no point dropping to root)"
+            );
+        }
+
+        // Restore original env
+        unsafe {
+            match orig_sudo_user {
+                Some(v) => std::env::set_var("SUDO_USER", v),
+                None => std::env::remove_var("SUDO_USER"),
+            }
+            match orig_sudo_uid {
+                Some(v) => std::env::set_var("SUDO_UID", v),
+                None => std::env::remove_var("SUDO_UID"),
+            }
+            match orig_sudo_gid {
+                Some(v) => std::env::set_var("SUDO_GID", v),
+                None => std::env::remove_var("SUDO_GID"),
+            }
+        }
     }
 }
