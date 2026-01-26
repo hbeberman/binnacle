@@ -14428,6 +14428,15 @@ fn ctr_command(mode: &ContainerdMode) -> Command {
     }
 }
 
+/// Print a warning when using system containerd (requires sudo).
+/// This is called once per operation that needs containerd access.
+fn warn_system_containerd_mode(mode: &ContainerdMode) {
+    if matches!(mode, ContainerdMode::System) {
+        eprintln!("⚠️  Using system containerd (requires sudo)");
+        eprintln!("   For rootless operation without sudo, see: bn help container");
+    }
+}
+
 /// Get the helpful installation message for container dependencies.
 fn container_deps_missing_message() -> String {
     r#"Error: containerd or buildah not found
@@ -14613,6 +14622,7 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
 
     eprintln!("📥 Importing image to containerd...");
     let mode = detect_containerd_mode();
+    warn_system_containerd_mode(&mode);
     let import_output = ctr_command(&mode)
         .args(["-n", "binnacle", "images", "import", temp_archive])
         .output()?;
@@ -14722,6 +14732,7 @@ pub fn container_run(
 
     // Detect containerd mode (rootless vs system)
     let containerd_mode = detect_containerd_mode();
+    warn_system_containerd_mode(&containerd_mode);
 
     // Check if the worker image exists in containerd
     let image_name = "localhost/binnacle-worker:latest";
@@ -15041,6 +15052,7 @@ pub fn container_stop(name: Option<String>, all: bool) -> Result<ContainerStopRe
 
     // Detect containerd mode (rootless vs system)
     let containerd_mode = detect_containerd_mode();
+    warn_system_containerd_mode(&containerd_mode);
 
     let mut stopped = Vec::new();
 
@@ -15131,6 +15143,7 @@ pub fn container_list(all: bool, _quiet: bool) -> Result<ContainerListResult> {
 
     // Detect containerd mode (rootless vs system)
     let containerd_mode = detect_containerd_mode();
+    warn_system_containerd_mode(&containerd_mode);
 
     // Get list of containers
     let output = ctr_command(&containerd_mode)
