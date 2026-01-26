@@ -11490,25 +11490,31 @@
             // Wrap consecutive <li> in <ul> (simple approach)
             html = html.replace(/((?:<li[^>]*>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
             
-            // Tables (simple implementation)
-            const tableRegex = /^\|(.+)\|$/gm;
-            const rows = html.match(tableRegex);
-            if (rows && rows.length >= 2) {
+            // Tables (improved implementation)
+            // Match consecutive table rows (lines starting with |)
+            html = html.replace(/((?:^\|.+\|$\n?)+)/gm, (match) => {
+                const rows = match.trim().split('\n');
+                if (rows.length < 2) return match; // Need at least header + separator
+                
                 let tableHtml = '<table>';
-                rows.forEach((row, i) => {
+                let isFirstDataRow = true;
+                
+                rows.forEach((row) => {
                     const cells = row.slice(1, -1).split('|').map(c => c.trim());
-                    // Skip separator row (contains only dashes)
-                    if (cells.every(c => /^[-:]+$/.test(c))) return;
                     
-                    const tag = i === 0 ? 'th' : 'td';
+                    // Skip separator row (contains only dashes and colons)
+                    if (cells.every(c => /^[-:\s]+$/.test(c))) return;
+                    
+                    // First non-separator row is header
+                    const tag = isFirstDataRow ? 'th' : 'td';
+                    if (isFirstDataRow) isFirstDataRow = false;
+                    
                     tableHtml += '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
                 });
                 tableHtml += '</table>';
                 
-                // Replace the table in the HTML
-                let rowsPattern = rows.map(r => r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\n?');
-                html = html.replace(new RegExp(rowsPattern), tableHtml);
-            }
+                return tableHtml;
+            });
             
             // Paragraphs - wrap text blocks that aren't already wrapped
             html = html.split('\n\n').map(block => {
