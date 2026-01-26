@@ -143,6 +143,9 @@ impl Storage {
         let conn = Connection::open(&db_path)?;
         Self::init_schema(&conn)?;
 
+        // Set default configuration values for new storage
+        Self::set_default_configs(&conn)?;
+
         Ok(Self { root, conn })
     }
 
@@ -614,6 +617,22 @@ impl Storage {
             "#,
         )?;
 
+        Ok(())
+    }
+
+    /// Set default configuration values for new storage.
+    /// Only sets values if they don't already exist.
+    fn set_default_configs(conn: &Connection) -> Result<()> {
+        // Insert default configs only if they don't already exist
+        // Uses INSERT OR IGNORE to avoid overwriting existing values
+        conn.execute_batch(
+            r#"
+            INSERT OR IGNORE INTO config (key, value) VALUES ('agents.worker.min', '0');
+            INSERT OR IGNORE INTO config (key, value) VALUES ('agents.worker.max', '1');
+            INSERT OR IGNORE INTO config (key, value) VALUES ('co-author.enabled', 'yes');
+            INSERT OR IGNORE INTO config (key, value) VALUES ('co-author.name', 'binnacle-bot');
+            "#,
+        )?;
         Ok(())
     }
 
@@ -5424,17 +5443,27 @@ mod tests {
     fn test_config_list() {
         let (_temp_dir, mut storage) = create_test_storage();
 
+        // Note: Storage initializes with 4 default configs:
+        // agents.worker.min, agents.worker.max, co-author.enabled, co-author.name
+        let default_count = 4;
+
         storage.set_config("alpha", "1").unwrap();
         storage.set_config("beta", "2").unwrap();
         storage.set_config("gamma", "3").unwrap();
 
         let configs = storage.list_configs().unwrap();
-        assert_eq!(configs.len(), 3);
+        assert_eq!(configs.len(), default_count + 3);
 
-        // Should be sorted by key
-        assert_eq!(configs[0], ("alpha".to_string(), "1".to_string()));
-        assert_eq!(configs[1], ("beta".to_string(), "2".to_string()));
-        assert_eq!(configs[2], ("gamma".to_string(), "3".to_string()));
+        // Should be sorted by key - verify our custom configs are present
+        // (defaults like "agents.worker.*" and "co-author.*" sort before alpha/beta/gamma)
+        let custom_configs: Vec<_> = configs
+            .iter()
+            .filter(|(k, _)| k == "alpha" || k == "beta" || k == "gamma")
+            .collect();
+        assert_eq!(custom_configs.len(), 3);
+        assert!(custom_configs.iter().any(|(k, v)| k == "alpha" && v == "1"));
+        assert!(custom_configs.iter().any(|(k, v)| k == "beta" && v == "2"));
+        assert!(custom_configs.iter().any(|(k, v)| k == "gamma" && v == "3"));
     }
 
     #[test]
@@ -6624,5 +6653,53 @@ mod tests {
         assert_eq!(worked_on_after.len(), 1);
         assert_eq!(worked_on_after[0].source, agent.id);
         assert_eq!(worked_on_after[0].target, task.core.id);
+    }
+
+    #[test]
+    fn test_default_configs_set_on_init() {
+        let env = TestEnv::new();
+        let storage = env.init_storage();
+
+        // Verify default configs are set
+        assert_eq!(
+            storage.get_config("agents.worker.min").unwrap(),
+            Some("0".to_string())
+        );
+        assert_eq!(
+            storage.get_config("agents.worker.max").unwrap(),
+            Some("1".to_string())
+        );
+        assert_eq!(
+            storage.get_config("co-author.enabled").unwrap(),
+            Some("yes".to_string())
+        );
+        assert_eq!(
+            storage.get_config("co-author.name").unwrap(),
+            Some("binnacle-bot".to_string())
+        );
+    }
+
+    #[test]
+    fn test_default_configs_not_overwritten() {
+        let env = TestEnv::new();
+        let mut storage = env.init_storage();
+
+        // Set custom values
+        storage.set_config("agents.worker.max", "5").unwrap();
+        storage.set_config("co-author.name", "custom-bot").unwrap();
+
+        // Re-open storage (which runs init_schema and set_default_configs)
+        drop(storage);
+        let storage2 = env.open_storage();
+
+        // Verify custom values were preserved (not overwritten by defaults)
+        assert_eq!(
+            storage2.get_config("agents.worker.max").unwrap(),
+            Some("5".to_string())
+        );
+        assert_eq!(
+            storage2.get_config("co-author.name").unwrap(),
+            Some("custom-bot".to_string())
+        );
     }
 }

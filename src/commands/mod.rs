@@ -19017,11 +19017,14 @@ mod tests {
     fn test_config_list() {
         let temp = setup();
 
+        // Storage now initializes with 4 default configs
+        let default_count = 4;
+
         config_set(temp.path(), "key1", "value1").unwrap();
         config_set(temp.path(), "key2", "value2").unwrap();
 
         let result = config_list(temp.path()).unwrap();
-        assert_eq!(result.count, 2);
+        assert_eq!(result.count, default_count + 2);
         assert!(
             result
                 .configs
@@ -19037,11 +19040,38 @@ mod tests {
     }
 
     #[test]
-    fn test_config_list_empty() {
+    fn test_config_list_with_defaults() {
         let temp = setup();
 
+        // Verify default configs are present after initialization
         let result = config_list(temp.path()).unwrap();
-        assert_eq!(result.count, 0);
+        assert_eq!(result.count, 4); // 4 default configs
+
+        // Verify specific defaults
+        assert!(
+            result
+                .configs
+                .iter()
+                .any(|(k, v)| k == "agents.worker.min" && v == "0")
+        );
+        assert!(
+            result
+                .configs
+                .iter()
+                .any(|(k, v)| k == "agents.worker.max" && v == "1")
+        );
+        assert!(
+            result
+                .configs
+                .iter()
+                .any(|(k, v)| k == "co-author.enabled" && v == "yes")
+        );
+        assert!(
+            result
+                .configs
+                .iter()
+                .any(|(k, v)| k == "co-author.name" && v == "binnacle-bot")
+        );
     }
 
     #[test]
