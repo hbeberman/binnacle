@@ -1930,6 +1930,9 @@ pub fn orient(
     // Check for MCP session mode (for MCP wrapper invocation)
     let mcp_session_id = std::env::var("BN_MCP_SESSION").ok();
 
+    // Check for explicit agent ID (for container/external agent management)
+    let env_agent_id = std::env::var("BN_AGENT_ID").ok();
+
     // In dry-run mode, skip agent registration and session state writing
     let agent_id = if dry_run {
         // Return a placeholder ID for dry-run mode
@@ -1955,8 +1958,52 @@ pub fn orient(
             .as_ref()
             .and_then(|sid| storage.get_agent_by_mcp_session(sid).ok());
 
-        // Check if already registered (by MCP session or PID)
-        let id = if let Some(mut existing_agent) = existing_by_session {
+        // For BN_AGENT_ID mode, check if agent with this ID already exists
+        let existing_by_env_id = env_agent_id
+            .as_ref()
+            .and_then(|id| storage.get_agent_by_id(id).ok());
+
+        // Check if already registered (by env ID > MCP session > PID)
+        let id = if let Some(mut existing_agent) = existing_by_env_id {
+            // BN_AGENT_ID mode - agent already registered with this ID
+            existing_agent.agent_type = agent_type.clone();
+            if purpose.is_some() {
+                existing_agent.purpose = purpose;
+            }
+            let id = existing_agent.id.clone();
+            storage.update_agent(&existing_agent)?;
+            let _ = storage.touch_agent(existing_agent.pid);
+            id
+        } else if let Some(ref explicit_id) = env_agent_id {
+            // BN_AGENT_ID mode - register new agent with explicit ID
+            let mut agent = if let Some(ref p) = purpose {
+                Agent::new_with_id_and_purpose(
+                    explicit_id.clone(),
+                    agent_pid,
+                    bn_pid,
+                    agent_name,
+                    agent_type.clone(),
+                    p.clone(),
+                )
+            } else {
+                Agent::new_with_id(
+                    explicit_id.clone(),
+                    agent_pid,
+                    bn_pid,
+                    agent_name,
+                    agent_type.clone(),
+                )
+            };
+
+            // Set MCP session ID if also provided
+            if let Some(ref sid) = mcp_session_id {
+                agent.mcp_session_id = Some(sid.clone());
+            }
+
+            let id = agent.id.clone();
+            storage.register_agent(&agent)?;
+            id
+        } else if let Some(mut existing_agent) = existing_by_session {
             // MCP session already registered - update it
             existing_agent.agent_type = agent_type.clone();
             if purpose.is_some() {
@@ -2002,8 +2049,8 @@ pub fn orient(
             id
         };
 
-        // Write session state for commit-msg hook detection (skip in MCP mode)
-        if mcp_session_id.is_none() {
+        // Write session state for commit-msg hook detection (skip in MCP mode and env ID mode)
+        if mcp_session_id.is_none() && env_agent_id.is_none() {
             let session_state = SessionState::new(agent_pid, agent_type);
             storage.write_session_state(&session_state)?;
         }
@@ -13715,6 +13762,7 @@ impl Output for GoodbyeResult {
 /// agent session → shell (running bn) → bn goodbye
 /// Killing the direct parent (shell) doesn't terminate the agent session.
 ///
+/// When `BN_AGENT_ID` env var is set, the agent is looked up by ID instead of PID.
 /// When `BN_MCP_SESSION` env var is set, the agent is looked up by session ID
 /// instead of by PID, and process termination is automatically skipped.
 pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<GoodbyeResult> {
@@ -13725,9 +13773,12 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     // Check for MCP session mode
     let mcp_session_id = std::env::var("BN_MCP_SESSION").ok();
 
-    // When using MCP session, we don't require valid parent/grandparent PIDs
+    // Check for explicit agent ID (for container/external agent management)
+    let env_agent_id = std::env::var("BN_AGENT_ID").ok();
+
+    // When using MCP session or explicit agent ID, we don't require valid parent/grandparent PIDs
     // since we're not going to terminate them anyway
-    if mcp_session_id.is_none() {
+    if mcp_session_id.is_none() && env_agent_id.is_none() {
         if parent_pid == 0 {
             return Err(Error::Other("Could not determine parent PID".to_string()));
         }
@@ -13743,8 +13794,13 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     // Clean up stale agents first
     let _ = storage.cleanup_stale_agents();
 
-    // Look up agent: MCP session > parent PID
-    let (agent, _agent_pid_for_removal) = if let Some(ref session_id) = mcp_session_id {
+    // Look up agent: env ID > MCP session > parent PID
+    let (agent, agent_pid_for_update) = if let Some(ref explicit_id) = env_agent_id {
+        // BN_AGENT_ID mode - look up by ID
+        let agent = storage.get_agent_by_id(explicit_id).ok();
+        let pid = agent.as_ref().map(|a| a.pid);
+        (agent, pid)
+    } else if let Some(ref session_id) = mcp_session_id {
         // MCP session mode - look up by session ID
         let agent = storage.get_agent_by_mcp_session(session_id).ok();
         let pid = agent.as_ref().map(|a| a.pid);
@@ -13772,15 +13828,23 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     // - Worker agents: should terminate after goodbye
     // - Planner agents: should NOT terminate (they produce artifacts, not long sessions)
     //   unless --force is used
-    let should_terminate = !is_planner || force;
+    // In MCP/env ID mode, should_terminate is always false (we don't terminate parent processes)
+    let should_terminate = if mcp_session_id.is_some() || env_agent_id.is_some() {
+        false
+    } else {
+        !is_planner || force
+    };
 
     // In non-MCP mode, bn will actually terminate the grandparent process
     // In MCP mode, we return should_terminate=true but don't kill anything
     // (the agent interprets the response and self-terminates)
-    let will_terminate = mcp_session_id.is_none() && should_terminate;
+    let will_terminate = mcp_session_id.is_none() && env_agent_id.is_none() && should_terminate;
 
     // Update agent with goodbye status before removing (for GUI animation)
-    if was_registered && let Ok(mut agent_data) = storage.get_agent(parent_pid) {
+    if was_registered
+        && let Some(pid) = agent_pid_for_update
+        && let Ok(mut agent_data) = storage.get_agent(pid)
+    {
         agent_data.current_action = Some("goodbye".to_string());
         agent_data.goodbye_at = Some(Utc::now());
         // Keep the agent visible for a few seconds so GUI can show goodbye animation
@@ -13797,9 +13861,12 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     let _ = bn_pid;
 
     // Add warning if no reason provided
-    let warning = if reason.is_none() && should_terminate {
+    let warning = if reason.is_none()
+        && (mcp_session_id.is_some() || env_agent_id.is_some() || should_terminate)
+    {
         Some("No reason provided. Please use: bn goodbye \"reason for termination\"".to_string())
-    } else if !should_terminate && is_planner {
+    } else if !should_terminate && mcp_session_id.is_none() && env_agent_id.is_none() && is_planner
+    {
         Some(
             "Planner agents should not call goodbye. Use --force if you must terminate."
                 .to_string(),
