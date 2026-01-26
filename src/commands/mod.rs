@@ -9435,6 +9435,41 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
         });
     }
 
+    // Check for legacy .tar.gz archives that need migration to .bng
+    if let Some(archive_dir) = config_get_archive_directory(repo_path)
+        && archive_dir.exists()
+        && let Ok(entries) = fs::read_dir(&archive_dir)
+    {
+        let mut legacy_count = 0;
+        for entry in entries.flatten() {
+            let filename = entry
+                .path()
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if filename.ends_with(".tar.gz") {
+                // Check if corresponding .bng already exists
+                let bng_filename = filename.replace(".tar.gz", ".bng");
+                let bng_path = archive_dir.join(&bng_filename);
+                if !bng_path.exists() {
+                    legacy_count += 1;
+                }
+            }
+        }
+        if legacy_count > 0 {
+            issues.push(DoctorIssue {
+                severity: "warning".to_string(),
+                category: "storage".to_string(),
+                message: format!(
+                    "Found {} legacy .tar.gz archive(s) that can be migrated to .bng format. \
+                     Run 'bn doctor --fix-archives' to migrate.",
+                    legacy_count
+                ),
+                entity_id: None,
+            });
+        }
+    }
+
     // Get archive directory configuration and size
     let archive_directory = config_get_archive_directory(repo_path);
     let archive_size_bytes = archive_directory.as_ref().and_then(|dir| {
@@ -13185,7 +13220,7 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     let _ = storage.cleanup_stale_agents();
 
     // Look up agent: MCP session > parent PID
-    let (agent, agent_pid_for_removal) = if let Some(ref session_id) = mcp_session_id {
+    let (agent, _agent_pid_for_removal) = if let Some(ref session_id) = mcp_session_id {
         // MCP session mode - look up by session ID
         let agent = storage.get_agent_by_mcp_session(session_id).ok();
         let pid = agent.as_ref().map(|a| a.pid);

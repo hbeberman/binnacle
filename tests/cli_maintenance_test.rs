@@ -116,6 +116,71 @@ fn test_doctor_human_stats() {
         .stdout(predicate::str::contains("Storage:"));
 }
 
+#[test]
+fn test_doctor_detects_legacy_tar_gz_archives() {
+    let temp = init_binnacle();
+    create_queue(&temp);
+
+    // Create a fake archive directory with a legacy .tar.gz file
+    let archive_dir = temp.path().join(".archives");
+    std::fs::create_dir_all(&archive_dir).unwrap();
+
+    // Configure archive directory
+    bn_in(&temp)
+        .args([
+            "config",
+            "set",
+            "archive.directory",
+            archive_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Create a fake legacy .tar.gz file
+    std::fs::write(archive_dir.join("bn_abc123.tar.gz"), b"fake archive").unwrap();
+
+    // Doctor should detect the legacy archive and report a warning
+    bn_in(&temp)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"healthy\":false"))
+        .stdout(predicate::str::contains("legacy .tar.gz archive"))
+        .stdout(predicate::str::contains("--fix-archives"));
+}
+
+#[test]
+fn test_doctor_ignores_migrated_archives() {
+    let temp = init_binnacle();
+    create_queue(&temp);
+
+    // Create a fake archive directory
+    let archive_dir = temp.path().join(".archives");
+    std::fs::create_dir_all(&archive_dir).unwrap();
+
+    // Configure archive directory
+    bn_in(&temp)
+        .args([
+            "config",
+            "set",
+            "archive.directory",
+            archive_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Create a .tar.gz file AND its corresponding .bng file (already migrated)
+    std::fs::write(archive_dir.join("bn_abc123.tar.gz"), b"fake archive").unwrap();
+    std::fs::write(archive_dir.join("bn_abc123.bng"), b"migrated archive").unwrap();
+
+    // Doctor should NOT report the legacy archive warning since .bng exists
+    bn_in(&temp)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"healthy\":true"));
+}
+
 // === Doctor Fix Tests ===
 
 #[test]
