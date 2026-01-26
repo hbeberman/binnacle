@@ -128,8 +128,9 @@ export function initializeNodeTypeFilters() {
         // Eye button: toggle visibility
         visBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const newFilters = { ...currentFilters };
-            newFilters[type] = !currentFilters[type];
+            const current = State.get('ui.nodeTypeFilters');
+            const newFilters = { ...current };
+            newFilters[type] = !current[type];
             
             State.set('ui.nodeTypeFilters', newFilters);
             
@@ -144,8 +145,9 @@ export function initializeNodeTypeFilters() {
         // Label button: also toggles visibility
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const newFilters = { ...currentFilters };
-            newFilters[type] = !currentFilters[type];
+            const current = State.get('ui.nodeTypeFilters');
+            const newFilters = { ...current };
+            newFilters[type] = !current[type];
             
             State.set('ui.nodeTypeFilters', newFilters);
             
@@ -259,8 +261,9 @@ export function initializeEdgeTypeFilters() {
         // Eye button: toggle visibility
         visBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const newFilters = { ...currentFilters };
-            newFilters[type] = !currentFilters[type];
+            const current = State.get('ui.edgeTypeFilters');
+            const newFilters = { ...current };
+            newFilters[type] = !current[type];
             
             State.set('ui.edgeTypeFilters', newFilters);
             
@@ -275,8 +278,9 @@ export function initializeEdgeTypeFilters() {
         // Label button: also toggles visibility
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const newFilters = { ...currentFilters };
-            newFilters[type] = !currentFilters[type];
+            const current = State.get('ui.edgeTypeFilters');
+            const newFilters = { ...current };
+            newFilters[type] = !current[type];
             
             State.set('ui.edgeTypeFilters', newFilters);
             
