@@ -1,19 +1,207 @@
 //! File system watcher for binnacle data changes
+//!
+//! This module watches the binnacle storage directory for changes and sends
+//! incremental entity messages to connected WebSocket clients.
 
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::time::Instant;
 
 use super::server::StateVersion;
+use crate::storage::Storage;
 
 /// Debounce duration - wait this long after last event before sending update
 const DEBOUNCE_MS: u64 = 100;
 
+/// Maximum number of incremental messages before falling back to reload
+const MAX_INCREMENTAL_MESSAGES: usize = 50;
+
+/// Represents a snapshot of all entities for diffing
+#[derive(Default)]
+struct EntitySnapshot {
+    /// Map from entity ID to serialized JSON value
+    entities: HashMap<String, Value>,
+}
+
+impl EntitySnapshot {
+    /// Load a snapshot of all entities from storage
+    fn load(storage: &Storage) -> Self {
+        let mut entities = HashMap::new();
+
+        // Load tasks
+        if let Ok(tasks) = storage.list_tasks(None, None, None) {
+            for task in tasks {
+                if let Ok(value) = serde_json::to_value(&task) {
+                    entities.insert(task.core.id.clone(), value);
+                }
+            }
+        }
+
+        // Load bugs
+        if let Ok(bugs) = storage.list_bugs(None, None, None, None, true) {
+            for bug in bugs {
+                if let Ok(value) = serde_json::to_value(&bug) {
+                    entities.insert(bug.core.id.clone(), value);
+                }
+            }
+        }
+
+        // Load ideas
+        if let Ok(ideas) = storage.list_ideas(None, None) {
+            for idea in ideas {
+                if let Ok(value) = serde_json::to_value(&idea) {
+                    entities.insert(idea.core.id.clone(), value);
+                }
+            }
+        }
+
+        // Load milestones
+        if let Ok(milestones) = storage.list_milestones(None, None, None) {
+            for milestone in milestones {
+                if let Ok(value) = serde_json::to_value(&milestone) {
+                    entities.insert(milestone.core.id.clone(), value);
+                }
+            }
+        }
+
+        // Load tests
+        if let Ok(tests) = storage.list_tests(None) {
+            for test in tests {
+                if let Ok(value) = serde_json::to_value(&test) {
+                    entities.insert(test.id.clone(), value);
+                }
+            }
+        }
+
+        // Load docs
+        if let Ok(docs) = storage.list_docs(None, None, None, None) {
+            for doc in docs {
+                if let Ok(value) = serde_json::to_value(&doc) {
+                    entities.insert(doc.core.id.clone(), value);
+                }
+            }
+        }
+
+        // Load queue
+        if let Ok(queue) = storage.get_queue()
+            && let Ok(value) = serde_json::to_value(&queue)
+        {
+            entities.insert(queue.id.clone(), value);
+        }
+
+        Self { entities }
+    }
+
+    /// Compute the diff between this snapshot and a new one
+    fn diff(&self, new: &EntitySnapshot) -> EntityDiff {
+        let mut added = Vec::new();
+        let mut updated = Vec::new();
+        let mut removed = Vec::new();
+
+        // Find added and updated entities
+        for (id, new_value) in &new.entities {
+            match self.entities.get(id) {
+                Some(old_value) => {
+                    if old_value != new_value {
+                        updated.push(EntityChange {
+                            id: id.clone(),
+                            entity_type: entity_type_from_id(id),
+                            entity: new_value.clone(),
+                        });
+                    }
+                }
+                None => {
+                    added.push(EntityChange {
+                        id: id.clone(),
+                        entity_type: entity_type_from_id(id),
+                        entity: new_value.clone(),
+                    });
+                }
+            }
+        }
+
+        // Find removed entities
+        for id in self.entities.keys() {
+            if !new.entities.contains_key(id) {
+                removed.push(EntityRemoval {
+                    id: id.clone(),
+                    entity_type: entity_type_from_id(id),
+                });
+            }
+        }
+
+        EntityDiff {
+            added,
+            updated,
+            removed,
+        }
+    }
+}
+
+/// Determine entity type from ID prefix
+fn entity_type_from_id(id: &str) -> &'static str {
+    if id.starts_with("bnt-") {
+        "test"
+    } else if id.starts_with("bnd-") {
+        "doc"
+    } else if id.starts_with("bnq-") {
+        "queue"
+    } else if id.starts_with("bnm-") {
+        "milestone"
+    } else if id.starts_with("bnb-") {
+        "bug"
+    } else if id.starts_with("bni-") {
+        "idea"
+    } else if id.starts_with("bn-") {
+        "task"
+    } else {
+        "unknown"
+    }
+}
+
+/// Represents a change to an entity (add or update)
+#[derive(Serialize)]
+struct EntityChange {
+    id: String,
+    entity_type: &'static str,
+    entity: Value,
+}
+
+/// Represents an entity removal
+#[derive(Serialize)]
+struct EntityRemoval {
+    id: String,
+    entity_type: &'static str,
+}
+
+/// Diff between two entity snapshots
+struct EntityDiff {
+    added: Vec<EntityChange>,
+    updated: Vec<EntityChange>,
+    removed: Vec<EntityRemoval>,
+}
+
+impl EntityDiff {
+    /// Check if the diff is empty
+    fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.updated.is_empty() && self.removed.is_empty()
+    }
+
+    /// Total number of changes
+    fn total_changes(&self) -> usize {
+        self.added.len() + self.updated.len() + self.removed.len()
+    }
+}
+
 /// Watch the binnacle storage directory for changes
 pub async fn watch_storage(
     storage_path: PathBuf,
+    repo_path: PathBuf,
     update_tx: broadcast::Sender<String>,
     version: StateVersion,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -31,6 +219,11 @@ pub async fn watch_storage(
 
     // Watch the storage directory
     watcher.watch(&storage_path, RecursiveMode::Recursive)?;
+
+    // Load initial snapshot
+    let storage = Storage::open(&repo_path)?;
+    let mut current_snapshot = EntitySnapshot::load(&storage);
+    drop(storage);
 
     // Debounce state: track when we last saw a relevant event
     let mut pending_update = false;
@@ -70,16 +263,90 @@ pub async fn watch_storage(
                 }
             }
             _ = tokio::time::sleep(timeout), if pending_update => {
-                // Debounce timeout expired, increment version and send the update
+                // Debounce timeout expired, compute and send incremental updates
                 let new_version = version.increment();
-                let _ = update_tx.send(
-                    serde_json::json!({
-                        "type": "reload",
-                        "version": new_version,
-                        "timestamp": chrono::Utc::now().to_rfc3339()
-                    })
-                    .to_string(),
-                );
+                let timestamp = chrono::Utc::now().to_rfc3339();
+
+                // Load new snapshot and compute diff
+                match Storage::open(&repo_path) {
+                    Ok(storage) => {
+                        let new_snapshot = EntitySnapshot::load(&storage);
+                        drop(storage);
+
+                        let diff = current_snapshot.diff(&new_snapshot);
+
+                        if diff.is_empty() {
+                            // No actual entity changes, skip sending anything
+                        } else if diff.total_changes() > MAX_INCREMENTAL_MESSAGES {
+                            // Too many changes, fall back to reload
+                            let _ = update_tx.send(
+                                serde_json::json!({
+                                    "type": "reload",
+                                    "version": new_version,
+                                    "timestamp": timestamp
+                                })
+                                .to_string(),
+                            );
+                        } else {
+                            // Send incremental messages
+                            for change in &diff.added {
+                                let _ = update_tx.send(
+                                    serde_json::json!({
+                                        "type": "entity_added",
+                                        "entity_type": change.entity_type,
+                                        "id": change.id,
+                                        "entity": change.entity,
+                                        "version": new_version,
+                                        "timestamp": timestamp
+                                    })
+                                    .to_string(),
+                                );
+                            }
+
+                            for change in &diff.updated {
+                                let _ = update_tx.send(
+                                    serde_json::json!({
+                                        "type": "entity_updated",
+                                        "entity_type": change.entity_type,
+                                        "id": change.id,
+                                        "entity": change.entity,
+                                        "version": new_version,
+                                        "timestamp": timestamp
+                                    })
+                                    .to_string(),
+                                );
+                            }
+
+                            for removal in &diff.removed {
+                                let _ = update_tx.send(
+                                    serde_json::json!({
+                                        "type": "entity_removed",
+                                        "entity_type": removal.entity_type,
+                                        "id": removal.id,
+                                        "version": new_version,
+                                        "timestamp": timestamp
+                                    })
+                                    .to_string(),
+                                );
+                            }
+                        }
+
+                        // Update current snapshot for next diff
+                        current_snapshot = new_snapshot;
+                    }
+                    Err(_) => {
+                        // Couldn't open storage, fall back to reload
+                        let _ = update_tx.send(
+                            serde_json::json!({
+                                "type": "reload",
+                                "version": new_version,
+                                "timestamp": timestamp
+                            })
+                            .to_string(),
+                        );
+                    }
+                }
+
                 pending_update = false;
             }
         }

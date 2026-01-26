@@ -184,10 +184,16 @@ pub async fn start_server(
     // Start file watcher in background
     let watcher_tx = state.update_tx.clone();
     let watcher_version = state.version.clone();
-    let watcher_path = storage_dir.clone();
+    let watcher_storage_path = storage_dir.clone();
+    let watcher_repo_path = repo_path.to_path_buf();
     tokio::spawn(async move {
-        if let Err(e) =
-            crate::gui::watcher::watch_storage(watcher_path, watcher_tx, watcher_version).await
+        if let Err(e) = crate::gui::watcher::watch_storage(
+            watcher_storage_path,
+            watcher_repo_path,
+            watcher_tx,
+            watcher_version,
+        )
+        .await
         {
             eprintln!("File watcher error: {}", e);
         }
