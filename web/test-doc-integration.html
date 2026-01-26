@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doc Viewer Integration Test</title>
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components/info-panel.css">
+    <link rel="stylesheet" href="css/components/doc-viewer.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        #controls {
+            margin-bottom: 20px;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+        
+        #controls h2 {
+            margin-top: 0;
+        }
+        
+        .test-btn {
+            margin: 0.5rem 0.5rem 0.5rem 0;
+            padding: 0.5rem 1rem;
+            background: var(--accent-blue);
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .test-btn:hover {
+            background: #3b82f6;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <h2>Doc Viewer + Info Panel Integration Test</h2>
+        <p>This test demonstrates the complete workflow: clicking on a doc node shows the info panel, and clicking the "Open" button shows the doc viewer overlay.</p>
+        <button id="test-doc-node" class="test-btn">Show Doc Node in Info Panel</button>
+        <button id="test-prd-node" class="test-btn">Show PRD Doc</button>
+        <button id="test-note-node" class="test-btn">Show Note Doc</button>
+    </div>
+    
+    <div id="app"></div>
+    
+    <script type="module">
+        import { 
+            createInfoPanel, 
+            initializeInfoPanel,
+            showInfoPanel,
+            updateInfoPanelContent
+        } from './js/components/info-panel.js';
+        import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
+        import { setEntities } from './js/state.js';
+        
+        const container = document.getElementById('app');
+        
+        // Populate state with test documents
+        setEntities('docs', [
+            {
+                id: 'bn-doc1',
+                type: 'doc',
+                title: 'Implementation Notes for Auth Feature',
+                description: 'Detailed notes on implementing JWT authentication',
+                content: '# Implementation Notes\n\nThis document describes the JWT authentication implementation.\n\n## Requirements\n\n- Secure token generation\n- Token validation middleware\n- Refresh token support\n\n## Security Considerations\n\n- Use strong secret keys\n- Implement token expiration\n- Validate all claims',
+                doc_type: 'note',
+                tags: ['backend', 'security'],
+                created_at: new Date().toISOString()
+            },
+            {
+                id: 'bn-doc2',
+                type: 'doc',
+                title: 'PRD: User Authentication System',
+                description: 'Product requirements for the authentication system',
+                content: '# PRD: User Authentication System\n\n## Overview\n\nThis PRD outlines the requirements for implementing user authentication.\n\n## Goals\n\n1. Secure user login/logout\n2. Session management\n3. Password reset functionality\n\n## Non-Goals\n\n- OAuth integration (future phase)\n- Multi-factor authentication (future phase)',
+                doc_type: 'prd',
+                tags: ['product', 'auth'],
+                created_at: new Date().toISOString()
+            },
+            {
+                id: 'bn-doc3',
+                type: 'doc',
+                title: 'Handoff: Migration to New Auth System',
+                description: 'Handoff notes for the authentication migration',
+                content: '# Handoff Notes\n\n## Current Status\n\n- Old session system still in use\n- JWT implementation 80% complete\n- Tests passing for core functionality\n\n## Next Steps\n\n1. Complete remaining edge cases\n2. Update documentation\n3. Deploy to staging',
+                doc_type: 'handoff',
+                tags: ['migration'],
+                created_at: new Date().toISOString()
+            }
+        ]);
+        
+        // Create and mount info panel
+        const panel = createInfoPanel();
+        container.appendChild(panel);
+        
+        // Mount doc viewer
+        mountDocViewer(container);
+        
+        // Initialize info panel with doc viewer integration
+        initializeInfoPanel(panel, {
+            onClose: () => console.log('Panel closed'),
+            onTabChange: (tabName) => console.log('Tab changed to:', tabName),
+            onQueueToggle: (nodeId) => console.log('Queue toggle for:', nodeId),
+            onDocOpen: () => {
+                // Get the current doc ID from the panel
+                const docOpenSection = document.getElementById('info-panel-doc-open-section');
+                const docId = docOpenSection?.dataset?.docId;
+                if (docId) {
+                    console.log('Opening doc viewer for:', docId);
+                    showDocViewer(docId);
+                } else {
+                    console.error('No doc ID found in panel');
+                }
+            },
+            onViewFullLog: () => console.log('View full log clicked')
+        });
+        
+        // Test buttons
+        document.getElementById('test-doc-node').addEventListener('click', () => {
+            const doc = {
+                id: 'bn-doc1',
+                type: 'doc',
+                title: 'Implementation Notes for Auth Feature',
+                description: 'Detailed notes on implementing JWT authentication',
+                tags: ['backend', 'security'],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+            updateInfoPanelContent(panel, doc, [], [], []);
+            showInfoPanel(panel);
+        });
+        
+        document.getElementById('test-prd-node').addEventListener('click', () => {
+            const doc = {
+                id: 'bn-doc2',
+                type: 'doc',
+                title: 'PRD: User Authentication System',
+                description: 'Product requirements for the authentication system',
+                tags: ['product', 'auth'],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+            updateInfoPanelContent(panel, doc, [], [], []);
+            showInfoPanel(panel);
+        });
+        
+        document.getElementById('test-note-node').addEventListener('click', () => {
+            const doc = {
+                id: 'bn-doc3',
+                type: 'doc',
+                title: 'Handoff: Migration to New Auth System',
+                description: 'Handoff notes for the authentication migration',
+                tags: ['migration'],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+            updateInfoPanelContent(panel, doc, [], [], []);
+            showInfoPanel(panel);
+        });
+    </script>
+</body>
+</html>
