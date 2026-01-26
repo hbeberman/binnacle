@@ -229,3 +229,62 @@
     color: var(--text-secondary);
     font-size: 0.85rem;
 }
+
+/* Agent list component styles */
+.agent-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.agent-item:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+}
+
+.agent-item-status {
+    font-size: 1rem;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.agent-item-content {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.agent-item-name {
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary);
+}
+
+.agent-item-time {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 0.15rem;
+}
+
+.agent-list-empty {
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-style: italic;
+}
