@@ -615,6 +615,21 @@
             text-align: center;
         }
 
+        .card-in-progress {
+            border-color: var(--warning);
+        }
+
+        .in-progress-banner {
+            background: var(--warning);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-radius: 4px 4px 0 0;
+            margin: -0.75rem -0.75rem 0.5rem -0.75rem;
+            text-align: center;
+        }
+
         /* Left sidebar (hover to expand) */
         .agents-sidebar {
             position: absolute;
@@ -10481,14 +10496,16 @@
             const isQueued = isNodeQueued(node.id);
             const isReady = readyIds.has(node.id);
             const isClosed = node.status === 'done' || node.status === 'cancelled';
-            const isBlocked = !isClosed && (node.status === 'blocked' || !isReady);
+            const isInProgress = node.status === 'in_progress';
+            const isBlocked = !isClosed && !isInProgress && (node.status === 'blocked' || !isReady);
             const isBug = node.nodeType === 'bug';
             const blockingReasons = isBlocked ? getBlockingReasons(node.id) : [];
             const reasonText = blockingReasons.length > 0 ? blockingReasons[0] : '';
             
             return `
-            <div class="card ${isBlocked ? 'card-blocked' : ''} ${isClosed ? 'card-closed' : ''}">
+            <div class="card ${isBlocked ? 'card-blocked' : ''} ${isClosed ? 'card-closed' : ''} ${isInProgress ? 'card-in-progress' : ''}">
                 ${isClosed ? `<div class="closed-banner">✓ ${node.status === 'done' ? (isBug ? 'Fixed' : 'Done') : 'Cancelled'}</div>` : ''}
+                ${isInProgress ? `<div class="in-progress-banner">⚡ In Progress</div>` : ''}
                 ${isBlocked ? `<div class="blocked-banner">🚫 Blocked${reasonText ? `<div class="blocked-reason" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</div>` : ''}</div>` : ''}
                 <div class="card-header">
                     <div class="card-title">${isBug ? '🐛 ' : ''}${escapeHtml(node.title)}</div>
