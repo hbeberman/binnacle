@@ -9,6 +9,38 @@ Task tracker for AI agents. Stores data outside your repo so it doesn't pollute 
 > [!WARNING]
 > Early alpha. Things may break.
 
+## Build Prerequisites
+
+### Rust Toolchain
+
+Install Rust via [rustup](https://rustup.rs/):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### System Dependencies
+
+**Fedora/RHEL/Rocky Linux:**
+
+```bash
+sudo dnf install gcc make pkg-config openssl-devel
+```
+
+**Ubuntu/Debian:**
+
+```bash
+sudo apt-get update
+sudo apt-get install build-essential pkg-config libssl-dev
+```
+
+**For WASM viewer builds** (optional):
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+```
+
 ## Install
 
 ```bash

@@ -43,9 +43,7 @@ fn extract_queue_id(output: &std::process::Output) -> String {
 fn extract_milestone_id(output: &std::process::Output) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Milestones use "bn-" prefix like tasks - extract from output
-    let id_start = stdout
-        .find("\"id\":\"bn-")
-        .expect("milestone id not found");
+    let id_start = stdout.find("\"id\":\"bn-").expect("milestone id not found");
     let id_end = stdout[id_start + 6..].find('"').unwrap() + id_start + 6;
     stdout[id_start + 6..id_end].to_string()
 }
@@ -846,4 +844,3 @@ fn test_add_milestone_to_queue() {
         .stdout(predicate::str::contains(&milestone_id))
         .stdout(predicate::str::contains("Release 1.0"));
 }
-
