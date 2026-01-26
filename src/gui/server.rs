@@ -1153,10 +1153,10 @@ async fn get_ws_metrics(State(state): State<AppState>) -> Json<serde_json::Value
     Json(serde_json::json!({ "websocket": metrics }))
 }
 
-/// Get current state version
-async fn get_version(State(state): State<AppState>) -> Json<serde_json::Value> {
+/// Get current binnacle version
+async fn get_version(State(_state): State<AppState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
-        "version": state.version.current(),
+        "version": env!("CARGO_PKG_VERSION"),
         "timestamp": chrono::Utc::now().to_rfc3339()
     }))
 }
