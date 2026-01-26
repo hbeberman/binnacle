@@ -4,7 +4,6 @@ use axum::{
     Json, Router,
     extract::{Path as AxumPath, Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse},
     routing::{get, post},
 };
 use serde::Deserialize;
@@ -13,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{Mutex, broadcast};
+use tower_http::services::ServeDir;
 
 /// Default starting port for the GUI server
 pub const DEFAULT_PORT: u16 = 3030;
@@ -309,8 +309,34 @@ pub async fn start_server(
         }
     });
 
+    // Find the web directory (project root / web)
+    // Start by checking if repo_path itself has a web/ subdirectory
+    let web_dir = {
+        let mut current = repo_path;
+        loop {
+            let web_path = current.join("web");
+            if web_path.exists() && web_path.is_dir() {
+                break Some(web_path);
+            }
+            current = match current.parent() {
+                Some(p) => p,
+                None => break None,
+            };
+        }
+    }
+    .or_else(|| {
+        // Fallback: try relative to current directory
+        let cwd = std::env::current_dir().ok()?;
+        let web_path = cwd.join("web");
+        if web_path.exists() && web_path.is_dir() {
+            Some(web_path)
+        } else {
+            None
+        }
+    })
+    .ok_or("Could not find web/ directory")?;
+
     let app = Router::new()
-        .route("/", get(serve_index))
         .route("/api/config", get(get_config))
         .route("/api/tasks", get(get_tasks))
         .route("/api/bugs", get(get_bugs))
@@ -340,7 +366,8 @@ pub async fn start_server(
         .route("/api/metrics/ws", get(get_ws_metrics))
         .route("/api/version", get(get_version))
         .route("/ws", get(crate::gui::websocket::ws_handler))
-        .with_state(state);
+        .with_state(state)
+        .fallback_service(ServeDir::new(&web_dir));
 
     let host_addr: std::net::IpAddr = host
         .parse()
@@ -357,11 +384,6 @@ pub async fn start_server(
     axum::serve(listener, app).await?;
 
     Ok(())
-}
-
-/// Serve the main HTML page
-async fn serve_index() -> impl IntoResponse {
-    Html(include_str!("index.html"))
 }
 
 /// Get configuration info (project name, readonly mode, etc.)

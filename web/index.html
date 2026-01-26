@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binnacle - Agent Navigation Graph</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>">
+    
+    <!-- Base styles and theme -->
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/themes/dark.css">
+    
+    <!-- Component styles -->
+    <link rel="stylesheet" href="/css/components/sidebar.css">
+    <link rel="stylesheet" href="/css/components/graph.css">
+    <link rel="stylesheet" href="/css/components/info-panel.css">
+    <link rel="stylesheet" href="/css/components/available-work-pane.css">
+    <link rel="stylesheet" href="/css/components/active-task-pane.css">
+    <link rel="stylesheet" href="/css/components/recently-completed-pane.css">
+    <link rel="stylesheet" href="/css/components/connection-status.css">
+    <link rel="stylesheet" href="/css/components/connection-picker.css">
+    <link rel="stylesheet" href="/css/components/readonly-indicator.css">
+    <link rel="stylesheet" href="/css/components/doc-viewer.css">
+    <link rel="stylesheet" href="/css/components/edge-info-panel.css">
+    
+    <style>
+        /* Additional layout styles for the full app */
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 1.5rem;
+            border-bottom: 2px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-shrink: 0;
+        }
+        
+        .header-left {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 0;
+            font-size: 1.5rem;
+        }
+        
+        .version-badge {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+        }
+        
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin: 0;
+        }
+        
+        .nav-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        
+        .nav-btn {
+            padding: 0.5rem 1rem;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .nav-btn:hover {
+            background: var(--accent-blue);
+        }
+        
+        .nav-btn.active {
+            background: var(--accent-blue);
+            font-weight: 600;
+        }
+        
+        .header-right {
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .main-content {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .view {
+            display: none;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .view.active {
+            display: block;
+        }
+        
+        #graph-view {
+            position: relative;
+        }
+        
+        #graph-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: grab;
+        }
+        
+        #graph-canvas:active {
+            cursor: grabbing;
+        }
+        
+        /* Nodes view (list) */
+        #nodes-view {
+            padding: 2rem;
+            overflow-y: auto;
+        }
+        
+        .node-list {
+            display: grid;
+            gap: 1rem;
+        }
+        
+        .node-card {
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid var(--accent-blue);
+        }
+        
+        /* Agents view */
+        #agents-view {
+            padding: 2rem;
+            overflow-y: auto;
+        }
+        
+        /* Log view */
+        #log-view {
+            padding: 2rem;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1 class="header-title">
+                    🧭 Binnacle 
+                    <span class="version-badge" id="version-badge">v0.0.0</span>
+                </h1>
+                <p class="subtitle">Agent Navigation Graph</p>
+                <nav class="nav-buttons">
+                    <button class="nav-btn active" data-view="graph">Graph</button>
+                    <button class="nav-btn" data-view="nodes">Nodes</button>
+                    <button class="nav-btn" data-view="agents">Agents</button>
+                    <button class="nav-btn" data-view="log">Activity Log</button>
+                </nav>
+            </div>
+            <div class="header-right">
+                <!-- Available work and active task panes will be inserted here -->
+                <div id="available-work-container"></div>
+                <div id="active-task-container"></div>
+            </div>
+        </header>
+        
+        <!-- Main content area -->
+        <div class="main-content">
+            <!-- Graph view -->
+            <div class="view active" id="graph-view">
+                <canvas id="graph-canvas"></canvas>
+            </div>
+            
+            <!-- Nodes list view -->
+            <div class="view" id="nodes-view">
+                <h2>All Nodes</h2>
+                <div class="node-list" id="node-list"></div>
+            </div>
+            
+            <!-- Agents view -->
+            <div class="view" id="agents-view">
+                <h2>Agents</h2>
+                <div id="agents-list"></div>
+            </div>
+            
+            <!-- Activity log view -->
+            <div class="view" id="log-view">
+                <h2>Activity Log</h2>
+                <div id="activity-log"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Info panel and overlays will be mounted dynamically -->
+    
+    <script type="module">
+        // Import all necessary modules
+        import * as state from './js/state.js';
+        import * as graph from './js/graph/index.js';
+        import * as connection from './js/connection/index.js';
+        import { initializeSidebar, initializeCollapsibleSections } from './js/components/sidebar.js';
+        import { initializeAgentList } from './js/components/agent-list.js';
+        import { createInfoPanel, initializeInfoPanel, showInfoPanel, updateInfoPanelContent } from './js/components/info-panel.js';
+        import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
+        import { createAvailableWorkPane, updateAvailableWorkPane } from './js/components/available-work-pane.js';
+        import { createActiveTaskPane, updateActiveTaskPane } from './js/components/active-task-pane.js';
+        import { initializeFilters } from './js/components/filters.js';
+        import { createConnectionStatus, updateConnectionStatus } from './js/components/connection-status.js';
+        import { createReadonlyIndicator } from './js/components/readonly-indicator.js';
+        
+        // Get container element
+        const container = document.getElementById('app-container');
+        const canvas = document.getElementById('graph-canvas');
+        
+        // Initialize sidebar with search functionality
+        initializeSidebar(container, (query) => {
+            console.log('Search query:', query);
+            // TODO: Implement graph search filtering
+        });
+        
+        // Initialize collapsible sections in sidebar
+        initializeCollapsibleSections();
+        
+        // Initialize agent list
+        initializeAgentList();
+        
+        // Create and mount info panel
+        const infoPanel = createInfoPanel();
+        container.appendChild(infoPanel);
+        initializeInfoPanel(infoPanel, {
+            onClose: () => console.log('Info panel closed'),
+            onTabChange: (tab) => console.log('Tab changed:', tab),
+            onQueueToggle: (nodeId) => {
+                console.log('Queue toggle:', nodeId);
+                // TODO: Implement queue toggle
+            },
+            onDocOpen: () => {
+                const docOpenSection = document.getElementById('info-panel-doc-open-section');
+                const docId = docOpenSection?.dataset?.docId;
+                if (docId) {
+                    showDocViewer(docId);
+                }
+            },
+            onViewFullLog: () => {
+                // Switch to log view
+                switchView('log');
+            }
+        });
+        
+        // Mount doc viewer overlay
+        mountDocViewer(container);
+        
+        // Create and mount available work pane
+        const availableWorkPane = createAvailableWorkPane();
+        document.getElementById('available-work-container').appendChild(availableWorkPane);
+        
+        // Create and mount active task pane
+        const activeTaskPane = createActiveTaskPane();
+        document.getElementById('active-task-container').appendChild(activeTaskPane);
+        
+        // Initialize graph
+        graph.init(canvas, {
+            onNodeClick: (node) => {
+                console.log('Node clicked:', node);
+                // Show info panel for the clicked node
+                updateInfoPanelContent(infoPanel, node, [], [], []);
+                showInfoPanel(infoPanel);
+            },
+            onNodeHover: (node) => {
+                if (node) {
+                    graph.setHoveredNode(node.id);
+                } else {
+                    graph.setHoveredNode(null);
+                }
+            },
+            onEdgeClick: (edge) => {
+                console.log('Edge clicked:', edge);
+                // TODO: Show edge info panel
+            }
+        });
+        
+        // Initialize filters
+        initializeFilters();
+        
+        // View switching
+        const navButtons = document.querySelectorAll('.nav-btn');
+        const views = document.querySelectorAll('.view');
+        
+        function switchView(viewName) {
+            // Update button states
+            navButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === viewName);
+            });
+            
+            // Update view visibility
+            views.forEach(view => {
+                view.classList.toggle('active', view.id === `${viewName}-view`);
+            });
+        }
+        
+        navButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                switchView(btn.dataset.view);
+            });
+        });
+        
+        // Fetch version
+        async function fetchVersion() {
+            try {
+                const response = await fetch('/api/version');
+                if (response.ok) {
+                    const data = await response.json();
+                    const versionBadge = document.getElementById('version-badge');
+                    if (versionBadge && data.version) {
+                        versionBadge.textContent = `v${data.version}`;
+                        versionBadge.title = `Version ${data.version}`;
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to fetch version:', error);
+            }
+        }
+        
+        // Initialize connection
+        async function initializeApp() {
+            // Fetch version
+            await fetchVersion();
+            
+            // Detect connection mode and connect
+            const mode = connection.detectMode();
+            await connection.applyDetectedMode();
+            
+            // Start graph animation
+            graph.startAnimation();
+            
+            // Update panes periodically
+            setInterval(() => {
+                updateAvailableWorkPane();
+                updateActiveTaskPane();
+            }, 30000);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            graph.resizeCanvas();
+        });
+        
+        // Start the app
+        initializeApp().catch(err => {
+            console.error('Failed to initialize app:', err);
+        });
+    </script>
+</body>
+</html>
