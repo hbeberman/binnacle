@@ -6045,6 +6045,11 @@
                                             } else {
                                                 // Keep following current agent (delay not met)
                                                 targetNode = state.tasks?.find(t => t.id === state.graph.followingNodeId && t.type === 'agent');
+                                                // If the tracked agent no longer exists (departed), switch to new agent immediately
+                                                if (!targetNode) {
+                                                    targetNode = mostRecentAgent;
+                                                    state.graph.lastFocusSwitchTime = now;
+                                                }
                                             }
                                         } else {
                                             // Same agent - keep following
