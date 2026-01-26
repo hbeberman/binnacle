@@ -285,6 +285,16 @@ export function updateInfoPanelContent(panel, node) {
     if (node.status) metaParts.push(`Status: ${node.status}`);
     if (node.priority !== undefined && node.priority !== null) metaParts.push(`Priority: ${node.priority}`);
     if (node.type) metaParts.push(`Type: ${node.type}`);
+    
+    // For agent nodes, show container ID if available, otherwise PID
+    if (node.type === 'agent') {
+        if (node.container_id) {
+            metaParts.push(`Container: ${node.container_id}`);
+        } else if (node.pid !== undefined && node.pid !== null) {
+            metaParts.push(`PID: ${node.pid}`);
+        }
+    }
+    
     metaEl.textContent = metaParts.join(' • ');
     
     // Update description
