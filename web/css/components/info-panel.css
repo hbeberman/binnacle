@@ -1,0 +1,380 @@
+/* Info Panel Component Styles */
+
+.info-panel {
+    position: absolute;
+    top: 4rem;
+    right: 1rem;
+    width: 320px;
+    max-height: calc(100% - 5rem);
+    background: var(--overlay-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-y: auto;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    z-index: 99;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.info-panel.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.info-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.info-panel-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.info-panel-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.2s ease;
+}
+
+.info-panel-close:hover {
+    color: var(--text-primary);
+}
+
+.info-panel-id {
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: var(--accent-light);
+    margin-bottom: 0.5rem;
+}
+
+.info-panel-task-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+    line-height: 1.4;
+}
+
+.info-panel-short-name-row {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.info-panel-label {
+    font-weight: 500;
+}
+
+.info-panel-short-name {
+    color: var(--text-primary);
+}
+
+.info-panel-meta {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+/* Tabs */
+.info-panel-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.info-panel-tab {
+    padding: 0.5rem 1rem;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.2s ease, border-color 0.2s ease;
+    margin-bottom: -1px;
+}
+
+.info-panel-tab:hover {
+    color: var(--text-primary);
+}
+
+.info-panel-tab.active {
+    color: var(--accent-light);
+    border-bottom-color: var(--accent-light);
+}
+
+.info-panel-tab-content {
+    display: none;
+}
+
+.info-panel-tab-content.active {
+    display: block;
+}
+
+/* Details Tab */
+.info-panel-section {
+    margin-bottom: 1.25rem;
+}
+
+.info-panel-section-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.info-panel-description {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.info-panel-description.empty {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.info-panel-deps {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.info-panel-deps li {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    padding: 0.25rem 0;
+    font-family: monospace;
+}
+
+.info-panel-deps li:before {
+    content: '→ ';
+    color: var(--text-secondary);
+}
+
+.info-panel-relationships {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.info-panel-relationships li {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    padding: 0.25rem 0;
+}
+
+.info-panel-closed-reason {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.info-panel-timestamps {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.info-panel-timestamps dt {
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
+}
+
+.info-panel-timestamps dd {
+    margin-left: 0;
+    font-family: monospace;
+}
+
+/* Queue Section */
+.info-panel-queue-section {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.info-panel-queue-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.queue-toggle-switch {
+    width: 44px;
+    height: 24px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.queue-toggle-switch:before {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.queue-toggle-switch.active {
+    background: var(--queue-color);
+}
+
+.queue-toggle-switch.active:before {
+    transform: translateX(20px);
+    background: var(--text-primary);
+}
+
+.queue-toggle-switch:hover:not(.active) {
+    background: var(--bg-tertiary);
+}
+
+/* Doc Open Section */
+.info-panel-doc-open-section {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.info-panel-doc-open-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.doc-open-btn {
+    padding: 0.4rem 1rem;
+    background: var(--accent-blue);
+    border: none;
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.doc-open-btn:hover {
+    background: var(--accent-light);
+}
+
+/* Activity Tab */
+.info-panel-activity-log {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.info-panel-activity-loading,
+.info-panel-activity-empty {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    padding: 1rem;
+    text-align: center;
+}
+
+.info-panel-activity-entry {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.info-panel-activity-entry:last-child {
+    border-bottom: none;
+}
+
+.info-panel-activity-time {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.info-panel-activity-message {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.info-panel-view-full-log {
+    display: block;
+    text-align: center;
+    padding: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--accent-light);
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.info-panel-view-full-log:hover {
+    color: var(--accent-blue);
+}
+
+/* Commits Tab */
+.info-panel-commits-log {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.info-panel-commits-loading,
+.info-panel-commits-empty {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    padding: 1rem;
+    text-align: center;
+}
+
+.info-panel-commit-entry {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.info-panel-commit-entry:last-child {
+    border-bottom: none;
+}
+
+.info-panel-commit-sha {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: var(--accent-light);
+    margin-bottom: 0.25rem;
+}
+
+.info-panel-commit-message {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}

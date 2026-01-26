@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Info Panel Component Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/info-panel.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: var(--bg-primary, #1a1a1a);
+            padding: 2rem;
+        }
+        
+        .content {
+            color: var(--text-primary, #e0e0e0);
+        }
+        
+        .test-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        
+        .test-btn {
+            padding: 0.5rem 1rem;
+            background: var(--accent-blue);
+            border: none;
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        
+        .test-btn:hover {
+            background: var(--accent-light);
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="container">
+        <div class="content">
+            <h1>Info Panel Component Test</h1>
+            <p>Click the buttons below to test the info panel with different node types:</p>
+            
+            <div class="test-buttons">
+                <button class="test-btn" id="show-task">Show Task</button>
+                <button class="test-btn" id="show-bug">Show Bug</button>
+                <button class="test-btn" id="show-doc">Show Doc</button>
+                <button class="test-btn" id="show-idea">Show Idea</button>
+                <button class="test-btn" id="load-activity">Load Activity</button>
+                <button class="test-btn" id="load-commits">Load Commits</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import {
+            createInfoPanel,
+            initializeInfoPanel,
+            showInfoPanel,
+            hideInfoPanel,
+            updateInfoPanelContent,
+            updateActivityTab,
+            updateCommitsTab
+        } from './js/components/info-panel.js';
+        
+        const container = document.getElementById('container');
+        
+        // Create and append info panel
+        const panel = createInfoPanel();
+        container.appendChild(panel);
+        
+        // Initialize with callbacks
+        initializeInfoPanel(panel, {
+            onClose: () => console.log('Panel closed'),
+            onTabChange: (tabName) => console.log('Tab changed to:', tabName),
+            onQueueToggle: () => {
+                console.log('Queue toggle clicked');
+                const btn = panel.querySelector('#queue-toggle-btn');
+                btn.classList.toggle('active');
+            },
+            onDocOpen: () => console.log('Doc open clicked'),
+            onViewFullLog: () => console.log('View full log clicked')
+        });
+        
+        // Test data
+        const sampleTask = {
+            id: 'bn-a1b2',
+            type: 'task',
+            title: 'Implement authentication middleware',
+            short_name: 'Auth middleware',
+            description: 'Add JWT validation to all API endpoints.\nEnsure proper error handling and logging.',
+            status: 'in_progress',
+            priority: 1,
+            depends_on: ['bn-c3d4', 'bn-e5f6'],
+            queued: true
+        };
+        
+        const sampleBug = {
+            id: 'bn-b0b6',
+            type: 'bug',
+            title: 'Memory leak in graph renderer',
+            short_name: 'Graph memory leak',
+            description: 'Graph nodes are not properly garbage collected after removal.',
+            status: 'pending',
+            priority: 0,
+            severity: 'critical',
+            queued: false
+        };
+        
+        const sampleDoc = {
+            id: 'bn-d0c1',
+            type: 'doc',
+            title: 'API Design Document',
+            short_name: 'API Design',
+            description: 'RESTful API design for the task management system.',
+            status: 'done'
+        };
+        
+        const sampleIdea = {
+            id: 'bn-1de4',
+            type: 'idea',
+            title: 'Add keyboard shortcuts',
+            short_name: 'Keyboard shortcuts',
+            description: 'Implement vim-style navigation for power users.',
+            status: 'pending',
+            priority: 3
+        };
+        
+        const sampleActivity = [
+            { timestamp: '2026-01-26T10:30:00Z', message: 'Task created' },
+            { timestamp: '2026-01-26T11:00:00Z', message: 'Status changed to in_progress' },
+            { timestamp: '2026-01-26T14:15:00Z', message: 'Added to queue' }
+        ];
+        
+        const sampleCommits = [
+            { sha: 'abc123d', message: 'Add JWT middleware implementation' },
+            { sha: 'def456e', message: 'Add tests for auth validation' },
+            { sha: 'ghi789f', message: 'Fix error handling in auth layer' }
+        ];
+        
+        // Test buttons
+        document.getElementById('show-task').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleTask);
+        });
+        
+        document.getElementById('show-bug').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleBug);
+        });
+        
+        document.getElementById('show-doc').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleDoc);
+        });
+        
+        document.getElementById('show-idea').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleIdea);
+        });
+        
+        document.getElementById('load-activity').addEventListener('click', () => {
+            updateActivityTab(panel, sampleActivity);
+            // Switch to activity tab
+            const activityTab = panel.querySelector('[data-tab="activity"]');
+            activityTab.click();
+        });
+        
+        document.getElementById('load-commits').addEventListener('click', () => {
+            updateCommitsTab(panel, sampleCommits);
+            // Switch to commits tab
+            const commitsTab = panel.querySelector('[data-tab="commits"]');
+            commitsTab.click();
+        });
+    </script>
+</body>
+</html>
