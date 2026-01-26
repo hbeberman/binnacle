@@ -59,3 +59,9 @@ export {
     findNodeAt,
     dispose
 } from './archive.js';
+
+// Version conflict detection and recovery
+export {
+    checkVersionConflict,
+    resetVersionTracking
+} from './version-conflict.js';
