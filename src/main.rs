@@ -1061,6 +1061,15 @@ fn run_command(
                     }
                 }
             }
+            AgentCommands::Rm {
+                target,
+                force,
+                all,
+                agent_type,
+            } => {
+                let result = commands::agent_rm(repo_path, target, force, all, agent_type)?;
+                output(&result, human);
+            }
         },
         Some(Commands::Container { command }) => match command {
             ContainerCommands::Build { tag, no_cache } => {
@@ -2518,6 +2527,15 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             } => (
                 "agent scale".to_string(),
                 serde_json::json!({ "agent_type": agent_type, "min": min, "max": max }),
+            ),
+            AgentCommands::Rm {
+                target,
+                force,
+                all,
+                agent_type,
+            } => (
+                "agent rm".to_string(),
+                serde_json::json!({ "target": target, "force": force, "all": all, "agent_type": agent_type }),
             ),
         },
 
