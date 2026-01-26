@@ -362,3 +362,161 @@ fn test_mcp_session_isolation_between_sessions() {
     assert!(json["was_registered"].as_bool().unwrap());
     assert_eq!(json["agent_name"].as_str().unwrap(), "agent-a");
 }
+
+// === BN_AGENT_ID Environment Variable Tests ===
+
+#[test]
+fn test_agent_id_registers_and_deregisters_agent() {
+    let temp = init_binnacle();
+
+    // Register agent with explicit agent ID
+    bn_in(&temp)
+        .env("BN_AGENT_ID", "bn-test-123")
+        .args(["orient", "--type", "worker", "--name", "container-agent"])
+        .assert()
+        .success();
+
+    // Agent should be registered with the explicit ID
+    let output = bn_in(&temp)
+        .args(["agent", "list"])
+        .output()
+        .expect("Failed to list agents");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // Find our agent
+    let agents = json["agents"].as_array().expect("Expected agents array");
+    let agent = agents
+        .iter()
+        .find(|a| a["name"].as_str() == Some("container-agent"))
+        .expect("Expected to find agent");
+
+    // Agent should have the explicit ID
+    assert_eq!(agent["id"].as_str().unwrap(), "bn-test-123");
+
+    // Goodbye with same agent ID should find and update the agent
+    let output = bn_in(&temp)
+        .env("BN_AGENT_ID", "bn-test-123")
+        .args(["goodbye", "Container shutdown"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // Should have found the agent
+    assert!(json["was_registered"].as_bool().unwrap());
+    assert_eq!(json["agent_name"].as_str().unwrap(), "container-agent");
+
+    // BN_AGENT_ID mode should set should_terminate to false (container manages lifecycle)
+    assert!(!json["should_terminate"].as_bool().unwrap());
+}
+
+#[test]
+fn test_agent_id_unknown_id_still_works() {
+    let temp = init_binnacle();
+
+    // Goodbye with unknown agent ID should still work
+    let output = bn_in(&temp)
+        .env("BN_AGENT_ID", "bn-nonexistent")
+        .args(["goodbye", "done"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // Should not find any agent
+    assert!(!json["was_registered"].as_bool().unwrap());
+}
+
+#[test]
+fn test_agent_id_isolation_between_ids() {
+    let temp = init_binnacle();
+
+    // Register agent with explicit ID
+    bn_in(&temp)
+        .env("BN_AGENT_ID", "bn-agent-a")
+        .args(["orient", "--type", "worker", "--name", "agent-a"])
+        .assert()
+        .success();
+
+    // Goodbye with a DIFFERENT agent ID should NOT find agent-a
+    let output = bn_in(&temp)
+        .env("BN_AGENT_ID", "bn-agent-b")
+        .args(["goodbye", "done"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // bn-agent-b should NOT find agent-a (different ID)
+    assert!(!json["was_registered"].as_bool().unwrap());
+
+    // Now goodbye with bn-agent-a SHOULD find agent-a
+    let output = bn_in(&temp)
+        .env("BN_AGENT_ID", "bn-agent-a")
+        .args(["goodbye", "done"])
+        .output()
+        .expect("Failed to run goodbye");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // bn-agent-a should find agent-a
+    assert!(json["was_registered"].as_bool().unwrap());
+    assert_eq!(json["agent_name"].as_str().unwrap(), "agent-a");
+}
+
+#[test]
+fn test_agent_id_sets_goodbye_at_timestamp() {
+    let temp = init_binnacle();
+
+    // Register agent with explicit ID
+    bn_in(&temp)
+        .env("BN_AGENT_ID", "bn-goodbye-test")
+        .args(["orient", "--type", "worker", "--name", "goodbye-agent"])
+        .assert()
+        .success();
+
+    // Call goodbye
+    bn_in(&temp)
+        .env("BN_AGENT_ID", "bn-goodbye-test")
+        .args(["goodbye", "Testing goodbye_at"])
+        .assert()
+        .success();
+
+    // Check agent has goodbye_at set (agent still visible briefly for GUI animation)
+    let output = bn_in(&temp)
+        .args(["agent", "list"])
+        .output()
+        .expect("Failed to list agents");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    let agents = json["agents"].as_array().expect("Expected agents array");
+    // Agent may or may not still be present depending on timing
+    // If present, it should have goodbye_at set
+    if let Some(agent) = agents
+        .iter()
+        .find(|a| a["id"].as_str() == Some("bn-goodbye-test"))
+    {
+        assert!(
+            agent["goodbye_at"].is_string(),
+            "Expected goodbye_at to be set"
+        );
+    }
+}
