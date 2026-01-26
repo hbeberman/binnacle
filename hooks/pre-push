@@ -60,7 +60,6 @@ while read -r local_ref local_sha remote_ref remote_sha; do
             echo ""
             echo "❌ Tag version ($tag_version) exceeds Cargo.toml version ($cargo_version)!"
             echo "   Update Cargo.toml version before pushing this tag."
-            echo "   To skip this check: git push --no-verify"
             exit 1
         fi
         

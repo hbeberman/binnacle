@@ -240,6 +240,17 @@ git merge --no-ff agent-feature
 - Uses dedicated `binnacle` namespace to isolate from other workloads
 - Resource limits prevent runaway processes
 - Currently requires root/sudo for containerd access
+- **`--no-verify` is blocked** - agents cannot bypass commit hooks
+
+### Git Hook Enforcement
+
+The container includes a git wrapper (`/usr/local/bin/git`) that intercepts and blocks `git commit --no-verify` and `git push --no-verify`. This ensures:
+
+- Pre-commit hooks ALWAYS run (formatting, linting, security audits)
+- Agents must fix issues rather than bypass checks
+- Code quality standards are enforced automatically
+
+If hooks fail, the wrapper provides guidance on how to fix common issues (e.g., `cargo fmt`, `cargo clippy --fix`).
 
 ### Container Mode
 

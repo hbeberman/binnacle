@@ -59,7 +59,6 @@ if ! cargo audit 2>&1; then
     echo ""
     echo "❌ Security audit failed!"
     echo "   Fix the vulnerabilities reported above before committing."
-    echo "   To skip temporarily: git commit --no-verify"
     exit 1
 fi
 
@@ -113,7 +112,6 @@ if [ -n "$litter_found" ]; then
     echo "     - Or use: bn doc create <entity> -T 'Title' -c 'content'"
     echo ""
     echo "   If this is intentional, add the filename to ALLOWED_ROOT_MD in hooks/pre-commit"
-    echo "   Or skip with: git commit --no-verify"
     exit 1
 fi
 
