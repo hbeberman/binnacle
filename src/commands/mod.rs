@@ -11,7 +11,7 @@
 use crate::models::{
     Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Editor, Idea,
     IdeaStatus, Milestone, Queue, SessionState, Task, TaskStatus, TestNode, TestResult,
-    complexity::analyze_complexity, graph::UnionFind,
+    complexity::analyze_complexity, graph::UnionFind, prompts,
 };
 use crate::storage::{EntityType, Storage, find_git_root, generate_id, parse_status};
 use crate::{Error, Result};
@@ -14255,11 +14255,15 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
             } else {
                 // Spawn a worker using agent_spawn
                 match agent_spawn(
-                    repo_path, "worker", None, // auto-generate name
+                    repo_path,
+                    "worker",
+                    None, // auto-generate name
                     None, // default cpus
                     None, // default memory
                     None, // use repo_path
-                    "main", false, None,
+                    "main",
+                    false,
+                    Some(prompts::WORKER_PROMPT),
                 ) {
                     Ok(result) => result.success,
                     Err(_) => false,
@@ -14318,7 +14322,15 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                 false
             } else {
                 match agent_spawn(
-                    repo_path, "planner", None, None, None, None, "main", false, None,
+                    repo_path,
+                    "planner",
+                    None,
+                    None,
+                    None,
+                    None,
+                    "main",
+                    false,
+                    Some(prompts::PRD_PROMPT),
                 ) {
                     Ok(result) => result.success,
                     Err(_) => false,
@@ -14371,7 +14383,15 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                 false
             } else {
                 match agent_spawn(
-                    repo_path, "buddy", None, None, None, None, "main", false, None,
+                    repo_path,
+                    "buddy",
+                    None,
+                    None,
+                    None,
+                    None,
+                    "main",
+                    false,
+                    Some(prompts::BUDDY_PROMPT),
                 ) {
                     Ok(result) => result.success,
                     Err(_) => false,
