@@ -14,6 +14,7 @@ Container Options:
   --merge-target BRANCH Branch to merge into on exit (default: main)
   --no-merge            Disable auto-merge on exit
   --name NAME           Container name (auto-generated if not provided)
+  --loop                Continuously respawn agents after exit (unattended mode)
 
 Agent Types:
   auto                Pick a task from 'bn ready' and work on it immediately
@@ -25,6 +26,7 @@ Agent Types:
 Examples:
   ./containeragent.sh auto
   ./containeragent.sh --cpus 2 --memory 4g auto
+  ./containeragent.sh --loop auto                  # Continuous unattended mode
   ./containeragent.sh do "find work related to gui alignment"
   ./containeragent.sh --no-merge prd
   ./containeragent.sh buddy
@@ -42,6 +44,7 @@ MEMORY=""
 MERGE_TARGET="main"
 NO_MERGE=""
 NAME=""
+LOOP=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -64,6 +67,10 @@ while [[ $# -gt 0 ]]; do
         --name)
             NAME="$2"
             shift 2
+            ;;
+        --loop)
+            LOOP="true"
+            shift
             ;;
         -h|--help)
             usage
@@ -170,6 +177,31 @@ CMD+=(--merge-target "$MERGE_TARGET")
 # Add the prompt
 CMD+=(--prompt "$PROMPT")
 
-# Run the container
-echo "Running: ${CMD[*]}"
-exec "${CMD[@]}"
+# Run the container (with optional looping)
+run_container() {
+    echo "Running: ${CMD[*]}"
+    "${CMD[@]}"
+}
+
+if [[ -n "$LOOP" ]]; then
+    echo "Loop mode enabled - will continuously respawn agents"
+    ITERATION=1
+    while true; do
+        echo ""
+        echo "=== Starting agent iteration $ITERATION ==="
+        echo ""
+        # Disable errexit for the container run so we continue looping on failure
+        set +e
+        run_container
+        EXIT_CODE=$?
+        set -e
+        echo ""
+        echo "=== Agent iteration $ITERATION exited with code $EXIT_CODE ==="
+        ITERATION=$((ITERATION + 1))
+        # Brief pause before respawning to allow for Ctrl+C
+        echo "Respawning in 3 seconds... (Ctrl+C to stop)"
+        sleep 3
+    done
+else
+    exec "${CMD[@]}"
+fi
