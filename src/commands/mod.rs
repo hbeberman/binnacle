@@ -12200,6 +12200,66 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
     })
 }
 
+/// Check for recently created archive files (.bng) in the archive directory.
+/// Returns the path to the most recent archive if one was created within the last `max_age_secs` seconds.
+fn check_recent_archive(repo_path: &Path, max_age_secs: u64) -> Option<std::path::PathBuf> {
+    // Get archive directory
+    let archive_dir = config_get_archive_directory(repo_path)?;
+
+    if !archive_dir.exists() {
+        return None;
+    }
+
+    // Read directory entries
+    let entries = match fs::read_dir(&archive_dir) {
+        Ok(e) => e,
+        Err(_) => return None,
+    };
+
+    let now = std::time::SystemTime::now();
+    let max_age = std::time::Duration::from_secs(max_age_secs);
+
+    let mut most_recent: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        // Only check .bng files
+        if !path.extension().map(|e| e == "bng").unwrap_or(false) {
+            continue;
+        }
+
+        // Get file metadata
+        let metadata = match fs::metadata(&path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        // Check modification time
+        let modified = match metadata.modified() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        // Check if file was created recently
+        if let Ok(age) = now.duration_since(modified)
+            && age <= max_age
+        {
+            // Update most recent if this is newer
+            if most_recent.is_none()
+                || most_recent
+                    .as_ref()
+                    .map(|(_, t)| modified > *t)
+                    .unwrap_or(false)
+            {
+                most_recent = Some((path, modified));
+            }
+        }
+    }
+
+    most_recent.map(|(path, _)| path)
+}
+
 /// Result of the store import command.
 #[derive(Serialize)]
 pub struct StoreImportResult {
@@ -14491,6 +14551,9 @@ pub struct ReconcileAction {
     pub reason: String,
     /// Whether the action was executed (false in dry_run mode)
     pub executed: bool,
+    /// Warning about missing archive after container stop
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archive_warning: Option<String>,
 }
 
 impl Output for AgentReconcileResult {
@@ -14597,8 +14660,8 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
         .iter()
         .filter(|a| a.goodbye_at.is_some() && a.container_id.is_some())
     {
-        let executed = if dry_run {
-            false
+        let (executed, archive_warning) = if dry_run {
+            (false, None)
         } else {
             // Stop the container (uses 15s timeout internally via container_stop_gracefully)
             if let Some(ref container_id) = agent.container_id {
@@ -14606,7 +14669,25 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
             }
             // Remove agent from registry
             let _ = storage.remove_agent(agent.pid);
-            true
+
+            // Check if archive was created after container stop
+            // Only check if archive.directory is configured
+            let warning = if config_get_archive_directory(repo_path).is_some() {
+                // Check for archives created in the last 5 minutes (300 seconds)
+                // This covers the time since the container started its shutdown process
+                if check_recent_archive(repo_path, 300).is_none() {
+                    Some(
+                        "Archive not found after container stop. Graph state may not have been saved."
+                            .to_string(),
+                    )
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            (true, warning)
         };
         actions.push(ReconcileAction {
             action: "stop".to_string(),
@@ -14616,6 +14697,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
             log_path: None,
             reason: "Agent called goodbye".to_string(),
             executed,
+            archive_warning,
         });
     }
 
@@ -14729,6 +14811,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     current_worker_count, desired_worker_count, work_count
                 ),
                 executed,
+                archive_warning: None,
             });
         }
     } else if current_worker_count > desired_worker_count {
@@ -14761,6 +14844,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     )
                 },
                 executed,
+                archive_warning: None,
             });
         }
     }
@@ -14803,6 +14887,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     current_planner_count, desired_planner_count
                 ),
                 executed,
+                archive_warning: None,
             });
         }
     } else if current_planner_count > desired_planner_count {
@@ -14829,6 +14914,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     current_planner_count, planner_scaling.max
                 ),
                 executed,
+                archive_warning: None,
             });
         }
     }
@@ -14871,6 +14957,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     current_buddy_count, desired_buddy_count
                 ),
                 executed,
+                archive_warning: None,
             });
         }
     } else if current_buddy_count > desired_buddy_count {
@@ -14897,6 +14984,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     current_buddy_count, buddy_scaling.max
                 ),
                 executed,
+                archive_warning: None,
             });
         }
     }
@@ -15098,6 +15186,10 @@ pub fn serve(repo_path: &Path, interval_secs: u64, dry_run: bool, human: bool) -
                             }
                         } else {
                             println!("    Reason: {}", action.reason);
+                            // Print archive warning if present
+                            if let Some(ref warning) = action.archive_warning {
+                                println!("    ⚠️  {}", warning);
+                            }
                         }
                     }
 
