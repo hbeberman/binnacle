@@ -2,7 +2,8 @@
  * Binnacle Graph - Camera Controls
  * 
  * Handles user interactions for camera control:
- * - Pan (click and drag)
+ * - Node dragging (click and drag on a node)
+ * - Pan (click and drag on empty space)
  * - Zoom (mouse wheel or buttons)
  * - Reset view
  * - Hover detection for nodes and edges
@@ -10,12 +11,15 @@
 
 import * as state from '../state.js';
 import { applyZoom, applyPan, resetViewport, screenToWorld } from './transform.js';
-import { findNodeAtPosition, findEdgeAtPosition, setHoveredNode } from './renderer.js';
+import { findNodeAtPosition, findEdgeAtPosition, setHoveredNode, setDraggedNode, moveNode } from './renderer.js';
 
 // Mouse interaction state
 let isDragging = false;
 let dragStartX = 0;
 let dragStartY = 0;
+
+// Node dragging state
+let draggedNode = null;
 
 // Hover state
 let currentHoveredNode = null;
@@ -56,26 +60,50 @@ export function init(canvasElement, callbacks = {}) {
 }
 
 /**
- * Handle mouse down - start dragging
+ * Handle mouse down - start dragging node or canvas
  */
 function onMouseDown(e) {
     if (e.button !== 0) return; // Only left mouse button
     
-    isDragging = true;
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-    canvas.classList.add('dragging');
+    // Get canvas-relative coordinates
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    
+    // Check if we're clicking on a node
+    const clickedNode = findNodeAtPosition(canvasX, canvasY);
+    
+    if (clickedNode) {
+        // Start dragging the node
+        draggedNode = clickedNode;
+        setDraggedNode(clickedNode);
+        canvas.classList.add('dragging-node');
+    } else {
+        // Start dragging the canvas (panning)
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        canvas.classList.add('dragging');
+    }
 }
 
 /**
- * Handle mouse move - pan camera if dragging, otherwise check hover
+ * Handle mouse move - pan camera if dragging, drag node if node selected, otherwise check hover
  */
 function onMouseMove(e) {
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     
-    if (isDragging) {
+    if (draggedNode) {
+        // Dragging a node - move it to follow cursor
+        const worldPos = screenToWorld(x, y, canvas);
+        moveNode(draggedNode, worldPos.x, worldPos.y);
+        
+        // Pause auto-follow while dragging
+        pauseAutoFollow();
+    } else if (isDragging) {
+        // Dragging the canvas - pan the view
         const dx = e.clientX - dragStartX;
         const dy = e.clientY - dragStartY;
         
@@ -94,7 +122,7 @@ function onMouseMove(e) {
         currentHoveredNode = null;
         currentHoveredEdge = null;
     } else {
-        // Hover detection
+        // Not dragging anything - check for hover
         checkHover(x, y, e.clientX, e.clientY);
     }
 }
@@ -163,19 +191,35 @@ function checkHover(canvasX, canvasY, screenX, screenY) {
 }
 
 /**
- * Handle mouse up - stop dragging
+ * Handle mouse up - stop dragging node or canvas
  */
 function onMouseUp(e) {
     if (e.button !== 0) return;
     
-    isDragging = false;
-    canvas.classList.remove('dragging');
+    if (draggedNode) {
+        // Stop dragging node
+        setDraggedNode(null);
+        draggedNode = null;
+        canvas.classList.remove('dragging-node');
+    }
+    
+    if (isDragging) {
+        // Stop dragging canvas
+        isDragging = false;
+        canvas.classList.remove('dragging');
+    }
 }
 
 /**
  * Handle mouse leave - stop dragging if mouse leaves canvas
  */
 function onMouseLeave() {
+    if (draggedNode) {
+        setDraggedNode(null);
+        draggedNode = null;
+        canvas.classList.remove('dragging-node');
+    }
+    
     if (isDragging) {
         isDragging = false;
         canvas.classList.remove('dragging');

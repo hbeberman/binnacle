@@ -12,6 +12,7 @@ import * as state from '../state.js';
 import { drawNodeShapePath } from './shapes.js';
 import { getNodeColor, getEdgeStyle, getCSSColors } from './colors.js';
 import { worldToScreen, screenToWorld, getZoom } from './transform.js';
+import * as camera from './camera.js';
 
 // Animation constants
 const AGENT_DEPARTURE_FADE_MS = 5000;
@@ -50,6 +51,9 @@ export function init(canvasElement) {
     
     // Set initial canvas size
     resizeCanvas();
+    
+    // Initialize camera controls (panning, zooming, node dragging, hover)
+    camera.init(canvasElement);
     
     // Subscribe to state changes that require re-render
     state.subscribe('entities.*', onEntitiesChanged);
