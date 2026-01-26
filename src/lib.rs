@@ -3,18 +3,23 @@
 //! This library provides the core functionality for the `bn` CLI tool,
 //! including task management, test tracking, and dependency handling.
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod action_log;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod cli;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod commands;
 pub mod gui;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod mcp;
 pub mod models;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod storage;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
 /// Test utilities for isolated test environments.
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod test_utils {
     use std::path::Path;
     use std::sync::OnceLock;
@@ -130,6 +135,7 @@ pub enum Error {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("Database error: {0}")]
     Database(#[from] rusqlite::Error),
 
