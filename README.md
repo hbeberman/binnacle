@@ -110,6 +110,15 @@ bn system store export data.bng  # export your project data
 # open target/viewer/viewer.html, drop in data.bng
 ```
 
+### Connection Modes
+
+The viewer supports two modes via URL parameters:
+
+- **Archive mode**: `viewer.html?archive=./data.bng` - Load exported `.bng` file (read-only)
+- **Live mode**: `viewer.html?ws=localhost:3030` - Connect to running `bn gui` server
+
+Add `#bn-xxxx` to focus on a specific entity: `viewer.html?archive=./data.bng#bn-a1b2`
+
 ### Local Hosting
 
 Serve the viewer locally with a pre-loaded archive:

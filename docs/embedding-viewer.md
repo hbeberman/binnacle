@@ -95,7 +95,7 @@ Open `target/viewer/viewer.html` in a browser. You can:
 
 1. **Drag and drop** a `.bng` file onto the page
 2. **Click the upload button** to select a file
-3. **Load from URL** by appending `?url=https://example.com/project.bng`
+3. **Load from URL** by appending `?archive=https://example.com/project.bng`
 
 ### Embedding in a Web Page
 
@@ -105,7 +105,7 @@ The simplest approach - embed the viewer HTML in an iframe:
 
 ```html
 <iframe 
-  src="viewer.html?url=./project.bng" 
+  src="viewer.html?archive=./project.bng" 
   width="100%" 
   height="600px"
   frameborder="0">
@@ -148,13 +148,56 @@ main();
 <canvas id="graph-canvas" width="1200" height="800"></canvas>
 ```
 
-## URL Parameters
+## URL Parameters and Connection Modes
 
-The viewer supports these URL parameters:
+The viewer supports two connection modes, selected via URL parameters:
+
+### Archive Mode (Read-only)
+
+Load a `.bng` archive file for offline viewing:
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `url` | URL of `.bng` file to load | `?url=./project.bng` |
+| `archive` | URL of `.bng` file to load | `?archive=./project.bng` |
+
+### WebSocket Mode (Live)
+
+Connect to a running `bn gui` server for real-time updates:
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `ws` | WebSocket server address | `?ws=localhost:3030` |
+
+The `ws` parameter accepts various formats:
+- `localhost:3030` - Uses `ws://` automatically for localhost
+- `ws://host:port` - Explicit WebSocket URL
+- `wss://host:port` - Secure WebSocket (used by default for non-localhost)
+
+### Focus Entity
+
+You can link directly to a specific entity using a URL fragment:
+
+| Fragment | Description | Example |
+|----------|-------------|---------|
+| `#bn-xxxx` | Focus on a task/bug/milestone | `?archive=./data.bng#bn-a1b2` |
+| `#bnt-xxxx` | Focus on a test node | `?ws=localhost:3030#bnt-0001` |
+| `#bnq-xxxx` | Focus on a queue | `?archive=./data.bng#bnq-e8b7` |
+
+### Examples
+
+```
+# Archive mode with entity focus
+viewer.html?archive=./project.bng#bn-a1b2
+
+# Live mode connecting to local server
+viewer.html?ws=localhost:3030
+
+# Live mode with secure WebSocket
+viewer.html?ws=wss://binnacle.example.com:443
+
+# No parameters - shows connection picker
+viewer.html
+```
 
 ## Hosting Considerations
 
@@ -200,7 +243,7 @@ cp target/viewer/viewer.html /var/www/project/
 cp project.bng /var/www/project/
 
 # 4. Access via browser
-# https://example.com/project/viewer.html?url=./project.bng
+# https://example.com/project/viewer.html?archive=./project.bng
 ```
 
 ## Archive Format Details
