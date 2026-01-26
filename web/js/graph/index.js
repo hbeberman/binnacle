@@ -14,6 +14,7 @@ export {
     setHoveredNode,
     setDraggedNode,
     findNodeAtPosition,
+    findEdgeAtPosition,
     moveNode,
     getNodes,
     getVisibleNodes,
