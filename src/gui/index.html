@@ -10594,9 +10594,9 @@
             // Filter log entries for this agent
             const agentEntries = log.filter(entry => entry.user === agentName);
             
-            // Compute duration
+            // Compute duration (clamp to 0 to handle clock skew)
             const now = new Date();
-            const durationMs = now - startedAt;
+            const durationMs = Math.max(0, now - startedAt);
             const durationMinutes = Math.floor(durationMs / 60000);
             const durationHours = Math.floor(durationMinutes / 60);
             const durationDays = Math.floor(durationHours / 24);

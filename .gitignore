@@ -22,3 +22,4 @@ target
 
 # Block archive files from upload
 *.tar.gz
+*.bng
