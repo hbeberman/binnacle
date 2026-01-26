@@ -1210,8 +1210,8 @@
         function getUrlParams() {
             const params = new URLSearchParams(window.location.search);
             return {
-                src: params.get('src'),      // Archive URL
-                focus: window.location.hash.slice(1) || null  // Fragment anchor (node ID)
+                src: params.get('src') || params.get('file'),  // Archive URL (supports both ?src= and ?file=)
+                focus: window.location.hash.slice(1) || null   // Fragment anchor (node ID)
             };
         }
         
