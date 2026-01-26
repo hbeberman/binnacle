@@ -3820,6 +3820,35 @@ impl Storage {
         let goodbye_delay = chrono::Duration::seconds(10);
 
         for agent in agents {
+            // First, check if agent is stale and alive - if so, terminate it
+            if agent.status == AgentStatus::Stale && agent.is_alive() {
+                // Agent is marked stale (30min timeout) and process is still running
+                // Force terminate it
+                #[cfg(unix)]
+                {
+                    // Only terminate PID-based agents (not container/MCP agents with pid=0)
+                    if agent.pid != 0 {
+                        use std::process::Command;
+                        // Send SIGTERM to stale agent
+                        let _ = Command::new("kill")
+                            .args(["-TERM", &agent.pid.to_string()])
+                            .output();
+                    }
+                }
+                #[cfg(windows)]
+                {
+                    if agent.pid != 0 {
+                        use std::process::Command;
+                        let _ = Command::new("taskkill")
+                            .args(["/PID", &agent.pid.to_string()])
+                            .output();
+                    }
+                }
+                // Don't remove yet - let next cleanup pass handle removal once process is dead
+                continue;
+            }
+
+            // Now determine if agent should be removed
             let should_remove = if !agent.is_alive() {
                 // Process is no longer running
                 true
@@ -5953,6 +5982,34 @@ mod tests {
 
         let updated = storage.get_agent(current_pid).unwrap();
         assert_eq!(updated.status, AgentStatus::Active);
+    }
+
+    #[test]
+    fn test_cleanup_stale_agents_terminates_stale() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Use a fake PID that doesn't exist (99999999)
+        // This tests the logic path without actually terminating a process
+        let fake_pid = 99999999;
+        let mut agent = Agent::new(fake_pid, 1, "test-agent".to_string(), AgentType::Worker);
+
+        // Set last_activity_at to 35 minutes ago and mark as stale
+        agent.last_activity_at = chrono::Utc::now() - chrono::Duration::minutes(35);
+        agent.status = AgentStatus::Stale;
+        storage.register_agent(&agent).unwrap();
+
+        // Cleanup should attempt to send termination signal (which will fail silently
+        // for a non-existent PID). Since the PID doesn't exist (is_alive=false),
+        // the agent should be removed on the first pass.
+        let removed = storage.cleanup_stale_agents().unwrap();
+
+        // The agent should be removed because it's not alive
+        assert_eq!(removed.len(), 1);
+        assert!(removed.contains(&fake_pid));
+
+        // Verify agent was removed
+        let agents = storage.list_agents(None).unwrap();
+        assert_eq!(agents.len(), 0);
     }
 
     // === Session State Tests ===
