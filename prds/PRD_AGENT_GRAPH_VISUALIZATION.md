@@ -56,7 +56,8 @@ bn orient --type buddy      # Review/assistance agent
 
 ```json
 {
-  "id": "bna-e87e",
+  "id": "bn-e87e",
+  "type": "agent",
   "pid": 12345,
   "parent_pid": 12340,
   "name": "claude-planner-1",

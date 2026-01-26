@@ -5958,7 +5958,7 @@
                 followAnimation: null,  // { startPanX, startPanY, targetPanX, targetPanY, startZoom, targetZoom, startTime, duration }
                 // Auto-follow state
                 autoFollow: true,  // Whether auto-follow is enabled
-                followTargetId: 'auto',  // Target to follow: 'auto', 'active-task', 'queue', or agent ID (e.g., 'bna-xxxx')
+                followTargetId: 'auto',  // Target to follow: 'auto', 'active-task', 'queue', or agent ID (e.g., 'bn-xxxx')
                 followingNodeId: null,  // ID of node currently being followed (for continuous tracking)
                 lastFocusSwitchTime: 0,  // Timestamp of last focus switch (for configurable delay)
                 // Auto-follow config (loaded from localStorage)
@@ -6365,7 +6365,7 @@
             }
             
             const normalizedAgents = workerAgents.map(agent => ({
-                // Use proper binnacle ID (bna-xxxx) if available, fall back to PID-based ID for backwards compat
+                // Use proper binnacle ID (bn-xxxx with entity_type=agent) if available, fall back to PID-based ID for backwards compat
                 id: agent.id || `agent-${agent.pid}`,
                 title: agent.name,
                 short_name: agent.purpose || agent.name,
@@ -11858,9 +11858,10 @@
             });
         }
 
-        // Check if a user is an agent (bna- prefix)
+        // Check if a user is an agent (bn- prefix with 4 hex chars indicates a binnacle ID, i.e., an agent)
+        // Human users have plain names like "henry"
         function isAgent(user) {
-            return user && user.startsWith('bna-');
+            return user && /^bn-[0-9a-f]{4}$/.test(user);
         }
 
         // Get date threshold for date range filter

@@ -739,7 +739,7 @@ fn test_doc_update_with_editor_attribution() {
             "-c",
             "Updated by agent",
             "--editor",
-            "agent:bna-test",
+            "agent:bn-test",
         ])
         .output()
         .expect("Failed to update doc");
@@ -753,7 +753,7 @@ fn test_doc_update_with_editor_attribution() {
         .args(["doc", "show", new_id])
         .assert()
         .success()
-        .stdout(predicate::str::contains("bna-test"));
+        .stdout(predicate::str::contains("bn-test"));
 }
 
 #[test]
