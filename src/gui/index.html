@@ -873,9 +873,19 @@
 
         .agents-sidebar-item-header {
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            gap: 0.5rem;
             margin-bottom: 0.25rem;
+        }
+        
+        .agent-status-badge {
+            font-size: 0.9rem;
+            flex-shrink: 0;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .agents-sidebar-item-name {
@@ -11128,6 +11138,21 @@
             renderAgentsSidebar();
         }
         
+        // Get status badge for an agent
+        function getAgentStatusBadge(status) {
+            const statusLower = (status || 'unknown').toLowerCase();
+            switch (statusLower) {
+                case 'active':
+                    return { emoji: '🟢', className: 'status-active', label: 'Active' };
+                case 'idle':
+                    return { emoji: '🟡', className: 'status-idle', label: 'Idle' };
+                case 'stale':
+                    return { emoji: '🔴', className: 'status-stale', label: 'Stale' };
+                default:
+                    return { emoji: '⚪', className: 'status-unknown', label: 'Unknown' };
+            }
+        }
+        
         // Render agents in the graph sidebar
         function renderAgentsSidebar() {
             const list = document.getElementById('agents-sidebar-list');
@@ -11142,14 +11167,35 @@
                 return;
             }
             
-            list.innerHTML = workerAgents.map(agent => {
+            // Sort agents: active first, then idle, then stale
+            const statusOrder = { 'active': 0, 'idle': 1, 'stale': 2, 'unknown': 3 };
+            const sortedAgents = [...workerAgents].sort((a, b) => {
+                const aStatus = (a.status || 'unknown').toLowerCase();
+                const bStatus = (b.status || 'unknown').toLowerCase();
+                const orderA = statusOrder[aStatus] ?? 3;
+                const orderB = statusOrder[bStatus] ?? 3;
+                
+                if (orderA !== orderB) {
+                    return orderA - orderB;
+                }
+                
+                // Secondary sort by name
+                const nameA = a.name || a.id;
+                const nameB = b.name || b.id;
+                return nameA.localeCompare(nameB);
+            });
+            
+            list.innerHTML = sortedAgents.map(agent => {
                 const agentId = agent.id || `agent-${agent.pid}`;
                 const currentTask = agent.tasks && agent.tasks.length > 0 ? agent.tasks[0] : null;
+                const badge = getAgentStatusBadge(agent.status);
+                const name = agent.purpose || agent.name || agentId;
+                
                 return `
-                <div class="agents-sidebar-item" data-agent-id="${agentId}" title="${escapeHtml(agent.name)}">
+                <div class="agents-sidebar-item" data-agent-id="${agentId}" title="${escapeHtml(name)} - ${badge.label}">
                     <div class="agents-sidebar-item-header">
-                        <span class="agents-sidebar-item-name">${escapeHtml(agent.name)}</span>
-                        <span class="agents-sidebar-item-status ${agent.status}"></span>
+                        <span class="agent-status-badge ${badge.className}" title="${badge.label}">${badge.emoji}</span>
+                        <span class="agents-sidebar-item-name">${escapeHtml(name)}</span>
                     </div>
                     ${currentTask ? `<div class="agents-sidebar-item-task">→ ${escapeHtml(currentTask)}</div>` : ''}
                 </div>
