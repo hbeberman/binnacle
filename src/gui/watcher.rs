@@ -13,6 +13,7 @@ use tokio::sync::broadcast;
 use tokio::time::Instant;
 
 use super::server::StateVersion;
+use crate::models::Edge;
 use crate::storage::Storage;
 
 /// Debounce duration - wait this long after last event before sending update
@@ -26,6 +27,70 @@ const MAX_INCREMENTAL_MESSAGES: usize = 50;
 struct EntitySnapshot {
     /// Map from entity ID to serialized JSON value
     entities: HashMap<String, Value>,
+}
+
+/// Represents a snapshot of all edges for diffing
+#[derive(Default)]
+struct EdgeSnapshot {
+    /// Map from edge ID to Edge
+    edges: HashMap<String, Edge>,
+}
+
+impl EdgeSnapshot {
+    /// Load a snapshot of all edges from storage
+    fn load(storage: &Storage) -> Self {
+        let mut edges = HashMap::new();
+
+        if let Ok(edge_list) = storage.list_edges(None, None, None) {
+            for edge in edge_list {
+                edges.insert(edge.id.clone(), edge);
+            }
+        }
+
+        Self { edges }
+    }
+
+    /// Compute the diff between this snapshot and a new one
+    fn diff(&self, new: &EdgeSnapshot) -> EdgeDiff {
+        let mut added = Vec::new();
+        let mut removed = Vec::new();
+
+        // Find added edges
+        for (id, edge) in &new.edges {
+            if !self.edges.contains_key(id) {
+                added.push(edge.clone());
+            }
+            // Note: Edges are typically immutable - no "updated" case needed
+            // If edge properties change, we'd need to add updated handling
+        }
+
+        // Find removed edges
+        for (id, edge) in &self.edges {
+            if !new.edges.contains_key(id) {
+                removed.push(edge.clone());
+            }
+        }
+
+        EdgeDiff { added, removed }
+    }
+}
+
+/// Diff between two edge snapshots
+struct EdgeDiff {
+    added: Vec<Edge>,
+    removed: Vec<Edge>,
+}
+
+impl EdgeDiff {
+    /// Check if the diff is empty
+    fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.removed.is_empty()
+    }
+
+    /// Total number of changes
+    fn total_changes(&self) -> usize {
+        self.added.len() + self.removed.len()
+    }
 }
 
 impl EntitySnapshot {
@@ -220,9 +285,10 @@ pub async fn watch_storage(
     // Watch the storage directory
     watcher.watch(&storage_path, RecursiveMode::Recursive)?;
 
-    // Load initial snapshot
+    // Load initial snapshots
     let storage = Storage::open(&repo_path)?;
     let mut current_snapshot = EntitySnapshot::load(&storage);
+    let mut current_edge_snapshot = EdgeSnapshot::load(&storage);
     drop(storage);
 
     // Debounce state: track when we last saw a relevant event
@@ -271,13 +337,17 @@ pub async fn watch_storage(
                 match Storage::open(&repo_path) {
                     Ok(storage) => {
                         let new_snapshot = EntitySnapshot::load(&storage);
+                        let new_edge_snapshot = EdgeSnapshot::load(&storage);
                         drop(storage);
 
                         let diff = current_snapshot.diff(&new_snapshot);
+                        let edge_diff = current_edge_snapshot.diff(&new_edge_snapshot);
 
-                        if diff.is_empty() {
-                            // No actual entity changes, skip sending anything
-                        } else if diff.total_changes() > MAX_INCREMENTAL_MESSAGES {
+                        let total_changes = diff.total_changes() + edge_diff.total_changes();
+
+                        if diff.is_empty() && edge_diff.is_empty() {
+                            // No actual changes, skip sending anything
+                        } else if total_changes > MAX_INCREMENTAL_MESSAGES {
                             // Too many changes, fall back to reload
                             let _ = update_tx.send(
                                 serde_json::json!({
@@ -329,10 +399,38 @@ pub async fn watch_storage(
                                     .to_string(),
                                 );
                             }
+
+                            // Send edge messages
+                            for edge in &edge_diff.added {
+                                let _ = update_tx.send(
+                                    serde_json::json!({
+                                        "type": "edge_added",
+                                        "id": edge.id,
+                                        "edge": edge,
+                                        "version": new_version,
+                                        "timestamp": timestamp
+                                    })
+                                    .to_string(),
+                                );
+                            }
+
+                            for edge in &edge_diff.removed {
+                                let _ = update_tx.send(
+                                    serde_json::json!({
+                                        "type": "edge_removed",
+                                        "id": edge.id,
+                                        "edge": edge,
+                                        "version": new_version,
+                                        "timestamp": timestamp
+                                    })
+                                    .to_string(),
+                                );
+                            }
                         }
 
-                        // Update current snapshot for next diff
+                        // Update current snapshots for next diff
                         current_snapshot = new_snapshot;
+                        current_edge_snapshot = new_edge_snapshot;
                     }
                     Err(_) => {
                         // Couldn't open storage, fall back to reload
