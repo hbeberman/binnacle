@@ -13248,6 +13248,8 @@ pub struct AgentListResult {
 /// Agent information for list output.
 #[derive(Serialize)]
 pub struct AgentInfo {
+    /// Unique identifier (e.g., "bn-a1b2")
+    pub id: String,
     pub pid: u32,
     pub parent_pid: u32,
     pub name: String,
@@ -13258,6 +13260,9 @@ pub struct AgentInfo {
     pub last_activity_at: String,
     pub tasks: Vec<String>,
     pub command_count: u64,
+    /// When the agent called goodbye (for fade-out animation timing)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goodbye_at: Option<String>,
 }
 
 impl Output for AgentListResult {
@@ -13281,8 +13286,8 @@ impl Output for AgentListResult {
                 .map(|p| format!(" - {}", p))
                 .unwrap_or_default();
             lines.push(format!(
-                "  PID {}  {}{}  [{}]",
-                agent.pid, agent.name, purpose_str, agent.status
+                "  {} (PID {})  {}{}  [{}]",
+                agent.id, agent.pid, agent.name, purpose_str, agent.status
             ));
             lines.push(format!(
                 "    Started: {}  Last activity: {}",
@@ -13317,6 +13322,7 @@ pub fn agent_list(repo_path: &Path, status: Option<&str>) -> Result<AgentListRes
                 AgentStatus::Stale => "stale",
             };
             AgentInfo {
+                id: a.id,
                 pid: a.pid,
                 parent_pid: a.parent_pid,
                 name: a.name,
@@ -13326,6 +13332,7 @@ pub fn agent_list(repo_path: &Path, status: Option<&str>) -> Result<AgentListRes
                 last_activity_at: a.last_activity_at.to_rfc3339(),
                 tasks: a.tasks,
                 command_count: a.command_count,
+                goodbye_at: a.goodbye_at.map(|t| t.to_rfc3339()),
             }
         })
         .collect();

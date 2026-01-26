@@ -1,6 +1,10 @@
 //! Integration tests for WASM archive loading
 //!
 //! Tests that the archive parser can load real .bng archives created by bn system store export.
+//!
+//! These tests require the `wasm` feature to be enabled.
+
+#![cfg(feature = "wasm")]
 
 use std::process::Command;
 use tempfile::TempDir;
