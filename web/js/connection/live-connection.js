@@ -371,7 +371,9 @@ function normalizeAgents(agents) {
             status: agent.status,
             pid: agent.pid,
             started_at: agent.started_at,
-            last_heartbeat: agent.last_heartbeat
+            last_heartbeat: agent.last_heartbeat,
+            // Keep original agent data for renderer (used by drawAgentLabel)
+            _agent: agent
         }));
 }
 
