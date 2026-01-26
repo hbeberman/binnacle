@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Rendering Test</title>
+    
+    <!-- Base styles -->
+    <link rel="stylesheet" href="css/themes/dark.css">
+    
+    <!-- Component styles -->
+    <link rel="stylesheet" href="css/components/doc-viewer.css">
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 2rem;
+            margin: 0;
+        }
+        
+        .test-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: var(--accent-blue);
+            margin-bottom: 1rem;
+        }
+        
+        .test-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .test-button {
+            padding: 0.625rem 1rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            margin: 0.5rem 0.5rem 0.5rem 0;
+        }
+        
+        .test-button:hover {
+            background: var(--accent-light);
+        }
+        
+        .description {
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 Markdown Rendering Test</h1>
+        
+        <div class="test-section">
+            <h2>Test Cases</h2>
+            <p class="description">
+                Test markdown rendering with various syntax elements.
+            </p>
+            
+            <button class="test-button" id="test-simple">Simple Markdown</button>
+            <button class="test-button" id="test-complex">Complex Markdown</button>
+            <button class="test-button" id="test-prd">PRD Document (Real)</button>
+        </div>
+        
+        <div class="test-section">
+            <h2>Expected Features</h2>
+            <ul class="description">
+                <li>✓ Headings (H1-H6)</li>
+                <li>✓ Paragraphs with line breaks</li>
+                <li>✓ Unordered lists (-, *, +)</li>
+                <li>✓ Ordered lists (1., 2., 3.)</li>
+                <li>✓ Code blocks with language syntax (```language)</li>
+                <li>✓ Inline code (`code`)</li>
+                <li>✓ Bold (**text** or __text__)</li>
+                <li>✓ Italic (*text* or _text_)</li>
+                <li>✓ Links ([text](url))</li>
+            </ul>
+        </div>
+    </div>
+    
+    <!-- Doc Viewer Overlay will be mounted here -->
+    <div id="app"></div>
+    
+    <script type="module">
+        import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
+        import { setEntities } from './js/state.js';
+        
+        // Test markdown content
+        const simpleMarkdown = `# Simple Test Document
+
+This is a **simple** markdown document with *basic* formatting.
+
+## Features Tested
+
+- Headings
+- Bold and italic text
+- Lists
+- \`Inline code\`
+
+You can find more info at [example.com](https://example.com).`;
+
+        const complexMarkdown = `# Complex Markdown Test
+
+## Typography
+
+This document tests **bold text**, *italic text*, and ***bold italic*** text.
+You can also use __alternative bold__ and _alternative italic_ syntax.
+
+## Lists
+
+### Unordered List (dash)
+- First item
+- Second item
+- Third item
+
+### Unordered List (asterisk)
+* Item A
+* Item B
+* Item C
+
+### Ordered List
+1. Step one
+2. Step two
+3. Step three
+
+## Code
+
+Here's some \`inline code\` in a paragraph.
+
+### Code Blocks
+
+JavaScript example:
+\`\`\`javascript
+function greet(name) {
+    console.log(\`Hello, \${name}!\`);
+}
+\`\`\`
+
+Rust example:
+\`\`\`rust
+fn main() {
+    println!("Hello, world!");
+}
+\`\`\`
+
+## Links
+
+Check out [Binnacle on GitHub](https://github.com/example/binnacle) for more details.
+
+## Mixed Content
+
+Here's a paragraph with **bold**, *italic*, \`code\`, and a [link](https://example.com) all together.`;
+
+        // Populate state with test documents
+        setEntities('docs', [
+            {
+                id: 'bn-test-simple',
+                type: 'doc',
+                title: 'Simple Test Document',
+                content: simpleMarkdown
+            },
+            {
+                id: 'bn-test-complex',
+                type: 'doc',
+                title: 'Complex Markdown Test',
+                content: complexMarkdown
+            },
+            {
+                id: 'bn-e32f',
+                type: 'doc',
+                title: 'PRD: SUDO_USER Awareness for bn serve',
+                content: null // Will be fetched from backend
+            }
+        ]);
+        
+        // Mount the doc viewer
+        mountDocViewer('#app');
+        
+        // Test buttons
+        document.getElementById('test-simple').addEventListener('click', () => {
+            showDocViewer('bn-test-simple');
+        });
+        
+        document.getElementById('test-complex').addEventListener('click', () => {
+            showDocViewer('bn-test-complex');
+        });
+        
+        document.getElementById('test-prd').addEventListener('click', async () => {
+            // Fetch real document content from backend
+            try {
+                const response = await fetch('/bn/doc/show/bn-e32f');
+                const data = await response.json();
+                
+                // Update state with real content
+                const docs = JSON.parse(localStorage.getItem('binnacle_entities_docs') || '{}');
+                docs['bn-e32f'] = {
+                    id: 'bn-e32f',
+                    type: 'doc',
+                    title: data.doc.title,
+                    content: data.doc.content
+                };
+                localStorage.setItem('binnacle_entities_docs', JSON.stringify(docs));
+                
+                showDocViewer('bn-e32f');
+            } catch (error) {
+                console.error('Failed to fetch document:', error);
+                alert('Failed to fetch document. Make sure bn serve is running.');
+            }
+        });
+    </script>
+</body>
+</html>
