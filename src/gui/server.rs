@@ -104,6 +104,34 @@ pub struct WebSocketMetricsSnapshot {
     pub total_connections: u64,
 }
 
+/// Monotonic version counter for state synchronization
+///
+/// This counter increments on any state change and is included in all WebSocket
+/// messages. Clients can use this to detect missed updates and request resync.
+#[derive(Clone, Default)]
+pub struct StateVersion {
+    counter: Arc<AtomicU64>,
+}
+
+impl StateVersion {
+    /// Create a new version counter starting at 0
+    pub fn new() -> Self {
+        Self {
+            counter: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Increment the version and return the new value
+    pub fn increment(&self) -> u64 {
+        self.counter.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Get the current version without incrementing
+    pub fn current(&self) -> u64 {
+        self.counter.load(Ordering::SeqCst)
+    }
+}
+
 /// Shared application state
 #[derive(Clone)]
 pub struct AppState {
@@ -119,6 +147,8 @@ pub struct AppState {
     pub repo_path: PathBuf,
     /// Whether the server is in readonly mode (write operations disabled)
     pub readonly: bool,
+    /// Monotonic version counter for state synchronization
+    pub version: StateVersion,
 }
 
 /// Start the GUI web server
@@ -139,6 +169,8 @@ pub async fn start_server(
         .unwrap_or("Unknown")
         .to_string();
 
+    let version = StateVersion::new();
+
     let state = AppState {
         storage: Arc::new(Mutex::new(storage)),
         update_tx,
@@ -146,13 +178,17 @@ pub async fn start_server(
         ws_metrics: Arc::new(WebSocketMetrics::new()),
         repo_path: repo_path.to_path_buf(),
         readonly,
+        version,
     };
 
     // Start file watcher in background
     let watcher_tx = state.update_tx.clone();
+    let watcher_version = state.version.clone();
     let watcher_path = storage_dir.clone();
     tokio::spawn(async move {
-        if let Err(e) = crate::gui::watcher::watch_storage(watcher_path, watcher_tx).await {
+        if let Err(e) =
+            crate::gui::watcher::watch_storage(watcher_path, watcher_tx, watcher_version).await
+        {
             eprintln!("File watcher error: {}", e);
         }
     });
@@ -186,6 +222,7 @@ pub async fn start_server(
         .route("/api/agents/:pid/kill", post(kill_agent))
         .route("/api/commits", get(get_git_commits))
         .route("/api/metrics/ws", get(get_ws_metrics))
+        .route("/api/version", get(get_version))
         .route("/ws", get(crate::gui::websocket::ws_handler))
         .with_state(state);
 
@@ -976,6 +1013,14 @@ async fn toggle_queue_membership(
 async fn get_ws_metrics(State(state): State<AppState>) -> Json<serde_json::Value> {
     let metrics = state.ws_metrics.snapshot();
     Json(serde_json::json!({ "websocket": metrics }))
+}
+
+/// Get current state version
+async fn get_version(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "version": state.version.current(),
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    }))
 }
 
 /// Query parameters for git commits endpoint

@@ -6,6 +6,8 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::time::Instant;
 
+use super::server::StateVersion;
+
 /// Debounce duration - wait this long after last event before sending update
 const DEBOUNCE_MS: u64 = 100;
 
@@ -13,6 +15,7 @@ const DEBOUNCE_MS: u64 = 100;
 pub async fn watch_storage(
     storage_path: PathBuf,
     update_tx: broadcast::Sender<String>,
+    version: StateVersion,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
 
@@ -67,10 +70,12 @@ pub async fn watch_storage(
                 }
             }
             _ = tokio::time::sleep(timeout), if pending_update => {
-                // Debounce timeout expired, send the update
+                // Debounce timeout expired, increment version and send the update
+                let new_version = version.increment();
                 let _ = update_tx.send(
                     serde_json::json!({
                         "type": "reload",
+                        "version": new_version,
                         "timestamp": chrono::Utc::now().to_rfc3339()
                     })
                     .to_string(),

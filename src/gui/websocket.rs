@@ -20,9 +20,24 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> 
 async fn handle_socket(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
     let metrics = state.ws_metrics.clone();
+    let current_version = state.version.current();
 
     // Track connection opened
     metrics.connection_opened();
+
+    // Send initial connection message with current version
+    let connected_msg = serde_json::json!({
+        "type": "connected",
+        "version": current_version,
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    })
+    .to_string();
+
+    if sender.send(Message::Text(connected_msg)).await.is_err() {
+        metrics.connection_closed();
+        return;
+    }
+    metrics.message_sent();
 
     // Subscribe to updates
     let mut rx = state.update_tx.subscribe();
