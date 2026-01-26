@@ -14343,6 +14343,20 @@ pub fn agent_spawn(
     }
 }
 
+/// A task selection event detected during reconciliation.
+#[derive(Serialize, Debug, Clone)]
+pub struct TaskSelection {
+    /// Agent ID that selected the task
+    pub agent_id: String,
+    /// Agent name
+    pub agent_name: String,
+    /// Task ID selected
+    pub task_id: String,
+    /// Short name of the task (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_short_name: Option<String>,
+}
+
 /// Result of agent reconciliation operation.
 #[derive(Serialize)]
 pub struct AgentReconcileResult {
@@ -14352,6 +14366,8 @@ pub struct AgentReconcileResult {
     pub dry_run: bool,
     /// Actions taken (or would be taken in dry_run mode)
     pub actions: Vec<ReconcileAction>,
+    /// Task selections detected (agents picking tasks)
+    pub task_selections: Vec<TaskSelection>,
     /// Current agent counts by type
     pub current_counts: AgentTypeCounts,
     /// Desired agent counts by type
@@ -14423,24 +14439,43 @@ impl Output for AgentReconcileResult {
             self.current_counts.buddy, self.desired_counts.buddy
         ));
 
-        if self.actions.is_empty() {
+        if self.actions.is_empty() && self.task_selections.is_empty() {
             lines.push("\n  No actions needed.".to_string());
         } else {
-            lines.push(format!("\n  Actions ({})", self.actions.len()));
-            for action in &self.actions {
-                let status = if self.dry_run {
-                    "would"
-                } else if action.executed {
-                    "did"
-                } else {
-                    "failed to"
-                };
+            if !self.actions.is_empty() {
+                lines.push(format!("\n  Actions ({})", self.actions.len()));
+                for action in &self.actions {
+                    let status = if self.dry_run {
+                        "would"
+                    } else if action.executed {
+                        "did"
+                    } else {
+                        "failed to"
+                    };
+                    lines.push(format!(
+                        "    {} {} {} - {}",
+                        status, action.action, action.agent_type, action.reason
+                    ));
+                    if let Some(id) = &action.agent_id {
+                        lines.push(format!("      Agent: {}", id));
+                    }
+                }
+            }
+            if !self.task_selections.is_empty() {
                 lines.push(format!(
-                    "    {} {} {} - {}",
-                    status, action.action, action.agent_type, action.reason
+                    "\n  Task Selections ({})",
+                    self.task_selections.len()
                 ));
-                if let Some(id) = &action.agent_id {
-                    lines.push(format!("      Agent: {}", id));
+                for selection in &self.task_selections {
+                    let task_display = if let Some(ref short_name) = selection.task_short_name {
+                        format!("{} ({})", selection.task_id, short_name)
+                    } else {
+                        selection.task_id.clone()
+                    };
+                    lines.push(format!(
+                        "    {} ({}) chose: {}",
+                        selection.agent_id, selection.agent_name, task_display
+                    ));
                 }
             }
         }
@@ -14784,6 +14819,7 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
         success: true,
         dry_run,
         actions,
+        task_selections: Vec::new(), // Populated by serve loop
         current_counts,
         desired_counts,
         work_count,
@@ -14833,22 +14869,74 @@ pub fn serve(repo_path: &Path, interval_secs: u64, dry_run: bool, human: bool) -
     let status_interval = Duration::from_secs(30);
     let mut last_status_print = Instant::now();
 
+    // Track agent state between reconciliation loops to detect task selections
+    use std::collections::HashMap;
+    let mut previous_agent_tasks: HashMap<String, Vec<String>> = HashMap::new();
+
     while running.load(Ordering::SeqCst) {
-        let result = agent_reconcile(repo_path, dry_run)?;
+        let mut result = agent_reconcile(repo_path, dry_run)?;
+
+        // Detect task selections by comparing current agent state to previous
+        let mut task_selections = Vec::new();
+        if let Ok(storage) = Storage::open(repo_path)
+            && let Ok(agents) = storage.list_agents(None)
+        {
+            for agent in &agents {
+                if agent.goodbye_at.is_some() {
+                    continue; // Skip agents that are shutting down
+                }
+                let prev_tasks = previous_agent_tasks
+                    .get(&agent.id)
+                    .cloned()
+                    .unwrap_or_default();
+                let new_tasks: Vec<String> = agent
+                    .tasks
+                    .iter()
+                    .filter(|t| !prev_tasks.contains(t))
+                    .cloned()
+                    .collect();
+
+                for task_id in new_tasks {
+                    // Try to get task short name
+                    let task_short_name = storage
+                        .get_task(&task_id)
+                        .ok()
+                        .and_then(|t| t.core.short_name);
+
+                    task_selections.push(TaskSelection {
+                        agent_id: agent.id.clone(),
+                        agent_name: agent.name.clone(),
+                        task_id,
+                        task_short_name,
+                    });
+                }
+
+                // Update the tracking map
+                previous_agent_tasks.insert(agent.id.clone(), agent.tasks.clone());
+            }
+
+            // Clean up entries for agents that no longer exist
+            previous_agent_tasks.retain(|id, _| agents.iter().any(|a| &a.id == id));
+        }
+        result.task_selections = task_selections;
 
         let has_actions = !result.actions.is_empty();
+        let has_task_selections = !result.task_selections.is_empty();
         let time_since_status = last_status_print.elapsed();
 
-        // Print status if: there were actions, OR 30 seconds elapsed
-        if has_actions || time_since_status >= status_interval {
+        // Print status if: there were actions, task selections, OR 30 seconds elapsed
+        if has_actions || has_task_selections || time_since_status >= status_interval {
             let timestamp = chrono::Local::now().format("%H:%M:%S");
             if human {
-                if has_actions {
+                if has_actions || has_task_selections {
                     println!(
-                        "[{}] Reconciliation: {} action(s)",
+                        "[{}] Reconciliation: {} action(s), {} task selection(s)",
                         timestamp,
-                        result.actions.len()
+                        result.actions.len(),
+                        result.task_selections.len()
                     );
+
+                    // Print actions with special highlighting for births and deaths
                     for action in &result.actions {
                         let status = if dry_run {
                             "would"
@@ -14857,15 +14945,54 @@ pub fn serve(repo_path: &Path, interval_secs: u64, dry_run: bool, human: bool) -
                         } else {
                             "failed to"
                         };
-                        println!(
-                            "  {} {} {} - {}",
-                            status, action.action, action.agent_type, action.reason
-                        );
-                        // Print log path for spawn actions
-                        if action.action == "spawn"
-                            && let Some(ref log_path) = action.log_path
-                        {
-                            println!("    Log: {}", log_path);
+
+                        // Add special highlighting for spawn (birth) and stop (death) events
+                        let action_display = if action.action == "spawn" {
+                            format!(
+                                "🌱 BIRTH: {} spawn {} ({})",
+                                status,
+                                action.agent_type,
+                                action.agent_name.as_ref().unwrap_or(&"unknown".to_string())
+                            )
+                        } else if action.action == "stop" {
+                            format!(
+                                "💀 DEATH: {} stop {} ({})",
+                                status,
+                                action.agent_type,
+                                action.agent_name.as_ref().unwrap_or(&"unknown".to_string())
+                            )
+                        } else {
+                            format!("{} {} {}", status, action.action, action.agent_type)
+                        };
+
+                        println!("  {}", action_display);
+
+                        // Print additional details
+                        if action.action == "spawn" {
+                            if let Some(ref agent_id) = action.agent_id {
+                                println!("    Agent: {}", agent_id);
+                            }
+                            if let Some(ref log_path) = action.log_path {
+                                println!("    Log: {}", log_path);
+                            }
+                        } else {
+                            println!("    Reason: {}", action.reason);
+                        }
+                    }
+
+                    // Print task selections with highlighting
+                    if !result.task_selections.is_empty() {
+                        for selection in &result.task_selections {
+                            let task_display =
+                                if let Some(ref short_name) = selection.task_short_name {
+                                    format!("{} ({})", selection.task_id, short_name)
+                                } else {
+                                    selection.task_id.clone()
+                                };
+                            println!(
+                                "  🎯 TASK SELECTED: {} ({}) chose: {}",
+                                selection.agent_id, selection.agent_name, task_display
+                            );
                         }
                     }
                 } else {
@@ -14883,17 +15010,35 @@ pub fn serve(repo_path: &Path, interval_secs: u64, dry_run: bool, human: bool) -
                 }
                 io::stdout().flush().ok();
             } else {
+                // JSON output mode - include task selections and structured event data
+                let json_output = serde_json::json!({
+                    "event": "reconcile",
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "actions": result.actions.len(),
+                    "task_selections": result.task_selections.len(),
+                    "lifecycle_events": {
+                        "spawns": result.actions.iter().filter(|a| a.action == "spawn").count(),
+                        "stops": result.actions.iter().filter(|a| a.action == "stop").count(),
+                    },
+                    "current": {
+                        "worker": result.current_counts.worker,
+                        "planner": result.current_counts.planner,
+                        "buddy": result.current_counts.buddy
+                    },
+                    "desired": {
+                        "worker": result.desired_counts.worker,
+                        "planner": result.desired_counts.planner,
+                        "buddy": result.desired_counts.buddy
+                    },
+                    "work_count": result.work_count,
+                    "details": {
+                        "actions": result.actions,
+                        "task_selections": result.task_selections,
+                    }
+                });
                 println!(
-                    r#"{{"event": "reconcile", "timestamp": "{}", "actions": {}, "current": {{"worker": {}, "planner": {}, "buddy": {}}}, "desired": {{"worker": {}, "planner": {}, "buddy": {}}}, "work_count": {}}}"#,
-                    chrono::Utc::now().to_rfc3339(),
-                    result.actions.len(),
-                    result.current_counts.worker,
-                    result.current_counts.planner,
-                    result.current_counts.buddy,
-                    result.desired_counts.worker,
-                    result.desired_counts.planner,
-                    result.desired_counts.buddy,
-                    result.work_count
+                    "{}",
+                    serde_json::to_string(&json_output).unwrap_or_default()
                 );
             }
             last_status_print = Instant::now();
