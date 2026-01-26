@@ -1,0 +1,89 @@
+/**
+ * Available Work Pane Component Styles
+ * 
+ * Displays a count of claimable work items (tasks + bugs) in the header
+ */
+
+.available-work-pane {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-left: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 120px;
+}
+
+.available-work-pane-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.available-work-count {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--accent-light);
+    line-height: 1;
+}
+
+.available-work-pane.has-work .available-work-count {
+    color: var(--success);
+}
+
+.available-work-pane.no-work .available-work-count {
+    color: var(--text-secondary);
+    opacity: 0.5;
+}
+
+.available-work-breakdown {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.emoji-count-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.emoji-count-badge .emoji {
+    font-size: 0.85rem;
+}
+
+.emoji-count-badge .count {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.emoji-count-badge.type-task {
+    border-color: var(--info);
+}
+
+.emoji-count-badge.type-bug {
+    border-color: var(--danger);
+}
+
+.emoji-count-badge.type-idea {
+    border-color: var(--idea-pending);
+}
