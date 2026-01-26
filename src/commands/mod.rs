@@ -15527,6 +15527,81 @@ pub fn container_run(
     })
 }
 
+/// Default timeout for graceful container stop (in seconds).
+const CONTAINER_STOP_TIMEOUT_SECS: u64 = 15;
+
+/// Gracefully stop a container's task: send SIGTERM, wait for timeout, then SIGKILL if needed.
+/// Returns true if the task was stopped (either gracefully or forced).
+fn graceful_task_kill(
+    containerd_mode: &ContainerdMode,
+    container: &str,
+    timeout_secs: u64,
+) -> bool {
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    // Check if task is running first
+    let is_running = || {
+        let output = ctr_command(containerd_mode)
+            .args(["-n", "binnacle", "tasks", "list"])
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Task list has header, then task_id in first column of each line
+            Some(
+                stdout
+                    .lines()
+                    .skip(1)
+                    .any(|line| line.split_whitespace().next() == Some(container)),
+            )
+        } else {
+            None
+        }
+    };
+
+    // If task isn't running, nothing to kill
+    if !is_running().unwrap_or(false) {
+        return true;
+    }
+
+    // Send SIGTERM (signal 15)
+    let term_result = ctr_command(containerd_mode)
+        .args([
+            "-n", "binnacle", "tasks", "kill", "--signal", "15", container,
+        ])
+        .output();
+
+    if term_result.is_err() {
+        return false;
+    }
+
+    // Wait for task to exit, checking every 500ms
+    let check_interval = Duration::from_millis(500);
+    let timeout = Duration::from_secs(timeout_secs);
+    let start = Instant::now();
+
+    while start.elapsed() < timeout {
+        if !is_running().unwrap_or(true) {
+            return true; // Task exited gracefully
+        }
+        thread::sleep(check_interval);
+    }
+
+    // Task still running after timeout - send SIGKILL (signal 9)
+    let _ = ctr_command(containerd_mode)
+        .args([
+            "-n", "binnacle", "tasks", "kill", "--signal", "9", container,
+        ])
+        .output();
+
+    // Give it a moment to die
+    thread::sleep(Duration::from_millis(100));
+
+    true
+}
+
 /// Stop binnacle containers.
 pub fn container_stop(name: Option<String>, all: bool) -> Result<ContainerStopResult> {
     // Check for required tools
@@ -15567,10 +15642,8 @@ pub fn container_stop(name: Option<String>, all: bool) -> Result<ContainerStopRe
             .collect();
 
         for container in containers {
-            // Kill task first
-            let _ = ctr_command(&containerd_mode)
-                .args(["-n", "binnacle", "tasks", "kill", &container])
-                .output();
+            // Gracefully kill task (SIGTERM, wait 15s, then SIGKILL if needed)
+            graceful_task_kill(&containerd_mode, &container, CONTAINER_STOP_TIMEOUT_SECS);
 
             // Remove container
             let rm_output = ctr_command(&containerd_mode)
@@ -15582,10 +15655,12 @@ pub fn container_stop(name: Option<String>, all: bool) -> Result<ContainerStopRe
             }
         }
     } else if let Some(container_name) = name {
-        // Kill task first
-        let _ = ctr_command(&containerd_mode)
-            .args(["-n", "binnacle", "tasks", "kill", &container_name])
-            .output();
+        // Gracefully kill task (SIGTERM, wait 15s, then SIGKILL if needed)
+        graceful_task_kill(
+            &containerd_mode,
+            &container_name,
+            CONTAINER_STOP_TIMEOUT_SECS,
+        );
 
         // Remove container
         let rm_output = ctr_command(&containerd_mode)
