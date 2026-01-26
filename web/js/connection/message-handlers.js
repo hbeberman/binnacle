@@ -276,6 +276,232 @@ function countEntities() {
 }
 
 /**
+ * Handle 'entity_added' message - incremental entity addition
+ * 
+ * Expected message format:
+ * {
+ *   type: 'entity_added',
+ *   entity_type: 'task' | 'bug' | 'idea' | 'test' | 'doc' | 'milestone' | 'queue',
+ *   id: string,
+ *   entity: object,
+ *   version: number,
+ *   timestamp: string
+ * }
+ */
+registerHandler('entity_added', (message) => {
+    const { entity_type, id, entity, version, timestamp } = message;
+    
+    if (!entity_type || !id || !entity) {
+        console.warn('entity_added message missing required fields:', message);
+        return;
+    }
+    
+    console.log(`Adding ${entity_type} ${id} (version: ${version})`);
+    
+    // Update sync metadata
+    state.set('sync.version', version);
+    state.set('sync.lastSync', timestamp);
+    
+    // Map entity_type to state entities key
+    const entityKey = getEntityKey(entity_type);
+    if (entityKey) {
+        const normalized = normalizeEntity(entity, entity_type);
+        state.upsertEntity(entityKey, normalized);
+    } else {
+        console.warn(`Unknown entity type: ${entity_type}`);
+    }
+});
+
+/**
+ * Handle 'entity_updated' message - incremental entity update
+ * 
+ * Expected message format:
+ * {
+ *   type: 'entity_updated',
+ *   entity_type: string,
+ *   id: string,
+ *   entity: object,  // Full entity object with all fields
+ *   version: number,
+ *   timestamp: string
+ * }
+ */
+registerHandler('entity_updated', (message) => {
+    const { entity_type, id, entity, version, timestamp } = message;
+    
+    if (!entity_type || !id || !entity) {
+        console.warn('entity_updated message missing required fields:', message);
+        return;
+    }
+    
+    console.log(`Updating ${entity_type} ${id} (version: ${version})`);
+    
+    // Update sync metadata
+    state.set('sync.version', version);
+    state.set('sync.lastSync', timestamp);
+    
+    // Map entity_type to state entities key
+    const entityKey = getEntityKey(entity_type);
+    if (entityKey) {
+        const normalized = normalizeEntity(entity, entity_type);
+        state.upsertEntity(entityKey, normalized);
+    } else {
+        console.warn(`Unknown entity type: ${entity_type}`);
+    }
+});
+
+/**
+ * Handle 'entity_removed' message - incremental entity deletion
+ * 
+ * Expected message format:
+ * {
+ *   type: 'entity_removed',
+ *   entity_type: string,
+ *   id: string,
+ *   version: number,
+ *   timestamp: string
+ * }
+ */
+registerHandler('entity_removed', (message) => {
+    const { entity_type, id, version, timestamp } = message;
+    
+    if (!entity_type || !id) {
+        console.warn('entity_removed message missing required fields:', message);
+        return;
+    }
+    
+    console.log(`Removing ${entity_type} ${id} (version: ${version})`);
+    
+    // Update sync metadata
+    state.set('sync.version', version);
+    state.set('sync.lastSync', timestamp);
+    
+    // Map entity_type to state entities key
+    const entityKey = getEntityKey(entity_type);
+    if (entityKey) {
+        state.removeEntity(entityKey, id);
+    } else {
+        console.warn(`Unknown entity type: ${entity_type}`);
+    }
+});
+
+/**
+ * Handle 'edge_added' message - incremental edge addition
+ * 
+ * Expected message format:
+ * {
+ *   type: 'edge_added',
+ *   id: string,
+ *   edge: object,
+ *   version: number,
+ *   timestamp: string
+ * }
+ */
+registerHandler('edge_added', (message) => {
+    const { id, edge, version, timestamp } = message;
+    
+    if (!id || !edge) {
+        console.warn('edge_added message missing required fields:', message);
+        return;
+    }
+    
+    console.log(`Adding edge ${id} (version: ${version})`);
+    
+    // Update sync metadata
+    state.set('sync.version', version);
+    state.set('sync.lastSync', timestamp);
+    
+    // Normalize and add edge
+    const normalized = normalizeEdge(edge);
+    state.addEdge(normalized);
+});
+
+/**
+ * Handle 'edge_removed' message - incremental edge deletion
+ * 
+ * Expected message format:
+ * {
+ *   type: 'edge_removed',
+ *   id: string,
+ *   edge: object,  // Contains source and target for removal
+ *   version: number,
+ *   timestamp: string
+ * }
+ */
+registerHandler('edge_removed', (message) => {
+    const { id, edge, version, timestamp } = message;
+    
+    if (!id || !edge) {
+        console.warn('edge_removed message missing required fields:', message);
+        return;
+    }
+    
+    console.log(`Removing edge ${id} (version: ${version})`);
+    
+    // Update sync metadata
+    state.set('sync.version', version);
+    state.set('sync.lastSync', timestamp);
+    
+    // Remove edge - use ID-based removal
+    const edges = state.getEdges().filter(e => e.id !== id);
+    state.setEdges(edges);
+});
+
+/**
+ * Normalize a single edge to ensure consistent format
+ * @param {Object} edge - Raw edge object
+ * @returns {Object} Normalized edge
+ */
+function normalizeEdge(edge) {
+    return {
+        source: edge.source,
+        target: edge.target,
+        edge_type: edge.edge_type || edge.type || 'related_to',
+        id: edge.id || null,
+        reason: edge.reason || null,
+        weight: edge.weight ?? 1.0,
+        created_at: edge.created_at || null
+    };
+}
+
+/**
+ * Map entity_type string from server to state entities key
+ * @param {string} entity_type - Server entity type
+ * @returns {string|null} State entities key or null if unknown
+ */
+function getEntityKey(entity_type) {
+    const mapping = {
+        'task': 'tasks',
+        'bug': 'bugs',
+        'idea': 'ideas',
+        'test': 'tests',
+        'doc': 'docs',
+        'milestone': 'milestones',
+        'queue': 'queues',
+        'agent': 'agents'
+    };
+    
+    return mapping[entity_type] || null;
+}
+
+/**
+ * Normalize a single entity to ensure consistent format
+ * @param {Object} entity - Raw entity object
+ * @param {string} type - Entity type
+ * @returns {Object} Normalized entity
+ */
+function normalizeEntity(entity, type) {
+    return {
+        ...entity,
+        type: entity.type || type,
+        priority: entity.priority ?? getDefaultPriority(type),
+        status: entity.status || 'pending',
+        tags: entity.tags || [],
+        short_name: entity.short_name || null,
+        depends_on: entity.depends_on || []
+    };
+}
+
+/**
  * Get all registered message types
  * @returns {string[]} Array of registered handler types
  */

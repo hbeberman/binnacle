@@ -134,6 +134,24 @@ function routeMessage(message, baseUrl, onStateChange) {
         return true;
     }
     
+    // Handle incremental entity messages
+    if (message.type === 'entity_added' || message.type === 'entity_updated' || message.type === 'entity_removed') {
+        const handled = handleMessage(message);
+        if (handled && onStateChange) {
+            onStateChange(message.type);
+        }
+        return handled;
+    }
+    
+    // Handle incremental edge messages
+    if (message.type === 'edge_added' || message.type === 'edge_removed') {
+        const handled = handleMessage(message);
+        if (handled && onStateChange) {
+            onStateChange(message.type);
+        }
+        return handled;
+    }
+    
     // Try generic message handler
     return handleMessage(message);
 }
