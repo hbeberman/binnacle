@@ -304,4 +304,239 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_detect_sudo_context_with_valid_sudo_env() {
+        // Test successful case: valid SUDO_USER, SUDO_UID, SUDO_GID
+        // Returns correct SudoContext when all conditions are met
+
+        // Save original env
+        let orig_sudo_user = std::env::var("SUDO_USER").ok();
+        let orig_sudo_uid = std::env::var("SUDO_UID").ok();
+        let orig_sudo_gid = std::env::var("SUDO_GID").ok();
+        let orig_home = std::env::var("HOME").ok();
+
+        // Set up valid sudo environment
+        unsafe {
+            std::env::set_var("SUDO_USER", "testuser");
+            std::env::set_var("SUDO_UID", "1000");
+            std::env::set_var("SUDO_GID", "1000");
+            std::env::set_var("HOME", "/home/testuser");
+        }
+
+        // If we're actually running as root, should return valid SudoContext
+        let current_uid = nix::unistd::geteuid();
+        if current_uid.is_root() {
+            let ctx = detect_sudo_context();
+            assert!(
+                ctx.is_some(),
+                "Should return Some(SudoContext) with valid env"
+            );
+            let ctx = ctx.unwrap();
+            assert_eq!(ctx.uid, 1000);
+            assert_eq!(ctx.gid, 1000);
+            assert_eq!(ctx.home, PathBuf::from("/home/testuser"));
+        }
+
+        // Restore original env
+        unsafe {
+            match orig_sudo_user {
+                Some(v) => std::env::set_var("SUDO_USER", v),
+                None => std::env::remove_var("SUDO_USER"),
+            }
+            match orig_sudo_uid {
+                Some(v) => std::env::set_var("SUDO_UID", v),
+                None => std::env::remove_var("SUDO_UID"),
+            }
+            match orig_sudo_gid {
+                Some(v) => std::env::set_var("SUDO_GID", v),
+                None => std::env::remove_var("SUDO_GID"),
+            }
+            match orig_home {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_detect_sudo_context_missing_sudo_uid() {
+        // Test graceful handling of missing SUDO_UID
+        // Should return None when SUDO_UID is not set
+
+        // Save original env
+        let orig_sudo_user = std::env::var("SUDO_USER").ok();
+        let orig_sudo_uid = std::env::var("SUDO_UID").ok();
+        let orig_sudo_gid = std::env::var("SUDO_GID").ok();
+
+        // Set SUDO_USER and SUDO_GID but NOT SUDO_UID
+        unsafe {
+            std::env::set_var("SUDO_USER", "testuser");
+            std::env::remove_var("SUDO_UID");
+            std::env::set_var("SUDO_GID", "1000");
+        }
+
+        // Should return None due to missing SUDO_UID
+        let current_uid = nix::unistd::geteuid();
+        if current_uid.is_root() {
+            assert_eq!(
+                detect_sudo_context(),
+                None,
+                "Missing SUDO_UID should return None"
+            );
+        }
+
+        // Restore original env
+        unsafe {
+            match orig_sudo_user {
+                Some(v) => std::env::set_var("SUDO_USER", v),
+                None => std::env::remove_var("SUDO_USER"),
+            }
+            match orig_sudo_uid {
+                Some(v) => std::env::set_var("SUDO_UID", v),
+                None => std::env::remove_var("SUDO_UID"),
+            }
+            match orig_sudo_gid {
+                Some(v) => std::env::set_var("SUDO_GID", v),
+                None => std::env::remove_var("SUDO_GID"),
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_detect_sudo_context_missing_sudo_gid() {
+        // Test graceful handling of missing SUDO_GID
+        // Should return None when SUDO_GID is not set
+
+        // Save original env
+        let orig_sudo_user = std::env::var("SUDO_USER").ok();
+        let orig_sudo_uid = std::env::var("SUDO_UID").ok();
+        let orig_sudo_gid = std::env::var("SUDO_GID").ok();
+
+        // Set SUDO_USER and SUDO_UID but NOT SUDO_GID
+        unsafe {
+            std::env::set_var("SUDO_USER", "testuser");
+            std::env::set_var("SUDO_UID", "1000");
+            std::env::remove_var("SUDO_GID");
+        }
+
+        // Should return None due to missing SUDO_GID
+        let current_uid = nix::unistd::geteuid();
+        if current_uid.is_root() {
+            assert_eq!(
+                detect_sudo_context(),
+                None,
+                "Missing SUDO_GID should return None"
+            );
+        }
+
+        // Restore original env
+        unsafe {
+            match orig_sudo_user {
+                Some(v) => std::env::set_var("SUDO_USER", v),
+                None => std::env::remove_var("SUDO_USER"),
+            }
+            match orig_sudo_uid {
+                Some(v) => std::env::set_var("SUDO_UID", v),
+                None => std::env::remove_var("SUDO_UID"),
+            }
+            match orig_sudo_gid {
+                Some(v) => std::env::set_var("SUDO_GID", v),
+                None => std::env::remove_var("SUDO_GID"),
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_detect_sudo_context_invalid_sudo_uid() {
+        // Test graceful handling of invalid (non-numeric) SUDO_UID
+        // Should return None when SUDO_UID cannot be parsed
+
+        // Save original env
+        let orig_sudo_user = std::env::var("SUDO_USER").ok();
+        let orig_sudo_uid = std::env::var("SUDO_UID").ok();
+        let orig_sudo_gid = std::env::var("SUDO_GID").ok();
+
+        // Set SUDO_UID to invalid value
+        unsafe {
+            std::env::set_var("SUDO_USER", "testuser");
+            std::env::set_var("SUDO_UID", "not-a-number");
+            std::env::set_var("SUDO_GID", "1000");
+        }
+
+        // Should return None due to invalid SUDO_UID
+        let current_uid = nix::unistd::geteuid();
+        if current_uid.is_root() {
+            assert_eq!(
+                detect_sudo_context(),
+                None,
+                "Invalid SUDO_UID should return None"
+            );
+        }
+
+        // Restore original env
+        unsafe {
+            match orig_sudo_user {
+                Some(v) => std::env::set_var("SUDO_USER", v),
+                None => std::env::remove_var("SUDO_USER"),
+            }
+            match orig_sudo_uid {
+                Some(v) => std::env::set_var("SUDO_UID", v),
+                None => std::env::remove_var("SUDO_UID"),
+            }
+            match orig_sudo_gid {
+                Some(v) => std::env::set_var("SUDO_GID", v),
+                None => std::env::remove_var("SUDO_GID"),
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_detect_sudo_context_invalid_sudo_gid() {
+        // Test graceful handling of invalid (non-numeric) SUDO_GID
+        // Should return None when SUDO_GID cannot be parsed
+
+        // Save original env
+        let orig_sudo_user = std::env::var("SUDO_USER").ok();
+        let orig_sudo_uid = std::env::var("SUDO_UID").ok();
+        let orig_sudo_gid = std::env::var("SUDO_GID").ok();
+
+        // Set SUDO_GID to invalid value
+        unsafe {
+            std::env::set_var("SUDO_USER", "testuser");
+            std::env::set_var("SUDO_UID", "1000");
+            std::env::set_var("SUDO_GID", "not-a-number");
+        }
+
+        // Should return None due to invalid SUDO_GID
+        let current_uid = nix::unistd::geteuid();
+        if current_uid.is_root() {
+            assert_eq!(
+                detect_sudo_context(),
+                None,
+                "Invalid SUDO_GID should return None"
+            );
+        }
+
+        // Restore original env
+        unsafe {
+            match orig_sudo_user {
+                Some(v) => std::env::set_var("SUDO_USER", v),
+                None => std::env::remove_var("SUDO_USER"),
+            }
+            match orig_sudo_uid {
+                Some(v) => std::env::set_var("SUDO_UID", v),
+                None => std::env::remove_var("SUDO_UID"),
+            }
+            match orig_sudo_gid {
+                Some(v) => std::env::set_var("SUDO_GID", v),
+                None => std::env::remove_var("SUDO_GID"),
+            }
+        }
+    }
 }
