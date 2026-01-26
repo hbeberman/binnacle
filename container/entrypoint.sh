@@ -68,6 +68,17 @@ BN_AUTO_MERGE="${BN_AUTO_MERGE:-true}"
 
 cd /workspace
 
+# Configure git hooks path so commit-msg hook adds co-author trailer
+# The hooks/ directory in the repo contains the commit-msg hook that adds
+# "Co-authored-by: binnacle-bot <noreply@binnacle.bot>" when BN_AGENT_SESSION=1
+if [ -d "hooks" ]; then
+    git config core.hooksPath hooks
+    echo "🪝 Git hooks configured (core.hooksPath = hooks)"
+fi
+
+# Mark this as an agent session for the commit-msg hook
+export BN_AGENT_SESSION=1
+
 # Git identity: respect existing configuration.
 # The container inherits git identity from:
 # 1. GIT_AUTHOR_*/GIT_COMMITTER_* env vars passed by the host
