@@ -299,6 +299,7 @@ export function updateInfoPanelContent(panel, node) {
     const docSection = panel.querySelector('#info-panel-doc-open-section');
     if (node.type === 'doc') {
         docSection.style.display = 'flex';
+        docSection.dataset.docId = node.id;
     } else {
         docSection.style.display = 'none';
     }
