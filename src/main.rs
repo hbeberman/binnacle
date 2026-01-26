@@ -1042,6 +1042,48 @@ fn run_command(
                 let result = commands::agent_kill(repo_path, &target, timeout)?;
                 output(&result, human);
             }
+            AgentCommands::Scale {
+                agent_type,
+                min,
+                max,
+            } => {
+                // If no type specified and no settings provided, show all
+                // If type specified with no settings, show that type
+                // If type specified with settings, update that type
+                match (&agent_type, min.is_some() || max.is_some()) {
+                    (None, false) => {
+                        // Show all types
+                        let result = commands::config_get_agent_scaling(repo_path)?;
+                        output(&result, human);
+                    }
+                    (Some(t), false) => {
+                        // Show specific type
+                        let config = commands::config_get_agent_scaling_for_type(repo_path, t)?;
+                        let result = commands::AgentScalingConfigWithType {
+                            agent_type: t.clone(),
+                            min: config.min,
+                            max: config.max,
+                        };
+                        output(&result, human);
+                    }
+                    (Some(t), true) => {
+                        // Update specific type
+                        let config = commands::config_set_agent_scaling(repo_path, t, min, max)?;
+                        let result = commands::AgentScalingConfigWithType {
+                            agent_type: t.clone(),
+                            min: config.min,
+                            max: config.max,
+                        };
+                        output(&result, human);
+                    }
+                    (None, true) => {
+                        // Cannot set values without specifying type
+                        return Err(binnacle::Error::Other(
+                            "Agent type required when setting min/max values".to_string(),
+                        ));
+                    }
+                }
+            }
         },
         Some(Commands::Container { command }) => match command {
             ContainerCommands::Build { tag, no_cache } => {
@@ -2507,6 +2549,14 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             AgentCommands::Kill { target, timeout } => (
                 "agent kill".to_string(),
                 serde_json::json!({ "target": target, "timeout": timeout }),
+            ),
+            AgentCommands::Scale {
+                agent_type,
+                min,
+                max,
+            } => (
+                "agent scale".to_string(),
+                serde_json::json!({ "agent_type": agent_type, "min": min, "max": max }),
             ),
         },
 

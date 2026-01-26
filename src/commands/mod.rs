@@ -11240,6 +11240,30 @@ pub struct AgentScalingConfig {
     pub max: u32,
 }
 
+/// Agent scaling config with type context for output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentScalingConfigWithType {
+    /// The agent type (worker, planner, buddy)
+    pub agent_type: String,
+    /// Minimum number of agents to maintain
+    pub min: u32,
+    /// Maximum number of agents to allow
+    pub max: u32,
+}
+
+impl Output for AgentScalingConfigWithType {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Agent Scaling ({}):\n  min: {}\n  max: {}",
+            self.agent_type, self.min, self.max
+        )
+    }
+}
+
 /// All agent scaling configurations.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentScalingConfigs {

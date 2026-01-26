@@ -1547,6 +1547,21 @@ pub enum AgentCommands {
         #[arg(long, default_value = "5")]
         timeout: u64,
     },
+
+    /// View or set min/max scaling configuration for agent types
+    Scale {
+        /// Agent type (worker, planner, buddy). If omitted, shows all types.
+        #[arg(value_parser = ["worker", "planner", "buddy"])]
+        agent_type: Option<String>,
+
+        /// Minimum number of agents to maintain
+        #[arg(long)]
+        min: Option<u32>,
+
+        /// Maximum number of agents to allow
+        #[arg(long)]
+        max: Option<u32>,
+    },
 }
 
 /// Container management subcommands (requires containerd/buildah)
