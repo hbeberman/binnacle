@@ -6109,11 +6109,12 @@
         async function loadData() {
             // Load all data in parallel (log uses pagination)
             const logLimit = state.logPagination.limit;
-            const [configData, tasksData, bugsData, ideasData, readyData, testsData, docsData, logData, edgesData, agentsData, queueData, commitsData] = await Promise.all([
+            const [configData, tasksData, bugsData, ideasData, milestonesData, readyData, testsData, docsData, logData, edgesData, agentsData, queueData, commitsData] = await Promise.all([
                 fetch('/api/config').then(r => r.json()),
                 fetch('/api/tasks').then(r => r.json()),
                 fetch('/api/bugs').then(r => r.json()),
                 fetch('/api/ideas').then(r => r.json()),
+                fetch('/api/milestones').then(r => r.json()),
                 fetch('/api/ready').then(r => r.json()),
                 fetch('/api/tests').then(r => r.json()),
                 fetch('/api/docs').then(r => r.json()),
@@ -6143,6 +6144,14 @@
                 priority: 4,  // Ideas are low priority by default
                 short_name: idea.short_name || null,
                 depends_on: idea.depends_on || []
+            }));
+            // Normalize milestones to have node-like fields for graph rendering
+            const normalizedMilestones = (milestonesData.milestones || []).map(milestone => ({
+                ...milestone,
+                type: 'milestone',
+                priority: milestone.priority ?? 2,
+                short_name: milestone.short_name || null,
+                depends_on: milestone.depends_on || []
             }));
             // Normalize queue to have node-like fields for graph rendering
             const normalizedQueue = queueData.queue ? [{
@@ -6231,9 +6240,10 @@
                 depends_on: doc.supersedes ? [doc.supersedes] : []  // Version chain as dependency
             }));
             
-            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas, ...normalizedQueue, ...allAgentNodes, ...normalizedDocs];
+            state.tasks = [...(tasksData.tasks || []), ...normalizedBugs, ...normalizedIdeas, ...normalizedMilestones, ...normalizedQueue, ...allAgentNodes, ...normalizedDocs];
             state.ready = readyData.tasks || [];
             state.ideas = ideasData.ideas || [];
+            state.milestones = milestonesData.milestones || [];
             state.tests = testsData.tests || [];
             state.docs = docsData.docs || [];
             state.log = logData.log || [];
@@ -9732,6 +9742,14 @@
                 'handoff': '#e87d4a'        // --doc-handoff (orange)
             };
             
+            // Milestone colors (flag/goal theme - green/gold tones)
+            const milestoneColors = {
+                'pending': '#228b22',       // Forest green for pending
+                'in_progress': '#32cd32',   // Lime green for in progress
+                'blocked': '#8b4513',       // Saddle brown for blocked
+                'done': '#ffd700'           // Gold for completed
+            };
+            
             // Select color palette based on node type
             let colorPalette = colors;
             let color;
@@ -9743,6 +9761,9 @@
             } else if (node.type === 'idea') {
                 colorPalette = ideaColors;
                 color = colorPalette[node.status] || '#4a90e2';
+            } else if (node.type === 'milestone') {
+                colorPalette = milestoneColors;
+                color = colorPalette[node.status] || '#228b22';
             } else if (node.type === 'agent') {
                 colorPalette = agentColors;
                 color = colorPalette[node.status] || '#00d4ff';

@@ -149,6 +149,7 @@ pub async fn start_server(
         .route("/api/tasks", get(get_tasks))
         .route("/api/bugs", get(get_bugs))
         .route("/api/ideas", get(get_ideas))
+        .route("/api/milestones", get(get_milestones))
         .route("/api/ready", get(get_ready))
         .route("/api/available-work", get(get_available_work))
         .route("/api/tests", get(get_tests))
@@ -227,6 +228,18 @@ async fn get_ideas(State(state): State<AppState>) -> Result<Json<serde_json::Val
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "ideas": ideas })))
+}
+
+/// Get all milestones
+async fn get_milestones(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+    let milestones = storage
+        .list_milestones(None, None, None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({ "milestones": milestones })))
 }
 
 /// Get ready tasks (no blockers)
