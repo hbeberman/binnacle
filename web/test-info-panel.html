@@ -91,7 +91,11 @@
                 btn.classList.toggle('active');
             },
             onDocOpen: () => console.log('Doc open clicked'),
-            onViewFullLog: () => console.log('View full log clicked')
+            onViewFullLog: () => console.log('View full log clicked'),
+            onRelationshipClick: (nodeId) => {
+                console.log('Relationship clicked, navigate to:', nodeId);
+                alert(`Would navigate to: ${nodeId}`);
+            }
         });
         
         // Test data
@@ -104,7 +108,12 @@
             status: 'in_progress',
             priority: 1,
             depends_on: ['bn-c3d4', 'bn-e5f6'],
-            queued: true
+            queued: true,
+            edges: [
+                { edge_type: 'depends_on', direction: 'outbound', related_id: 'bn-c3d4' },
+                { edge_type: 'child_of', direction: 'outbound', related_id: 'bn-m1l2' },
+                { edge_type: 'tested_by', direction: 'inbound', related_id: 'bnt-0001' }
+            ]
         };
         
         const sampleBug = {
@@ -116,7 +125,11 @@
             status: 'pending',
             priority: 0,
             severity: 'critical',
-            queued: false
+            queued: false,
+            edges: [
+                { edge_type: 'blocks', direction: 'outbound', related_id: 'bn-x9y8' },
+                { edge_type: 'related_to', direction: 'outbound', related_id: 'bn-z7w6' }
+            ]
         };
         
         const sampleDoc = {
@@ -125,7 +138,10 @@
             title: 'API Design Document',
             short_name: 'API Design',
             description: 'RESTful API design for the task management system.',
-            status: 'done'
+            status: 'done',
+            edges: [
+                { edge_type: 'documents', direction: 'outbound', related_id: 'bn-a1b2' }
+            ]
         };
         
         const sampleIdea = {
