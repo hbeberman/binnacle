@@ -832,6 +832,82 @@ export function findNodeAtPosition(screenX, screenY) {
 }
 
 /**
+ * Calculate distance from a point to an edge (line segment)
+ * @param {number} px - Point X (world coordinates)
+ * @param {number} py - Point Y (world coordinates)
+ * @param {Object} edge - Edge object with from/to
+ * @returns {number} Distance to edge, or Infinity if invalid
+ */
+function distanceToEdge(px, py, edge) {
+    const fromNode = graphNodes.find(n => n.id === edge.from);
+    const toNode = graphNodes.find(n => n.id === edge.to);
+    if (!fromNode || !toNode) return Infinity;
+    
+    // Calculate edge endpoints at node boundaries
+    const dx = toNode.x - fromNode.x;
+    const dy = toNode.y - fromNode.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < fromNode.radius + toNode.radius) return Infinity;
+    
+    const angle = Math.atan2(dy, dx);
+    const x1 = fromNode.x + Math.cos(angle) * fromNode.radius;
+    const y1 = fromNode.y + Math.sin(angle) * fromNode.radius;
+    const x2 = toNode.x - Math.cos(angle) * toNode.radius;
+    const y2 = toNode.y - Math.sin(angle) * toNode.radius;
+    
+    // Calculate distance from point to line segment
+    const lineDx = x2 - x1;
+    const lineDy = y2 - y1;
+    const lineLen = Math.sqrt(lineDx * lineDx + lineDy * lineDy);
+    if (lineLen === 0) return Infinity;
+    
+    // Project point onto line, clamped to segment
+    const t = Math.max(0, Math.min(1, ((px - x1) * lineDx + (py - y1) * lineDy) / (lineLen * lineLen)));
+    const projX = x1 + t * lineDx;
+    const projY = y1 + t * lineDy;
+    
+    return Math.sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY));
+}
+
+/**
+ * Find edge at screen position
+ * @param {number} screenX - Screen X coordinate
+ * @param {number} screenY - Screen Y coordinate
+ * @param {number} threshold - Distance threshold in pixels (default 8)
+ * @returns {Object|null} Edge at position, or null
+ */
+export function findEdgeAtPosition(screenX, screenY, threshold = 8) {
+    const worldPos = screenToWorld(screenX, screenY, canvas);
+    const zoom = getZoom();
+    
+    // Adjust threshold for zoom level
+    const adjustedThreshold = threshold / zoom;
+    
+    let closestEdge = null;
+    let closestDistance = adjustedThreshold;
+    
+    const edgeFilters = state.get('ui.edgeTypeFilters') || {};
+    
+    for (const edge of graphEdges) {
+        // Skip edges that are filtered out
+        if (!edgeFilters[edge.edge_type]) continue;
+        
+        // Skip edges where either endpoint is hidden
+        if (!visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) {
+            continue;
+        }
+        
+        const distance = distanceToEdge(worldPos.x, worldPos.y, edge);
+        if (distance < closestDistance) {
+            closestDistance = distance;
+            closestEdge = edge;
+        }
+    }
+    
+    return closestEdge;
+}
+
+/**
  * Move a node to a new position
  * @param {Object} node - Node to move
  * @param {number} worldX - New world X coordinate

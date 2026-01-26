@@ -37,6 +37,10 @@
     cursor: pointer;
 }
 
+#graph-canvas.hovering-edge:not(.dragging) {
+    cursor: help;
+}
+
 #graph-canvas.dragging {
     cursor: grabbing;
 }
@@ -337,6 +341,41 @@
     font-weight: 600;
     text-transform: uppercase;
     margin-top: 4px;
+}
+
+/* Status colors for tooltip */
+.graph-tooltip-status.status-pending { color: var(--warning); }
+.graph-tooltip-status.status-in_progress { color: var(--accent-blue); }
+.graph-tooltip-status.status-done { color: var(--success); }
+.graph-tooltip-status.status-blocked { color: var(--danger); }
+.graph-tooltip-status.status-cancelled { color: var(--text-secondary); }
+.graph-tooltip-status.status-active { color: var(--accent-blue); }
+.graph-tooltip-status.status-idle { color: var(--text-secondary); }
+
+/* Edge tooltip specific styles */
+.edge-tooltip .edge-tooltip-type {
+    display: flex;
+    align-items: center;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.edge-tooltip .edge-tooltip-ids {
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.edge-tooltip .edge-tooltip-reason {
+    font-style: italic;
+    color: var(--text-secondary);
+    font-size: 12px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border-color);
+    margin-top: 4px;
+    white-space: normal;
+    max-width: 250px;
 }
 
 /* ==========================================================================

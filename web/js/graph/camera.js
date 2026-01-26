@@ -5,15 +5,26 @@
  * - Pan (click and drag)
  * - Zoom (mouse wheel or buttons)
  * - Reset view
+ * - Hover detection for nodes and edges
  */
 
 import * as state from '../state.js';
 import { applyZoom, applyPan, resetViewport, screenToWorld } from './transform.js';
+import { findNodeAtPosition, findEdgeAtPosition, setHoveredNode } from './renderer.js';
 
 // Mouse interaction state
 let isDragging = false;
 let dragStartX = 0;
 let dragStartY = 0;
+
+// Hover state
+let currentHoveredNode = null;
+let currentHoveredEdge = null;
+
+// Callback functions for tooltip handling
+let onNodeHover = null;
+let onEdgeHover = null;
+let onHoverEnd = null;
 
 // Canvas reference
 let canvas = null;
@@ -21,11 +32,20 @@ let canvas = null;
 /**
  * Initialize camera controls on a canvas element
  * @param {HTMLCanvasElement} canvasElement - The canvas to attach controls to
+ * @param {Object} callbacks - Optional callback functions
+ * @param {Function} callbacks.onNodeHover - Called when hovering over a node: (node, mouseX, mouseY)
+ * @param {Function} callbacks.onEdgeHover - Called when hovering over an edge: (edge, mouseX, mouseY)
+ * @param {Function} callbacks.onHoverEnd - Called when hover ends: ()
  */
-export function init(canvasElement) {
+export function init(canvasElement, callbacks = {}) {
     canvas = canvasElement;
     
-    // Mouse events for pan
+    // Store callbacks
+    onNodeHover = callbacks.onNodeHover || null;
+    onEdgeHover = callbacks.onEdgeHover || null;
+    onHoverEnd = callbacks.onHoverEnd || null;
+    
+    // Mouse events for pan and hover
     canvas.addEventListener('mousedown', onMouseDown);
     canvas.addEventListener('mousemove', onMouseMove);
     canvas.addEventListener('mouseup', onMouseUp);
@@ -48,18 +68,95 @@ function onMouseDown(e) {
 }
 
 /**
- * Handle mouse move - pan camera if dragging
+ * Handle mouse move - pan camera if dragging, otherwise check hover
  */
 function onMouseMove(e) {
-    if (!isDragging) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
     
-    const dx = e.clientX - dragStartX;
-    const dy = e.clientY - dragStartY;
+    if (isDragging) {
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+        
+        applyPan(dx, dy);
+        
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        
+        // Hide tooltips while dragging
+        if (onHoverEnd) {
+            onHoverEnd();
+        }
+        currentHoveredNode = null;
+        currentHoveredEdge = null;
+    } else {
+        // Hover detection
+        checkHover(x, y, e.clientX, e.clientY);
+    }
+}
+
+/**
+ * Check for hover on nodes and edges
+ * @param {number} canvasX - X position relative to canvas
+ * @param {number} canvasY - Y position relative to canvas
+ * @param {number} screenX - X position in screen/window coordinates
+ * @param {number} screenY - Y position in screen/window coordinates
+ */
+function checkHover(canvasX, canvasY, screenX, screenY) {
+    // First check for node hover (nodes take priority)
+    const hoveredNode = findNodeAtPosition(canvasX, canvasY);
     
-    applyPan(dx, dy);
-    
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
+    if (hoveredNode) {
+        // Hovering over a node
+        if (hoveredNode !== currentHoveredNode) {
+            currentHoveredNode = hoveredNode;
+            currentHoveredEdge = null;
+            setHoveredNode(hoveredNode);
+            canvas.classList.add('hovering');
+            
+            if (onNodeHover) {
+                onNodeHover(hoveredNode, screenX, screenY);
+            }
+        } else if (onNodeHover) {
+            // Still hovering same node, update position
+            onNodeHover(hoveredNode, screenX, screenY);
+        }
+    } else {
+        // Not hovering a node, check for edge
+        const hoveredEdge = findEdgeAtPosition(canvasX, canvasY);
+        
+        if (hoveredEdge) {
+            // Hovering over an edge
+            if (hoveredEdge !== currentHoveredEdge) {
+                currentHoveredEdge = hoveredEdge;
+                currentHoveredNode = null;
+                setHoveredNode(null);
+                canvas.classList.remove('hovering');
+                canvas.classList.add('hovering-edge');
+                
+                if (onEdgeHover) {
+                    onEdgeHover(hoveredEdge, screenX, screenY);
+                }
+            } else if (onEdgeHover) {
+                // Still hovering same edge, update position
+                onEdgeHover(hoveredEdge, screenX, screenY);
+            }
+        } else {
+            // Not hovering anything
+            if (currentHoveredNode || currentHoveredEdge) {
+                currentHoveredNode = null;
+                currentHoveredEdge = null;
+                setHoveredNode(null);
+                canvas.classList.remove('hovering');
+                canvas.classList.remove('hovering-edge');
+                
+                if (onHoverEnd) {
+                    onHoverEnd();
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -79,6 +176,17 @@ function onMouseLeave() {
     if (isDragging) {
         isDragging = false;
         canvas.classList.remove('dragging');
+    }
+    
+    // Clear hover state
+    currentHoveredNode = null;
+    currentHoveredEdge = null;
+    setHoveredNode(null);
+    canvas.classList.remove('hovering');
+    canvas.classList.remove('hovering-edge');
+    
+    if (onHoverEnd) {
+        onHoverEnd();
     }
 }
 
