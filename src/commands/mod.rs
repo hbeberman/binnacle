@@ -17042,6 +17042,7 @@ pub fn sync(
 mod tests {
     use super::*;
     use crate::test_utils::TestEnv;
+    use serial_test::serial;
 
     fn setup() -> TestEnv {
         let env = TestEnv::new_with_env();
@@ -17050,6 +17051,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_new() {
         let env = TestEnv::new_with_env();
         let result =
@@ -17058,6 +17060,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_existing() {
         let env = TestEnv::new_with_env();
         Storage::init(env.path()).unwrap();
@@ -17067,6 +17070,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_create() {
         let temp = setup();
         let result = task_create(
@@ -17084,6 +17088,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show() {
         let temp = setup();
         let created = task_create(
@@ -17102,6 +17107,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_list() {
         let temp = setup();
         task_create(
@@ -17130,6 +17136,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_update() {
         let temp = setup();
         let created = task_create(
@@ -17169,6 +17176,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_reopen() {
         let temp = setup();
         let created = task_create(
@@ -17194,6 +17202,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_closed_task_update_requires_flag() {
         let temp = setup();
         let created = task_create(
@@ -17234,6 +17243,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_closed_task_update_with_keep_closed() {
         let temp = setup();
         let created = task_create(
@@ -17276,6 +17286,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_closed_task_update_with_reopen() {
         let temp = setup();
         let created = task_create(
@@ -17318,6 +17329,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cancelled_task_update_requires_flag() {
         let temp = setup();
         let created = task_create(
@@ -17371,6 +17383,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_with_incomplete_deps_fails() {
         let temp = setup();
         let task_a = task_create(
@@ -17406,6 +17419,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_with_incomplete_deps_force() {
         let temp = setup();
         let task_a = task_create(
@@ -17444,6 +17458,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_with_complete_deps_success() {
         let temp = setup();
         let task_a = task_create(
@@ -17488,6 +17503,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_promotes_partial_dependents() {
         let temp = setup();
         let task_a = task_create(
@@ -17527,6 +17543,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_requires_commit_when_config_enabled() {
         let temp = setup();
         let task = task_create(
@@ -17552,6 +17569,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_succeeds_with_linked_commit_when_config_enabled() {
         let temp = setup();
         let task = task_create(
@@ -17582,6 +17600,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_force_bypasses_commit_requirement() {
         let temp = setup();
         let task = task_create(
@@ -17604,6 +17623,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_works_without_commit_when_config_disabled() {
         let temp = setup();
         let task = task_create(
@@ -17626,6 +17646,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_warns_when_linked_commit_not_in_repo() {
         let temp = setup();
 
@@ -17666,6 +17687,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_update_warns_when_linked_commit_not_in_repo() {
         let temp = setup();
 
@@ -17719,6 +17741,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_close_removes_agent_association() {
         let temp = setup();
 
@@ -17790,6 +17813,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_update_status_done_requires_commit_when_enabled() {
         let temp = setup();
         let task = task_create(
@@ -17828,6 +17852,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_update_status_done_force_bypasses_commit_requirement() {
         let temp = setup();
         let task = task_create(
@@ -17864,6 +17889,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_update_status_done_succeeds_with_linked_commit() {
         let temp = setup();
         let task = task_create(
@@ -17908,6 +17934,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_update_status_cancelled_ignores_commit_requirement() {
         let temp = setup();
         let task = task_create(
@@ -17944,6 +17971,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_update_in_progress_tracks_agent_association() {
         let temp = setup();
 
@@ -18001,6 +18029,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_update_in_progress_warns_on_multiple_tasks() {
         let temp = setup();
 
@@ -18083,6 +18112,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_update_in_progress_force_allows_multiple_tasks() {
         let temp = setup();
 
@@ -18165,6 +18195,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_delete() {
         let temp = setup();
         let created = task_create(
@@ -18186,6 +18217,7 @@ mod tests {
     // === Dependency Command Tests ===
 
     #[test]
+    #[serial]
     fn test_dep_add() {
         let temp = setup();
         let task_a = task_create(
@@ -18219,6 +18251,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dep_add_transitions_done_to_partial() {
         let temp = setup();
         let task_a = task_create(
@@ -18256,6 +18289,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dep_add_cycle_rejected() {
         let temp = setup();
         let task_a = task_create(
@@ -18288,6 +18322,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dep_rm() {
         let temp = setup();
         let task_a = task_create(
@@ -18320,6 +18355,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dep_show() {
         let temp = setup();
         let task_a = task_create(
@@ -18366,6 +18402,7 @@ mod tests {
     // === Query Command Tests ===
 
     #[test]
+    #[serial]
     fn test_ready_command() {
         let temp = setup();
         let task_a = task_create(
@@ -18398,6 +18435,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_blocked_command() {
         let temp = setup();
         let task_a = task_create(
@@ -18431,6 +18469,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_ready_after_dependency_done() {
         let temp = setup();
         let task_a = task_create(
@@ -18476,6 +18515,7 @@ mod tests {
     // === Commit Command Tests ===
 
     #[test]
+    #[serial]
     fn test_commit_link() {
         let temp = setup();
         let task = task_create(
@@ -18495,6 +18535,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_commit_link_invalid_sha() {
         let temp = setup();
         let task = task_create(
@@ -18514,6 +18555,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_commit_link_nonexistent_task() {
         let temp = setup();
 
@@ -18522,6 +18564,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_commit_unlink() {
         let temp = setup();
         let task = task_create(
@@ -18547,6 +18590,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_commit_unlink_nonexistent() {
         let temp = setup();
         let task = task_create(
@@ -18565,6 +18609,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_commit_list() {
         let temp = setup();
         let task = task_create(
@@ -18587,6 +18632,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_commit_list_empty() {
         let temp = setup();
         let task = task_create(
@@ -18605,6 +18651,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_commit_list_nonexistent_task() {
         let temp = setup();
 
@@ -18613,6 +18660,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_git_commit_exists_valid() {
         let temp = setup();
 
@@ -18659,6 +18707,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_git_commit_exists_invalid() {
         let temp = setup();
 
@@ -18675,6 +18724,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_git_commit_exists_tree_object() {
         let temp = setup();
 
@@ -18722,6 +18772,7 @@ mod tests {
     // === Doctor Command Tests ===
 
     #[test]
+    #[serial]
     fn test_doctor_healthy() {
         let temp = setup();
 
@@ -18749,6 +18800,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_consistency_done_task_with_pending_dep() {
         let temp = setup();
 
@@ -18788,6 +18840,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_stats() {
         let temp = setup();
         task_create(
@@ -18826,6 +18879,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_bug_stats() {
         let temp = setup();
         task_create(
@@ -18871,6 +18925,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_bug_done_with_pending_bug_dep() {
         let temp = setup();
 
@@ -18926,6 +18981,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_detects_legacy_bni_prefix() {
         let temp = setup();
 
@@ -18945,6 +19001,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_fix_migrates_bni_prefix() {
         let temp = setup();
 
@@ -18974,6 +19031,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_detects_orphaned_edges() {
         let temp = setup();
 
@@ -19028,6 +19086,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_detects_orphaned_edge_source() {
         let temp = setup();
 
@@ -19082,6 +19141,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_detects_orphan_docs() {
         let temp = setup();
 
@@ -19154,6 +19214,7 @@ mod tests {
     // === Log Command Tests ===
 
     #[test]
+    #[serial]
     fn test_log_basic() {
         let temp = setup();
         let task = task_create(
@@ -19173,6 +19234,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_log_filter_by_task() {
         let temp = setup();
         let task_a = task_create(
@@ -19202,6 +19264,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_log_includes_updates() {
         let temp = setup();
         let task = task_create(
@@ -19241,6 +19304,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_log_includes_close() {
         let temp = setup();
         let task = task_create(
@@ -19263,6 +19327,7 @@ mod tests {
     // === Config Command Tests ===
 
     #[test]
+    #[serial]
     fn test_config_set_and_get() {
         let temp = setup();
 
@@ -19274,6 +19339,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_get_nonexistent() {
         let temp = setup();
 
@@ -19283,6 +19349,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_list() {
         let temp = setup();
 
@@ -19309,6 +19376,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_list_with_defaults() {
         let temp = setup();
 
@@ -19344,6 +19412,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_overwrite() {
         let temp = setup();
 
@@ -19358,6 +19427,7 @@ mod tests {
     // === Init AGENTS.md Tests ===
 
     #[test]
+    #[serial]
     fn test_init_creates_agents_md() {
         let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
@@ -19380,6 +19450,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_appends_to_existing_agents_md() {
         let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
@@ -19400,6 +19471,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_appends_section_if_legacy_bn_orient() {
         let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
@@ -19425,6 +19497,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_idempotent_agents_md() {
         let temp = TestEnv::new_with_env();
 
@@ -19439,6 +19512,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_no_change_when_standard_blurb_already_present() {
         let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
@@ -19461,6 +19535,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_replaces_custom_binnacle_section() {
         let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
@@ -19487,6 +19562,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agents_md_has_html_markers() {
         let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
@@ -19503,6 +19579,7 @@ mod tests {
     // === Commit-msg Hook Tests ===
 
     #[test]
+    #[serial]
     fn test_hook_install_creates_hook_file() {
         let temp = TestEnv::new_with_env();
         // Create .git/hooks directory
@@ -19522,6 +19599,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_hook_install_appends_to_existing_hook() {
         let temp = TestEnv::new_with_env();
         let hooks_dir = temp.path().join(".git").join("hooks");
@@ -19540,6 +19618,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_hook_install_idempotent() {
         let temp = TestEnv::new_with_env();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
@@ -19559,6 +19638,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_hook_uninstall_removes_binnacle_section() {
         let temp = TestEnv::new_with_env();
         let hooks_dir = temp.path().join(".git").join("hooks");
@@ -19580,6 +19660,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_hook_uninstall_removes_file_if_only_binnacle() {
         let temp = TestEnv::new_with_env();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
@@ -19599,6 +19680,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_hook_uninstall_noop_when_no_hook() {
         let temp = TestEnv::new_with_env();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
@@ -19609,6 +19691,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_hook_uninstall_noop_when_no_binnacle_section() {
         let temp = TestEnv::new_with_env();
         let hooks_dir = temp.path().join(".git").join("hooks");
@@ -19628,6 +19711,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_with_hook_flag() {
         let temp = TestEnv::new_with_env();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
@@ -19642,6 +19726,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_without_hook_flag() {
         let temp = TestEnv::new_with_env();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
@@ -19659,6 +19744,7 @@ mod tests {
     // === Orient Command Tests ===
 
     #[test]
+    #[serial]
     fn test_orient_without_init_fails_when_not_initialized() {
         let temp = TestEnv::new_with_env();
 
@@ -19672,6 +19758,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_with_init_creates_database() {
         let temp = TestEnv::new_with_env();
 
@@ -19692,6 +19779,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_shows_task_counts() {
         let temp = setup();
 
@@ -19725,6 +19813,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_shows_blocked_tasks() {
         let temp = setup();
 
@@ -19760,6 +19849,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_shows_in_progress_tasks() {
         let temp = setup();
 
@@ -19797,6 +19887,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_human_output() {
         let temp = setup();
         task_create(
@@ -19820,6 +19911,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_shows_bug_counts() {
         let temp = setup();
 
@@ -19885,6 +19977,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_with_purpose_registers_agent() {
         let temp = setup();
 
@@ -19913,6 +20006,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_without_purpose_shows_unregistered() {
         let temp = setup();
 
@@ -19940,6 +20034,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_can_update_purpose() {
         let temp = setup();
 
@@ -19983,6 +20078,7 @@ mod tests {
     // === Blocker Analysis Tests ===
 
     #[test]
+    #[serial]
     fn test_task_show_no_dependencies_no_blocking_info() {
         let temp = setup();
         let task = task_create(
@@ -20003,6 +20099,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_all_dependencies_complete() {
         let temp = setup();
         let task_a = task_create(
@@ -20056,6 +20153,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_direct_blockers() {
         let temp = setup();
         let task_a = task_create(
@@ -20143,6 +20241,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_transitive_blockers() {
         let temp = setup();
         let task_a = task_create(
@@ -20206,6 +20305,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_mixed_complete_incomplete_deps() {
         let temp = setup();
         let task_a = task_create(
@@ -20259,6 +20359,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_blocker_summary_format() {
         let temp = setup();
         let task_a = task_create(
@@ -20312,6 +20413,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_cancelled_dependencies_dont_block() {
         let temp = setup();
         let task_a = task_create(
@@ -20382,6 +20484,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_blocked_status_is_blocker() {
         let temp = setup();
         let task_a = task_create(
@@ -20437,6 +20540,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_partial_status_is_blocker() {
         let temp = setup();
         let task_a = task_create(
@@ -20490,6 +20594,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_reopened_status_is_blocker() {
         let temp = setup();
         let task_a = task_create(
@@ -20531,6 +20636,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_deep_transitive_blocker_chain() {
         let temp = setup();
         // Create chain: D -> C -> B -> A
@@ -20602,6 +20708,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_show_multiple_transitive_blockers() {
         let temp = setup();
         // Create diamond: D depends on B and C, both B and C depend on A
@@ -20669,6 +20776,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_build_blocker_summary_single() {
         let blockers = vec![DirectBlocker {
             id: "bn-test1".to_string(),
@@ -20686,6 +20794,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_build_blocker_summary_multiple_with_assignees() {
         let blockers = vec![
             DirectBlocker {
@@ -20717,6 +20826,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_build_blocker_summary_no_assignee() {
         let blockers = vec![DirectBlocker {
             id: "bn-test1".to_string(),
@@ -20733,6 +20843,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_build_blocker_summary_with_transitive_blockers() {
         let blockers = vec![DirectBlocker {
             id: "bn-test1".to_string(),
@@ -20751,6 +20862,7 @@ mod tests {
     // === Bug Command Tests ===
 
     #[test]
+    #[serial]
     fn test_bug_create() {
         let temp = setup();
         let result = bug_create(
@@ -20771,6 +20883,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_create_defaults() {
         let temp = setup();
         let result = bug_create(
@@ -20795,6 +20908,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_create_invalid_priority() {
         let temp = setup();
         let result = bug_create(
@@ -20819,6 +20933,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_show() {
         let temp = setup();
         let created = bug_create(
@@ -20848,6 +20963,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_show_not_found() {
         let temp = setup();
         let result = bug_show(temp.path(), "bn-nonexistent");
@@ -20855,6 +20971,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_list() {
         let temp = setup();
         bug_create(
@@ -20889,6 +21006,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_list_filter_by_status() {
         let temp = setup();
         let bug1 = bug_create(
@@ -20929,6 +21047,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_list_filter_by_priority() {
         let temp = setup();
         bug_create(
@@ -20964,6 +21083,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_list_filter_by_severity() {
         let temp = setup();
         bug_create(
@@ -21000,6 +21120,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_list_filter_by_tag() {
         let temp = setup();
         bug_create(
@@ -21035,6 +21156,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_update() {
         let temp = setup();
         let created = bug_create(
@@ -21101,6 +21223,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_closed_bug_update_requires_flag() {
         let temp = setup();
         let created = bug_create(
@@ -21147,6 +21270,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_closed_bug_update_with_keep_closed() {
         let temp = setup();
         let created = bug_create(
@@ -21194,6 +21318,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_closed_bug_update_with_reopen() {
         let temp = setup();
         let created = bug_create(
@@ -21241,6 +21366,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_update_status() {
         let temp = setup();
         let created = bug_create(
@@ -21282,6 +21408,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_update_add_remove_tags() {
         let temp = setup();
         let created = bug_create(
@@ -21324,6 +21451,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_update_no_fields_error() {
         let temp = setup();
         let created = bug_create(
@@ -21368,6 +21496,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_update_invalid_priority() {
         let temp = setup();
         let created = bug_create(
@@ -21412,6 +21541,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_update_in_progress_tracks_agent_association() {
         let temp = setup();
 
@@ -21475,6 +21605,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_close() {
         let temp = setup();
         let created = bug_create(
@@ -21511,6 +21642,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_reopen() {
         let temp = setup();
         let created = bug_create(
@@ -21544,6 +21676,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_delete() {
         let temp = setup();
         let created = bug_create(
@@ -21568,6 +21701,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_severity_values() {
         let temp = setup();
 
@@ -21598,6 +21732,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_output_human_format() {
         let temp = setup();
         let created = bug_create(
@@ -21629,6 +21764,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_list_output_human_format() {
         let temp = setup();
         bug_create(
@@ -21656,6 +21792,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_list_empty_output() {
         let temp = setup();
         let list = bug_list(temp.path(), None, None, None, None, false).unwrap();
@@ -21666,6 +21803,7 @@ mod tests {
     // === Search Link Tests ===
 
     #[test]
+    #[serial]
     fn test_search_link_empty() {
         let temp = setup();
         let result = search_link(temp.path(), None, None, None).unwrap();
@@ -21675,6 +21813,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_link_by_type() {
         let temp = setup();
 
@@ -21726,6 +21865,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_link_by_source() {
         let temp = setup();
 
@@ -21792,6 +21932,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_link_by_target() {
         let temp = setup();
 
@@ -21834,6 +21975,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_link_combined_filters() {
         let temp = setup();
 
@@ -21887,6 +22029,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_link_add_depends_on_requires_reason() {
         let temp = setup();
 
@@ -21938,6 +22081,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_link_add_pinned_edge() {
         let temp = setup();
 
@@ -21977,6 +22121,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_link_add_non_pinned_edge() {
         let temp = setup();
 
@@ -22017,6 +22162,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_link_output_human_format() {
         let temp = setup();
 
@@ -22062,6 +22208,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_link_empty_output() {
         let temp = setup();
         let result = search_link(temp.path(), None, None, None).unwrap();
@@ -22072,6 +22219,7 @@ mod tests {
     // === Doctor Edge Migration Tests ===
 
     #[test]
+    #[serial]
     fn test_doctor_migrate_edges_no_legacy_deps() {
         let temp = setup();
 
@@ -22107,6 +22255,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_migrate_edges_with_legacy_deps() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -22156,6 +22305,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_migrate_edges_dry_run() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -22203,6 +22353,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_migrate_edges_clean_unused() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -22248,6 +22399,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_migrate_edges_skips_existing() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -22299,6 +22451,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_migrate_edges_output_format() {
         let temp = setup();
 
@@ -22330,6 +22483,7 @@ mod tests {
     // === Entity Type Mismatch Tests ===
 
     #[test]
+    #[serial]
     fn test_task_show_returns_bug_when_id_is_bug() {
         let temp = setup();
 
@@ -22366,6 +22520,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_bug_show_returns_task_when_id_is_task() {
         let temp = setup();
 
@@ -22399,6 +22554,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_entity_mismatch_json_output() {
         let temp = setup();
 
@@ -22429,6 +22585,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_get_bool_default() {
         let temp = setup();
 
@@ -22446,6 +22603,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_get_bool_true_values() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -22462,6 +22620,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_get_bool_false_values() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -22478,6 +22637,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_require_commit_for_close_config_validation() {
         let temp = setup();
 
@@ -22495,6 +22655,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_co_author_enabled_config_validation() {
         let temp = setup();
 
@@ -22512,6 +22673,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_co_author_name_config_validation() {
         let temp = setup();
 
@@ -22525,6 +22687,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_co_author_email_config_validation() {
         let temp = setup();
 
@@ -22538,6 +22701,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_get_string_default() {
         let temp = setup();
 
@@ -22553,6 +22717,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_get_string_set_value() {
         let temp = setup();
 
@@ -22574,6 +22739,7 @@ mod tests {
     // === Agent Scaling Config Tests ===
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_defaults() {
         let temp = setup();
 
@@ -22588,6 +22754,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_set_and_get() {
         let temp = setup();
 
@@ -22609,6 +22776,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_partial_update() {
         let temp = setup();
 
@@ -22627,6 +22795,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_min_greater_than_max_fails() {
         let temp = setup();
 
@@ -22639,6 +22808,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_invalid_type() {
         let temp = setup();
 
@@ -22653,6 +22823,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_via_config_set() {
         let temp = setup();
 
@@ -22668,6 +22839,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_validation_invalid_value() {
         let temp = setup();
 
@@ -22687,6 +22859,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_validation_invalid_field() {
         let temp = setup();
 
@@ -22702,6 +22875,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_all_types() {
         let temp = setup();
 
@@ -22721,6 +22895,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_persists_to_kdl() {
         let temp = setup();
 
@@ -22747,6 +22922,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_reads_from_kdl() {
         let temp = setup();
 
@@ -22765,6 +22941,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_scaling_config_updates_existing_kdl() {
         let temp = setup();
 
@@ -22786,6 +22963,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_parent_of_rejects_multiple_parents() {
         let temp = setup();
 
@@ -22848,6 +23026,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_child_of_rejects_multiple_parents() {
         let temp = setup();
 
@@ -22896,6 +23075,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_parent_of_blocks_child_of() {
         let temp = setup();
 
@@ -22950,6 +23130,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_child_of_blocks_parent_of() {
         let temp = setup();
 
@@ -23005,6 +23186,7 @@ mod tests {
     // === Goodbye Tests ===
 
     #[test]
+    #[serial]
     fn test_goodbye_unregistered_agent() {
         let temp = setup();
 
@@ -23020,6 +23202,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_goodbye_with_reason() {
         let temp = setup();
 
@@ -23031,6 +23214,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_goodbye_output_format() {
         let temp = setup();
 
@@ -23052,6 +23236,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_reconcile_handles_goodbye_agents() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -23080,6 +23265,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_reconcile_handles_goodbye_agents_with_container_id() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -23124,6 +23310,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_reconcile_removes_goodbye_agents_when_not_dry_run() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -23166,6 +23353,7 @@ mod tests {
     // === Agent Kill Tests ===
 
     #[test]
+    #[serial]
     fn test_agent_kill_not_found() {
         let temp = setup();
 
@@ -23179,6 +23367,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_kill_by_pid_dead_process() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -23199,6 +23388,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_kill_by_name_dead_process() {
         let temp = setup();
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -23218,6 +23408,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_kill_output_format() {
         let result = AgentKillResult {
             pid: 12345,
@@ -23240,6 +23431,7 @@ mod tests {
     // === Sync Tests ===
 
     #[test]
+    #[serial]
     fn test_sync_result_output_no_branch() {
         let result = SyncResult {
             operation: "none".to_string(),
@@ -23262,6 +23454,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sync_result_output_success() {
         let result = SyncResult {
             operation: "sync".to_string(),
@@ -23287,6 +23480,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sync_result_no_changes() {
         let result = SyncResult {
             operation: "sync".to_string(),
@@ -23305,6 +23499,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sync_no_orphan_branch() {
         // Create a git repo without orphan branch
         let temp = setup();
@@ -23325,6 +23520,7 @@ mod tests {
     // === Graph Component Tests ===
 
     #[test]
+    #[serial]
     fn test_graph_components_empty() {
         let temp = setup();
         let result = graph_components(temp.path()).unwrap();
@@ -23334,6 +23530,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_graph_components_single_isolated_task() {
         let temp = setup();
 
@@ -23358,6 +23555,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_graph_components_multiple_isolated() {
         let temp = setup();
 
@@ -23389,6 +23587,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_graph_components_connected_tasks() {
         let temp = setup();
 
@@ -23433,6 +23632,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_graph_components_human_output() {
         let temp = setup();
 
@@ -23467,6 +23667,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_writes_session_state() {
         let temp = setup();
 
@@ -23483,6 +23684,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_orient_updates_session_state_on_reorient() {
         let temp = setup();
 
@@ -23501,6 +23703,7 @@ mod tests {
     // === Partial Status Transition Tests ===
 
     #[test]
+    #[serial]
     fn test_partial_task_excluded_from_ready() {
         let temp = setup();
         let task_a = task_create(
@@ -23538,6 +23741,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_partial_task_appears_in_blocked() {
         let temp = setup();
         let task_a = task_create(
@@ -23575,6 +23779,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_done_to_partial_skipped_when_dependency_already_done() {
         let temp = setup();
         let task_a = task_create(
@@ -23612,6 +23817,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_done_to_partial_skipped_when_dependency_cancelled() {
         let temp = setup();
         let task_a = task_create(
@@ -23664,6 +23870,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cascading_partial_promotion() {
         let temp = setup();
         // Create chain: C -> B -> A
@@ -23736,6 +23943,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_partial_with_multiple_dependencies_all_must_complete() {
         let temp = setup();
         let task_a = task_create(
@@ -23791,6 +23999,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_removing_dependency_does_not_auto_promote_partial() {
         let temp = setup();
         let task_a = task_create(
@@ -23832,18 +24041,21 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_parse_memory_limit_bytes() {
         assert_eq!(parse_memory_limit("1024").unwrap(), 1024);
         assert_eq!(parse_memory_limit("2048").unwrap(), 2048);
     }
 
     #[test]
+    #[serial]
     fn test_parse_memory_limit_kilobytes() {
         assert_eq!(parse_memory_limit("512k").unwrap(), 512 * 1024);
         assert_eq!(parse_memory_limit("1kb").unwrap(), 1024);
     }
 
     #[test]
+    #[serial]
     fn test_parse_memory_limit_megabytes() {
         assert_eq!(parse_memory_limit("512m").unwrap(), 512 * 1024 * 1024);
         assert_eq!(parse_memory_limit("1mb").unwrap(), 1024 * 1024);
@@ -23851,6 +24063,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_parse_memory_limit_gigabytes() {
         assert_eq!(parse_memory_limit("1g").unwrap(), 1024 * 1024 * 1024);
         assert_eq!(parse_memory_limit("2gb").unwrap(), 2 * 1024 * 1024 * 1024);
@@ -23858,6 +24071,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_parse_memory_limit_invalid() {
         assert!(parse_memory_limit("invalid").is_err());
         assert!(parse_memory_limit("512x").is_err());
@@ -23907,6 +24121,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_archive_schema_fingerprint_export_manifest() {
         // Create an ExportManifest with all fields populated
         let mut checksums = std::collections::HashMap::new();
@@ -23939,6 +24154,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_archive_schema_fingerprint_export_config() {
         let config = super::ExportConfig {
             repo_path: "/path/to/repo".to_string(),
@@ -23958,6 +24174,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_archive_format_version() {
         // This test ensures the archive format version is explicitly tracked.
         // If you need to make breaking changes to the archive format:
@@ -23980,6 +24197,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_create_with_complexity_check_simple() {
         let temp = setup();
         let result = task_create_with_complexity_check(
@@ -24002,6 +24220,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_create_with_complexity_check_complex() {
         let temp = setup();
         let result = task_create_with_complexity_check(
@@ -24030,6 +24249,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_task_create_with_complexity_check_preserves_options() {
         let temp = setup();
         let result = task_create_with_complexity_check(
@@ -24058,6 +24278,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_worktree_parent_git_regular_repo() {
         // Regular git repo has .git directory, not file
         let env = TestEnv::new_with_env();
@@ -24070,6 +24291,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_worktree_parent_git_no_git() {
         // Directory with no .git at all
         let env = TestEnv::new_with_env();
@@ -24080,6 +24302,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_worktree_parent_git_worktree() {
         use tempfile::tempdir;
 
@@ -24109,6 +24332,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_default_archive_directory_returns_archive_path() {
         // Just test that the function returns a path ending with /archives
         // We can't easily manipulate env vars in Rust 2024 without unsafe
@@ -24125,6 +24349,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_containerd_mode_system_default() {
         // When XDG_RUNTIME_DIR is not set or socket doesn't exist, should use System mode
         // SAFETY: Test runs in single thread and we're modifying test-specific env vars
@@ -24136,6 +24361,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_containerd_mode_rootless_detection() {
         use std::fs;
         use tempfile::tempdir;
@@ -24171,6 +24397,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_ctr_command_system_mode() {
         let mode = ContainerdMode::System;
         let cmd = ctr_command(&mode);
@@ -24179,6 +24406,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_ctr_command_rootless_mode() {
         let mode = ContainerdMode::Rootless {
             socket_path: "/run/user/1000/containerd/containerd.sock".to_string(),
