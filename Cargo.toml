@@ -41,6 +41,9 @@ dirs = "5"
 # Error handling
 thiserror = "1"
 
+# Configuration file format
+kdl = "6"
+
 # Archive/compression
 tar = "0.4"
 flate2 = "1.0"

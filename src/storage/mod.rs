@@ -29,6 +29,7 @@ use crate::models::{
 };
 use crate::{Error, Result};
 use chrono::Utc;
+use kdl::{KdlDocument, KdlEntry, KdlNode, KdlValue};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -2673,6 +2674,125 @@ impl Storage {
             .filter_map(|r| r.ok())
             .collect();
         Ok(configs)
+    }
+
+    // === KDL Config File Operations ===
+
+    /// Get the path to the config.kdl file.
+    pub fn config_kdl_path(&self) -> PathBuf {
+        self.root.join("config.kdl")
+    }
+
+    /// Read and parse the config.kdl file, or return an empty document if it doesn't exist.
+    pub fn read_config_kdl(&self) -> Result<KdlDocument> {
+        let path = self.config_kdl_path();
+        if !path.exists() {
+            return Ok(KdlDocument::new());
+        }
+        let content = fs::read_to_string(&path)?;
+        content
+            .parse::<KdlDocument>()
+            .map_err(|e| Error::Other(format!("Failed to parse config.kdl: {}", e)))
+    }
+
+    /// Write the config.kdl file.
+    pub fn write_config_kdl(&self, doc: &KdlDocument) -> Result<()> {
+        let path = self.config_kdl_path();
+        fs::write(&path, doc.to_string())?;
+        Ok(())
+    }
+
+    /// Get agent scaling config from config.kdl.
+    /// Returns (min, max) for the specified agent type, or defaults (0, 1) if not found.
+    pub fn get_agent_scaling_kdl(&self, agent_type: &str) -> Result<(u32, u32)> {
+        let doc = self.read_config_kdl()?;
+
+        // Look for agents { worker min=X max=Y; ... }
+        if let Some(agents_node) = doc.get("agents")
+            && let Some(children) = agents_node.children()
+            && let Some(type_node) = children.get(agent_type)
+        {
+            let min = type_node
+                .get("min")
+                .and_then(|v| v.as_integer())
+                .unwrap_or(0) as u32;
+            let max = type_node
+                .get("max")
+                .and_then(|v| v.as_integer())
+                .unwrap_or(1) as u32;
+            return Ok((min, max));
+        }
+
+        // Defaults
+        Ok((0, 1))
+    }
+
+    /// Set agent scaling config in config.kdl.
+    pub fn set_agent_scaling_kdl(&self, agent_type: &str, min: u32, max: u32) -> Result<()> {
+        let mut doc = self.read_config_kdl()?;
+
+        // Find or create agents node
+        let agents_idx = doc
+            .nodes()
+            .iter()
+            .position(|n| n.name().value() == "agents");
+
+        if let Some(idx) = agents_idx {
+            // Update existing agents node
+            let agents_node = &mut doc.nodes_mut()[idx];
+            let children = agents_node
+                .children_mut()
+                .get_or_insert_with(KdlDocument::new);
+
+            // Find or create type node
+            let type_idx = children
+                .nodes()
+                .iter()
+                .position(|n| n.name().value() == agent_type);
+
+            let mut type_node = KdlNode::new(agent_type);
+            type_node.insert("min", KdlEntry::new(KdlValue::Integer(min as i128)));
+            type_node.insert("max", KdlEntry::new(KdlValue::Integer(max as i128)));
+
+            if let Some(tidx) = type_idx {
+                children.nodes_mut()[tidx] = type_node;
+            } else {
+                children.nodes_mut().push(type_node);
+            }
+        } else {
+            // Create agents node with child
+            let mut agents_node = KdlNode::new("agents");
+            let mut children = KdlDocument::new();
+
+            let mut type_node = KdlNode::new(agent_type);
+            type_node.insert("min", KdlEntry::new(KdlValue::Integer(min as i128)));
+            type_node.insert("max", KdlEntry::new(KdlValue::Integer(max as i128)));
+            children.nodes_mut().push(type_node);
+
+            agents_node.set_children(children);
+            doc.nodes_mut().push(agents_node);
+        }
+
+        self.write_config_kdl(&doc)
+    }
+
+    /// Get all agent scaling configs from config.kdl.
+    pub fn get_all_agent_scaling_kdl(&self) -> Result<Vec<(String, u32, u32)>> {
+        let doc = self.read_config_kdl()?;
+        let mut results = Vec::new();
+
+        if let Some(agents_node) = doc.get("agents")
+            && let Some(children) = agents_node.children()
+        {
+            for node in children.nodes() {
+                let agent_type = node.name().value().to_string();
+                let min = node.get("min").and_then(|v| v.as_integer()).unwrap_or(0) as u32;
+                let max = node.get("max").and_then(|v| v.as_integer()).unwrap_or(1) as u32;
+                results.push((agent_type, min, max));
+            }
+        }
+
+        Ok(results)
     }
 
     // === Log Operations ===
