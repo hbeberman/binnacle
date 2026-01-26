@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doc Viewer Test</title>
+    
+    <!-- Base styles -->
+    <link rel="stylesheet" href="css/themes/dark.css">
+    
+    <!-- Component styles -->
+    <link rel="stylesheet" href="css/components/doc-viewer.css">
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 2rem;
+            margin: 0;
+        }
+        
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: var(--accent-blue);
+            margin-bottom: 1rem;
+        }
+        
+        .test-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .test-button {
+            padding: 0.625rem 1rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            margin: 0.5rem 0.5rem 0.5rem 0;
+        }
+        
+        .test-button:hover {
+            background: var(--accent-light);
+        }
+        
+        .description {
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 Doc Viewer Overlay Test</h1>
+        
+        <div class="test-section">
+            <h2>Test Cases</h2>
+            <p class="description">
+                Test the doc viewer overlay component with various scenarios.
+            </p>
+            
+            <button class="test-button" id="test-basic">Show Basic Doc</button>
+            <button class="test-button" id="test-long-title">Show Long Title Doc</button>
+            <button class="test-button" id="test-close-escape">Show Doc (test ESC key)</button>
+            <button class="test-button" id="test-close-overlay">Show Doc (test overlay click)</button>
+        </div>
+        
+        <div class="test-section">
+            <h2>Expected Behavior</h2>
+            <ul class="description">
+                <li>✓ Full-screen overlay with semi-transparent backdrop</li>
+                <li>✓ Centered container with document title in header</li>
+                <li>✓ Close button (×) in header</li>
+                <li>✓ Scrollable content area</li>
+                <li>✓ Clicking close button hides overlay</li>
+                <li>✓ Pressing ESC key hides overlay</li>
+                <li>✓ Clicking outside content (on backdrop) hides overlay</li>
+                <li>✓ Smooth fade-in and slide-in animations</li>
+            </ul>
+        </div>
+        
+        <div class="test-section">
+            <h2>Current Implementation Status</h2>
+            <p class="description">
+                ✅ Overlay container structure<br>
+                ✅ Header with title and close button<br>
+                ✅ Scrollable content area<br>
+                ✅ Close via button, ESC key, and backdrop click<br>
+                ⏳ Markdown rendering (blocked on task bn-d605)
+            </p>
+        </div>
+    </div>
+    
+    <!-- Doc Viewer Overlay will be mounted here -->
+    <div id="app"></div>
+    
+    <script type="module">
+        import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
+        import { setEntities } from './js/state.js';
+        
+        // Populate state with test documents
+        setEntities('docs', [
+            {
+                id: 'bn-test1',
+                type: 'doc',
+                title: 'Implementation Notes'
+            },
+            {
+                id: 'bn-test2',
+                type: 'doc',
+                title: 'A Very Long Document Title That Should Probably Be Truncated With Ellipsis If It Gets Too Long For The Header'
+            },
+            {
+                id: 'bn-test3',
+                type: 'doc',
+                title: 'Test Document for ESC Key'
+            },
+            {
+                id: 'bn-test4',
+                type: 'doc',
+                title: 'Test Document for Backdrop Click'
+            }
+        ]);
+        
+        // Mount the doc viewer
+        mountDocViewer('#app');
+        
+        // Test buttons
+        document.getElementById('test-basic').addEventListener('click', () => {
+            showDocViewer('bn-test1');
+        });
+        
+        document.getElementById('test-long-title').addEventListener('click', () => {
+            showDocViewer('bn-test2');
+        });
+        
+        document.getElementById('test-close-escape').addEventListener('click', () => {
+            showDocViewer('bn-test3');
+            setTimeout(() => {
+                alert('Now press the ESC key to close the overlay');
+            }, 100);
+        });
+        
+        document.getElementById('test-close-overlay').addEventListener('click', () => {
+            showDocViewer('bn-test4');
+            setTimeout(() => {
+                alert('Now click outside the white content area (on the dark backdrop) to close');
+            }, 100);
+        });
+    </script>
+</body>
+</html>
