@@ -217,9 +217,9 @@
         import { initializeAgentList } from './js/components/agent-list.js';
         import { createInfoPanel, initializeInfoPanel, showInfoPanel, updateInfoPanelContent } from './js/components/info-panel.js';
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
-        import { createAvailableWorkPane, updateAvailableWorkPane } from './js/components/available-work-pane.js';
-        import { createActiveTaskPane, updateActiveTaskPane } from './js/components/active-task-pane.js';
-        import { initializeFilters } from './js/components/filters.js';
+        import { createAvailableWorkPane } from './js/components/available-work-pane.js';
+        import { createActiveTaskPane } from './js/components/active-task-pane.js';
+        import { initializeNodeTypeFilters, initializeEdgeTypeFilters } from './js/components/filters.js';
         import { mountReadonlyIndicator } from './js/components/readonly-indicator.js';
         
         // Get container element
@@ -294,7 +294,8 @@
         });
         
         // Initialize filters
-        initializeFilters();
+        initializeNodeTypeFilters();
+        initializeEdgeTypeFilters();
         
         // View switching
         const navButtons = document.querySelectorAll('.nav-btn');
@@ -346,12 +347,6 @@
             
             // Start graph animation
             graph.startAnimation();
-            
-            // Update panes periodically
-            setInterval(() => {
-                updateAvailableWorkPane();
-                updateActiveTaskPane();
-            }, 30000);
         }
         
         // Handle window resize
