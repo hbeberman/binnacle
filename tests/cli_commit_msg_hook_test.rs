@@ -58,6 +58,13 @@ fn run_hook_with_session(
         .env("BN_DATA_DIR", env.data_path())
         .env("PATH", new_path);
 
+    // Clear agent-specific env vars for test isolation
+    cmd.env_remove("BN_AGENT_ID");
+    cmd.env_remove("BN_AGENT_NAME");
+    cmd.env_remove("BN_AGENT_TYPE");
+    cmd.env_remove("BN_MCP_SESSION");
+    cmd.env_remove("BN_CONTAINER_MODE");
+
     // Set or remove BN_AGENT_SESSION based on agent_session flag
     // Must explicitly remove to prevent inheritance from parent shell
     if agent_session {
