@@ -7,6 +7,7 @@
 // Mock state module
 const mockState = {
     tasks: [],
+    bugs: [],
     mode: 'websocket',
     listeners: new Map(),
     
@@ -19,6 +20,10 @@ const mockState = {
     
     getTasks() {
         return this.tasks;
+    },
+    
+    getBugs() {
+        return this.bugs;
     },
     
     getMode() {
@@ -114,6 +119,26 @@ if (activeTask && activeTask.id === 'bn-2') {
 } else {
     failed++;
     console.log(`  ✗ Active task not found correctly`);
+}
+
+// Test 4: Finding active bug
+console.log('\nTest 4: Finding active bug');
+mockState.tasks = [
+    { id: 'bn-1', status: 'pending' }
+];
+mockState.bugs = [
+    { id: 'bn-bug1', status: 'pending' },
+    { id: 'bn-bug2', status: 'in_progress' },
+    { id: 'bn-bug3', status: 'done' }
+];
+
+const activeBug = mockState.bugs.find(b => b.status === 'in_progress');
+if (activeBug && activeBug.id === 'bn-bug2') {
+    passed++;
+    console.log(`  ✓ Found active bug: ${activeBug.id}`);
+} else {
+    failed++;
+    console.log(`  ✗ Active bug not found correctly`);
 }
 
 // Summary
