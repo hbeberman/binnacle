@@ -1,8 +1,13 @@
-//! Integration tests for MCP server functionality.
+//! Integration tests for simplified MCP server functionality.
 //!
-//! These tests verify:
-//! - `bn mcp manifest` outputs valid JSON with tools, resources, prompts
-//! - MCP protocol message handling
+//! The simplified MCP server provides:
+//! - `binnacle-set_agent` - Initialize MCP session with path and optional session_id
+//! - `binnacle-orient` - Register agent (limited via MCP)
+//! - `binnacle-goodbye` - End agent session (limited via MCP)
+//! - `bn_run` - Execute any bn CLI command as subprocess
+//!
+//! This replaces the previous 38+ individual tool approach with a simple
+//! subprocess wrapper pattern.
 
 #![allow(dead_code)] // McpServerHandle::send_request is for future use
 
@@ -30,131 +35,70 @@ fn test_mcp_manifest_outputs_json() {
         .assert()
         .success()
         .stdout(predicate::str::contains("tools"))
-        .stdout(predicate::str::contains("resources"))
-        .stdout(predicate::str::contains("prompts"));
+        .stdout(predicate::str::contains("resources"));
 }
 
 #[test]
-fn test_mcp_manifest_contains_task_tools() {
+fn test_mcp_manifest_contains_set_agent_tool() {
     let env = setup();
 
     env.bn()
         .args(["mcp", "manifest"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("bn_task_create"))
-        .stdout(predicate::str::contains("bn_task_list"))
-        .stdout(predicate::str::contains("bn_task_show"))
-        .stdout(predicate::str::contains("bn_task_update"))
-        .stdout(predicate::str::contains("bn_task_close"));
+        .stdout(predicate::str::contains("binnacle-set_agent"))
+        .stdout(predicate::str::contains("binnacle-managed repository"));
 }
 
 #[test]
-fn test_mcp_manifest_contains_link_tools() {
+fn test_mcp_manifest_contains_bn_run_tool() {
     let env = setup();
 
     env.bn()
         .args(["mcp", "manifest"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("bn_link_add"))
-        .stdout(predicate::str::contains("bn_link_rm"))
-        .stdout(predicate::str::contains("bn_link_list"));
+        .stdout(predicate::str::contains("bn_run"))
+        .stdout(predicate::str::contains("CLI command"));
 }
 
 #[test]
-fn test_mcp_manifest_contains_test_tools() {
+fn test_mcp_manifest_contains_status_resource() {
     let env = setup();
 
     env.bn()
         .args(["mcp", "manifest"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("bn_test_create"))
-        .stdout(predicate::str::contains("bn_test_list"))
-        .stdout(predicate::str::contains("bn_test_run"));
-}
-
-#[test]
-fn test_mcp_manifest_contains_query_tools() {
-    let env = setup();
-
-    env.bn()
-        .args(["mcp", "manifest"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("bn_ready"))
-        .stdout(predicate::str::contains("bn_blocked"));
-}
-
-#[test]
-fn test_mcp_manifest_contains_milestone_tools() {
-    let env = setup();
-
-    env.bn()
-        .args(["mcp", "manifest"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("bn_milestone_create"))
-        .stdout(predicate::str::contains("bn_milestone_list"))
-        .stdout(predicate::str::contains("bn_milestone_show"))
-        .stdout(predicate::str::contains("bn_milestone_update"))
-        .stdout(predicate::str::contains("bn_milestone_close"))
-        .stdout(predicate::str::contains("bn_milestone_reopen"))
-        .stdout(predicate::str::contains("bn_milestone_delete"))
-        .stdout(predicate::str::contains("bn_milestone_progress"));
-}
-
-#[test]
-fn test_mcp_manifest_contains_search_tools() {
-    let env = setup();
-
-    env.bn()
-        .args(["mcp", "manifest"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("bn_search_link"));
-}
-
-#[test]
-fn test_mcp_manifest_contains_maintenance_tools() {
-    let env = setup();
-
-    env.bn()
-        .args(["mcp", "manifest"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("bn_doctor"))
-        .stdout(predicate::str::contains("bn_log"));
-}
-
-#[test]
-fn test_mcp_manifest_contains_resources() {
-    let env = setup();
-
-    env.bn()
-        .args(["mcp", "manifest"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("binnacle://tasks"))
-        .stdout(predicate::str::contains("binnacle://ready"))
-        .stdout(predicate::str::contains("binnacle://blocked"))
         .stdout(predicate::str::contains("binnacle://status"));
 }
 
 #[test]
-fn test_mcp_manifest_contains_prompts() {
+fn test_mcp_manifest_contains_agents_resource() {
     let env = setup();
 
     env.bn()
         .args(["mcp", "manifest"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("start_work"))
-        .stdout(predicate::str::contains("finish_work"))
-        .stdout(predicate::str::contains("triage_regression"))
-        .stdout(predicate::str::contains("plan_feature"))
-        .stdout(predicate::str::contains("status_report"));
+        .stdout(predicate::str::contains("binnacle://agents"));
+}
+
+#[test]
+fn test_mcp_manifest_has_four_tools() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    assert_eq!(
+        tools.len(),
+        4,
+        "Should have exactly 4 tools: binnacle-set_agent, binnacle-orient, binnacle-goodbye, bn_run"
+    );
 }
 
 #[test]
@@ -198,32 +142,7 @@ fn test_mcp_manifest_resource_has_uri() {
 }
 
 #[test]
-fn test_mcp_manifest_prompt_has_arguments() {
-    let env = setup();
-
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-
-    // Verify prompts have proper structure
-    let prompts = manifest["prompts"].as_array().unwrap();
-    assert!(!prompts.is_empty());
-
-    for prompt in prompts {
-        assert!(prompt["name"].is_string());
-        assert!(prompt["description"].is_string());
-        // arguments is optional but if present should be an array
-        if let Some(args) = prompt.get("arguments")
-            && !args.is_null()
-        {
-            assert!(args.is_array());
-        }
-    }
-}
-
-#[test]
-fn test_mcp_manifest_task_tools_have_short_name() {
+fn test_set_agent_schema_requires_path() {
     let env = setup();
 
     let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
@@ -232,35 +151,70 @@ fn test_mcp_manifest_task_tools_have_short_name() {
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 
     let tools = manifest["tools"].as_array().unwrap();
-
-    // Find bn_task_create and verify it has short_name in schema
-    let task_create = tools
+    let set_agent = tools
         .iter()
-        .find(|t| t["name"] == "bn_task_create")
-        .expect("bn_task_create tool not found");
-    let create_props = &task_create["inputSchema"]["properties"];
-    assert!(
-        create_props.get("short_name").is_some(),
-        "bn_task_create should have short_name property"
-    );
-    assert_eq!(
-        create_props["short_name"]["type"], "string",
-        "short_name should be a string"
-    );
+        .find(|t| t["name"] == "binnacle-set_agent")
+        .expect("binnacle-set_agent tool not found");
 
-    // Find bn_task_update and verify it has short_name in schema
-    let task_update = tools
+    let schema = &set_agent["inputSchema"];
+    assert_eq!(schema["type"], "object");
+
+    let required = schema["required"].as_array().unwrap();
+    assert!(required.iter().any(|r| r == "path"));
+
+    // Verify session_id is optional (not in required)
+    assert!(!required.iter().any(|r| r == "session_id"));
+
+    // But verify it exists in properties
+    let properties = schema["properties"].as_object().unwrap();
+    assert!(properties.contains_key("session_id"));
+}
+
+#[test]
+fn test_bn_run_schema_requires_args() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let bn_run = tools
         .iter()
-        .find(|t| t["name"] == "bn_task_update")
-        .expect("bn_task_update tool not found");
-    let update_props = &task_update["inputSchema"]["properties"];
+        .find(|t| t["name"] == "bn_run")
+        .expect("bn_run tool not found");
+
+    let schema = &bn_run["inputSchema"];
+    assert_eq!(schema["type"], "object");
+
+    let required = schema["required"].as_array().unwrap();
+    assert!(required.iter().any(|r| r == "args"));
+
+    // Verify args is an array type
+    let properties = schema["properties"].as_object().unwrap();
+    assert_eq!(properties["args"]["type"], "array");
+}
+
+#[test]
+fn test_mcp_manifest_contains_lifecycle_tools() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let tools = manifest["tools"].as_array().unwrap();
+    let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+
     assert!(
-        update_props.get("short_name").is_some(),
-        "bn_task_update should have short_name property"
+        tool_names.contains(&"binnacle-orient"),
+        "Should have binnacle-orient tool"
     );
-    assert_eq!(
-        update_props["short_name"]["type"], "string",
-        "short_name should be a string"
+    assert!(
+        tool_names.contains(&"binnacle-goodbye"),
+        "Should have binnacle-goodbye tool"
     );
 }
 
@@ -342,220 +296,141 @@ fn test_mcp_help() {
         .stdout(predicate::str::contains("manifest"));
 }
 
-// === Tool Schema Validation ===
+// === Timeout Tests ===
 
+/// Test that MCP timeout works correctly with a slow-running test command.
+///
+/// This test:
+/// 1. Creates a test node with `sleep 5` as the command
+/// 2. Runs `bn test run` via MCP with a 1 second timeout
+/// 3. Verifies the command times out with exit_code 124 and timed_out: true
+///
+/// The entire test should complete in ~2 seconds (1 second timeout + overhead).
 #[test]
-fn test_task_create_schema_has_required_title() {
+fn test_mcp_timeout_with_slow_command() {
+    use std::io::{BufRead, BufReader};
+    use std::time::Instant;
+
     let env = setup();
 
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+    // First, create a test node with a slow command using the CLI directly
+    let output = env
+        .bn()
+        .args(["test", "create", "Slow test", "--cmd", "sleep 5"])
+        .output()
+        .expect("Failed to create test");
+    assert!(output.status.success(), "Failed to create test node");
 
+    // Extract the test ID from the output
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let test_id = stdout
+        .split("\"id\":\"")
+        .nth(1)
+        .expect("No id in output")
+        .split('"')
+        .next()
+        .expect("Malformed id")
+        .to_string();
 
-    let tools = manifest["tools"].as_array().unwrap();
-    let task_create = tools
-        .iter()
-        .find(|t| t["name"] == "bn_task_create")
-        .unwrap();
+    // Now spawn MCP server with 1 second timeout
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_bn"))
+        .args(["mcp", "serve"])
+        .current_dir(env.repo_path())
+        .env("BN_DATA_DIR", env.data_path())
+        .env("BN_MCP_TIMEOUT", "1") // 1 second timeout
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn MCP server");
 
-    let schema = &task_create["inputSchema"];
-    assert_eq!(schema["type"], "object");
+    let stdin = child.stdin.as_mut().expect("Failed to get stdin");
+    let stdout_handle = child.stdout.take().expect("Failed to get stdout");
+    let mut reader = BufReader::new(stdout_handle);
 
-    let required = schema["required"].as_array().unwrap();
-    assert!(required.iter().any(|r| r == "title"));
-}
+    // Helper to send request and read response
+    fn send_recv(
+        stdin: &mut impl Write,
+        reader: &mut impl BufRead,
+        request: &str,
+    ) -> serde_json::Value {
+        writeln!(stdin, "{}", request).expect("Failed to write");
+        stdin.flush().expect("Failed to flush");
+        let mut response = String::new();
+        reader.read_line(&mut response).expect("Failed to read");
+        serde_json::from_str(&response).expect("Invalid JSON")
+    }
 
-#[test]
-fn test_link_add_schema_requires_source_and_target() {
-    let env = setup();
-
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-
-    let tools = manifest["tools"].as_array().unwrap();
-    let link_add = tools.iter().find(|t| t["name"] == "bn_link_add").unwrap();
-
-    let required = link_add["inputSchema"]["required"].as_array().unwrap();
-    assert!(required.iter().any(|r| r == "source"));
-    assert!(required.iter().any(|r| r == "target"));
-}
-
-#[test]
-fn test_status_tool_no_required_args() {
-    let env = setup();
-
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-
-    let tools = manifest["tools"].as_array().unwrap();
-    let status = tools.iter().find(|t| t["name"] == "bn_status").unwrap();
-
-    let required = status["inputSchema"]["required"].as_array().unwrap();
-    assert!(required.is_empty());
-}
-
-// === Queue Tool Tests ===
-
-#[test]
-fn test_mcp_manifest_contains_queue_tools() {
-    let env = setup();
-
-    env.bn()
-        .args(["mcp", "manifest"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("bn_queue_create"))
-        .stdout(predicate::str::contains("bn_queue_show"))
-        .stdout(predicate::str::contains("bn_queue_delete"));
-}
-
-#[test]
-fn test_mcp_manifest_contains_queue_resource() {
-    let env = setup();
-
-    env.bn()
-        .args(["mcp", "manifest"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("binnacle://queue"));
-}
-
-#[test]
-fn test_mcp_manifest_contains_prioritize_work_prompt() {
-    let env = setup();
-
-    env.bn()
-        .args(["mcp", "manifest"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("prioritize_work"));
-}
-
-#[test]
-fn test_queue_create_schema_requires_title() {
-    let env = setup();
-
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-
-    let tools = manifest["tools"].as_array().unwrap();
-    let queue_create = tools
-        .iter()
-        .find(|t| t["name"] == "bn_queue_create")
-        .expect("bn_queue_create tool not found");
-
-    let schema = &queue_create["inputSchema"];
-    assert_eq!(schema["type"], "object");
-
-    let required = schema["required"].as_array().unwrap();
-    assert!(required.iter().any(|r| r == "title"));
-
-    // Verify description is optional
-    let properties = schema["properties"].as_object().unwrap();
-    assert!(properties.contains_key("description"));
-}
-
-#[test]
-fn test_queue_show_schema_no_required_args() {
-    let env = setup();
-
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-
-    let tools = manifest["tools"].as_array().unwrap();
-    let queue_show = tools
-        .iter()
-        .find(|t| t["name"] == "bn_queue_show")
-        .expect("bn_queue_show tool not found");
-
-    let required = queue_show["inputSchema"]["required"].as_array().unwrap();
-    assert!(required.is_empty());
-}
-
-#[test]
-fn test_queue_delete_schema_no_required_args() {
-    let env = setup();
-
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-
-    let tools = manifest["tools"].as_array().unwrap();
-    let queue_delete = tools
-        .iter()
-        .find(|t| t["name"] == "bn_queue_delete")
-        .expect("bn_queue_delete tool not found");
-
-    let required = queue_delete["inputSchema"]["required"].as_array().unwrap();
-    assert!(required.is_empty());
-}
-
-// === Doc Tool Tests ===
-
-#[test]
-fn test_mcp_manifest_contains_doc_tools() {
-    let env = setup();
-
-    env.bn()
-        .args(["mcp", "manifest"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("bn_doc_create"))
-        .stdout(predicate::str::contains("bn_doc_show"))
-        .stdout(predicate::str::contains("bn_doc_list"))
-        .stdout(predicate::str::contains("bn_doc_update"))
-        .stdout(predicate::str::contains("bn_doc_history"))
-        .stdout(predicate::str::contains("bn_doc_delete"));
-}
-
-#[test]
-fn test_doc_create_schema_requires_title_and_entity_ids() {
-    let env = setup();
-
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-
-    let tools = manifest["tools"].as_array().unwrap();
-    let doc_create = tools
-        .iter()
-        .find(|t| t["name"] == "bn_doc_create")
-        .expect("bn_doc_create tool not found");
-
-    let schema = &doc_create["inputSchema"];
-    assert_eq!(schema["type"], "object");
-
-    let required = schema["required"].as_array().unwrap();
-    assert!(
-        required.iter().any(|r| r == "title"),
-        "title should be required"
+    // Initialize MCP session
+    let init_resp = send_recv(
+        stdin,
+        &mut reader,
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}"#,
     );
+    assert_eq!(init_resp["id"], 1);
+
+    // Send initialized notification - in this implementation it sends a response
+    writeln!(stdin, r#"{{"jsonrpc":"2.0","method":"initialized"}}"#).expect("Failed to write");
+    stdin.flush().expect("Failed to flush");
+    // Read the initialized response (this implementation responds to notifications)
+    let mut _initialized_resp = String::new();
+    reader
+        .read_line(&mut _initialized_resp)
+        .expect("Failed to read initialized response");
+
+    // Set the agent working directory
+    let set_agent_request = format!(
+        r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"binnacle-set_agent","arguments":{{"path":"{}"}}}}}}"#,
+        env.repo_path().display()
+    );
+    let set_agent_resp = send_recv(stdin, &mut reader, &set_agent_request);
+    assert_eq!(set_agent_resp["id"], 2);
+
+    // Now run the slow test via bn_run - this should timeout
+    let start = Instant::now();
+    let run_request = format!(
+        r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"bn_run","arguments":{{"args":["test","run","{}"]}} }} }}"#,
+        test_id
+    );
+    let response = send_recv(stdin, &mut reader, &run_request);
+    let elapsed = start.elapsed();
+
+    assert_eq!(response["id"], 3, "Should get response for id 3");
+
+    // Verify the response indicates timeout
+    let content = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("Should have text content");
+
+    let inner: serde_json::Value = serde_json::from_str(content).expect("bn output should be JSON");
+
+    // Check for timeout indicators
+    assert_eq!(
+        inner["exit_code"], 124,
+        "Should have exit_code 124 (timeout convention)"
+    );
+    assert_eq!(inner["timed_out"], true, "Should have timed_out: true");
     assert!(
-        required.iter().any(|r| r == "entity_ids"),
-        "entity_ids should be required"
+        inner["stderr"].as_str().unwrap_or("").contains("timed out"),
+        "stderr should mention timeout"
     );
 
-    // Verify doc_type enum
-    let properties = schema["properties"].as_object().unwrap();
-    let doc_type_enum = properties["doc_type"]["enum"].as_array().unwrap();
-    assert!(doc_type_enum.iter().any(|v| v == "prd"));
-    assert!(doc_type_enum.iter().any(|v| v == "note"));
-    assert!(doc_type_enum.iter().any(|v| v == "handoff"));
+    // Verify the test completed quickly (around 1-2 seconds, not 5 seconds)
+    assert!(
+        elapsed.as_secs() < 3,
+        "Test should complete in ~2 seconds due to timeout, but took {} seconds",
+        elapsed.as_secs()
+    );
+
+    // Clean up
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
+// === Verify MCP manifest has proper structure ===
+
 #[test]
-fn test_doc_show_schema_requires_id() {
+fn test_mcp_manifest_has_server_info() {
     let env = setup();
 
     let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
@@ -563,22 +438,14 @@ fn test_doc_show_schema_requires_id() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 
-    let tools = manifest["tools"].as_array().unwrap();
-    let doc_show = tools
-        .iter()
-        .find(|t| t["name"] == "bn_doc_show")
-        .expect("bn_doc_show tool not found");
-
-    let required = doc_show["inputSchema"]["required"].as_array().unwrap();
-    assert!(required.iter().any(|r| r == "id"), "id should be required");
-
-    // Verify full option exists
-    let properties = doc_show["inputSchema"]["properties"].as_object().unwrap();
-    assert!(properties.contains_key("full"), "full option should exist");
+    // Verify manifest has name and version
+    assert!(manifest["name"].is_string());
+    assert!(manifest["version"].is_string());
+    assert!(manifest["protocolVersion"].is_string());
 }
 
 #[test]
-fn test_doc_list_schema_no_required_args() {
+fn test_mcp_manifest_protocol_version() {
     let env = setup();
 
     let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
@@ -586,83 +453,10 @@ fn test_doc_list_schema_no_required_args() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 
-    let tools = manifest["tools"].as_array().unwrap();
-    let doc_list = tools
-        .iter()
-        .find(|t| t["name"] == "bn_doc_list")
-        .expect("bn_doc_list tool not found");
-
-    let required = doc_list["inputSchema"]["required"].as_array().unwrap();
-    assert!(required.is_empty(), "doc_list should have no required args");
-
-    // Verify filter options exist
-    let properties = doc_list["inputSchema"]["properties"].as_object().unwrap();
-    assert!(properties.contains_key("tag"));
-    assert!(properties.contains_key("doc_type"));
-    assert!(properties.contains_key("edited_by"));
-    assert!(properties.contains_key("for_entity"));
-}
-
-#[test]
-fn test_doc_update_schema_requires_id() {
-    let env = setup();
-
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-
-    let tools = manifest["tools"].as_array().unwrap();
-    let doc_update = tools
-        .iter()
-        .find(|t| t["name"] == "bn_doc_update")
-        .expect("bn_doc_update tool not found");
-
-    let required = doc_update["inputSchema"]["required"].as_array().unwrap();
-    assert!(required.iter().any(|r| r == "id"), "id should be required");
-
-    // Verify update options exist
-    let properties = doc_update["inputSchema"]["properties"].as_object().unwrap();
-    assert!(properties.contains_key("content"));
-    assert!(properties.contains_key("title"));
-    assert!(properties.contains_key("editor"));
-    assert!(properties.contains_key("clear_dirty"));
-}
-
-#[test]
-fn test_doc_history_schema_requires_id() {
-    let env = setup();
-
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-
-    let tools = manifest["tools"].as_array().unwrap();
-    let doc_history = tools
-        .iter()
-        .find(|t| t["name"] == "bn_doc_history")
-        .expect("bn_doc_history tool not found");
-
-    let required = doc_history["inputSchema"]["required"].as_array().unwrap();
-    assert!(required.iter().any(|r| r == "id"), "id should be required");
-}
-
-#[test]
-fn test_doc_delete_schema_requires_id() {
-    let env = setup();
-
-    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-
-    let tools = manifest["tools"].as_array().unwrap();
-    let doc_delete = tools
-        .iter()
-        .find(|t| t["name"] == "bn_doc_delete")
-        .expect("bn_doc_delete tool not found");
-
-    let required = doc_delete["inputSchema"]["required"].as_array().unwrap();
-    assert!(required.iter().any(|r| r == "id"), "id should be required");
+    // Verify protocol version is present and valid
+    let protocol = manifest["protocolVersion"].as_str().unwrap();
+    assert!(
+        protocol.starts_with("2024-"),
+        "Protocol version should be in date format"
+    );
 }

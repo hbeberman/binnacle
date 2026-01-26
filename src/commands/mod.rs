@@ -171,6 +171,8 @@ pub struct InitResult {
     pub codex_skills_file_created: bool,
     pub copilot_prompts_created: bool,
     pub hook_installed: bool,
+    pub mcp_vscode_config_created: bool,
+    pub mcp_copilot_config_created: bool,
 }
 
 impl Output for InitResult {
@@ -208,6 +210,14 @@ impl Output for InitResult {
         if self.hook_installed {
             lines.push("Installed commit-msg hook for co-author attribution.".to_string());
         }
+        if self.mcp_vscode_config_created {
+            lines.push("Created VS Code MCP config at .vscode/mcp.json".to_string());
+        }
+        if self.mcp_copilot_config_created {
+            lines.push(
+                "Updated GitHub Copilot CLI MCP config at ~/.copilot/mcp-config.json".to_string(),
+            );
+        }
         lines.join("\n")
     }
 }
@@ -238,6 +248,15 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
     // Prompt for commit-msg hook installation (default Yes)
     let install_hook = prompt_yes_no("Install commit-msg hook for co-author attribution?", true);
 
+    // Prompt for VS Code MCP config (default No - new feature)
+    let write_mcp_vscode = prompt_yes_no("Write VS Code MCP config to .vscode/mcp.json?", false);
+
+    // Prompt for GitHub Copilot CLI MCP config (default No - new feature)
+    let write_mcp_copilot = prompt_yes_no(
+        "Write GitHub Copilot CLI MCP config to ~/.copilot/mcp-config.json?",
+        false,
+    );
+
     init_with_options(
         repo_path,
         update_agents_md,
@@ -245,11 +264,14 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         create_codex_skills,
         create_copilot_prompts,
         install_hook,
+        write_mcp_vscode,
+        write_mcp_copilot,
     )
 }
 
 /// Initialize binnacle for the current repository without interactive prompts.
 /// Use flags to control what gets written.
+#[allow(clippy::too_many_arguments)]
 pub fn init_non_interactive(
     repo_path: &Path,
     write_agents_md: bool,
@@ -257,6 +279,8 @@ pub fn init_non_interactive(
     write_codex_skills: bool,
     write_copilot_prompts: bool,
     install_hook: bool,
+    write_mcp_vscode: bool,
+    write_mcp_copilot: bool,
 ) -> Result<InitResult> {
     init_with_options(
         repo_path,
@@ -265,11 +289,14 @@ pub fn init_non_interactive(
         write_codex_skills,
         write_copilot_prompts,
         install_hook,
+        write_mcp_vscode,
+        write_mcp_copilot,
     )
 }
 
 /// Initialize binnacle for the current repository with explicit options.
 /// Used internally and by tests.
+#[allow(clippy::too_many_arguments)]
 fn init_with_options(
     repo_path: &Path,
     update_agents: bool,
@@ -277,6 +304,8 @@ fn init_with_options(
     create_codex_skills: bool,
     create_copilot_prompts: bool,
     install_hook: bool,
+    write_mcp_vscode: bool,
+    write_mcp_copilot: bool,
 ) -> Result<InitResult> {
     let already_exists = Storage::exists(repo_path)?;
     let storage = if already_exists {
@@ -320,6 +349,20 @@ fn init_with_options(
         false
     };
 
+    // Write VS Code MCP config if requested
+    let mcp_vscode_config_created = if write_mcp_vscode {
+        write_mcp_vscode_config(repo_path)?
+    } else {
+        false
+    };
+
+    // Write GitHub Copilot CLI MCP config if requested
+    let mcp_copilot_config_created = if write_mcp_copilot {
+        write_mcp_copilot_config()?
+    } else {
+        false
+    };
+
     Ok(InitResult {
         initialized: !already_exists,
         storage_path: storage.root().to_string_lossy().to_string(),
@@ -328,6 +371,8 @@ fn init_with_options(
         codex_skills_file_created,
         copilot_prompts_created,
         hook_installed,
+        mcp_vscode_config_created,
+        mcp_copilot_config_created,
     })
 }
 
@@ -936,6 +981,105 @@ Only mark complete when all tasks are clear and properly linked.
 <!-- NOTE: #tool:binnacle requires MCP setup. See bn docs. -->
 "#;
 
+/// Auto-worker agent prompt - picks from `bn ready` and works automatically
+pub const AUTO_WORKER_PROMPT: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Run `bn ready` to find available tasks and bugs. IMPORTANT: Prioritize queued items first (items with "queued": true in the JSON output) - these have been explicitly marked as high priority by an operator. Among queued items, pick by priority (lower number = higher priority). If no queued items exist, pick the highest priority non-queued item. Claim your chosen item with `bn task update ID --status in_progress` or `bn bug update ID --status in_progress`, and start working immediately. Remember to mark it complete when you finish. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
+
+/// Do agent prompt - works on a specific user-provided description
+/// Note: The actual prompt needs {description} substituted at runtime
+pub const DO_AGENT_PROMPT: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md. Then work on the following: {description}. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
+
+/// PRD writer agent prompt - renders ideas into PRDs
+pub const PRD_WRITER_PROMPT: &str = r#"Run `bn orient --type planner` to get oriented with the project. Read PRD.md. Your job is to help render ideas into proper PRDs. First, ask the user: "Do you have a specific idea or topic in mind, or would you like me to pick one from the open ideas?"
+
+CRITICAL: Before writing ANY PRD, ALWAYS run `bn idea list -H` to search for existing ideas related to the topic. This ensures you build upon existing thoughts and do not duplicate work. If you find related ideas:
+1. Reference them in the PRD (e.g., "Related ideas: bn-xxxx, bn-yyyy")
+2. Incorporate their insights into the PRD content
+3. Consider whether the PRD should supersede/combine multiple related ideas
+
+If the user provides a topic, search ideas for that topic first, then work on it. If no topic provided, check `bn idea list` for candidates and pick the most promising one. Then STOP and ask clarifying questions before writing the PRD. Ask about: scope boundaries (what is in/out), target users, success criteria, implementation constraints, dependencies on other work, and priority relative to other features.
+
+IMPORTANT - Store PRDs as doc nodes, not files:
+After gathering requirements and writing the PRD content, use `bn doc create` to store it in the task graph:
+  bn doc create <related-entity-id> --type prd --title "PRD: Feature Name" --content "...prd content..."
+Or to read from a file:
+  bn doc create <related-entity-id> --type prd --title "PRD: Feature Name" --file /tmp/prd.md
+The <related-entity-id> should be the idea being promoted, or a task/milestone this PRD relates to.
+
+Do NOT save PRDs to prds/ directory - use doc nodes so PRDs are tracked, linked, and versioned in the graph.
+Do NOT run `bn goodbye` - planner agents produce artifacts but do not run long-lived sessions."#;
+
+/// Buddy agent prompt - quick entry helper for bugs/tasks/ideas
+pub const BUDDY_PROMPT: &str = r#"You are a binnacle buddy. Your job is to help the user quickly insert bugs, tasks, and ideas into the binnacle task graph. Run `bn orient --type buddy` to understand the current state. Then ask the user what they would like to add or modify in binnacle. Keep interactions quick and focused on bn operations.
+
+IMPORTANT - Use the correct entity type and ALWAYS include a short name (-s):
+- `bn idea create -s "short" "Full title"` for rough thoughts, exploratory concepts, or "what if" suggestions that need discussion/refinement before becoming actionable work
+- `bn task create -s "short" "Full title"` for specific, actionable work items that are ready to be implemented
+- `bn bug create -s "short" "Full title"` for defects, problems, or issues that need fixing
+
+Short names appear in the GUI and make entities much easier to scan. Keep them to 2-4 words.
+
+When the user says "idea", "thought", "what if", "maybe we could", "explore", or similar exploratory language, ALWAYS use `bn idea create`. Ideas are low-stakes and can be promoted to tasks later.
+
+TASK DECOMPOSITION - Break down tasks into subtasks:
+When creating a task, look for opportunities to decompose it into 2-4 smaller, independent subtasks. This helps agents work on focused pieces. To decompose:
+1. Create the parent task first: `bn task create "Parent task title" -s "short name" -d "description"`
+2. Create each subtask: `bn task create "Subtask title" -s "subtask short" -d "description"`
+3. Link subtasks to parent: `bn link add <subtask-id> <parent-id> -t child_of`
+
+Good candidates for decomposition:
+- Tasks with multiple distinct steps (e.g., "add X and test Y" → separate implementation and testing tasks)
+- Tasks touching multiple components (e.g., "update CLI and GUI" → separate CLI and GUI tasks)
+- Tasks with setup requirements (e.g., "configure X then implement Y" → separate configuration and implementation)
+
+Do NOT decompose:
+- Simple, single-action tasks (e.g., "fix typo in README")
+- Tasks that are already focused and atomic
+- Ideas (decomposition happens when ideas are promoted to tasks)
+
+CRITICAL - Always check the graph for latest state:
+When answering questions about bugs, tasks, or ideas (even ones you created earlier in this session), ALWAYS run `bn show <id>` to check the current state. Never assume an entity is still open just because you created it - another agent or human may have closed it. The graph is the source of truth, not your session memory.
+
+Run `bn goodbye "session complete"` to gracefully terminate your agent session when the user is done."#;
+
+/// Free agent prompt - general purpose with binnacle orientation
+pub const FREE_PROMPT: &str = r#"You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
+
+/// Claude Desktop MCP configuration template.
+/// Add this to ~/.config/claude/claude_desktop_config.json under "mcpServers".
+pub const MCP_CLAUDE_CONFIG: &str = r#"{
+  "mcpServers": {
+    "binnacle": {
+      "command": "bn",
+      "args": ["mcp", "serve"]
+    }
+  }
+}"#;
+
+/// VS Code MCP configuration template.
+/// Add this to .vscode/mcp.json in your repository.
+pub const MCP_VSCODE_CONFIG: &str = r#"{
+  "servers": {
+    "binnacle": {
+      "type": "stdio",
+      "command": "bn",
+      "args": ["mcp", "serve", "--cwd", "${workspaceFolder}"]
+    }
+  }
+}"#;
+
+/// GitHub Copilot CLI MCP configuration template.
+/// Add this to ~/.copilot/mcp-config.json under "mcpServers".
+pub const MCP_COPILOT_CONFIG: &str = r#"{
+  "mcpServers": {
+    "binnacle": {
+      "type": "local",
+      "command": "bn",
+      "args": ["mcp", "serve"],
+      "tools": ["*"]
+    }
+  }
+}"#;
+
 /// Create the Claude Code skills file for binnacle.
 /// Always overwrites if the file already exists.
 /// Returns true if the file was created/updated.
@@ -980,6 +1124,120 @@ fn create_codex_skills_file() -> Result<bool> {
     // Write the skills file (overwrites if exists)
     fs::write(&skills_path, SKILLS_FILE_CONTENT)
         .map_err(|e| Error::Other(format!("Failed to create Codex skills file: {}", e)))?;
+
+    Ok(true)
+}
+
+/// Write or update the VS Code MCP config file in the repository.
+/// Merges with existing config if present, preserving other entries.
+/// Returns true if the config was created/updated.
+fn write_mcp_vscode_config(repo_path: &Path) -> Result<bool> {
+    use serde_json::{Map, Value};
+
+    let vscode_dir = repo_path.join(".vscode");
+    let config_path = vscode_dir.join("mcp.json");
+
+    // Create .vscode directory if it doesn't exist
+    fs::create_dir_all(&vscode_dir)
+        .map_err(|e| Error::Other(format!("Failed to create .vscode directory: {}", e)))?;
+
+    // Read existing config or start with empty object
+    let mut config: Value = if config_path.exists() {
+        let content = fs::read_to_string(&config_path).map_err(|e| {
+            Error::Other(format!("Failed to read existing VS Code MCP config: {}", e))
+        })?;
+        serde_json::from_str(&content).unwrap_or_else(|_| Value::Object(Map::new()))
+    } else {
+        Value::Object(Map::new())
+    };
+
+    // Ensure config is an object
+    let config_obj = config
+        .as_object_mut()
+        .ok_or_else(|| Error::Other("VS Code MCP config is not a JSON object".to_string()))?;
+
+    // Get or create servers object (VS Code uses "servers" not "mcpServers")
+    if !config_obj.contains_key("servers") {
+        config_obj.insert("servers".to_string(), Value::Object(Map::new()));
+    }
+    let servers = config_obj
+        .get_mut("servers")
+        .and_then(|v| v.as_object_mut())
+        .ok_or_else(|| Error::Other("servers is not a JSON object".to_string()))?;
+
+    // Add or update binnacle entry with VS Code-specific format
+    let binnacle_config = serde_json::json!({
+        "type": "stdio",
+        "command": "bn",
+        "args": ["mcp", "serve", "--cwd", "${workspaceFolder}"]
+    });
+    servers.insert("binnacle".to_string(), binnacle_config);
+
+    // Write back with pretty formatting
+    let formatted = serde_json::to_string_pretty(&config)
+        .map_err(|e| Error::Other(format!("Failed to serialize VS Code MCP config: {}", e)))?;
+    fs::write(&config_path, formatted)
+        .map_err(|e| Error::Other(format!("Failed to write VS Code MCP config: {}", e)))?;
+
+    Ok(true)
+}
+
+/// Write or update the GitHub Copilot CLI MCP config file.
+/// Merges with existing config if present, preserving other entries.
+/// Returns true if the config was created/updated.
+fn write_mcp_copilot_config() -> Result<bool> {
+    use serde_json::{Map, Value};
+
+    // Get home directory
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| Error::Other("Could not determine home directory".to_string()))?;
+
+    let copilot_dir = home_dir.join(".copilot");
+    let config_path = copilot_dir.join("mcp-config.json");
+
+    // Create directory if it doesn't exist
+    fs::create_dir_all(&copilot_dir)
+        .map_err(|e| Error::Other(format!("Failed to create Copilot config directory: {}", e)))?;
+
+    // Read existing config or start with empty object
+    let mut config: Value = if config_path.exists() {
+        let content = fs::read_to_string(&config_path).map_err(|e| {
+            Error::Other(format!("Failed to read existing Copilot CLI config: {}", e))
+        })?;
+        serde_json::from_str(&content).unwrap_or_else(|_| Value::Object(Map::new()))
+    } else {
+        Value::Object(Map::new())
+    };
+
+    // Ensure config is an object
+    let config_obj = config
+        .as_object_mut()
+        .ok_or_else(|| Error::Other("Copilot CLI config is not a JSON object".to_string()))?;
+
+    // Get or create mcpServers object (Copilot CLI uses "mcpServers")
+    if !config_obj.contains_key("mcpServers") {
+        config_obj.insert("mcpServers".to_string(), Value::Object(Map::new()));
+    }
+    let mcp_servers = config_obj
+        .get_mut("mcpServers")
+        .and_then(|v| v.as_object_mut())
+        .ok_or_else(|| Error::Other("mcpServers is not a JSON object".to_string()))?;
+
+    // Add or update binnacle entry
+    // Note: "type": "local" and "tools": ["*"] are required by GitHub Copilot
+    let binnacle_config = serde_json::json!({
+        "type": "local",
+        "command": "bn",
+        "args": ["mcp", "serve"],
+        "tools": ["*"]
+    });
+    mcp_servers.insert("binnacle".to_string(), binnacle_config);
+
+    // Write back with pretty formatting
+    let formatted = serde_json::to_string_pretty(&config)
+        .map_err(|e| Error::Other(format!("Failed to serialize Copilot CLI config: {}", e)))?;
+    fs::write(&config_path, formatted)
+        .map_err(|e| Error::Other(format!("Failed to write Copilot CLI config: {}", e)))?;
 
     Ok(true)
 }
@@ -13285,12 +13543,17 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
         .map(|a| a.agent_type == AgentType::Planner)
         .unwrap_or(false);
 
-    // In MCP mode, should_terminate is always false (we don't terminate parent processes)
-    let should_terminate = if mcp_session_id.is_some() {
-        false
-    } else {
-        !is_planner || force
-    };
+    // should_terminate indicates whether the agent SHOULD terminate itself
+    // (regardless of whether bn actually kills the process)
+    // - Worker agents: should terminate after goodbye
+    // - Planner agents: should NOT terminate (they produce artifacts, not long sessions)
+    //   unless --force is used
+    let should_terminate = !is_planner || force;
+
+    // In non-MCP mode, bn will actually terminate the grandparent process
+    // In MCP mode, we return should_terminate=true but don't kill anything
+    // (the agent interprets the response and self-terminates)
+    let will_terminate = mcp_session_id.is_none() && should_terminate;
 
     // Update agent with goodbye status before removing (for GUI animation)
     if was_registered && let Ok(mut agent_data) = storage.get_agent(parent_pid) {
@@ -13310,9 +13573,9 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     let _ = bn_pid;
 
     // Add warning if no reason provided
-    let warning = if reason.is_none() && (mcp_session_id.is_some() || should_terminate) {
+    let warning = if reason.is_none() && should_terminate {
         Some("No reason provided. Please use: bn goodbye \"reason for termination\"".to_string())
-    } else if !should_terminate && mcp_session_id.is_none() && is_planner {
+    } else if !should_terminate && is_planner {
         Some(
             "Planner agents should not call goodbye. Use --force if you must terminate."
                 .to_string(),
@@ -13327,8 +13590,8 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
         grandparent_pid,
         was_registered,
         reason,
-        terminated: should_terminate,
-        should_terminate,
+        terminated: will_terminate, // Whether bn actually killed the process
+        should_terminate,           // Whether the agent should self-terminate
         warning,
         agent_type,
     })
@@ -14639,7 +14902,8 @@ mod tests {
     #[test]
     fn test_init_new() {
         let env = TestEnv::new_with_env();
-        let result = init_with_options(env.path(), false, false, false, false, false).unwrap();
+        let result =
+            init_with_options(env.path(), false, false, false, false, false, false, false).unwrap();
         assert!(result.initialized);
     }
 
@@ -14647,7 +14911,8 @@ mod tests {
     fn test_init_existing() {
         let env = TestEnv::new_with_env();
         Storage::init(env.path()).unwrap();
-        let result = init_with_options(env.path(), false, false, false, false, false).unwrap();
+        let result =
+            init_with_options(env.path(), false, false, false, false, false, false, false).unwrap();
         assert!(!result.initialized);
     }
 
@@ -16921,7 +17186,8 @@ mod tests {
         assert!(!agents_path.exists());
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
+        let result =
+            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
         assert!(!result.skills_file_created);
@@ -16942,7 +17208,8 @@ mod tests {
         std::fs::write(&agents_path, "# My Existing Agents\n\nSome content here.\n").unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
+        let result =
+            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
 
@@ -16965,7 +17232,8 @@ mod tests {
         .unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
+        let result =
+            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated); // Should be updated to add markers
 
@@ -16981,8 +17249,9 @@ mod tests {
         let temp = TestEnv::new_with_env();
 
         // Run init twice with AGENTS.md enabled
-        init_with_options(temp.path(), true, false, false, false, false).unwrap();
-        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
+        init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
+        let result =
+            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
 
         // Second run should not update AGENTS.md (content unchanged)
         assert!(!result.initialized); // binnacle already exists
@@ -17001,7 +17270,8 @@ mod tests {
         Storage::init(temp.path()).unwrap();
 
         // Now run init with AGENTS.md update - should detect no change needed
-        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
+        let result =
+            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
         assert!(!result.initialized); // binnacle already exists
         assert!(!result.agents_md_updated); // Content already matches exactly
 
@@ -17023,7 +17293,8 @@ mod tests {
         .unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result = init_with_options(temp.path(), true, false, false, false, false).unwrap();
+        let result =
+            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated); // Section was replaced with standard content
 
@@ -17041,7 +17312,7 @@ mod tests {
         let agents_path = temp.path().join("AGENTS.md");
 
         // Run init with AGENTS.md update enabled
-        init_with_options(temp.path(), true, false, false, false, false).unwrap();
+        init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
 
         // Verify AGENTS.md contains HTML markers
         let contents = std::fs::read_to_string(&agents_path).unwrap();
@@ -17182,7 +17453,8 @@ mod tests {
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
         // Init with hook installation
-        let result = init_with_options(temp.path(), false, false, false, false, true).unwrap();
+        let result =
+            init_with_options(temp.path(), false, false, false, false, true, false, false).unwrap();
         assert!(result.hook_installed);
 
         let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");
@@ -17195,7 +17467,9 @@ mod tests {
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
         // Init without hook installation
-        let result = init_with_options(temp.path(), false, false, false, false, false).unwrap();
+        let result =
+            init_with_options(temp.path(), false, false, false, false, false, false, false)
+                .unwrap();
         assert!(!result.hook_installed);
 
         let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");

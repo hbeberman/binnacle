@@ -148,7 +148,8 @@ fn run_command(
 
             // Actually terminate the grandparent process after output (unless dry-run)
             // We target grandparent because: agent → shell → bn goodbye
-            if !dry_run && result.should_terminate {
+            // Note: result.terminated is false in MCP mode to prevent killing the MCP server
+            if !dry_run && result.terminated {
                 // Use 5 second timeout before SIGKILL
                 commands::terminate_process(result.grandparent_pid, 5);
             }
@@ -872,8 +873,8 @@ fn run_command(
             }
         },
         Some(Commands::Mcp { command }) => match command {
-            McpCommands::Serve => {
-                mcp::serve(repo_path);
+            McpCommands::Serve { cwd } => {
+                mcp::serve(repo_path, cwd);
             }
             McpCommands::Manifest => {
                 mcp::manifest();
@@ -907,8 +908,15 @@ fn run_command(
                 write_codex_skills,
                 write_copilot_prompts,
                 install_hook,
+                write_mcp_vscode,
+                write_mcp_copilot,
+                write_mcp_all,
                 yes,
             } => {
+                // Expand --write-mcp-all into individual MCP flags
+                let write_mcp_vscode = write_mcp_vscode || write_mcp_all;
+                let write_mcp_copilot = write_mcp_copilot || write_mcp_all;
+
                 let result = if yes {
                     // Non-interactive: use flags directly
                     commands::init_non_interactive(
@@ -918,12 +926,17 @@ fn run_command(
                         write_codex_skills,
                         write_copilot_prompts,
                         install_hook,
+                        write_mcp_vscode,
+                        write_mcp_copilot,
                     )?
                 } else if write_agents_md
                     || write_claude_skills
                     || write_codex_skills
                     || write_copilot_prompts
                     || install_hook
+                    || write_mcp_vscode
+                    || write_mcp_copilot
+                    || write_mcp_all
                 {
                     // Flags provided without -y: use flags as the options
                     commands::init_non_interactive(
@@ -933,6 +946,8 @@ fn run_command(
                         write_codex_skills,
                         write_copilot_prompts,
                         install_hook,
+                        write_mcp_vscode,
+                        write_mcp_copilot,
                     )?
                 } else {
                     // Interactive mode (default)
@@ -985,6 +1000,14 @@ fn run_command(
                     EmitTemplate::PrdAgent => commands::PRD_AGENT_CONTENT,
                     EmitTemplate::TasksAgent => commands::TASKS_AGENT_CONTENT,
                     EmitTemplate::CopilotInstructions => commands::COPILOT_INSTRUCTIONS_CONTENT,
+                    EmitTemplate::AutoWorker => commands::AUTO_WORKER_PROMPT,
+                    EmitTemplate::DoAgent => commands::DO_AGENT_PROMPT,
+                    EmitTemplate::PrdWriter => commands::PRD_WRITER_PROMPT,
+                    EmitTemplate::Buddy => commands::BUDDY_PROMPT,
+                    EmitTemplate::Free => commands::FREE_PROMPT,
+                    EmitTemplate::McpClaude => commands::MCP_CLAUDE_CONFIG,
+                    EmitTemplate::McpVscode => commands::MCP_VSCODE_CONFIG,
+                    EmitTemplate::McpCopilot => commands::MCP_COPILOT_CONFIG,
                 };
                 if human {
                     println!("{}", content.trim());
@@ -2339,7 +2362,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         },
 
         Some(Commands::Mcp { command }) => match command {
-            McpCommands::Serve => ("mcp serve".to_string(), serde_json::json!({})),
+            McpCommands::Serve { cwd } => {
+                ("mcp serve".to_string(), serde_json::json!({ "cwd": cwd }))
+            }
             McpCommands::Manifest => ("mcp manifest".to_string(), serde_json::json!({})),
         },
 
@@ -2369,6 +2394,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 write_codex_skills,
                 write_copilot_prompts,
                 install_hook,
+                write_mcp_vscode,
+                write_mcp_copilot,
+                write_mcp_all,
                 yes,
             } => (
                 "system init".to_string(),
@@ -2378,6 +2406,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "write_codex_skills": write_codex_skills,
                     "write_copilot_prompts": write_copilot_prompts,
                     "install_hook": install_hook,
+                    "write_mcp_vscode": write_mcp_vscode,
+                    "write_mcp_copilot": write_mcp_copilot,
+                    "write_mcp_all": write_mcp_all,
                     "yes": yes,
                 }),
             ),
@@ -2425,6 +2456,14 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     EmitTemplate::PrdAgent => "prd-agent",
                     EmitTemplate::TasksAgent => "tasks-agent",
                     EmitTemplate::CopilotInstructions => "copilot-instructions",
+                    EmitTemplate::AutoWorker => "auto-worker",
+                    EmitTemplate::DoAgent => "do-agent",
+                    EmitTemplate::PrdWriter => "prd-writer",
+                    EmitTemplate::Buddy => "buddy",
+                    EmitTemplate::Free => "free",
+                    EmitTemplate::McpClaude => "mcp-claude",
+                    EmitTemplate::McpVscode => "mcp-vscode",
+                    EmitTemplate::McpCopilot => "mcp-copilot",
                 };
                 (
                     "system emit".to_string(),

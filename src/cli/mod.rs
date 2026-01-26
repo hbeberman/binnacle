@@ -1225,7 +1225,11 @@ pub enum ConfigCommands {
 #[derive(Subcommand, Debug)]
 pub enum McpCommands {
     /// Start stdio MCP server
-    Serve,
+    Serve {
+        /// Pre-set the working directory (makes binnacle-set_agent optional)
+        #[arg(long)]
+        cwd: Option<std::path::PathBuf>,
+    },
 
     /// Output tool definitions
     Manifest,
@@ -1345,6 +1349,18 @@ pub enum SystemCommands {
         #[arg(long)]
         install_hook: bool,
 
+        /// Write VS Code MCP config to .vscode/mcp.json in the repository
+        #[arg(long)]
+        write_mcp_vscode: bool,
+
+        /// Write GitHub Copilot CLI MCP config to ~/.copilot/mcp-config.json
+        #[arg(long)]
+        write_mcp_copilot: bool,
+
+        /// Write all MCP configs (VS Code, Copilot CLI)
+        #[arg(long)]
+        write_mcp_all: bool,
+
         /// Skip interactive prompts (use flags to control what gets written)
         #[arg(long, short = 'y')]
         yes: bool,
@@ -1414,6 +1430,22 @@ pub enum EmitTemplate {
     TasksAgent,
     /// Binnacle Copilot instructions (binnacle.instructions.md)
     CopilotInstructions,
+    /// Auto-worker agent prompt (picks from bn ready)
+    AutoWorker,
+    /// Directed task agent prompt (works on specific description)
+    DoAgent,
+    /// PRD writer agent prompt (renders ideas into PRDs)
+    PrdWriter,
+    /// Buddy agent prompt (quick entry for bugs/tasks/ideas)
+    Buddy,
+    /// Free agent prompt (general purpose with binnacle)
+    Free,
+    /// Claude Desktop MCP configuration JSON
+    McpClaude,
+    /// VS Code MCP configuration JSON
+    McpVscode,
+    /// GitHub Copilot CLI MCP configuration JSON
+    McpCopilot,
 }
 
 /// Store management subcommands

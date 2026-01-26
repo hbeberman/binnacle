@@ -1,19 +1,22 @@
-//! MCP (Model Context Protocol) server implementation.
+//! Simplified MCP (Model Context Protocol) server implementation.
 //!
-//! This module provides:
-//! - `bn mcp serve` - Start stdio MCP server
-//! - `bn mcp manifest` - Output tool definitions
+//! This module provides a subprocess wrapper approach to MCP with 4 tools:
+//! - `binnacle-set_agent` - Initialize MCP session with path and optional session_id
+//! - `binnacle-orient` - Register agent and get project overview (limited via MCP)
+//! - `binnacle-goodbye` - End agent session (limited via MCP)
+//! - `bn_run` - Execute any bn CLI command as subprocess
 //!
-//! All CLI operations are exposed as MCP tools for AI agent integration.
+//! Instead of 38+ individual tool handlers, this just executes the CLI directly.
 
-use crate::Error;
-use crate::commands::{self, Output};
-use crate::models::DocType;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io::{self, BufRead, Write};
-use std::path::Path;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::time::Duration;
+use uuid::Uuid;
+use wait_timeout::ChildExt;
 
 /// MCP Protocol version
 const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
@@ -22,9 +25,18 @@ const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
 const SERVER_NAME: &str = "binnacle";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Blocked subcommands that cause issues in MCP context.
+/// `orient` and `goodbye` have dedicated MCP tools and should use shell for proper lifecycle.
+/// `system` is blocked to prevent MCP clients from modifying global config files.
+fn blocked_subcommands() -> HashSet<&'static str> {
+    ["agent", "gui", "mcp", "orient", "goodbye", "system"]
+        .iter()
+        .copied()
+        .collect()
+}
+
 // === JSON-RPC Types ===
 
-/// JSON-RPC request structure
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
@@ -34,7 +46,6 @@ pub struct JsonRpcRequest {
     pub params: Option<Value>,
 }
 
-/// JSON-RPC response structure
 #[derive(Debug, Serialize)]
 pub struct JsonRpcResponse {
     pub jsonrpc: String,
@@ -80,7 +91,6 @@ pub struct JsonRpcError {
 
 // === MCP Types ===
 
-/// Tool definition for MCP
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDef {
     pub name: String,
@@ -89,7 +99,6 @@ pub struct ToolDef {
     pub input_schema: Value,
 }
 
-/// Resource definition for MCP
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceDef {
     pub uri: String,
@@ -99,59 +108,39 @@ pub struct ResourceDef {
     pub mime_type: Option<String>,
 }
 
-/// Prompt definition for MCP
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PromptDef {
-    pub name: String,
-    pub description: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub arguments: Option<Vec<PromptArgument>>,
-}
+// === MCP Server ===
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PromptArgument {
-    pub name: String,
-    pub description: String,
-    pub required: bool,
-}
-
-/// Parse a resource URI into base URI and query parameters.
-///
-/// Example: "binnacle://docs?type=prd&for=bn-1234" -> ("binnacle://docs", {"type": "prd", "for": "bn-1234"})
-fn parse_resource_uri(uri: &str) -> (&str, HashMap<String, String>) {
-    if let Some(idx) = uri.find('?') {
-        let base = &uri[..idx];
-        let query = &uri[idx + 1..];
-        let params: HashMap<String, String> = query
-            .split('&')
-            .filter_map(|pair| {
-                let mut parts = pair.splitn(2, '=');
-                let key = parts.next()?;
-                let value = parts.next().unwrap_or("");
-                if key.is_empty() {
-                    None
-                } else {
-                    Some((key.to_string(), value.to_string()))
-                }
-            })
-            .collect();
-        (base, params)
-    } else {
-        (uri, HashMap::new())
-    }
-}
-
-/// MCP Server state
 pub struct McpServer {
-    repo_path: std::path::PathBuf,
-    initialized: bool,
+    cwd: Option<PathBuf>,
+    session_id: String,
+    /// True if session_id was provided externally (caller should use shell goodbye)
+    /// False if auto-generated (safe to call bn goodbye via MCP)
+    session_id_is_external: bool,
+    /// Cached path to bn binary (captured at startup to survive binary replacement)
+    bn_path: PathBuf,
 }
 
 impl McpServer {
-    pub fn new(repo_path: &Path) -> Self {
+    pub fn new() -> Self {
+        // Cache the executable path at startup - on Linux, if the binary is replaced
+        // while running, current_exe() returns a path ending in " (deleted)" which
+        // won't work for spawning subprocesses.
+        let bn_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("bn"));
         Self {
-            repo_path: repo_path.to_path_buf(),
-            initialized: false,
+            cwd: None,
+            session_id: Uuid::new_v4().to_string(),
+            session_id_is_external: false,
+            bn_path,
+        }
+    }
+
+    pub fn with_cwd(cwd: PathBuf) -> Self {
+        let bn_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("bn"));
+        Self {
+            cwd: Some(cwd),
+            session_id: Uuid::new_v4().to_string(),
+            session_id_is_external: false,
+            bn_path,
         }
     }
 
@@ -159,18 +148,12 @@ impl McpServer {
     pub fn handle_request(&mut self, request: &JsonRpcRequest) -> JsonRpcResponse {
         match request.method.as_str() {
             "initialize" => self.handle_initialize(request),
-            "initialized" => {
-                // Notification, no response needed but we'll mark as ready
-                self.initialized = true;
-                JsonRpcResponse::success(request.id.clone(), json!({}))
-            }
+            "initialized" => JsonRpcResponse::success(request.id.clone(), json!({})),
             "ping" => JsonRpcResponse::success(request.id.clone(), json!({})),
             "tools/list" => self.handle_tools_list(request),
             "tools/call" => self.handle_tools_call(request),
             "resources/list" => self.handle_resources_list(request),
             "resources/read" => self.handle_resources_read(request),
-            "prompts/list" => self.handle_prompts_list(request),
-            "prompts/get" => self.handle_prompts_get(request),
             _ => JsonRpcResponse::error(
                 request.id.clone(),
                 -32601,
@@ -180,7 +163,6 @@ impl McpServer {
     }
 
     fn handle_initialize(&mut self, request: &JsonRpcRequest) -> JsonRpcResponse {
-        self.initialized = true;
         JsonRpcResponse::success(
             request.id.clone(),
             json!({
@@ -189,9 +171,6 @@ impl McpServer {
                     "tools": {},
                     "resources": {
                         "subscribe": false,
-                        "listChanged": false
-                    },
-                    "prompts": {
                         "listChanged": false
                     }
                 },
@@ -208,7 +187,7 @@ impl McpServer {
         JsonRpcResponse::success(request.id.clone(), json!({ "tools": tools }))
     }
 
-    fn handle_tools_call(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
+    fn handle_tools_call(&mut self, request: &JsonRpcRequest) -> JsonRpcResponse {
         let params = match &request.params {
             Some(p) => p,
             None => {
@@ -282,7 +261,7 @@ impl McpServer {
                 return JsonRpcResponse::error(
                     request.id.clone(),
                     -32602,
-                    "Missing uri".to_string(),
+                    "Missing resource URI".to_string(),
                 );
             }
         };
@@ -298,1009 +277,316 @@ impl McpServer {
                     }]
                 }),
             ),
-            Err(e) => JsonRpcResponse::error(request.id.clone(), -32000, e.to_string()),
+            Err(e) => JsonRpcResponse::error(request.id.clone(), -32603, e),
         }
     }
 
-    fn handle_prompts_list(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
-        let prompts = get_prompt_definitions();
-        JsonRpcResponse::success(request.id.clone(), json!({ "prompts": prompts }))
+    fn execute_tool(&mut self, name: &str, args: &Value) -> Result<String, String> {
+        match name {
+            "binnacle-set_agent" => self.tool_set_agent(args),
+            "binnacle-orient" => self.tool_orient(args),
+            "binnacle-goodbye" => self.tool_goodbye(args),
+            "bn_run" => self.tool_bn_run(args),
+            _ => Err(format!("Unknown tool: {}", name)),
+        }
     }
 
-    fn handle_prompts_get(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
-        let params = match &request.params {
-            Some(p) => p,
-            None => {
-                return JsonRpcResponse::error(
-                    request.id.clone(),
-                    -32602,
-                    "Missing params".to_string(),
-                );
+    fn tool_set_agent(&mut self, args: &Value) -> Result<String, String> {
+        let path = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing 'path' argument")?;
+
+        // Expand ~ if present
+        let expanded = if let Some(stripped) = path.strip_prefix("~/") {
+            if let Some(home) = dirs::home_dir() {
+                home.join(stripped)
+            } else {
+                PathBuf::from(path)
             }
+        } else {
+            PathBuf::from(path)
         };
 
-        let prompt_name = match params.get("name").and_then(|v| v.as_str()) {
-            Some(n) => n,
-            None => {
-                return JsonRpcResponse::error(
-                    request.id.clone(),
-                    -32602,
-                    "Missing prompt name".to_string(),
-                );
-            }
-        };
+        // Validate path exists and is a directory
+        if !expanded.is_dir() {
+            return Err(format!("Directory does not exist: {}", expanded.display()));
+        }
 
-        let arguments: HashMap<String, String> = params
-            .get("arguments")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
+        // Canonicalize to resolve symlinks and prevent path traversal attacks
+        let canonical = expanded
+            .canonicalize()
+            .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
+
+        self.cwd = Some(canonical.clone());
+
+        // Handle optional session_id - if provided externally, caller should use shell goodbye
+        if let Some(session_id) = args.get("session_id").and_then(|v| v.as_str()) {
+            self.session_id = session_id.to_string();
+            self.session_id_is_external = true;
+        }
+
+        Ok(json!({
+            "success": true,
+            "message": format!("Session initialized{}",
+                if self.session_id_is_external { " with external session" } else { "" }),
+            "cwd": canonical.display().to_string(),
+            "session_id": self.session_id,
+            "session_id_is_external": self.session_id_is_external
+        })
+        .to_string())
+    }
+
+    fn tool_orient(&self, _args: &Value) -> Result<String, String> {
+        // Check if cwd is set
+        let cwd = self
+            .cwd
+            .as_ref()
+            .ok_or("Working directory not set. Call binnacle-set_agent first.")?;
+
+        // Execute bn orient
+        let output = Command::new(&self.bn_path)
+            .args(["orient", "--type", "worker"])
+            .current_dir(cwd)
+            .env("BN_MCP_SESSION", &self.session_id)
+            .output()
+            .map_err(|e| format!("Failed to execute: {}", e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        // Add MCP-specific hint to the response if using external session
+        let mut result: Value = serde_json::from_str(&stdout).unwrap_or_else(|_| json!({}));
+        if self.session_id_is_external
+            && let Some(obj) = result.as_object_mut()
+        {
+            obj.insert(
+                "mcp_hint".to_string(),
+                json!("External session_id provided. Use shell 'bn goodbye' for proper lifecycle."),
+            );
+        }
+
+        Ok(json!({
+            "stdout": result.to_string(),
+            "stderr": stderr,
+            "exit_code": output.status.code().unwrap_or(-1)
+        })
+        .to_string())
+    }
+
+    fn tool_goodbye(&self, args: &Value) -> Result<String, String> {
+        // If session_id was provided externally, the caller should use shell goodbye
+        // for proper lifecycle management
+        if self.session_id_is_external {
+            return Ok(json!({
+                "success": true,
+                "terminated": false,
+                "should_terminate": true,
+                "hint": "External session_id provided. Use shell 'bn goodbye' for proper termination."
+            })
+            .to_string());
+        }
+
+        // Auto-generated session - safe to call bn goodbye
+        // (BN_MCP_SESSION prevents actual process termination)
+        let cwd = self
+            .cwd
+            .as_ref()
+            .ok_or("Working directory not set. Call binnacle-set_agent first.")?;
+
+        let summary = args
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Session ended via MCP");
+
+        let output = Command::new(&self.bn_path)
+            .args(["goodbye", summary])
+            .current_dir(cwd)
+            .env("BN_MCP_SESSION", &self.session_id)
+            .output()
+            .map_err(|e| format!("Failed to execute: {}", e))?;
+
+        Ok(json!({
+            "stdout": String::from_utf8_lossy(&output.stdout),
+            "stderr": String::from_utf8_lossy(&output.stderr),
+            "exit_code": output.status.code().unwrap_or(-1),
+            "terminated": false
+        })
+        .to_string())
+    }
+
+    fn tool_bn_run(&self, args: &Value) -> Result<String, String> {
+        // Check if cwd is set
+        let cwd = self
+            .cwd
+            .as_ref()
+            .ok_or("Working directory not set. Call binnacle-set_agent first.")?;
+
+        // Parse args array
+        let cmd_args: Vec<String> = args
+            .get("args")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
-        match self.get_prompt(prompt_name, &arguments) {
-            Ok((description, messages)) => JsonRpcResponse::success(
-                request.id.clone(),
-                json!({
-                    "description": description,
-                    "messages": messages
-                }),
-            ),
-            Err(e) => JsonRpcResponse::error(request.id.clone(), -32000, e.to_string()),
+        // Check for blocked subcommands
+        let blocked = blocked_subcommands();
+        if let Some(first_arg) = cmd_args.first()
+            && blocked.contains(first_arg.as_str())
+        {
+            let hint = match first_arg.as_str() {
+                "orient" | "goodbye" => format!(
+                    ". Use the dedicated 'binnacle-{}' MCP tool, or shell 'bn {}' for full lifecycle support",
+                    first_arg, first_arg
+                ),
+                _ => String::new(),
+            };
+            return Ok(json!({
+                "stdout": "",
+                "stderr": format!("Error: '{}' subcommand is blocked in bn_run{}", first_arg, hint),
+                "exit_code": 1
+            })
+            .to_string());
+        }
+
+        // Execute with BN_MCP_SESSION to track this as an MCP call
+        // Use spawn + wait_timeout to prevent hanging on blocking commands
+        let mut child = Command::new(&self.bn_path)
+            .args(&cmd_args)
+            .current_dir(cwd)
+            .env("BN_MCP_SESSION", &self.session_id)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    format!("bn binary not found at '{}'", self.bn_path.display())
+                } else {
+                    format!("Failed to execute command: {}", e)
+                }
+            })?;
+
+        // Wait with configurable timeout (default 30s)
+        let timeout_secs = std::env::var("BN_MCP_TIMEOUT")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(30);
+        let timeout = Duration::from_secs(timeout_secs);
+        match child.wait_timeout(timeout) {
+            Ok(Some(status)) => {
+                // Process completed within timeout
+                let stdout = child
+                    .stdout
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        String::from_utf8_lossy(&buf).to_string()
+                    })
+                    .unwrap_or_default();
+                let stderr = child
+                    .stderr
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        String::from_utf8_lossy(&buf).to_string()
+                    })
+                    .unwrap_or_default();
+
+                Ok(json!({
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "exit_code": status.code().unwrap_or(-1)
+                })
+                .to_string())
+            }
+            Ok(None) => {
+                // Timeout - kill the process
+                let _ = child.kill();
+                let _ = child.wait(); // Clean up zombie
+                Ok(json!({
+                    "stdout": "",
+                    "stderr": format!("Command timed out after {} seconds", timeout.as_secs()),
+                    "exit_code": 124, // Unix timeout convention (same as coreutils timeout)
+                    "timed_out": true
+                })
+                .to_string())
+            }
+            Err(e) => Err(format!("Failed to wait for command: {}", e)),
         }
     }
 
-    /// Execute a tool and return the result as JSON string
-    fn execute_tool(&self, name: &str, args: &Value) -> Result<String, Error> {
-        let repo = &self.repo_path;
+    fn read_resource(&self, uri: &str) -> Result<String, String> {
+        let cwd = self
+            .cwd
+            .as_ref()
+            .ok_or("Working directory not set. Call binnacle-set_agent first.")?;
 
-        match name {
-            "bn_init" => {
-                let result = commands::init(repo)?;
-                Ok(result.to_json())
-            }
-            "bn_status" => {
-                let result = commands::status(repo)?;
-                Ok(result.to_json())
-            }
-            "bn_task_create" => {
-                let title = get_string_arg(args, "title")?;
-                let short_name = get_optional_string(args, "short_name");
-                let description = get_optional_string(args, "description");
-                let priority = get_optional_u8(args, "priority");
-                let tags = get_string_array(args, "tags");
-                let assignee = get_optional_string(args, "assignee");
-                let queue = get_optional_bool(args, "queue").unwrap_or(false);
-                let result = commands::task_create_with_queue(
-                    repo,
-                    title,
-                    short_name,
-                    description,
-                    priority,
-                    tags,
-                    assignee,
-                    queue,
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_task_list" => {
-                let status = get_optional_string(args, "status");
-                let priority = get_optional_u8(args, "priority");
-                let tag = get_optional_string(args, "tag");
-                let result =
-                    commands::task_list(repo, status.as_deref(), priority, tag.as_deref())?;
-                Ok(result.to_json())
-            }
-            "bn_task_show" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::task_show(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_task_update" => {
-                let id = get_string_arg(args, "id")?;
-                let title = get_optional_string(args, "title");
-                let short_name = get_optional_string(args, "short_name");
-                let description = get_optional_string(args, "description");
-                let priority = get_optional_u8(args, "priority");
-                let status = get_optional_string(args, "status");
-                let add_tags = get_string_array(args, "add_tags");
-                let remove_tags = get_string_array(args, "remove_tags");
-                let assignee = get_optional_string(args, "assignee");
-                let force = get_optional_bool(args, "force").unwrap_or(false);
-                let keep_closed = get_optional_bool(args, "keep_closed").unwrap_or(false);
-                let reopen = get_optional_bool(args, "reopen").unwrap_or(false);
-                let result = commands::task_update(
-                    repo,
-                    &id,
-                    title,
-                    short_name,
-                    description,
-                    priority,
-                    status.as_deref(),
-                    add_tags,
-                    remove_tags,
-                    assignee,
-                    force,
-                    keep_closed,
-                    reopen,
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_task_close" => {
-                let id = get_string_arg(args, "id")?;
-                let reason = get_optional_string(args, "reason");
-                let force = get_optional_bool(args, "force").unwrap_or(false);
-                let result = commands::task_close(repo, &id, reason, force)?;
-                Ok(result.to_json())
-            }
-            "bn_task_reopen" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::task_reopen(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_task_delete" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::task_delete(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_link_add" => {
-                let source = get_string_arg(args, "source")?;
-                let target = get_string_arg(args, "target")?;
-                let edge_type = get_string_arg(args, "edge_type")?;
-                let reason = get_optional_string(args, "reason");
-                let pinned = get_optional_bool(args, "pinned").unwrap_or(false);
-                let result =
-                    commands::link_add(repo, &source, &target, &edge_type, reason, pinned)?;
-                Ok(result.to_json())
-            }
-            "bn_link_rm" => {
-                let source = get_string_arg(args, "source")?;
-                let target = get_string_arg(args, "target")?;
-                let edge_type = get_optional_string(args, "edge_type");
-                let result = commands::link_rm(repo, &source, &target, edge_type.as_deref())?;
-                Ok(result.to_json())
-            }
-            "bn_link_list" => {
-                let entity_id = get_optional_string(args, "entity_id");
-                let all = args.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
-                let edge_type = get_optional_string(args, "edge_type");
-                let result =
-                    commands::link_list(repo, entity_id.as_deref(), all, edge_type.as_deref())?;
-                Ok(result.to_json())
-            }
-            "bn_ready" => {
-                let bugs_only = get_optional_bool(args, "bugs_only").unwrap_or(false);
-                let tasks_only = get_optional_bool(args, "tasks_only").unwrap_or(false);
-                let result = commands::ready(repo, bugs_only, tasks_only)?;
-                Ok(result.to_json())
-            }
-            "bn_blocked" => {
-                let bugs_only = get_optional_bool(args, "bugs_only").unwrap_or(false);
-                let tasks_only = get_optional_bool(args, "tasks_only").unwrap_or(false);
-                let result = commands::blocked(repo, bugs_only, tasks_only)?;
-                Ok(result.to_json())
-            }
-            "bn_test_create" => {
-                let name = get_string_arg(args, "name")?;
-                let command = get_string_arg(args, "command")?;
-                let working_dir =
-                    get_optional_string(args, "working_dir").unwrap_or_else(|| ".".to_string());
-                let task_id = get_optional_string(args, "task_id");
-                let bug_id = get_optional_string(args, "bug_id");
-                let result =
-                    commands::test_create(repo, name, command, working_dir, task_id, bug_id)?;
-                Ok(result.to_json())
-            }
-            "bn_test_list" => {
-                let task_id = get_optional_string(args, "task_id");
-                let result = commands::test_list(repo, task_id.as_deref())?;
-                Ok(result.to_json())
-            }
-            "bn_test_show" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::test_show(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_test_link" => {
-                let test_id = get_string_arg(args, "test_id")?;
-                let task_id = get_string_arg(args, "task_id")?;
-                let result = commands::test_link(repo, &test_id, &task_id)?;
-                Ok(result.to_json())
-            }
-            "bn_test_unlink" => {
-                let test_id = get_string_arg(args, "test_id")?;
-                let task_id = get_string_arg(args, "task_id")?;
-                let result = commands::test_unlink(repo, &test_id, &task_id)?;
-                Ok(result.to_json())
-            }
-            "bn_test_link_bug" => {
-                let test_id = get_string_arg(args, "test_id")?;
-                let bug_id = get_string_arg(args, "bug_id")?;
-                let result = commands::test_link_bug(repo, &test_id, &bug_id)?;
-                Ok(result.to_json())
-            }
-            "bn_test_unlink_bug" => {
-                let test_id = get_string_arg(args, "test_id")?;
-                let bug_id = get_string_arg(args, "bug_id")?;
-                let result = commands::test_unlink_bug(repo, &test_id, &bug_id)?;
-                Ok(result.to_json())
-            }
-            "bn_test_run" => {
-                let test_id = get_optional_string(args, "test_id");
-                let task_id = get_optional_string(args, "task_id");
-                let all = args.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
-                let failed = args
-                    .get("failed")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let result =
-                    commands::test_run(repo, test_id.as_deref(), task_id.as_deref(), all, failed)?;
-                Ok(result.to_json())
-            }
-            "bn_commit_link" => {
-                let sha = get_string_arg(args, "sha")?;
-                let task_id = get_string_arg(args, "task_id")?;
-                let result = commands::commit_link(repo, &sha, &task_id)?;
-                Ok(result.to_json())
-            }
-            "bn_commit_unlink" => {
-                let sha = get_string_arg(args, "sha")?;
-                let task_id = get_string_arg(args, "task_id")?;
-                let result = commands::commit_unlink(repo, &sha, &task_id)?;
-                Ok(result.to_json())
-            }
-            "bn_commit_list" => {
-                let task_id = get_string_arg(args, "task_id")?;
-                let result = commands::commit_list(repo, &task_id)?;
-                Ok(result.to_json())
-            }
-            "bn_doctor" => {
-                let result = commands::doctor(repo)?;
-                Ok(result.to_json())
-            }
-            "bn_log" => {
-                let task_id = get_optional_string(args, "task_id");
-                let result = commands::log(repo, task_id.as_deref())?;
-                Ok(result.to_json())
-            }
-            "bn_config_get" => {
-                let key = get_string_arg(args, "key")?;
-                let result = commands::config_get(repo, &key)?;
-                Ok(result.to_json())
-            }
-            "bn_config_set" => {
-                let key = get_string_arg(args, "key")?;
-                let value = get_string_arg(args, "value")?;
-                let result = commands::config_set(repo, &key, &value)?;
-                Ok(result.to_json())
-            }
-            "bn_config_list" => {
-                let result = commands::config_list(repo)?;
-                Ok(result.to_json())
-            }
-            // Milestone tools
-            "bn_milestone_create" => {
-                let title = get_string_arg(args, "title")?;
-                let short_name = get_optional_string(args, "short_name");
-                let description = get_optional_string(args, "description");
-                let priority = args
-                    .get("priority")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as u8);
-                let tags = args
-                    .get("tags")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let assignee = get_optional_string(args, "assignee");
-                let due_date = get_optional_string(args, "due_date");
-                let result = commands::milestone_create(
-                    repo,
-                    title,
-                    short_name,
-                    description,
-                    priority,
-                    tags,
-                    assignee,
-                    due_date,
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_milestone_list" => {
-                let status = get_optional_string(args, "status");
-                let priority = args
-                    .get("priority")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as u8);
-                let tag = get_optional_string(args, "tag");
-                let result =
-                    commands::milestone_list(repo, status.as_deref(), priority, tag.as_deref())?;
-                Ok(result.to_json())
-            }
-            "bn_milestone_show" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::milestone_show(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_milestone_update" => {
-                let id = get_string_arg(args, "id")?;
-                let title = get_optional_string(args, "title");
-                let short_name = get_optional_string(args, "short_name");
-                let description = get_optional_string(args, "description");
-                let priority = args
-                    .get("priority")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as u8);
-                let status = get_optional_string(args, "status");
-                let add_tags = args
-                    .get("add_tags")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let remove_tags = args
-                    .get("remove_tags")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let assignee = get_optional_string(args, "assignee");
-                let due_date = get_optional_string(args, "due_date");
-                let result = commands::milestone_update(
-                    repo,
-                    &id,
-                    title,
-                    short_name,
-                    description,
-                    priority,
-                    status.as_deref(),
-                    add_tags,
-                    remove_tags,
-                    assignee,
-                    due_date,
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_milestone_close" => {
-                let id = get_string_arg(args, "id")?;
-                let reason = get_optional_string(args, "reason");
-                let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
-                let result = commands::milestone_close(repo, &id, reason, force)?;
-                Ok(result.to_json())
-            }
-            "bn_milestone_reopen" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::milestone_reopen(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_milestone_delete" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::milestone_delete(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_milestone_progress" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::milestone_progress(repo, &id)?;
-                Ok(result.to_json())
-            }
-            // Search tools
-            "bn_search_link" => {
-                let edge_type = get_optional_string(args, "edge_type");
-                let source = get_optional_string(args, "source");
-                let target = get_optional_string(args, "target");
-                let result = commands::search_link(
-                    repo,
-                    edge_type.as_deref(),
-                    source.as_deref(),
-                    target.as_deref(),
-                )?;
-                Ok(result.to_json())
-            }
-            // Queue tools
-            "bn_queue_create" => {
-                let title = get_string_arg(args, "title")?;
-                let description = get_optional_string(args, "description");
-                let result = commands::queue_create(repo, title, description)?;
-                Ok(result.to_json())
-            }
-            "bn_queue_show" => {
-                let result = commands::queue_show(repo)?;
-                Ok(result.to_json())
-            }
-            "bn_queue_delete" => {
-                let result = commands::queue_delete(repo)?;
-                Ok(result.to_json())
-            }
-            "bn_queue_add" => {
-                let item_id = get_string_arg(args, "item_id")?;
-                let result = commands::queue_add(repo, &item_id)?;
-                Ok(result.to_json())
-            }
-            "bn_queue_rm" => {
-                let item_id = get_string_arg(args, "item_id")?;
-                let result = commands::queue_rm(repo, &item_id)?;
-                Ok(result.to_json())
-            }
-            // Idea tools
-            "bn_idea_create" => {
-                let title = get_string_arg(args, "title")?;
-                let short_name = get_optional_string(args, "short_name");
-                let description = get_optional_string(args, "description");
-                let tags = get_string_array(args, "tags");
-                let result = commands::idea_create(repo, title, short_name, description, tags)?;
-                Ok(result.to_json())
-            }
-            "bn_idea_list" => {
-                let status = get_optional_string(args, "status");
-                let tag = get_optional_string(args, "tag");
-                let result = commands::idea_list(repo, status.as_deref(), tag.as_deref())?;
-                Ok(result.to_json())
-            }
-            "bn_idea_show" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::idea_show(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_idea_update" => {
-                let id = get_string_arg(args, "id")?;
-                let title = get_optional_string(args, "title");
-                let short_name = get_optional_string(args, "short_name");
-                let description = get_optional_string(args, "description");
-                let status = get_optional_string(args, "status");
-                let add_tags = get_string_array(args, "add_tags");
-                let remove_tags = get_string_array(args, "remove_tags");
-                let result = commands::idea_update(
-                    repo,
-                    &id,
-                    title,
-                    short_name,
-                    description,
-                    status.as_deref(),
-                    add_tags,
-                    remove_tags,
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_idea_close" => {
-                let id = get_string_arg(args, "id")?;
-                let reason = get_optional_string(args, "reason");
-                let result = commands::idea_close(repo, &id, reason)?;
-                Ok(result.to_json())
-            }
-            "bn_idea_delete" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::idea_delete(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_idea_promote" => {
-                let id = get_string_arg(args, "id")?;
-                let as_prd = get_optional_bool(args, "as_prd").unwrap_or(false);
-                let priority = get_optional_u8(args, "priority");
-                let result = commands::idea_promote(repo, &id, as_prd, priority)?;
-                Ok(result.to_json())
-            }
-            "bn_idea_germinate" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::idea_germinate(repo, &id)?;
-                Ok(result.to_json())
-            }
-            // Agent tools (read-only)
-            "bn_agent_list" => {
-                let status = get_optional_string(args, "status");
-                let result = commands::agent_list(repo, status.as_deref())?;
-                Ok(result.to_json())
-            }
-            // Bug tools
-            "bn_bug_create" => {
-                let title = get_string_arg(args, "title")?;
-                let short_name = get_optional_string(args, "short_name");
-                let description = get_optional_string(args, "description");
-                let priority = get_optional_u8(args, "priority");
-                let severity = get_optional_string(args, "severity");
-                let tags = get_string_array(args, "tags");
-                let assignee = get_optional_string(args, "assignee");
-                let reproduction_steps = get_optional_string(args, "reproduction_steps");
-                let affected_component = get_optional_string(args, "affected_component");
-                let queue = get_optional_bool(args, "queue").unwrap_or(false);
-                let result = commands::bug_create_with_queue(
-                    repo,
-                    title,
-                    short_name,
-                    description,
-                    priority,
-                    severity,
-                    tags,
-                    assignee,
-                    reproduction_steps,
-                    affected_component,
-                    queue,
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_bug_list" => {
-                let status = get_optional_string(args, "status");
-                let priority = get_optional_u8(args, "priority");
-                let severity = get_optional_string(args, "severity");
-                let tag = get_optional_string(args, "tag");
-                let all = get_optional_bool(args, "all").unwrap_or(false);
-                let result = commands::bug_list(
-                    repo,
-                    status.as_deref(),
-                    priority,
-                    severity.as_deref(),
-                    tag.as_deref(),
-                    all,
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_bug_show" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::bug_show(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_bug_update" => {
-                let id = get_string_arg(args, "id")?;
-                let title = get_optional_string(args, "title");
-                let short_name = get_optional_string(args, "short_name");
-                let description = get_optional_string(args, "description");
-                let priority = get_optional_u8(args, "priority");
-                let status = get_optional_string(args, "status");
-                let severity = get_optional_string(args, "severity");
-                let add_tags = get_string_array(args, "add_tags");
-                let remove_tags = get_string_array(args, "remove_tags");
-                let assignee = get_optional_string(args, "assignee");
-                let reproduction_steps = get_optional_string(args, "reproduction_steps");
-                let affected_component = get_optional_string(args, "affected_component");
-                let force = get_optional_bool(args, "force").unwrap_or(false);
-                let keep_closed = get_optional_bool(args, "keep_closed").unwrap_or(false);
-                let reopen = get_optional_bool(args, "reopen").unwrap_or(false);
-                let result = commands::bug_update(
-                    repo,
-                    &id,
-                    title,
-                    short_name,
-                    description,
-                    priority,
-                    status.as_deref(),
-                    severity,
-                    add_tags,
-                    remove_tags,
-                    assignee,
-                    reproduction_steps,
-                    affected_component,
-                    force,
-                    keep_closed,
-                    reopen,
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_bug_close" => {
-                let id = get_string_arg(args, "id")?;
-                let reason = get_optional_string(args, "reason");
-                let force = get_optional_bool(args, "force").unwrap_or(false);
-                let result = commands::bug_close(repo, &id, reason, force)?;
-                Ok(result.to_json())
-            }
-            "bn_bug_reopen" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::bug_reopen(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_bug_delete" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::bug_delete(repo, &id)?;
-                Ok(result.to_json())
-            }
-            // Graph tools
-            "bn_graph_components" => {
-                let result = commands::graph_components(repo)?;
-                Ok(result.to_json())
-            }
-            // Doc tools
-            "bn_doc_create" => {
-                let title = get_string_arg(args, "title")?;
-                let doc_type_str = get_optional_string(args, "doc_type");
-                let short_name = get_optional_string(args, "short_name");
-                let content = get_optional_string(args, "content");
-                let summary = get_optional_string(args, "summary");
-                let tags = get_string_array(args, "tags");
-                let entity_ids = get_string_array(args, "entity_ids");
-
-                // Parse doc_type string to enum
-                let doc_type = match doc_type_str.as_deref() {
-                    Some("prd") => DocType::Prd,
-                    Some("note") => DocType::Note,
-                    Some("handoff") => DocType::Handoff,
-                    Some(other) => {
-                        return Err(Error::InvalidInput(format!(
-                            "Invalid doc_type '{}'. Must be one of: prd, note, handoff",
-                            other
-                        )));
-                    }
-                    None => DocType::Note, // default
-                };
-
-                let result = commands::doc_create(
-                    repo, title, doc_type, short_name, content, summary, tags, entity_ids,
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_doc_show" => {
-                let id = get_string_arg(args, "id")?;
-                let full = get_optional_bool(args, "full").unwrap_or(false);
-                let result = commands::doc_show(repo, &id, full)?;
-                Ok(result.to_json())
-            }
-            "bn_doc_list" => {
-                let tag = get_optional_string(args, "tag");
-                let doc_type_str = get_optional_string(args, "doc_type");
-                let edited_by = get_optional_string(args, "edited_by");
-                let for_entity = get_optional_string(args, "for_entity");
-
-                // Parse doc_type string to enum if provided
-                let doc_type = match doc_type_str.as_deref() {
-                    Some("prd") => Some(DocType::Prd),
-                    Some("note") => Some(DocType::Note),
-                    Some("handoff") => Some(DocType::Handoff),
-                    Some(other) => {
-                        return Err(Error::InvalidInput(format!(
-                            "Invalid doc_type '{}'. Must be one of: prd, note, handoff",
-                            other
-                        )));
-                    }
-                    None => None,
-                };
-
-                let result = commands::doc_list(
-                    repo,
-                    tag.as_deref(),
-                    doc_type.as_ref(),
-                    edited_by.as_deref(),
-                    for_entity.as_deref(),
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_doc_update" => {
-                let id = get_string_arg(args, "id")?;
-                let content = get_optional_string(args, "content");
-                let title = get_optional_string(args, "title");
-                let short_name = get_optional_string(args, "short_name");
-                let description = get_optional_string(args, "description");
-                let editor = get_optional_string(args, "editor");
-                let clear_dirty = get_optional_bool(args, "clear_dirty").unwrap_or(false);
-
-                let result = commands::doc_update(
-                    repo,
-                    &id,
-                    content,
-                    title,
-                    short_name,
-                    description,
-                    editor.as_deref(),
-                    clear_dirty,
-                )?;
-                Ok(result.to_json())
-            }
-            "bn_doc_history" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::doc_history(repo, &id)?;
-                Ok(result.to_json())
-            }
-            "bn_doc_delete" => {
-                let id = get_string_arg(args, "id")?;
-                let result = commands::doc_delete(repo, &id)?;
-                Ok(result.to_json())
-            }
-            _ => Err(Error::Other(format!("Unknown tool: {}", name))),
-        }
-    }
-
-    /// Read a resource by URI
-    fn read_resource(&self, uri: &str) -> Result<String, Error> {
-        let repo = &self.repo_path;
-
-        // Parse URI into base path and query params
-        let (base_uri, query_params) = parse_resource_uri(uri);
-
-        match base_uri {
-            "binnacle://tasks" => {
-                let result = commands::task_list(repo, None, None, None)?;
-                Ok(result.to_json())
-            }
-            "binnacle://ready" => {
-                let result = commands::ready(repo, false, false)?;
-                Ok(result.to_json())
-            }
-            "binnacle://blocked" => {
-                let result = commands::blocked(repo, false, false)?;
-                Ok(result.to_json())
-            }
+        match uri {
             "binnacle://status" => {
-                let result = commands::status(repo)?;
-                Ok(result.to_json())
-            }
-            "binnacle://queue" => {
-                let result = commands::queue_show(repo)?;
-                Ok(result.to_json())
-            }
-            "binnacle://bugs" => {
-                let result = commands::bug_list(repo, None, None, None, None, true)?;
-                Ok(result.to_json())
-            }
-            "binnacle://docs" => {
-                // Parse query params: type, for
-                let doc_type = query_params.get("type").and_then(|t| match t.as_str() {
-                    "prd" => Some(DocType::Prd),
-                    "note" => Some(DocType::Note),
-                    "handoff" => Some(DocType::Handoff),
-                    _ => None,
-                });
-                let for_entity = query_params.get("for").map(|s| s.as_str());
-                let result = commands::doc_list(repo, None, doc_type.as_ref(), None, for_entity)?;
-                Ok(result.to_json())
-            }
-            _ => Err(Error::Other(format!("Unknown resource: {}", uri))),
-        }
-    }
+                // Run bn status and return result
+                let output = Command::new(&self.bn_path)
+                    .current_dir(cwd)
+                    .env("BN_MCP_SESSION", &self.session_id)
+                    .output()
+                    .map_err(|e| format!("Failed to get status: {}", e))?;
 
-    /// Get a prompt with arguments
-    fn get_prompt(
-        &self,
-        name: &str,
-        args: &HashMap<String, String>,
-    ) -> Result<(String, Vec<Value>), Error> {
-        match name {
-            "start_work" => {
-                let task_id = args.get("task_id").cloned().unwrap_or_default();
-                let description =
-                    "Begin working on a task - sets status to in_progress and provides context";
-                let messages = vec![json!({
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": format!(
-                            "I'm starting work on task {}. Please:\n\
-                            1. Show me the task details with `bn task show {}`\n\
-                            2. Update the task status to in_progress with `bn task update {} --status in_progress`\n\
-                            3. Show any links with `bn link list {}`\n\
-                            4. List any linked tests with `bn test list --task {}`\n\
-                            Then provide a summary of what needs to be done.",
-                            task_id, task_id, task_id, task_id, task_id
-                        )
-                    }
-                })];
-                Ok((description.to_string(), messages))
+                if output.status.success() {
+                    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+                } else {
+                    Err(String::from_utf8_lossy(&output.stderr).to_string())
+                }
             }
-            "finish_work" => {
-                let task_id = args.get("task_id").cloned().unwrap_or_default();
-                let description =
-                    "Complete work on a task - runs tests, links commits, and closes the task";
-                let messages = vec![json!({
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": format!(
-                            "I'm finishing work on task {}. Please:\n\
-                            1. Run any linked tests with `bn test run --task {}`\n\
-                            2. If tests pass, close the task with `bn task close {}`\n\
-                            3. Show the final task state with `bn task show {}`\n\
-                            Provide a summary of the completed work.",
-                            task_id, task_id, task_id, task_id
-                        )
-                    }
-                })];
-                Ok((description.to_string(), messages))
+            "binnacle://agents" => {
+                // Read AGENTS.md if present
+                let agents_path = cwd.join("AGENTS.md");
+                if agents_path.exists() {
+                    std::fs::read_to_string(&agents_path)
+                        .map_err(|e| format!("Failed to read AGENTS.md: {}", e))
+                } else {
+                    Ok(json!({"error": "AGENTS.md not found"}).to_string())
+                }
             }
-            "triage_regression" => {
-                let test_id = args.get("test_id").cloned().unwrap_or_default();
-                let description = "Investigate a test failure and its linked tasks";
-                let messages = vec![json!({
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": format!(
-                            "Test {} has failed. Please:\n\
-                            1. Show the test details with `bn test show {}`\n\
-                            2. Check which tasks are linked to this test\n\
-                            3. Review recent commits linked to those tasks\n\
-                            4. Analyze the test failure and suggest fixes\n\
-                            Provide a triage report with recommended next steps.",
-                            test_id, test_id
-                        )
-                    }
-                })];
-                Ok((description.to_string(), messages))
-            }
-            "plan_feature" => {
-                let feature = args.get("feature").cloned().unwrap_or_default();
-                let description = "Break down a feature into tasks with dependencies";
-                let messages = vec![json!({
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": format!(
-                            "I want to implement: {}\n\n\
-                            Please help me plan this feature by:\n\
-                            1. Breaking it down into discrete tasks\n\
-                            2. Creating tasks with `bn task create \"title\" -p <priority>`\n\
-                            3. Setting up dependencies with `bn link add <child> <parent> --type depends_on`\n\
-                            4. Creating test nodes for key functionality\n\
-                            Show me the final task graph when done.",
-                            feature
-                        )
-                    }
-                })];
-                Ok((description.to_string(), messages))
-            }
-            "status_report" => {
-                let description = "Generate a summary of current project state";
-                let messages = vec![json!({
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": "Please generate a status report by:\n\
-                            1. Running `bn` to get overall status\n\
-                            2. Listing ready tasks with `bn ready`\n\
-                            3. Listing blocked tasks with `bn blocked`\n\
-                            4. Running `bn doctor` to check for issues\n\
-                            Provide a human-readable summary of the project state."
-                    }
-                })];
-                Ok((description.to_string(), messages))
-            }
-            "prioritize_work" => {
-                let description = "Help decide what tasks or bugs to add to the work queue";
-                let messages = vec![json!({
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": "Please help me prioritize work by:\n\
-                            1. Running `bn ready` to see available tasks and bugs\n\
-                            2. Running `bn queue show` to see current queue state\n\
-                            3. Analyzing priorities, dependencies, and tags\n\
-                            4. Suggesting which items should be added to the queue with `bn queue add <id>`\n\
-                            Consider: urgency, dependencies, blocking relationships, and effort level.\n\
-                            Explain your reasoning for each suggestion."
-                    }
-                })];
-                Ok((description.to_string(), messages))
-            }
-            "document_decision" => {
-                let entity_id = args.get("entity_id").cloned().unwrap_or_default();
-                let decision = args.get("decision").cloned().unwrap_or_default();
-                let description = "Create a note documenting a decision and its rationale";
-                let messages = vec![json!({
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": format!(
-                            "Please document the following decision for entity {}:\n\n\
-                            Decision: {}\n\n\
-                            Create a documentation note by:\n\
-                            1. Writing a markdown document with:\n\
-                               - `# Summary` section explaining the decision briefly\n\
-                               - `# Context` section explaining why this decision was needed\n\
-                               - `# Decision` section with the chosen approach\n\
-                               - `# Alternatives Considered` section listing other options\n\
-                               - `# Consequences` section describing implications\n\
-                            2. Create the doc with `bn doc create {} \"Decision: [title]\" --type note --stdin`\n\
-                            3. Confirm the doc was created with `bn doc show <new-doc-id>`",
-                            entity_id, decision, entity_id
-                        )
-                    }
-                })];
-                Ok((description.to_string(), messages))
-            }
-            "create_handoff" => {
-                let task_id = args.get("task_id").cloned().unwrap_or_default();
-                let description = "Create handoff context for session end with partial progress";
-                let messages = vec![json!({
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": format!(
-                            "I'm ending my session with partial progress on task {}. Please create a handoff document:\n\n\
-                            1. First, review the task with `bn task show {}`\n\
-                            2. Write a markdown handoff document with:\n\
-                               - `# Summary` - Brief status (what percentage done, what's left)\n\
-                               - `# Completed Work` - What was accomplished this session\n\
-                               - `# Current State` - Where things stand right now\n\
-                               - `# Next Steps` - Concrete actions for the next agent\n\
-                               - `# Blockers/Issues` - Any problems encountered\n\
-                               - `# Important Context` - Things the next agent needs to know\n\
-                            3. Create the doc with `bn doc create {} \"Handoff: [brief description]\" --type handoff --stdin`\n\
-                            4. Update task status if needed with `bn task update {} --status blocked` or leave as in_progress\n\
-                            5. Confirm with `bn doc show <new-doc-id>`",
-                            task_id, task_id, task_id, task_id
-                        )
-                    }
-                })];
-                Ok((description.to_string(), messages))
-            }
-            "review_prd" => {
-                let doc_id = args.get("doc_id").cloned().unwrap_or_default();
-                let description = "Review and annotate a PRD document";
-                let messages = vec![json!({
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": format!(
-                            "Please review the PRD document {}:\n\n\
-                            1. Show the full PRD content with `bn doc show {} --full`\n\
-                            2. Analyze the PRD for:\n\
-                               - Clarity and completeness\n\
-                               - Technical feasibility\n\
-                               - Missing edge cases or requirements\n\
-                               - Ambiguous specifications\n\
-                               - Dependencies that should be explicit\n\
-                            3. Create a review note linked to the PRD:\n\
-                               - `# Summary` - Overall assessment (ready/needs-work/blocked)\n\
-                               - `# Strengths` - What's good about this PRD\n\
-                               - `# Concerns` - Issues that need addressing\n\
-                               - `# Questions` - Clarifications needed from stakeholders\n\
-                               - `# Suggestions` - Recommended improvements\n\
-                            4. Create the review doc with `bn doc create {} \"Review: [prd-title]\" --type note --stdin`\n\
-                            5. Show the linked docs with `bn link list {}`",
-                            doc_id, doc_id, doc_id, doc_id
-                        )
-                    }
-                })];
-                Ok((description.to_string(), messages))
-            }
-            _ => Err(Error::Other(format!("Unknown prompt: {}", name))),
+            _ => Err(format!("Unknown resource: {}", uri)),
         }
     }
 }
 
-// === Helper functions for argument extraction ===
-
-fn get_string_arg(args: &Value, key: &str) -> Result<String, Error> {
-    args.get(key)
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| Error::Other(format!("Missing required argument: {}", key)))
+impl Default for McpServer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-fn get_optional_string(args: &Value, key: &str) -> Option<String> {
-    args.get(key)
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-}
-
-fn get_optional_u8(args: &Value, key: &str) -> Option<u8> {
-    args.get(key).and_then(|v| v.as_u64()).map(|n| n as u8)
-}
-
-fn get_optional_bool(args: &Value, key: &str) -> Option<bool> {
-    args.get(key).and_then(|v| v.as_bool())
-}
-
-fn get_string_array(args: &Value, key: &str) -> Vec<String> {
-    args.get(key)
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-// === Tool Definitions ===
-
-/// Get all available MCP tool definitions
-pub fn get_tool_definitions() -> Vec<ToolDef> {
+/// Get tool definitions for MCP
+fn get_tool_definitions() -> Vec<ToolDef> {
     vec![
         ToolDef {
-            name: "bn_init".to_string(),
-            description: "Initialize binnacle for this repository".to_string(),
+            name: "binnacle-set_agent".to_string(),
+            description: "Initialize binnacle MCP session. Must be called before using other binnacle tools.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to a binnacle-managed repository"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional MCP session ID. If provided, binnacle-goodbye will hint to use shell goodbye instead (for external lifecycle management)."
+                    }
+                },
+                "required": ["path"]
+            }),
+        },
+        ToolDef {
+            name: "binnacle-orient".to_string(),
+            description: "Register agent with binnacle and get project overview.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {},
@@ -1308,2262 +594,343 @@ pub fn get_tool_definitions() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
-            name: "bn_status".to_string(),
-            description: "Get status summary of all tasks".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_task_create".to_string(),
-            description: "Create a new task".to_string(),
+            name: "binnacle-goodbye".to_string(),
+            description: "End agent session with binnacle. Cleans up agent registration. Does NOT terminate the agent process.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Task title"
-                    },
-                    "short_name": {
-                        "type": "string",
-                        "description": "Short display name for GUI (recommended: 1-2 words, ~12 chars max)"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Task description"
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "description": "Priority (0-4, lower is higher priority)",
-                        "minimum": 0,
-                        "maximum": 4
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tags for categorization"
-                    },
-                    "assignee": {
-                        "type": "string",
-                        "description": "Assigned user or agent"
-                    },
-                    "queue": {
-                        "type": "boolean",
-                        "description": "Add to work queue immediately after creation"
-                    }
-                },
-                "required": ["title"]
-            }),
-        },
-        ToolDef {
-            name: "bn_task_list".to_string(),
-            description: "List tasks with optional filters".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "status": {
-                        "type": "string",
-                        "description": "Filter by status (pending, in_progress, done, blocked, cancelled, reopened)"
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "description": "Filter by priority"
-                    },
-                    "tag": {
-                        "type": "string",
-                        "description": "Filter by tag"
-                    }
-                },
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_task_show".to_string(),
-            description: "Show details of a specific task".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Task ID (e.g., bn-a1b2)"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_task_update".to_string(),
-            description: "Update a task's properties".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Task ID"
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "New title"
-                    },
-                    "short_name": {
-                        "type": "string",
-                        "description": "New short display name for GUI (recommended: 1-2 words, ~12 chars max)"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "New description"
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "description": "New priority (0-4)"
-                    },
-                    "status": {
-                        "type": "string",
-                        "description": "New status (pending, in_progress, partial, blocked, done)"
-                    },
-                    "add_tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tags to add"
-                    },
-                    "remove_tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tags to remove"
-                    },
-                    "assignee": {
-                        "type": "string",
-                        "description": "New assignee"
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "description": "When setting status to done, bypass commit requirement"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_task_close".to_string(),
-            description: "Close a task".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Task ID"
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Reason for closing"
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "description": "Force close even with incomplete dependencies or missing commits"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_task_reopen".to_string(),
-            description: "Reopen a closed task".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Task ID"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_task_delete".to_string(),
-            description: "Delete a task".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Task ID"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_link_add".to_string(),
-            description: "Create a link (edge) between two entities".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "source": {
-                        "type": "string",
-                        "description": "Source entity ID (e.g., bn-1234)"
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Target entity ID (e.g., bn-5678)"
-                    },
-                    "edge_type": {
-                        "type": "string",
-                        "description": "Type of relationship",
-                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "impacts"]
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Reason for creating this link (required for depends_on)"
-                    },
-                    "pinned": {
-                        "type": "boolean",
-                        "description": "Pin this edge to a specific version (won't transfer when doc is updated)"
-                    }
-                },
-                "required": ["source", "target", "edge_type"]
-            }),
-        },
-        ToolDef {
-            name: "bn_link_rm".to_string(),
-            description: "Remove a link between two entities".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "source": {
-                        "type": "string",
-                        "description": "Source entity ID"
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Target entity ID"
-                    },
-                    "edge_type": {
-                        "type": "string",
-                        "description": "Type of relationship (required to identify which edge to remove)",
-                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "impacts"]
-                    }
-                },
-                "required": ["source", "target", "edge_type"]
-            }),
-        },
-        ToolDef {
-            name: "bn_link_list".to_string(),
-            description: "List links for an entity or all links".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "entity_id": {
-                        "type": "string",
-                        "description": "Entity ID to list links for (omit for --all)"
-                    },
-                    "all": {
-                        "type": "boolean",
-                        "description": "List all links in the system"
-                    },
-                    "edge_type": {
-                        "type": "string",
-                        "description": "Filter by edge type",
-                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "impacts"]
-                    }
-                },
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_ready".to_string(),
-            description: "List tasks and bugs with no open blockers (ready to work on)".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "bugs_only": {
-                        "type": "boolean",
-                        "description": "Show only bugs (exclude tasks)"
-                    },
-                    "tasks_only": {
-                        "type": "boolean",
-                        "description": "Show only tasks (exclude bugs)"
-                    }
-                },
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_blocked".to_string(),
-            description: "List tasks and bugs waiting on dependencies".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "bugs_only": {
-                        "type": "boolean",
-                        "description": "Show only bugs (exclude tasks)"
-                    },
-                    "tasks_only": {
-                        "type": "boolean",
-                        "description": "Show only tasks (exclude bugs)"
-                    }
-                },
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_test_create".to_string(),
-            description: "Create a new test node".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Test name"
-                    },
-                    "command": {
-                        "type": "string",
-                        "description": "Command to run"
-                    },
-                    "working_dir": {
-                        "type": "string",
-                        "description": "Working directory (default: '.')"
-                    },
-                    "task_id": {
-                        "type": "string",
-                        "description": "Task ID to link to"
-                    },
-                    "bug_id": {
-                        "type": "string",
-                        "description": "Bug ID to link to (for verifying bug fixes)"
-                    }
-                },
-                "required": ["name", "command"]
-            }),
-        },
-        ToolDef {
-            name: "bn_test_list".to_string(),
-            description: "List test nodes".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "task_id": {
-                        "type": "string",
-                        "description": "Filter by linked task"
-                    }
-                },
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_test_show".to_string(),
-            description: "Show test node details".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Test ID (e.g., bnt-0001)"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_test_link".to_string(),
-            description: "Link a test to a task".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "test_id": {
-                        "type": "string",
-                        "description": "Test ID"
-                    },
-                    "task_id": {
-                        "type": "string",
-                        "description": "Task ID"
-                    }
-                },
-                "required": ["test_id", "task_id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_test_unlink".to_string(),
-            description: "Unlink a test from a task".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "test_id": {
-                        "type": "string",
-                        "description": "Test ID"
-                    },
-                    "task_id": {
-                        "type": "string",
-                        "description": "Task ID"
-                    }
-                },
-                "required": ["test_id", "task_id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_test_link_bug".to_string(),
-            description: "Link a test to a bug (for verifying bug fixes)".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "test_id": {
-                        "type": "string",
-                        "description": "Test ID"
-                    },
-                    "bug_id": {
-                        "type": "string",
-                        "description": "Bug ID"
-                    }
-                },
-                "required": ["test_id", "bug_id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_test_unlink_bug".to_string(),
-            description: "Unlink a test from a bug".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "test_id": {
-                        "type": "string",
-                        "description": "Test ID"
-                    },
-                    "bug_id": {
-                        "type": "string",
-                        "description": "Bug ID"
-                    }
-                },
-                "required": ["test_id", "bug_id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_test_run".to_string(),
-            description: "Run tests and detect regressions".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "test_id": {
-                        "type": "string",
-                        "description": "Specific test ID to run"
-                    },
-                    "task_id": {
-                        "type": "string",
-                        "description": "Run tests linked to this task"
-                    },
-                    "all": {
-                        "type": "boolean",
-                        "description": "Run all tests"
-                    },
-                    "failed": {
-                        "type": "boolean",
-                        "description": "Run only previously failed tests"
-                    }
-                },
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_commit_link".to_string(),
-            description: "Link a commit to a task".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "sha": {
-                        "type": "string",
-                        "description": "Commit SHA"
-                    },
-                    "task_id": {
-                        "type": "string",
-                        "description": "Task ID"
-                    }
-                },
-                "required": ["sha", "task_id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_commit_unlink".to_string(),
-            description: "Unlink a commit from a task".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "sha": {
-                        "type": "string",
-                        "description": "Commit SHA"
-                    },
-                    "task_id": {
-                        "type": "string",
-                        "description": "Task ID"
-                    }
-                },
-                "required": ["sha", "task_id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_commit_list".to_string(),
-            description: "List commits linked to a task".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "task_id": {
-                        "type": "string",
-                        "description": "Task ID"
-                    }
-                },
-                "required": ["task_id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_doctor".to_string(),
-            description: "Run health checks and detect issues".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_log".to_string(),
-            description: "Show audit trail of changes".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "task_id": {
-                        "type": "string",
-                        "description": "Filter by task ID"
-                    }
-                },
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_config_get".to_string(),
-            description: "Get a configuration value".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "key": {
-                        "type": "string",
-                        "description": "Configuration key"
-                    }
-                },
-                "required": ["key"]
-            }),
-        },
-        ToolDef {
-            name: "bn_config_set".to_string(),
-            description: "Set a configuration value".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "key": {
-                        "type": "string",
-                        "description": "Configuration key"
-                    },
-                    "value": {
-                        "type": "string",
-                        "description": "Configuration value"
-                    }
-                },
-                "required": ["key", "value"]
-            }),
-        },
-        ToolDef {
-            name: "bn_config_list".to_string(),
-            description: "List all configuration values".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-        },
-        // Milestone tools
-        ToolDef {
-            name: "bn_milestone_create".to_string(),
-            description: "Create a new milestone to group related tasks".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Milestone title"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Detailed description"
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "description": "Priority level (0=critical, 1=high, 2=medium, 3=low, 4=nice-to-have)",
-                        "minimum": 0,
-                        "maximum": 4
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Tags to categorize the milestone"
-                    },
-                    "assignee": {
-                        "type": "string",
-                        "description": "User or agent assigned to this milestone"
-                    },
-                    "due_date": {
-                        "type": "string",
-                        "description": "Due date in ISO 8601 format (e.g., 2026-01-31T00:00:00Z)"
-                    }
-                },
-                "required": ["title"]
-            }),
-        },
-        ToolDef {
-            name: "bn_milestone_list".to_string(),
-            description: "List milestones with optional filtering".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "status": {
-                        "type": "string",
-                        "description": "Filter by status",
-                        "enum": ["pending", "in_progress", "done", "blocked", "cancelled", "reopened", "partial"]
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "description": "Filter by priority (0-4)",
-                        "minimum": 0,
-                        "maximum": 4
-                    },
-                    "tag": {
-                        "type": "string",
-                        "description": "Filter by tag"
-                    }
-                },
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_milestone_show".to_string(),
-            description: "Show milestone details including progress and linked tasks".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Milestone ID (e.g., bn-1234)"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_milestone_update".to_string(),
-            description: "Update milestone properties".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Milestone ID"
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "New title"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "New description"
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "description": "New priority (0-4)",
-                        "minimum": 0,
-                        "maximum": 4
-                    },
-                    "status": {
-                        "type": "string",
-                        "description": "New status",
-                        "enum": ["pending", "in_progress", "blocked", "partial"]
-                    },
-                    "add_tags": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Tags to add"
-                    },
-                    "remove_tags": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Tags to remove"
-                    },
-                    "assignee": {
-                        "type": "string",
-                        "description": "New assignee"
-                    },
-                    "due_date": {
-                        "type": "string",
-                        "description": "New due date in ISO 8601 format"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_milestone_close".to_string(),
-            description: "Close a milestone (marks as done)".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Milestone ID"
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Reason for closing"
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "description": "Force close even if tasks are incomplete"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_milestone_reopen".to_string(),
-            description: "Reopen a closed milestone".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Milestone ID"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_milestone_delete".to_string(),
-            description: "Delete a milestone".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Milestone ID"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_milestone_progress".to_string(),
-            description: "Get progress for a milestone (completed/total tasks)".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Milestone ID"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        // Search tools
-        ToolDef {
-            name: "bn_search_link".to_string(),
-            description: "Search for links/edges by type, source, or target".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "edge_type": {
-                        "type": "string",
-                        "description": "Filter by edge type",
-                        "enum": ["depends_on", "blocks", "related_to", "duplicates", "fixes", "caused_by", "supersedes", "parent_of", "child_of", "tests", "impacts"]
-                    },
-                    "source": {
-                        "type": "string",
-                        "description": "Filter by source entity ID"
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Filter by target entity ID"
-                    }
-                },
-                "required": []
-            }),
-        },
-        // Queue tools
-        ToolDef {
-            name: "bn_queue_create".to_string(),
-            description: "Create the work queue for prioritizing tasks".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Queue title (e.g., 'Sprint 1', 'Urgent')"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Optional description"
-                    }
-                },
-                "required": ["title"]
-            }),
-        },
-        ToolDef {
-            name: "bn_queue_show".to_string(),
-            description: "Show the queue and its prioritized items".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_queue_delete".to_string(),
-            description: "Delete the queue and remove all queue links".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_queue_add".to_string(),
-            description: "Add a task or bug to the work queue".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "item_id": {
-                        "type": "string",
-                        "description": "ID of the task or bug to add (e.g., 'bn-a1b2')"
-                    }
-                },
-                "required": ["item_id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_queue_rm".to_string(),
-            description: "Remove a task or bug from the work queue".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "item_id": {
-                        "type": "string",
-                        "description": "ID of the task or bug to remove (e.g., 'bn-a1b2')"
-                    }
-                },
-                "required": ["item_id"]
-            }),
-        },
-        // Idea tools
-        ToolDef {
-            name: "bn_idea_create".to_string(),
-            description: "Create a new idea (low-stakes seed for potential tasks)".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Idea title"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Optional description"
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Optional tags for categorization"
-                    }
-                },
-                "required": ["title"]
-            }),
-        },
-        ToolDef {
-            name: "bn_idea_list".to_string(),
-            description: "List ideas with optional filtering".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "status": {
-                        "type": "string",
-                        "description": "Filter by status",
-                        "enum": ["seed", "germinating", "promoted", "discarded"]
-                    },
-                    "tag": {
-                        "type": "string",
-                        "description": "Filter by tag"
-                    }
-                },
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_idea_show".to_string(),
-            description: "Show details of a specific idea".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Idea ID (e.g., 'bn-a1b2')"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_idea_update".to_string(),
-            description: "Update an idea's properties".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Idea ID"
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "New title"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "New description"
-                    },
-                    "status": {
-                        "type": "string",
-                        "description": "New status",
-                        "enum": ["seed", "germinating", "promoted", "discarded"]
-                    },
-                    "add_tags": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Tags to add"
-                    },
-                    "remove_tags": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Tags to remove"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_idea_close".to_string(),
-            description: "Close (discard) an idea".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Idea ID"
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Optional reason for discarding"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_idea_delete".to_string(),
-            description: "Permanently delete an idea".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Idea ID"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_idea_promote".to_string(),
-            description: "Promote an idea to a task or PRD".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Idea ID"
-                    },
-                    "as_prd": {
-                        "type": "boolean",
-                        "description": "If true, generate a PRD file instead of creating a task"
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "description": "Priority for the new task (0-4, lower is higher)"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_idea_germinate".to_string(),
-            description: "Mark an idea as germinating (being developed)".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Idea ID"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        // Agent tools (read-only - do NOT expose goodbye or kill via MCP)
-        ToolDef {
-            name: "bn_agent_list".to_string(),
-            description: "List registered AI agents with their status, activity, and current tasks"
-                .to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "status": {
-                        "type": "string",
-                        "description": "Filter by agent status",
-                        "enum": ["active", "idle", "stale"]
-                    }
-                },
-                "required": []
-            }),
-        },
-        // Bug tools
-        ToolDef {
-            name: "bn_bug_create".to_string(),
-            description: "Create a new bug report".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Bug title"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Detailed description of the bug"
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "description": "Priority (0-4, lower is higher priority)",
-                        "minimum": 0,
-                        "maximum": 4
-                    },
-                    "severity": {
-                        "type": "string",
-                        "description": "Bug severity level",
-                        "enum": ["triage", "low", "medium", "high", "critical"]
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tags for categorization"
-                    },
-                    "assignee": {
-                        "type": "string",
-                        "description": "Assigned user or agent"
-                    },
-                    "reproduction_steps": {
-                        "type": "string",
-                        "description": "Steps to reproduce the bug"
-                    },
-                    "affected_component": {
-                        "type": "string",
-                        "description": "Affected component or area"
-                    },
-                    "queue": {
-                        "type": "boolean",
-                        "description": "Add to work queue immediately after creation"
-                    }
-                },
-                "required": ["title"]
-            }),
-        },
-        ToolDef {
-            name: "bn_bug_list".to_string(),
-            description: "List bugs with optional filters. By default, excludes closed bugs (done/cancelled); use all=true to include them.".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "status": {
-                        "type": "string",
-                        "description": "Filter by status (pending, in_progress, done, blocked, cancelled, reopened)"
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "description": "Filter by priority"
-                    },
-                    "severity": {
-                        "type": "string",
-                        "description": "Filter by severity",
-                        "enum": ["triage", "low", "medium", "high", "critical"]
-                    },
-                    "tag": {
-                        "type": "string",
-                        "description": "Filter by tag"
-                    },
-                    "all": {
-                        "type": "boolean",
-                        "description": "Include closed bugs (done/cancelled) in the list. Default: false"
-                    }
-                },
-                "required": []
-            }),
-        },
-        ToolDef {
-            name: "bn_bug_show".to_string(),
-            description: "Show details of a specific bug".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Bug ID (e.g., bn-a1b2)"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_bug_update".to_string(),
-            description: "Update a bug's properties".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Bug ID"
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "New title"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "New description"
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "description": "New priority (0-4)"
-                    },
-                    "status": {
-                        "type": "string",
-                        "description": "New status (pending, in_progress, blocked, done)"
-                    },
-                    "severity": {
-                        "type": "string",
-                        "description": "New severity",
-                        "enum": ["triage", "low", "medium", "high", "critical"]
-                    },
-                    "add_tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tags to add"
-                    },
-                    "remove_tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tags to remove"
-                    },
-                    "assignee": {
-                        "type": "string",
-                        "description": "New assignee"
-                    },
-                    "reproduction_steps": {
-                        "type": "string",
-                        "description": "New reproduction steps"
-                    },
-                    "affected_component": {
-                        "type": "string",
-                        "description": "New affected component"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_bug_close".to_string(),
-            description: "Close a bug".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Bug ID"
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Reason for closing"
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "description": "Force close even with incomplete dependencies"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_bug_reopen".to_string(),
-            description: "Reopen a closed bug".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Bug ID"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_bug_delete".to_string(),
-            description: "Delete a bug".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Bug ID"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        // Graph tools
-        ToolDef {
-            name: "bn_graph_components".to_string(),
-            description: "Find disconnected components in the task graph".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-        },
-        // Doc tools
-        ToolDef {
-            name: "bn_doc_create".to_string(),
-            description: "Create a new documentation node linked to one or more entities".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Document title"
-                    },
-                    "entity_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Entity IDs to link this doc to (at least one required)"
-                    },
-                    "doc_type": {
-                        "type": "string",
-                        "description": "Document type",
-                        "enum": ["prd", "note", "handoff"],
-                        "default": "note"
-                    },
-                    "short_name": {
-                        "type": "string",
-                        "description": "Short display name for GUI"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Markdown content of the document"
-                    },
                     "summary": {
                         "type": "string",
-                        "description": "Agent-provided summary (prepended as # Summary section)"
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tags for categorization"
-                    }
-                },
-                "required": ["title", "entity_ids"]
-            }),
-        },
-        ToolDef {
-            name: "bn_doc_show".to_string(),
-            description: "Show details of a documentation node".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Doc ID (e.g., bn-a1b2)"
-                    },
-                    "full": {
-                        "type": "boolean",
-                        "description": "Show full content instead of just summary"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_doc_list".to_string(),
-            description: "List documentation nodes with optional filters".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "tag": {
-                        "type": "string",
-                        "description": "Filter by tag"
-                    },
-                    "doc_type": {
-                        "type": "string",
-                        "description": "Filter by document type",
-                        "enum": ["prd", "note", "handoff"]
-                    },
-                    "edited_by": {
-                        "type": "string",
-                        "description": "Filter by editor (format: 'agent:id' or 'user:name')"
-                    },
-                    "for_entity": {
-                        "type": "string",
-                        "description": "Filter by linked entity ID"
+                        "description": "Summary of what was accomplished in the session"
                     }
                 },
                 "required": []
             }),
         },
         ToolDef {
-            name: "bn_doc_update".to_string(),
-            description: "Create a new version of a documentation node. Each update creates a new doc entity with a supersedes link to the previous version.".to_string(),
+            name: "bn_run".to_string(),
+            description: "Run a binnacle (bn) CLI command. Returns stdout, stderr, and exit code. Common commands: 'ready -H' (available work), 'task list -H', 'task create \"Title\"'".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Doc ID to update"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "New markdown content"
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "New title"
-                    },
-                    "short_name": {
-                        "type": "string",
-                        "description": "New short display name"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "New description"
-                    },
-                    "editor": {
-                        "type": "string",
-                        "description": "Editor attribution (format: 'agent:id' or 'user:name')"
-                    },
-                    "clear_dirty": {
-                        "type": "boolean",
-                        "description": "Clear the summary_dirty flag"
+                    "args": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Arguments to pass to bn (e.g., [\"ready\", \"-H\"])"
                     }
                 },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_doc_history".to_string(),
-            description: "Show version history of a documentation node".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Doc ID"
-                    }
-                },
-                "required": ["id"]
-            }),
-        },
-        ToolDef {
-            name: "bn_doc_delete".to_string(),
-            description: "Delete a documentation node".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Doc ID to delete"
-                    }
-                },
-                "required": ["id"]
+                "required": ["args"]
             }),
         },
     ]
 }
 
-/// Get all resource definitions
-pub fn get_resource_definitions() -> Vec<ResourceDef> {
+/// Get resource definitions for MCP
+fn get_resource_definitions() -> Vec<ResourceDef> {
     vec![
-        ResourceDef {
-            uri: "binnacle://tasks".to_string(),
-            name: "All Tasks".to_string(),
-            description: "List of all tasks in the project".to_string(),
-            mime_type: Some("application/json".to_string()),
-        },
-        ResourceDef {
-            uri: "binnacle://ready".to_string(),
-            name: "Ready Tasks".to_string(),
-            description: "Tasks that are ready to work on (no open blockers)".to_string(),
-            mime_type: Some("application/json".to_string()),
-        },
-        ResourceDef {
-            uri: "binnacle://blocked".to_string(),
-            name: "Blocked Tasks".to_string(),
-            description: "Tasks waiting on dependencies".to_string(),
-            mime_type: Some("application/json".to_string()),
-        },
         ResourceDef {
             uri: "binnacle://status".to_string(),
             name: "Project Status".to_string(),
-            description: "Overall project status summary".to_string(),
+            description: "Current project status (task counts, queue state)".to_string(),
             mime_type: Some("application/json".to_string()),
         },
         ResourceDef {
-            uri: "binnacle://queue".to_string(),
-            name: "Work Queue".to_string(),
-            description: "The prioritized work queue and its items".to_string(),
-            mime_type: Some("application/json".to_string()),
-        },
-        ResourceDef {
-            uri: "binnacle://bugs".to_string(),
-            name: "All Bugs".to_string(),
-            description: "List of all bugs in the project".to_string(),
-            mime_type: Some("application/json".to_string()),
-        },
-        ResourceDef {
-            uri: "binnacle://docs".to_string(),
-            name: "Documentation".to_string(),
-            description:
-                "List of all docs. Supports query params: ?type=prd|note|handoff, ?for=<entity-id>"
-                    .to_string(),
-            mime_type: Some("application/json".to_string()),
+            uri: "binnacle://agents".to_string(),
+            name: "Agent Instructions".to_string(),
+            description: "Content of AGENTS.md if present in the repository".to_string(),
+            mime_type: Some("text/markdown".to_string()),
         },
     ]
 }
 
-/// Get all prompt definitions
-pub fn get_prompt_definitions() -> Vec<PromptDef> {
-    vec![
-        PromptDef {
-            name: "start_work".to_string(),
-            description: "Begin working on a task".to_string(),
-            arguments: Some(vec![PromptArgument {
-                name: "task_id".to_string(),
-                description: "Task ID to start working on".to_string(),
-                required: true,
-            }]),
-        },
-        PromptDef {
-            name: "finish_work".to_string(),
-            description: "Complete current task properly".to_string(),
-            arguments: Some(vec![PromptArgument {
-                name: "task_id".to_string(),
-                description: "Task ID to finish".to_string(),
-                required: true,
-            }]),
-        },
-        PromptDef {
-            name: "triage_regression".to_string(),
-            description: "Investigate a test failure".to_string(),
-            arguments: Some(vec![PromptArgument {
-                name: "test_id".to_string(),
-                description: "Test ID that failed".to_string(),
-                required: true,
-            }]),
-        },
-        PromptDef {
-            name: "plan_feature".to_string(),
-            description: "Break down a feature into tasks".to_string(),
-            arguments: Some(vec![PromptArgument {
-                name: "feature".to_string(),
-                description: "Feature description to plan".to_string(),
-                required: true,
-            }]),
-        },
-        PromptDef {
-            name: "status_report".to_string(),
-            description: "Generate summary of current state".to_string(),
-            arguments: None,
-        },
-        PromptDef {
-            name: "prioritize_work".to_string(),
-            description: "Help decide what tasks or bugs to add to the work queue".to_string(),
-            arguments: None,
-        },
-        PromptDef {
-            name: "document_decision".to_string(),
-            description: "Create a note documenting a decision and its rationale".to_string(),
-            arguments: Some(vec![
-                PromptArgument {
-                    name: "entity_id".to_string(),
-                    description: "Entity ID to attach the decision note to".to_string(),
-                    required: true,
-                },
-                PromptArgument {
-                    name: "decision".to_string(),
-                    description: "Brief description of the decision to document".to_string(),
-                    required: true,
-                },
-            ]),
-        },
-        PromptDef {
-            name: "create_handoff".to_string(),
-            description: "Create handoff context for session end with partial progress".to_string(),
-            arguments: Some(vec![PromptArgument {
-                name: "task_id".to_string(),
-                description: "Task ID to create handoff for".to_string(),
-                required: true,
-            }]),
-        },
-        PromptDef {
-            name: "review_prd".to_string(),
-            description: "Review and annotate a PRD document".to_string(),
-            arguments: Some(vec![PromptArgument {
-                name: "doc_id".to_string(),
-                description: "Doc ID of the PRD to review".to_string(),
-                required: true,
-            }]),
-        },
-    ]
-}
-
-/// Start the MCP stdio server.
-pub fn serve(repo_path: &Path) {
-    let mut server = McpServer::new(repo_path);
+/// Start the MCP server (stdio mode)
+pub fn serve(_repo_path: &std::path::Path, cwd: Option<PathBuf>) {
     let stdin = io::stdin();
-    let mut stdout = io::stdout();
+    let stdout = io::stdout();
+
+    let mut server = match cwd {
+        Some(path) => McpServer::with_cwd(path),
+        None => McpServer::new(),
+    };
+
+    eprintln!(
+        "Binnacle MCP server {} started (session: {})",
+        SERVER_VERSION, server.session_id
+    );
 
     for line in stdin.lock().lines() {
         let line = match line {
             Ok(l) => l,
-            Err(_) => break,
+            Err(e) => {
+                eprintln!("Error reading stdin: {}", e);
+                continue;
+            }
         };
 
-        if line.trim().is_empty() {
+        if line.is_empty() {
             continue;
         }
 
         let request: JsonRpcRequest = match serde_json::from_str(&line) {
             Ok(r) => r,
             Err(e) => {
-                let error_response =
-                    JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e));
-                let _ = writeln!(
-                    stdout,
-                    "{}",
-                    serde_json::to_string(&error_response).unwrap()
-                );
-                let _ = stdout.flush();
+                let response = JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e));
+                let output = serde_json::to_string(&response).unwrap();
+                println!("{}", output);
+                let _ = stdout.lock().flush();
                 continue;
             }
         };
 
-        // Handle notifications (no id) - don't send response
-        if request.id.is_none() && request.method == "notifications/initialized" {
-            server.initialized = true;
-            continue;
-        }
-
         let response = server.handle_request(&request);
-
-        // Only send response if there was an id (not a notification)
-        if request.id.is_some() || response.error.is_some() {
-            let _ = writeln!(stdout, "{}", serde_json::to_string(&response).unwrap());
-            let _ = stdout.flush();
-        }
+        let output = serde_json::to_string(&response).unwrap();
+        println!("{}", output);
+        let _ = stdout.lock().flush();
     }
 }
 
-/// Output the MCP tool manifest.
+/// Output the MCP manifest (tool definitions)
 pub fn manifest() {
-    let tools = get_tool_definitions();
-    let resources = get_resource_definitions();
-    let prompts = get_prompt_definitions();
-
     let manifest = json!({
-        "tools": tools,
-        "resources": resources,
-        "prompts": prompts
+        "name": SERVER_NAME,
+        "version": SERVER_VERSION,
+        "protocolVersion": MCP_PROTOCOL_VERSION,
+        "tools": get_tool_definitions(),
+        "resources": get_resource_definitions(),
     });
-
     println!("{}", serde_json::to_string_pretty(&manifest).unwrap());
-}
-
-// Legacy compatibility - export tools module
-pub mod tools {
-    /// Tool definition for MCP manifest (legacy).
-    pub struct ToolDef {
-        pub name: &'static str,
-        pub description: &'static str,
-    }
-
-    /// Get all available MCP tools (legacy).
-    pub fn get_tools() -> Vec<ToolDef> {
-        vec![
-            ToolDef {
-                name: "bn_task_create",
-                description: "Create a new task",
-            },
-            ToolDef {
-                name: "bn_task_list",
-                description: "List tasks with optional filters",
-            },
-            ToolDef {
-                name: "bn_task_show",
-                description: "Show details of a specific task",
-            },
-            ToolDef {
-                name: "bn_task_update",
-                description: "Update a task's properties",
-            },
-            ToolDef {
-                name: "bn_task_close",
-                description: "Close a task",
-            },
-            ToolDef {
-                name: "bn_ready",
-                description: "List tasks with no open blockers",
-            },
-            ToolDef {
-                name: "bn_blocked",
-                description: "List tasks waiting on dependencies",
-            },
-            ToolDef {
-                name: "bn_test_run",
-                description: "Run tests and detect regressions",
-            },
-        ]
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::Storage;
-    use crate::test_utils::TestEnv;
-
-    fn setup() -> TestEnv {
-        let env = TestEnv::new_with_env();
-        Storage::init(env.path()).unwrap();
-        env
-    }
+    use tempfile::TempDir;
 
     #[test]
-    fn test_tool_definitions_valid() {
+    fn test_tool_definitions() {
         let tools = get_tool_definitions();
-        assert!(!tools.is_empty());
-
-        for tool in &tools {
-            assert!(!tool.name.is_empty());
-            assert!(!tool.description.is_empty());
-            assert!(tool.input_schema.is_object());
-        }
+        assert_eq!(tools.len(), 4);
+        assert!(tools.iter().any(|t| t.name == "binnacle-set_agent"));
+        assert!(tools.iter().any(|t| t.name == "binnacle-orient"));
+        assert!(tools.iter().any(|t| t.name == "binnacle-goodbye"));
+        assert!(tools.iter().any(|t| t.name == "bn_run"));
     }
 
     #[test]
-    fn test_resource_definitions_valid() {
+    fn test_resource_definitions() {
         let resources = get_resource_definitions();
-        assert!(!resources.is_empty());
-
-        for resource in &resources {
-            assert!(resource.uri.starts_with("binnacle://"));
-            assert!(!resource.name.is_empty());
-        }
+        assert_eq!(resources.len(), 2);
+        assert!(resources.iter().any(|r| r.uri == "binnacle://status"));
+        assert!(resources.iter().any(|r| r.uri == "binnacle://agents"));
     }
 
     #[test]
-    fn test_prompt_definitions_valid() {
-        let prompts = get_prompt_definitions();
-        assert!(!prompts.is_empty());
-
-        for prompt in &prompts {
-            assert!(!prompt.name.is_empty());
-            assert!(!prompt.description.is_empty());
-        }
+    fn test_set_agent_missing_path() {
+        let mut server = McpServer::new();
+        let result = server.tool_set_agent(&json!({}));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing 'path'"));
     }
 
     #[test]
-    fn test_server_initialize() {
-        let temp = setup();
-        let mut server = McpServer::new(temp.path());
+    fn test_set_agent_nonexistent_path() {
+        let mut server = McpServer::new();
+        let result = server.tool_set_agent(&json!({"path": "/nonexistent/path/xyz"}));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not exist"));
+    }
 
+    #[test]
+    fn test_set_agent_valid_path() {
+        let temp = TempDir::new().unwrap();
+        let mut server = McpServer::new();
+        let result = server.tool_set_agent(&json!({"path": temp.path().to_str().unwrap()}));
+        assert!(result.is_ok());
+        let json: Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["success"], true);
+        assert_eq!(json["session_id_is_external"], false);
+    }
+
+    #[test]
+    fn test_set_agent_with_session_id() {
+        let temp = TempDir::new().unwrap();
+        let mut server = McpServer::new();
+        let result = server.tool_set_agent(&json!({
+            "path": temp.path().to_str().unwrap(),
+            "session_id": "external-session-123"
+        }));
+        assert!(result.is_ok());
+        let json: Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["success"], true);
+        assert_eq!(json["session_id"], "external-session-123");
+        assert_eq!(json["session_id_is_external"], true);
+    }
+
+    #[test]
+    fn test_set_agent_canonicalizes_path() {
+        let temp = TempDir::new().unwrap();
+        // Create a subdirectory and a symlink to it
+        let subdir = temp.path().join("real_dir");
+        std::fs::create_dir(&subdir).unwrap();
+        let symlink = temp.path().join("link_dir");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&subdir, &symlink).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&subdir, &symlink).unwrap();
+
+        let mut server = McpServer::new();
+        let result = server.tool_set_agent(&json!({"path": symlink.to_str().unwrap()}));
+        assert!(result.is_ok());
+        let json: Value = serde_json::from_str(&result.unwrap()).unwrap();
+        // The cwd should be the canonical (resolved) path, not the symlink
+        let cwd = json["cwd"].as_str().unwrap();
+        assert!(
+            !cwd.contains("link_dir"),
+            "Path should be canonicalized, but got: {}",
+            cwd
+        );
+        assert!(
+            cwd.contains("real_dir"),
+            "Path should resolve to real_dir, but got: {}",
+            cwd
+        );
+    }
+
+    #[test]
+    fn test_bn_run_without_cwd() {
+        let server = McpServer::new();
+        let result = server.tool_bn_run(&json!({"args": ["--version"]}));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Working directory not set"));
+    }
+
+    #[test]
+    fn test_bn_run_blocked_mcp() {
+        let temp = TempDir::new().unwrap();
+        let mut server = McpServer::new();
+        server.cwd = Some(temp.path().to_path_buf());
+
+        let result = server.tool_bn_run(&json!({"args": ["mcp", "serve"]}));
+        assert!(result.is_ok());
+        let json: Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["exit_code"], 1);
+        assert!(json["stderr"].as_str().unwrap().contains("blocked"));
+    }
+
+    #[test]
+    fn test_bn_run_blocked_orient() {
+        let temp = TempDir::new().unwrap();
+        let mut server = McpServer::new();
+        server.cwd = Some(temp.path().to_path_buf());
+
+        let result = server.tool_bn_run(&json!({"args": ["orient"]}));
+        assert!(result.is_ok());
+        let json: Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["exit_code"], 1);
+        assert!(json["stderr"].as_str().unwrap().contains("blocked"));
+        assert!(json["stderr"].as_str().unwrap().contains("binnacle-orient"));
+    }
+
+    #[test]
+    fn test_bn_run_blocked_goodbye() {
+        let temp = TempDir::new().unwrap();
+        let mut server = McpServer::new();
+        server.cwd = Some(temp.path().to_path_buf());
+
+        let result = server.tool_bn_run(&json!({"args": ["goodbye", "test"]}));
+        assert!(result.is_ok());
+        let json: Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["exit_code"], 1);
+        assert!(json["stderr"].as_str().unwrap().contains("blocked"));
+        assert!(
+            json["stderr"]
+                .as_str()
+                .unwrap()
+                .contains("binnacle-goodbye")
+        );
+    }
+
+    #[test]
+    fn test_bn_run_blocked_agent() {
+        let temp = TempDir::new().unwrap();
+        let mut server = McpServer::new();
+        server.cwd = Some(temp.path().to_path_buf());
+
+        let result = server.tool_bn_run(&json!({"args": ["agent", "kill", "bna-1234"]}));
+        assert!(result.is_ok());
+        let json: Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["exit_code"], 1);
+        assert!(json["stderr"].as_str().unwrap().contains("blocked"));
+    }
+
+    #[test]
+    fn test_bn_run_blocked_system() {
+        let temp = TempDir::new().unwrap();
+        let mut server = McpServer::new();
+        server.cwd = Some(temp.path().to_path_buf());
+
+        let result = server.tool_bn_run(&json!({"args": ["system", "init"]}));
+        assert!(result.is_ok());
+        let json: Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["exit_code"], 1);
+        assert!(json["stderr"].as_str().unwrap().contains("blocked"));
+    }
+
+    #[test]
+    fn test_bn_run_help() {
+        let temp = TempDir::new().unwrap();
+        let mut server = McpServer::new();
+        server.cwd = Some(temp.path().to_path_buf());
+
+        let result = server.tool_bn_run(&json!({"args": ["--help"]}));
+        assert!(result.is_ok());
+        let json: Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["exit_code"], 0);
+        assert!(json["stdout"].as_str().unwrap().contains("binnacle"));
+    }
+
+    #[test]
+    fn test_initialize_response() {
+        let mut server = McpServer::new();
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: Some(json!(1)),
             method: "initialize".to_string(),
-            params: Some(json!({
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {
-                    "name": "test-client",
-                    "version": "1.0.0"
-                }
-            })),
+            params: None,
         };
-
         let response = server.handle_request(&request);
-        assert!(response.error.is_none());
         assert!(response.result.is_some());
-
         let result = response.result.unwrap();
         assert_eq!(result["protocolVersion"], MCP_PROTOCOL_VERSION);
-        assert!(result["capabilities"]["tools"].is_object());
+        assert_eq!(result["serverInfo"]["name"], SERVER_NAME);
     }
 
     #[test]
-    fn test_server_tools_list() {
-        let temp = setup();
-        let mut server = McpServer::new(temp.path());
-
+    fn test_tools_list() {
+        let mut server = McpServer::new();
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: Some(json!(1)),
             method: "tools/list".to_string(),
             params: None,
         };
-
         let response = server.handle_request(&request);
-        assert!(response.error.is_none());
-
-        let result = response.result.unwrap();
-        let tools = result["tools"].as_array().unwrap();
-        assert!(!tools.is_empty());
+        assert!(response.result.is_some());
+        let tools = &response.result.unwrap()["tools"];
+        assert_eq!(tools.as_array().unwrap().len(), 4);
     }
 
     #[test]
-    fn test_server_tool_call_task_create() {
-        let temp = setup();
-        let mut server = McpServer::new(temp.path());
-
-        let request = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            id: Some(json!(1)),
-            method: "tools/call".to_string(),
-            params: Some(json!({
-                "name": "bn_task_create",
-                "arguments": {
-                    "title": "Test task"
-                }
-            })),
-        };
-
-        let response = server.handle_request(&request);
-        assert!(response.error.is_none());
-
-        let result = response.result.unwrap();
-        let content = &result["content"][0]["text"];
-        assert!(content.as_str().unwrap().contains("bn-"));
-    }
-
-    #[test]
-    fn test_server_tool_call_task_list() {
-        let temp = setup();
-        let mut server = McpServer::new(temp.path());
-
-        // Create a task first
-        server
-            .execute_tool("bn_task_create", &json!({"title": "Test task"}))
-            .unwrap();
-
-        let request = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            id: Some(json!(1)),
-            method: "tools/call".to_string(),
-            params: Some(json!({
-                "name": "bn_task_list",
-                "arguments": {}
-            })),
-        };
-
-        let response = server.handle_request(&request);
-        assert!(response.error.is_none());
-
-        let result = response.result.unwrap();
-        let content = result["content"][0]["text"].as_str().unwrap();
-        assert!(content.contains("Test task"));
-    }
-
-    #[test]
-    fn test_server_resources_list() {
-        let temp = setup();
-        let mut server = McpServer::new(temp.path());
-
-        let request = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            id: Some(json!(1)),
-            method: "resources/list".to_string(),
-            params: None,
-        };
-
-        let response = server.handle_request(&request);
-        assert!(response.error.is_none());
-
-        let result = response.result.unwrap();
-        let resources = result["resources"].as_array().unwrap();
-        assert!(!resources.is_empty());
-    }
-
-    #[test]
-    fn test_server_resource_read_tasks() {
-        let temp = setup();
-        let mut server = McpServer::new(temp.path());
-
-        // Create a task first
-        server
-            .execute_tool("bn_task_create", &json!({"title": "Resource test"}))
-            .unwrap();
-
-        let request = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            id: Some(json!(1)),
-            method: "resources/read".to_string(),
-            params: Some(json!({
-                "uri": "binnacle://tasks"
-            })),
-        };
-
-        let response = server.handle_request(&request);
-        assert!(response.error.is_none());
-
-        let result = response.result.unwrap();
-        let content = result["contents"][0]["text"].as_str().unwrap();
-        assert!(content.contains("Resource test"));
-    }
-
-    #[test]
-    fn test_server_prompts_list() {
-        let temp = setup();
-        let mut server = McpServer::new(temp.path());
-
-        let request = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            id: Some(json!(1)),
-            method: "prompts/list".to_string(),
-            params: None,
-        };
-
-        let response = server.handle_request(&request);
-        assert!(response.error.is_none());
-
-        let result = response.result.unwrap();
-        let prompts = result["prompts"].as_array().unwrap();
-        assert!(!prompts.is_empty());
-    }
-
-    #[test]
-    fn test_server_prompt_get_start_work() {
-        let temp = setup();
-        let mut server = McpServer::new(temp.path());
-
-        let request = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            id: Some(json!(1)),
-            method: "prompts/get".to_string(),
-            params: Some(json!({
-                "name": "start_work",
-                "arguments": {
-                    "task_id": "bn-1234"
-                }
-            })),
-        };
-
-        let response = server.handle_request(&request);
-        assert!(response.error.is_none());
-
-        let result = response.result.unwrap();
-        assert!(result["description"].as_str().is_some());
-        assert!(result["messages"].as_array().is_some());
-    }
-
-    #[test]
-    fn test_server_unknown_method() {
-        let temp = setup();
-        let mut server = McpServer::new(temp.path());
-
+    fn test_unknown_method() {
+        let mut server = McpServer::new();
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: Some(json!(1)),
             method: "unknown/method".to_string(),
             params: None,
         };
-
         let response = server.handle_request(&request);
         assert!(response.error.is_some());
         assert_eq!(response.error.unwrap().code, -32601);
-    }
-
-    #[test]
-    fn test_server_unknown_tool() {
-        let temp = setup();
-        let mut server = McpServer::new(temp.path());
-
-        let request = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            id: Some(json!(1)),
-            method: "tools/call".to_string(),
-            params: Some(json!({
-                "name": "unknown_tool",
-                "arguments": {}
-            })),
-        };
-
-        let response = server.handle_request(&request);
-        // Tool errors are returned as content with isError flag
-        let result = response.result.unwrap();
-        assert!(result["isError"].as_bool().unwrap_or(false));
-    }
-
-    #[test]
-    fn test_execute_tool_dep_operations() {
-        let temp = setup();
-        let server = McpServer::new(temp.path());
-
-        // Create two tasks
-        let result1 = server
-            .execute_tool("bn_task_create", &json!({"title": "Parent task"}))
-            .unwrap();
-        let task1: serde_json::Value = serde_json::from_str(&result1).unwrap();
-        let parent_id = task1["id"].as_str().unwrap();
-
-        let result2 = server
-            .execute_tool("bn_task_create", &json!({"title": "Child task"}))
-            .unwrap();
-        let task2: serde_json::Value = serde_json::from_str(&result2).unwrap();
-        let child_id = task2["id"].as_str().unwrap();
-
-        // Add link (dependency)
-        let link_result = server
-            .execute_tool(
-                "bn_link_add",
-                &json!({
-                    "source": child_id,
-                    "target": parent_id,
-                    "edge_type": "depends_on",
-                    "reason": "test dependency"
-                }),
-            )
-            .unwrap();
-        assert!(link_result.contains(child_id));
-
-        // Check blocked
-        let blocked = server.execute_tool("bn_blocked", &json!({})).unwrap();
-        assert!(blocked.contains(child_id));
-
-        // Check ready
-        let ready = server.execute_tool("bn_ready", &json!({})).unwrap();
-        assert!(ready.contains(parent_id));
-    }
-
-    #[test]
-    fn test_execute_tool_test_operations() {
-        let temp = setup();
-        let server = McpServer::new(temp.path());
-
-        // Create test
-        let result = server
-            .execute_tool(
-                "bn_test_create",
-                &json!({
-                    "name": "Unit tests",
-                    "command": "echo hello"
-                }),
-            )
-            .unwrap();
-        assert!(result.contains("bnt-"));
-
-        // List tests
-        let list = server.execute_tool("bn_test_list", &json!({})).unwrap();
-        assert!(list.contains("Unit tests"));
-    }
-
-    #[test]
-    fn test_execute_tool_config_operations() {
-        let temp = setup();
-        let server = McpServer::new(temp.path());
-
-        // Set config
-        let set_result = server
-            .execute_tool(
-                "bn_config_set",
-                &json!({
-                    "key": "test.key",
-                    "value": "test.value"
-                }),
-            )
-            .unwrap();
-        assert!(set_result.contains("test.key"));
-
-        // Get config
-        let get_result = server
-            .execute_tool(
-                "bn_config_get",
-                &json!({
-                    "key": "test.key"
-                }),
-            )
-            .unwrap();
-        assert!(get_result.contains("test.value"));
-
-        // List configs
-        let list_result = server.execute_tool("bn_config_list", &json!({})).unwrap();
-        assert!(list_result.contains("test.key"));
-    }
-
-    #[test]
-    fn test_read_resource_ready() {
-        let temp = setup();
-        let server = McpServer::new(temp.path());
-
-        // Create a task
-        server
-            .execute_tool("bn_task_create", &json!({"title": "Ready task"}))
-            .unwrap();
-
-        let result = server.read_resource("binnacle://ready").unwrap();
-        assert!(result.contains("Ready task"));
-    }
-
-    #[test]
-    fn test_read_resource_status() {
-        let temp = setup();
-        let server = McpServer::new(temp.path());
-
-        let result = server.read_resource("binnacle://status").unwrap();
-        assert!(result.contains("tasks"));
-    }
-
-    #[test]
-    fn test_get_prompt_status_report() {
-        let temp = setup();
-        let server = McpServer::new(temp.path());
-
-        let (description, messages) = server.get_prompt("status_report", &HashMap::new()).unwrap();
-        assert!(!description.is_empty());
-        assert!(!messages.is_empty());
-    }
-
-    #[test]
-    fn test_manifest_output() {
-        // Just verify it doesn't panic
-        let tools = get_tool_definitions();
-        let resources = get_resource_definitions();
-        let prompts = get_prompt_definitions();
-
-        let manifest = json!({
-            "tools": tools,
-            "resources": resources,
-            "prompts": prompts
-        });
-
-        let output = serde_json::to_string_pretty(&manifest).unwrap();
-        assert!(output.contains("bn_task_create"));
-        assert!(output.contains("binnacle://tasks"));
-        assert!(output.contains("start_work"));
-    }
-
-    #[test]
-    fn test_parse_resource_uri_without_query() {
-        let (base, params) = parse_resource_uri("binnacle://tasks");
-        assert_eq!(base, "binnacle://tasks");
-        assert!(params.is_empty());
-    }
-
-    #[test]
-    fn test_parse_resource_uri_with_single_param() {
-        let (base, params) = parse_resource_uri("binnacle://docs?type=prd");
-        assert_eq!(base, "binnacle://docs");
-        assert_eq!(params.get("type"), Some(&"prd".to_string()));
-        assert_eq!(params.len(), 1);
-    }
-
-    #[test]
-    fn test_parse_resource_uri_with_multiple_params() {
-        let (base, params) = parse_resource_uri("binnacle://docs?type=note&for=bn-1234");
-        assert_eq!(base, "binnacle://docs");
-        assert_eq!(params.get("type"), Some(&"note".to_string()));
-        assert_eq!(params.get("for"), Some(&"bn-1234".to_string()));
-        assert_eq!(params.len(), 2);
-    }
-
-    #[test]
-    fn test_parse_resource_uri_empty_value() {
-        let (base, params) = parse_resource_uri("binnacle://docs?type=");
-        assert_eq!(base, "binnacle://docs");
-        assert_eq!(params.get("type"), Some(&"".to_string()));
-    }
-
-    #[test]
-    fn test_read_resource_docs_all() {
-        let temp = setup();
-        let server = McpServer::new(temp.path());
-
-        // Create a task first (docs must link to an entity)
-        let task_result = server
-            .execute_tool("bn_task_create", &json!({"title": "Test task"}))
-            .unwrap();
-        // Extract task ID from result
-        let task_id = serde_json::from_str::<serde_json::Value>(&task_result)
-            .ok()
-            .and_then(|v| v["id"].as_str().map(|s| s.to_string()))
-            .unwrap();
-
-        // Create a doc linked to the task
-        server
-            .execute_tool(
-                "bn_doc_create",
-                &json!({
-                    "title": "Test Doc",
-                    "entity_ids": [task_id],
-                    "doc_type": "prd",
-                    "content": "# Summary\nTest content"
-                }),
-            )
-            .unwrap();
-
-        // Read all docs via resource
-        let result = server.read_resource("binnacle://docs").unwrap();
-        assert!(result.contains("Test Doc"));
-        assert!(result.contains("prd"));
-    }
-
-    #[test]
-    fn test_read_resource_docs_filtered_by_type() {
-        let temp = setup();
-        let server = McpServer::new(temp.path());
-
-        // Create a task
-        let task_result = server
-            .execute_tool("bn_task_create", &json!({"title": "Test task 2"}))
-            .unwrap();
-        let task_id = serde_json::from_str::<serde_json::Value>(&task_result)
-            .ok()
-            .and_then(|v| v["id"].as_str().map(|s| s.to_string()))
-            .unwrap();
-
-        // Create docs of different types
-        server
-            .execute_tool(
-                "bn_doc_create",
-                &json!({
-                    "title": "PRD Doc",
-                    "entity_ids": [task_id],
-                    "doc_type": "prd",
-                    "content": "# Summary\nPRD content"
-                }),
-            )
-            .unwrap();
-
-        server
-            .execute_tool(
-                "bn_doc_create",
-                &json!({
-                    "title": "Note Doc",
-                    "entity_ids": [task_id],
-                    "doc_type": "note",
-                    "content": "# Summary\nNote content"
-                }),
-            )
-            .unwrap();
-
-        // Filter by type=prd
-        let prd_result = server.read_resource("binnacle://docs?type=prd").unwrap();
-        assert!(prd_result.contains("PRD Doc"));
-        assert!(!prd_result.contains("Note Doc"));
-
-        // Filter by type=note
-        let note_result = server.read_resource("binnacle://docs?type=note").unwrap();
-        assert!(note_result.contains("Note Doc"));
-        assert!(!note_result.contains("PRD Doc"));
-    }
-
-    #[test]
-    fn test_read_resource_docs_filtered_by_entity() {
-        let temp = setup();
-        let server = McpServer::new(temp.path());
-
-        // Create two tasks
-        let task1_result = server
-            .execute_tool("bn_task_create", &json!({"title": "Task One"}))
-            .unwrap();
-        let task1_id = serde_json::from_str::<serde_json::Value>(&task1_result)
-            .ok()
-            .and_then(|v| v["id"].as_str().map(|s| s.to_string()))
-            .unwrap();
-
-        let task2_result = server
-            .execute_tool("bn_task_create", &json!({"title": "Task Two"}))
-            .unwrap();
-        let task2_id = serde_json::from_str::<serde_json::Value>(&task2_result)
-            .ok()
-            .and_then(|v| v["id"].as_str().map(|s| s.to_string()))
-            .unwrap();
-
-        // Create docs linked to different tasks
-        server
-            .execute_tool(
-                "bn_doc_create",
-                &json!({
-                    "title": "Doc for Task One",
-                    "entity_ids": [task1_id],
-                    "doc_type": "note",
-                    "content": "# Summary\nContent for task one"
-                }),
-            )
-            .unwrap();
-
-        server
-            .execute_tool(
-                "bn_doc_create",
-                &json!({
-                    "title": "Doc for Task Two",
-                    "entity_ids": [task2_id],
-                    "doc_type": "note",
-                    "content": "# Summary\nContent for task two"
-                }),
-            )
-            .unwrap();
-
-        // Filter by for=task1_id
-        let result1 = server
-            .read_resource(&format!("binnacle://docs?for={}", task1_id))
-            .unwrap();
-        assert!(result1.contains("Doc for Task One"));
-        assert!(!result1.contains("Doc for Task Two"));
-
-        // Filter by for=task2_id
-        let result2 = server
-            .read_resource(&format!("binnacle://docs?for={}", task2_id))
-            .unwrap();
-        assert!(result2.contains("Doc for Task Two"));
-        assert!(!result2.contains("Doc for Task One"));
-    }
-
-    #[test]
-    fn test_resource_definitions_include_docs() {
-        let resources = get_resource_definitions();
-        let docs_resource = resources
-            .iter()
-            .find(|r| r.uri == "binnacle://docs")
-            .expect("docs resource should exist");
-        assert_eq!(docs_resource.name, "Documentation");
-        assert!(docs_resource.description.contains("type"));
-        assert!(docs_resource.description.contains("for"));
     }
 }

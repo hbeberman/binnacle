@@ -199,6 +199,163 @@ fn test_system_init_write_copilot_prompts_human_output() {
 }
 
 // ============================================================================
+// MCP Config Integration Tests
+// ============================================================================
+
+#[test]
+fn test_system_init_write_mcp_vscode_creates_config() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "init", "--write-mcp-vscode", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["initialized"], true);
+    assert_eq!(json["mcp_vscode_config_created"], true);
+
+    // Verify the file was created
+    let config_path = temp.path().join(".vscode").join("mcp.json");
+    assert!(config_path.exists(), "VS Code MCP config should exist");
+
+    // Verify the config content
+    let content = fs::read_to_string(&config_path).unwrap();
+    let config: Value = serde_json::from_str(&content).unwrap();
+    assert!(config["servers"]["binnacle"].is_object());
+    assert_eq!(config["servers"]["binnacle"]["command"], "bn");
+    assert_eq!(
+        config["servers"]["binnacle"]["args"],
+        serde_json::json!(["mcp", "serve", "--cwd", "${workspaceFolder}"])
+    );
+    assert_eq!(config["servers"]["binnacle"]["type"], "stdio");
+}
+
+#[test]
+fn test_system_init_write_mcp_vscode_merges_with_existing() {
+    let temp = TestEnv::new();
+
+    // Create an existing VS Code MCP config with another server
+    let vscode_dir = temp.path().join(".vscode");
+    fs::create_dir_all(&vscode_dir).unwrap();
+    let existing_config = serde_json::json!({
+        "servers": {
+            "other-server": {
+                "command": "other-cmd",
+                "args": ["arg1"]
+            }
+        }
+    });
+    fs::write(
+        vscode_dir.join("mcp.json"),
+        serde_json::to_string_pretty(&existing_config).unwrap(),
+    )
+    .unwrap();
+
+    // Run init with --write-mcp-vscode
+    bn_in(&temp)
+        .args(["system", "init", "--write-mcp-vscode", "-y"])
+        .assert()
+        .success();
+
+    // Verify both servers exist
+    let content = fs::read_to_string(vscode_dir.join("mcp.json")).unwrap();
+    let config: Value = serde_json::from_str(&content).unwrap();
+    assert!(
+        config["servers"]["other-server"].is_object(),
+        "existing server should be preserved"
+    );
+    assert!(
+        config["servers"]["binnacle"].is_object(),
+        "binnacle server should be added"
+    );
+}
+
+#[test]
+fn test_system_init_write_mcp_vscode_idempotent() {
+    let temp = TestEnv::new();
+
+    // First init
+    bn_in(&temp)
+        .args(["system", "init", "--write-mcp-vscode", "-y"])
+        .assert()
+        .success();
+
+    // Second init should succeed without error
+    let output = bn_in(&temp)
+        .args(["system", "init", "--write-mcp-vscode", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["mcp_vscode_config_created"], true);
+}
+
+#[test]
+fn test_system_init_write_mcp_all_creates_all_configs() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "init", "--write-mcp-all", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["initialized"], true);
+    assert_eq!(json["mcp_vscode_config_created"], true);
+    assert_eq!(json["mcp_copilot_config_created"], true);
+
+    // Verify VS Code config was created (we can verify this in the repo)
+    let vscode_config = temp.path().join(".vscode").join("mcp.json");
+    assert!(vscode_config.exists(), "VS Code MCP config should exist");
+}
+
+#[test]
+fn test_system_init_write_mcp_all_human_output() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "init", "--write-mcp-all", "-y"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("VS Code MCP config"))
+        .stdout(predicate::str::contains("Copilot CLI MCP config"));
+}
+
+#[test]
+fn test_system_init_write_mcp_all_combined_with_individual_flags() {
+    let temp = TestEnv::new();
+
+    // --write-mcp-all should work together with individual flags (no conflict)
+    let output = bn_in(&temp)
+        .args([
+            "system",
+            "init",
+            "--write-mcp-all",
+            "--write-mcp-vscode",
+            "-y",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["mcp_vscode_config_created"], true);
+    assert_eq!(json["mcp_copilot_config_created"], true);
+}
+
+// ============================================================================
 // bn system store show Tests
 // ============================================================================
 
@@ -1472,6 +1629,232 @@ fn test_system_emit_plan_agent_json_format() {
         .expect("content field should exist");
     assert!(content.contains("name: Binnacle Plan"));
     assert!(content.contains("PLANNING AGENT"));
+}
+
+#[test]
+fn test_system_emit_auto_worker_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "auto-worker"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bn orient --type worker"))
+        .stdout(predicate::str::contains("bn ready"))
+        .stdout(predicate::str::contains("queued items first"))
+        .stdout(predicate::str::contains("bn goodbye"));
+}
+
+#[test]
+fn test_system_emit_do_agent_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "do-agent"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bn orient --type worker"))
+        .stdout(predicate::str::contains("{description}"))
+        .stdout(predicate::str::contains("Test your changes"))
+        .stdout(predicate::str::contains("bn goodbye"));
+}
+
+#[test]
+fn test_system_emit_prd_writer_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "prd-writer"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bn orient --type planner"))
+        .stdout(predicate::str::contains("PRD"))
+        .stdout(predicate::str::contains("bn idea list"))
+        .stdout(predicate::str::contains("prds/"));
+}
+
+#[test]
+fn test_system_emit_buddy_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "buddy"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("binnacle buddy"))
+        .stdout(predicate::str::contains("bn orient --type buddy"))
+        .stdout(predicate::str::contains("bn idea create"))
+        .stdout(predicate::str::contains("bn task create"))
+        .stdout(predicate::str::contains("bn bug create"));
+}
+
+#[test]
+fn test_system_emit_free_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "free"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("binnacle (bn)"))
+        .stdout(predicate::str::contains("bn orient --type worker"))
+        .stdout(predicate::str::contains("bn ready"))
+        .stdout(predicate::str::contains("bn goodbye"));
+}
+
+#[test]
+fn test_system_emit_auto_worker_json_format() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "emit", "auto-worker"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let content = json["content"]
+        .as_str()
+        .expect("content field should exist");
+    assert!(content.contains("bn orient --type worker"));
+    assert!(content.contains("queued items first"));
+}
+
+#[test]
+fn test_system_emit_buddy_json_format() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "emit", "buddy"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let content = json["content"]
+        .as_str()
+        .expect("content field should exist");
+    assert!(content.contains("binnacle buddy"));
+    assert!(content.contains("TASK DECOMPOSITION"));
+}
+
+#[test]
+fn test_system_emit_mcp_claude() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "emit", "mcp-claude"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let content = json["content"]
+        .as_str()
+        .expect("content field should exist");
+    // Verify JSON structure
+    let mcp_json: Value = serde_json::from_str(content).expect("content should be valid JSON");
+    assert!(
+        mcp_json["mcpServers"]["binnacle"].is_object(),
+        "should have mcpServers.binnacle object"
+    );
+    assert_eq!(
+        mcp_json["mcpServers"]["binnacle"]["command"], "bn",
+        "command should be bn"
+    );
+    assert!(
+        mcp_json["mcpServers"]["binnacle"]["args"]
+            .as_array()
+            .map(|a| a.iter().any(|v| v == "serve"))
+            .unwrap_or(false),
+        "args should contain 'serve'"
+    );
+}
+
+#[test]
+fn test_system_emit_mcp_vscode() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "emit", "mcp-vscode"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let content = json["content"]
+        .as_str()
+        .expect("content field should exist");
+    // Verify JSON structure
+    let mcp_json: Value = serde_json::from_str(content).expect("content should be valid JSON");
+    assert!(
+        mcp_json["servers"]["binnacle"].is_object(),
+        "should have servers.binnacle object"
+    );
+    assert_eq!(
+        mcp_json["servers"]["binnacle"]["type"], "stdio",
+        "type should be stdio"
+    );
+    assert_eq!(
+        mcp_json["servers"]["binnacle"]["command"], "bn",
+        "command should be bn"
+    );
+    // VS Code version should have workspaceFolder in args
+    let args = mcp_json["servers"]["binnacle"]["args"]
+        .as_array()
+        .expect("args should be array");
+    assert!(
+        args.iter().any(|v| v
+            .as_str()
+            .map(|s| s.contains("workspaceFolder"))
+            .unwrap_or(false)),
+        "args should contain workspaceFolder placeholder"
+    );
+}
+
+#[test]
+fn test_system_emit_mcp_copilot() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "emit", "mcp-copilot"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let content = json["content"]
+        .as_str()
+        .expect("content field should exist");
+    // Verify JSON structure
+    let mcp_json: Value = serde_json::from_str(content).expect("content should be valid JSON");
+    assert!(
+        mcp_json["mcpServers"]["binnacle"].is_object(),
+        "should have mcpServers.binnacle object"
+    );
+    assert_eq!(
+        mcp_json["mcpServers"]["binnacle"]["type"], "local",
+        "type should be local"
+    );
+    assert_eq!(
+        mcp_json["mcpServers"]["binnacle"]["command"], "bn",
+        "command should be bn"
+    );
+    // Copilot version should have tools field
+    assert!(
+        mcp_json["mcpServers"]["binnacle"]["tools"].is_array(),
+        "should have tools array"
+    );
 }
 
 // ============================================================================
