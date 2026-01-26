@@ -2,12 +2,32 @@
 
 use clap::{Parser, Subcommand};
 
+/// Build timestamp injected by build.rs
+const BUILD_TIMESTAMP: &str = env!("BN_BUILD_TIMESTAMP");
+
+/// Git commit hash injected by build.rs
+const GIT_COMMIT: &str = env!("BN_GIT_COMMIT");
+
+/// Build version string with timestamp and commit
+fn build_version() -> &'static str {
+    // Use a static to ensure we only format this once
+    static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    VERSION.get_or_init(|| {
+        format!(
+            "{} ({} {})",
+            env!("CARGO_PKG_VERSION"),
+            GIT_COMMIT,
+            BUILD_TIMESTAMP
+        )
+    })
+}
+
 /// Binnacle - A project state tracking tool for AI agents and humans.
 ///
 /// Start with `bn orient` to understand project state, then `bn ready` to find work.
 #[derive(Parser, Debug)]
 #[command(name = "bn")]
-#[command(author, version, about = "A CLI tool for AI agents and humans to track project state", long_about = None)]
+#[command(author, version = build_version(), about = "A CLI tool for AI agents and humans to track project state", long_about = None)]
 pub struct Cli {
     /// Output in human-readable format instead of JSON
     #[arg(short = 'H', long = "human", global = true)]
