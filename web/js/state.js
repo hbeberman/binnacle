@@ -87,6 +87,7 @@ const createDefaultState = () => ({
         autoFollow: true,
         followTargetId: 'auto',
         followingNodeId: null,
+        userPaused: false,  // Set to true when user manually pans/zooms
         autoFollowConfig: {
             nodeTypes: { task: true, bug: true, idea: false, test: false, doc: false },
             focusDelaySeconds: 10
