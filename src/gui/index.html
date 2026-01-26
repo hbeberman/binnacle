@@ -630,6 +630,59 @@
             text-align: center;
         }
 
+        /* Milestone card styles */
+        .milestone-card {
+            border-left: 3px solid var(--milestone-open, #22c55e);
+        }
+
+        .milestone-card.card-closed {
+            border-left-color: var(--milestone-done, #86efac);
+        }
+
+        .milestone-progress {
+            margin-top: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .milestone-progress-bar {
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .milestone-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success) 0%, #22c55e 100%);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+
+        .milestone-progress-text {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+            display: block;
+        }
+
+        .badge-overdue {
+            animation: pulse-red 1.5s infinite;
+        }
+
+        .badge-due-soon {
+            animation: pulse-yellow 2s infinite;
+        }
+
+        @keyframes pulse-red {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        @keyframes pulse-yellow {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+
         /* Left sidebar (hover to expand) */
         .agents-sidebar {
             position: absolute;
@@ -5656,7 +5709,8 @@
             bug: { name: 'Bugs', emoji: '🐛' },
             idea: { name: 'Ideas', emoji: '💭' },
             test: { name: 'Tests', emoji: '🧪' },
-            doc: { name: 'Docs', emoji: '📄' }
+            doc: { name: 'Docs', emoji: '📄' },
+            milestone: { name: 'Milestones', emoji: '🏁' }
         };
 
         // Load nodes view type filter state from localStorage
@@ -10403,10 +10457,17 @@
                 });
             }
             
+            // Milestones (from state.milestones)
+            if (nodesViewTypeFilters.milestone) {
+                (state.milestones || []).forEach(milestone => {
+                    allNodes.push({ ...milestone, nodeType: 'milestone' });
+                });
+            }
+            
             // Filter by closed status
             if (!showClosed) {
                 allNodes = allNodes.filter(node => {
-                    if (node.nodeType === 'task' || node.nodeType === 'bug') {
+                    if (node.nodeType === 'task' || node.nodeType === 'bug' || node.nodeType === 'milestone') {
                         return node.status !== 'done' && node.status !== 'cancelled';
                     } else if (node.nodeType === 'idea') {
                         return node.status === 'seed' || node.status === 'germinating';
@@ -10508,6 +10569,8 @@
                     return renderTestCard(node);
                 case 'doc':
                     return renderDocCard(node);
+                case 'milestone':
+                    return renderMilestoneCard(node);
                 default:
                     return '';
             }
@@ -10635,6 +10698,56 @@
                     <span class="badge" style="background: var(--bg-tertiary)">${doc.id}</span>
                     ${linkedCount > 0 ? `<span class="badge" style="background: var(--edge-hierarchy)">🔗 ${linkedCount}</span>` : ''}
                     ${(doc.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+                </div>
+            </div>`;
+        }
+        
+        function renderMilestoneCard(milestone) {
+            const isClosed = milestone.status === 'done' || milestone.status === 'cancelled';
+            const isInProgress = milestone.status === 'in_progress';
+            const progress = milestone.progress;
+            const dueDate = milestone.due_date ? new Date(milestone.due_date) : null;
+            const isDueSoon = dueDate && !isClosed && (dueDate - new Date()) < 7 * 24 * 60 * 60 * 1000;
+            const isOverdue = dueDate && !isClosed && dueDate < new Date();
+            
+            let progressHtml = '';
+            if (progress) {
+                const percentage = Math.round(progress.percentage || 0);
+                progressHtml = `
+                <div class="milestone-progress">
+                    <div class="milestone-progress-bar">
+                        <div class="milestone-progress-fill" style="width: ${percentage}%"></div>
+                    </div>
+                    <span class="milestone-progress-text">${progress.completed}/${progress.total} (${percentage}%)</span>
+                </div>`;
+            }
+            
+            let dueDateHtml = '';
+            if (dueDate) {
+                const dateStr = dueDate.toLocaleDateString();
+                const dueBadgeClass = isOverdue ? 'badge-overdue' : (isDueSoon ? 'badge-due-soon' : '');
+                dueDateHtml = `<span class="badge ${dueBadgeClass}" style="background: ${isOverdue ? 'var(--error)' : (isDueSoon ? 'var(--warning)' : 'var(--bg-tertiary)')}">📅 ${dateStr}</span>`;
+            }
+            
+            return `
+            <div class="card milestone-card ${isClosed ? 'card-closed' : ''} ${isInProgress ? 'card-in-progress' : ''}">
+                ${isClosed ? `<div class="closed-banner">✓ ${milestone.status === 'done' ? 'Completed' : 'Cancelled'}</div>` : ''}
+                ${isInProgress ? `<div class="in-progress-banner">⚡ In Progress</div>` : ''}
+                <div class="card-header">
+                    <div class="card-title">🏁 ${escapeHtml(milestone.title)}</div>
+                    <div class="card-actions">
+                        <button class="card-jump-btn" data-task-id="${milestone.id}" title="Jump to node on graph">
+                            📍
+                        </button>
+                    </div>
+                </div>
+                ${milestone.description ? `<div class="card-description">${escapeHtml(milestone.description)}</div>` : ''}
+                ${progressHtml}
+                <div class="card-meta">
+                    <span class="badge badge-priority-${milestone.priority ?? 2}">P${milestone.priority ?? 2}</span>
+                    <span class="badge" style="background: var(--bg-tertiary)">${milestone.id}</span>
+                    ${dueDateHtml}
+                    ${(milestone.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
                 </div>
             </div>`;
         }
