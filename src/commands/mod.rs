@@ -11003,7 +11003,7 @@ pub fn get_default_archive_directory() -> Option<std::path::PathBuf> {
 }
 
 /// Result of config set command.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ConfigSet {
     pub key: String,
     pub value: String,
@@ -11095,7 +11095,44 @@ pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet>
             }
         }
         _ => {
-            // No validation for unknown keys (for forward compatibility)
+            // Handle agent scaling config: agents.<type>.min and agents.<type>.max
+            if let Some(rest) = key.strip_prefix("agents.") {
+                let parts: Vec<&str> = rest.split('.').collect();
+                if parts.len() == 2 {
+                    let agent_type = parts[0];
+                    let field = parts[1];
+
+                    // Validate agent type
+                    let valid_types = ["worker", "planner", "buddy"];
+                    if !valid_types.contains(&agent_type) {
+                        return Err(Error::Other(format!(
+                            "Invalid agent type '{}'. Valid types: {}",
+                            agent_type,
+                            valid_types.join(", ")
+                        )));
+                    }
+
+                    // Validate field (min or max)
+                    if field != "min" && field != "max" {
+                        return Err(Error::Other(format!(
+                            "Invalid agent config field '{}'. Valid fields: min, max",
+                            field
+                        )));
+                    }
+
+                    // Validate value is a non-negative integer
+                    match value.parse::<u32>() {
+                        Ok(_) => {}
+                        Err(_) => {
+                            return Err(Error::Other(format!(
+                                "Invalid value for {}: '{}'. Must be a non-negative integer.",
+                                key, value
+                            )));
+                        }
+                    }
+                }
+            }
+            // No validation for other unknown keys (for forward compatibility)
         }
     }
 
@@ -11143,6 +11180,160 @@ pub fn config_list(repo_path: &Path) -> Result<ConfigList> {
     let count = configs.len();
 
     Ok(ConfigList { configs, count })
+}
+
+// === Agent Scaling Configuration ===
+
+/// Configuration for agent scaling.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentScalingConfig {
+    /// Minimum number of agents to maintain
+    pub min: u32,
+    /// Maximum number of agents to allow
+    pub max: u32,
+}
+
+/// All agent scaling configurations.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentScalingConfigs {
+    /// Worker agent scaling
+    pub worker: AgentScalingConfig,
+    /// Planner agent scaling
+    pub planner: AgentScalingConfig,
+    /// Buddy agent scaling
+    pub buddy: AgentScalingConfig,
+}
+
+impl Output for AgentScalingConfigs {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Agent Scaling Configuration:\n  \
+             worker:  min={}, max={}\n  \
+             planner: min={}, max={}\n  \
+             buddy:   min={}, max={}",
+            self.worker.min,
+            self.worker.max,
+            self.planner.min,
+            self.planner.max,
+            self.buddy.min,
+            self.buddy.max
+        )
+    }
+}
+
+/// Valid agent types for scaling configuration.
+pub const VALID_AGENT_TYPES: &[&str] = &["worker", "planner", "buddy"];
+
+/// Get agent scaling configuration for all types.
+pub fn config_get_agent_scaling(repo_path: &Path) -> Result<AgentScalingConfigs> {
+    let storage = Storage::open(repo_path)?;
+
+    let get_scaling = |agent_type: &str| -> AgentScalingConfig {
+        let min_key = format!("agents.{}.min", agent_type);
+        let max_key = format!("agents.{}.max", agent_type);
+
+        let min = storage
+            .get_config(&min_key)
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let max = storage
+            .get_config(&max_key)
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
+
+        AgentScalingConfig { min, max }
+    };
+
+    Ok(AgentScalingConfigs {
+        worker: get_scaling("worker"),
+        planner: get_scaling("planner"),
+        buddy: get_scaling("buddy"),
+    })
+}
+
+/// Get agent scaling configuration for a specific type.
+pub fn config_get_agent_scaling_for_type(
+    repo_path: &Path,
+    agent_type: &str,
+) -> Result<AgentScalingConfig> {
+    if !VALID_AGENT_TYPES.contains(&agent_type) {
+        return Err(Error::Other(format!(
+            "Invalid agent type '{}'. Valid types: {}",
+            agent_type,
+            VALID_AGENT_TYPES.join(", ")
+        )));
+    }
+
+    let storage = Storage::open(repo_path)?;
+    let min_key = format!("agents.{}.min", agent_type);
+    let max_key = format!("agents.{}.max", agent_type);
+
+    let min = storage
+        .get_config(&min_key)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let max = storage
+        .get_config(&max_key)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+
+    Ok(AgentScalingConfig { min, max })
+}
+
+/// Set agent scaling configuration for a specific type.
+/// Validates that min <= max.
+pub fn config_set_agent_scaling(
+    repo_path: &Path,
+    agent_type: &str,
+    min: Option<u32>,
+    max: Option<u32>,
+) -> Result<AgentScalingConfig> {
+    if !VALID_AGENT_TYPES.contains(&agent_type) {
+        return Err(Error::Other(format!(
+            "Invalid agent type '{}'. Valid types: {}",
+            agent_type,
+            VALID_AGENT_TYPES.join(", ")
+        )));
+    }
+
+    // Get current values
+    let current = config_get_agent_scaling_for_type(repo_path, agent_type)?;
+
+    let new_min = min.unwrap_or(current.min);
+    let new_max = max.unwrap_or(current.max);
+
+    // Validate min <= max
+    if new_min > new_max {
+        return Err(Error::Other(format!(
+            "Invalid scaling config: min ({}) cannot be greater than max ({})",
+            new_min, new_max
+        )));
+    }
+
+    let mut storage = Storage::open(repo_path)?;
+
+    if min.is_some() {
+        let min_key = format!("agents.{}.min", agent_type);
+        storage.set_config(&min_key, &new_min.to_string())?;
+    }
+
+    if max.is_some() {
+        let max_key = format!("agents.{}.max", agent_type);
+        storage.set_config(&max_key, &new_max.to_string())?;
+    }
+
+    Ok(AgentScalingConfig {
+        min: new_min,
+        max: new_max,
+    })
 }
 
 // === System Store Commands ===
@@ -20515,6 +20706,154 @@ mod tests {
             config_get_string(temp.path(), "co-author.email", "noreply@binnacle.bot"),
             "bot@example.com"
         );
+    }
+
+    // === Agent Scaling Config Tests ===
+
+    #[test]
+    fn test_agent_scaling_config_defaults() {
+        let temp = setup();
+
+        // Without any config set, should return defaults (min=0, max=1)
+        let scaling = config_get_agent_scaling(temp.path()).unwrap();
+        assert_eq!(scaling.worker.min, 0);
+        assert_eq!(scaling.worker.max, 1);
+        assert_eq!(scaling.planner.min, 0);
+        assert_eq!(scaling.planner.max, 1);
+        assert_eq!(scaling.buddy.min, 0);
+        assert_eq!(scaling.buddy.max, 1);
+    }
+
+    #[test]
+    fn test_agent_scaling_config_set_and_get() {
+        let temp = setup();
+
+        // Set worker scaling
+        let result = config_set_agent_scaling(temp.path(), "worker", Some(1), Some(3)).unwrap();
+        assert_eq!(result.min, 1);
+        assert_eq!(result.max, 3);
+
+        // Verify it persisted
+        let scaling = config_get_agent_scaling_for_type(temp.path(), "worker").unwrap();
+        assert_eq!(scaling.min, 1);
+        assert_eq!(scaling.max, 3);
+
+        // Set planner scaling
+        config_set_agent_scaling(temp.path(), "planner", Some(0), Some(2)).unwrap();
+        let scaling = config_get_agent_scaling_for_type(temp.path(), "planner").unwrap();
+        assert_eq!(scaling.min, 0);
+        assert_eq!(scaling.max, 2);
+    }
+
+    #[test]
+    fn test_agent_scaling_config_partial_update() {
+        let temp = setup();
+
+        // Set initial values
+        config_set_agent_scaling(temp.path(), "worker", Some(1), Some(3)).unwrap();
+
+        // Update only min
+        let result = config_set_agent_scaling(temp.path(), "worker", Some(2), None).unwrap();
+        assert_eq!(result.min, 2);
+        assert_eq!(result.max, 3); // max unchanged
+
+        // Update only max
+        let result = config_set_agent_scaling(temp.path(), "worker", None, Some(5)).unwrap();
+        assert_eq!(result.min, 2); // min unchanged
+        assert_eq!(result.max, 5);
+    }
+
+    #[test]
+    fn test_agent_scaling_config_min_greater_than_max_fails() {
+        let temp = setup();
+
+        // Try to set min > max
+        let result = config_set_agent_scaling(temp.path(), "worker", Some(5), Some(3));
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("min"));
+        assert!(err_msg.contains("greater than max"));
+    }
+
+    #[test]
+    fn test_agent_scaling_config_invalid_type() {
+        let temp = setup();
+
+        // Try invalid agent type
+        let result = config_set_agent_scaling(temp.path(), "invalid", Some(1), Some(2));
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Invalid agent type"));
+
+        let result = config_get_agent_scaling_for_type(temp.path(), "invalid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_agent_scaling_config_via_config_set() {
+        let temp = setup();
+
+        // Set via the general config_set function (validates the key format)
+        config_set(temp.path(), "agents.worker.min", "2").unwrap();
+        config_set(temp.path(), "agents.worker.max", "4").unwrap();
+
+        // Verify via specialized getter
+        let scaling = config_get_agent_scaling_for_type(temp.path(), "worker").unwrap();
+        assert_eq!(scaling.min, 2);
+        assert_eq!(scaling.max, 4);
+    }
+
+    #[test]
+    fn test_agent_scaling_config_validation_invalid_value() {
+        let temp = setup();
+
+        // Non-integer value should fail
+        let result = config_set(temp.path(), "agents.worker.min", "abc");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("non-negative integer")
+        );
+
+        // Negative value should fail (we're using u32)
+        let result = config_set(temp.path(), "agents.worker.max", "-1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_agent_scaling_config_validation_invalid_field() {
+        let temp = setup();
+
+        // Invalid field name should fail
+        let result = config_set(temp.path(), "agents.worker.invalid_field", "1");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid agent config field")
+        );
+    }
+
+    #[test]
+    fn test_agent_scaling_config_all_types() {
+        let temp = setup();
+
+        // Set scaling for all types
+        config_set_agent_scaling(temp.path(), "worker", Some(1), Some(3)).unwrap();
+        config_set_agent_scaling(temp.path(), "planner", Some(0), Some(1)).unwrap();
+        config_set_agent_scaling(temp.path(), "buddy", Some(2), Some(5)).unwrap();
+
+        // Get all scaling configs
+        let all = config_get_agent_scaling(temp.path()).unwrap();
+        assert_eq!(all.worker.min, 1);
+        assert_eq!(all.worker.max, 3);
+        assert_eq!(all.planner.min, 0);
+        assert_eq!(all.planner.max, 1);
+        assert_eq!(all.buddy.min, 2);
+        assert_eq!(all.buddy.max, 5);
     }
 
     #[test]
