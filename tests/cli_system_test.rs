@@ -2070,8 +2070,9 @@ fn test_store_archive_explicitly_disabled() {
 fn test_store_archive_with_config() {
     let env = init_binnacle();
 
-    // Create archive directory
-    let archive_dir = env.path().join("archives");
+    // Create archive directory OUTSIDE repo
+    let parent_dir = env.path().parent().unwrap();
+    let archive_dir = parent_dir.join("archives");
     fs::create_dir_all(&archive_dir).unwrap();
 
     // Configure archive directory
@@ -2156,8 +2157,9 @@ fn test_store_archive_human_readable_disabled() {
 fn test_store_archive_creates_directory() {
     let env = init_binnacle();
 
-    // Configure archive directory that doesn't exist yet
-    let archive_dir = env.path().join("new_archives");
+    // Configure archive directory that doesn't exist yet (must be outside repo)
+    let parent_dir = env.path().parent().unwrap();
+    let archive_dir = parent_dir.join("new_archives");
     bn_in(&env)
         .args([
             "config",

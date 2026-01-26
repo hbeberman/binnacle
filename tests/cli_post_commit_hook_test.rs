@@ -4,8 +4,17 @@ mod common;
 use common::TestEnv;
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// Helper to create an archive directory OUTSIDE the repository
+/// (validation now requires archive.directory to be external)
+fn create_external_archive_dir(env: &TestEnv) -> PathBuf {
+    let parent_dir = env.path().parent().unwrap();
+    let archive_dir = parent_dir.join("archives");
+    fs::create_dir_all(&archive_dir).unwrap();
+    archive_dir
+}
 
 /// Helper to initialize git in a TestEnv
 fn init_git(env: &TestEnv) {
@@ -88,9 +97,8 @@ fn test_post_commit_hook_with_archive_config() {
     init_git(&env);
     init_binnacle(&env);
 
-    // Configure archive directory
-    let archive_dir = env.path().join("archives");
-    fs::create_dir_all(&archive_dir).unwrap();
+    // Configure archive directory (must be outside repo)
+    let archive_dir = create_external_archive_dir(&env);
     env.bn()
         .args([
             "config",
@@ -209,10 +217,11 @@ fn test_archive_graceful_nonexistent_directory() {
     init_git(&env);
     init_binnacle(&env);
 
-    // Create parent directory so config validates, then remove it
-    let parent_dir = env.path().join("archive_parent");
-    let archive_dir = parent_dir.join("archives");
-    fs::create_dir_all(&parent_dir).unwrap();
+    // Create parent directory OUTSIDE repo so config validates, then make it unwritable
+    let parent_dir = env.path().parent().unwrap();
+    let archive_parent = parent_dir.join("archive_parent");
+    let archive_dir = archive_parent.join("archives");
+    fs::create_dir_all(&archive_parent).unwrap();
 
     // Configure archive directory - parent exists so this passes validation
     env.bn()
@@ -229,9 +238,9 @@ fn test_archive_graceful_nonexistent_directory() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&parent_dir).unwrap().permissions();
+        let mut perms = fs::metadata(&archive_parent).unwrap().permissions();
         perms.set_mode(0o444); // read-only
-        fs::set_permissions(&parent_dir, perms).unwrap();
+        fs::set_permissions(&archive_parent, perms).unwrap();
     }
 
     // Try to generate archive - should fail gracefully, not error
@@ -253,9 +262,9 @@ fn test_archive_graceful_nonexistent_directory() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&parent_dir).unwrap().permissions();
+        let mut perms = fs::metadata(parent_dir).unwrap().permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(&parent_dir, perms).unwrap();
+        fs::set_permissions(parent_dir, perms).unwrap();
     }
 }
 
@@ -265,8 +274,9 @@ fn test_archive_graceful_unwritable_directory() {
     init_git(&env);
     init_binnacle(&env);
 
-    // Create a directory and make it read-only
-    let archive_dir = env.path().join("readonly_archive");
+    // Create a directory OUTSIDE repo and make it read-only
+    let parent_dir = env.path().parent().unwrap();
+    let archive_dir = parent_dir.join("readonly_archive");
     fs::create_dir_all(&archive_dir).unwrap();
 
     // Make directory unwritable (Unix only)
@@ -319,10 +329,11 @@ fn test_archive_graceful_human_output() {
     init_git(&env);
     init_binnacle(&env);
 
-    // Create parent directory so config validates, then remove it
-    let parent_dir = env.path().join("archive_human_test");
-    let archive_dir = parent_dir.join("archives");
-    fs::create_dir_all(&parent_dir).unwrap();
+    // Create parent directory OUTSIDE repo so config validates, then make it unwritable
+    let parent_dir = env.path().parent().unwrap();
+    let archive_parent = parent_dir.join("archive_human_test");
+    let archive_dir = archive_parent.join("archives");
+    fs::create_dir_all(&archive_parent).unwrap();
 
     // Configure archive directory - parent exists so this passes validation
     env.bn()
@@ -339,9 +350,9 @@ fn test_archive_graceful_human_output() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&parent_dir).unwrap().permissions();
+        let mut perms = fs::metadata(&archive_parent).unwrap().permissions();
         perms.set_mode(0o444); // read-only
-        fs::set_permissions(&parent_dir, perms).unwrap();
+        fs::set_permissions(&archive_parent, perms).unwrap();
     }
 
     // Try with -H for human-readable output
@@ -362,8 +373,8 @@ fn test_archive_graceful_human_output() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&parent_dir).unwrap().permissions();
+        let mut perms = fs::metadata(parent_dir).unwrap().permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(&parent_dir, perms).unwrap();
+        fs::set_permissions(parent_dir, perms).unwrap();
     }
 }

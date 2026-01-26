@@ -11241,6 +11241,34 @@ pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet>
             // Non-empty value must be a valid path (parent directory should exist)
             if !value.trim().is_empty() {
                 let path = std::path::Path::new(value);
+
+                // Validate that archive directory is NOT inside the repository
+                // This prevents accidentally checking archives into version control
+                let repo_root = repo_path.canonicalize().map_err(|e| {
+                    Error::Other(format!("Failed to resolve repository path: {}", e))
+                })?;
+
+                // Resolve the archive path (canonicalize if exists, otherwise resolve relative paths)
+                let archive_path = if path.is_absolute() {
+                    // For absolute paths, use as-is (even if they don't exist yet)
+                    path.to_path_buf()
+                } else {
+                    // For relative paths, resolve against the repository root
+                    repo_path.join(path)
+                };
+
+                // Check if archive_path is inside repo_root or is the repo_root itself
+                // Use starts_with to check if it's a subdirectory
+                if archive_path.starts_with(&repo_root) {
+                    return Err(Error::Other(format!(
+                        "Archive directory must be OUTSIDE the repository. '{}' is inside '{}'.\n\
+                         Archives should be stored externally to avoid polluting version control.\n\
+                         Suggestion: Use the default (leave unset) or set to a path like ~/.local/share/binnacle/archives",
+                        archive_path.display(),
+                        repo_root.display()
+                    )));
+                }
+
                 if let Some(parent) = path.parent()
                     && !parent.as_os_str().is_empty()
                     && !parent.exists()
