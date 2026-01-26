@@ -14282,6 +14282,381 @@ pub fn agent_spawn(
     })
 }
 
+/// Result of agent reconciliation operation.
+#[derive(Serialize)]
+pub struct AgentReconcileResult {
+    /// Whether reconciliation ran successfully
+    pub success: bool,
+    /// Was this a dry run?
+    pub dry_run: bool,
+    /// Actions taken (or would be taken in dry_run mode)
+    pub actions: Vec<ReconcileAction>,
+    /// Current agent counts by type
+    pub current_counts: AgentTypeCounts,
+    /// Desired agent counts by type
+    pub desired_counts: AgentTypeCounts,
+    /// Ready work count (tasks + bugs) for work-aware scaling
+    pub work_count: usize,
+    /// Error message if reconciliation failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct AgentTypeCounts {
+    pub worker: usize,
+    pub planner: usize,
+    pub buddy: usize,
+}
+
+#[derive(Serialize)]
+pub struct ReconcileAction {
+    /// Action type: "spawn" or "stop"
+    pub action: String,
+    /// Agent type affected
+    pub agent_type: String,
+    /// Agent ID (for stop actions) or new agent ID (for spawn actions)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Agent name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    /// Reason for the action
+    pub reason: String,
+    /// Whether the action was executed (false in dry_run mode)
+    pub executed: bool,
+}
+
+impl Output for AgentReconcileResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        if self.dry_run {
+            lines.push("Reconciliation (dry run):".to_string());
+        } else {
+            lines.push("Reconciliation complete:".to_string());
+        }
+
+        lines.push(format!(
+            "  Work available: {} ready item(s)",
+            self.work_count
+        ));
+
+        lines.push(format!(
+            "  Workers: {} current, {} desired",
+            self.current_counts.worker, self.desired_counts.worker
+        ));
+        lines.push(format!(
+            "  Planners: {} current, {} desired",
+            self.current_counts.planner, self.desired_counts.planner
+        ));
+        lines.push(format!(
+            "  Buddies: {} current, {} desired",
+            self.current_counts.buddy, self.desired_counts.buddy
+        ));
+
+        if self.actions.is_empty() {
+            lines.push("\n  No actions needed.".to_string());
+        } else {
+            lines.push(format!("\n  Actions ({})", self.actions.len()));
+            for action in &self.actions {
+                let status = if self.dry_run {
+                    "would"
+                } else if action.executed {
+                    "did"
+                } else {
+                    "failed to"
+                };
+                lines.push(format!(
+                    "    {} {} {} - {}",
+                    status, action.action, action.agent_type, action.reason
+                ));
+                if let Some(id) = &action.agent_id {
+                    lines.push(format!("      Agent: {}", id));
+                }
+            }
+        }
+
+        if let Some(err) = &self.error {
+            lines.push(format!("\nError: {}", err));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Run agent reconciliation: compare current vs desired agent counts and spawn/stop as needed.
+///
+/// Reconciliation logic:
+/// - For each agent type, compare current count to desired count
+/// - For workers: desired = clamp(work_count, min, max), where work_count = ready_tasks + ready_bugs
+/// - For planners/buddies: desired = min (maintain minimum count)
+/// - If current < desired: spawn (desired - current) agents
+/// - If current > desired: stop (current - desired) agents (prefer idle, then oldest)
+pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcileResult> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Clean up stale agents first
+    let _ = storage.cleanup_stale_agents();
+
+    // Get current agent counts by type
+    let agents = storage.list_agents(None)?;
+    let current_worker_count = agents
+        .iter()
+        .filter(|a| a.agent_type == AgentType::Worker && a.goodbye_at.is_none())
+        .count();
+    let current_planner_count = agents
+        .iter()
+        .filter(|a| a.agent_type == AgentType::Planner && a.goodbye_at.is_none())
+        .count();
+    let current_buddy_count = agents
+        .iter()
+        .filter(|a| a.agent_type == AgentType::Buddy && a.goodbye_at.is_none())
+        .count();
+
+    let current_counts = AgentTypeCounts {
+        worker: current_worker_count,
+        planner: current_planner_count,
+        buddy: current_buddy_count,
+    };
+
+    // Get scaling configuration for each type
+    let worker_scaling = config_get_agent_scaling_for_type(repo_path, "worker")?;
+    let planner_scaling = config_get_agent_scaling_for_type(repo_path, "planner")?;
+    let buddy_scaling = config_get_agent_scaling_for_type(repo_path, "buddy")?;
+
+    // Get ready work count for work-aware worker scaling
+    let ready_result = ready(repo_path, false, false)?;
+    let work_count = ready_result.count + ready_result.bug_count;
+
+    // Calculate desired counts
+    // Workers: if no work, scale to 0 regardless of min; otherwise clamp(work_count, min, max)
+    let desired_worker_count = if work_count == 0 {
+        0
+    } else {
+        work_count.clamp(worker_scaling.min as usize, worker_scaling.max as usize)
+    };
+
+    // Planners and buddies: just maintain minimum (not work-aware)
+    let desired_planner_count = planner_scaling.min as usize;
+    let desired_buddy_count = buddy_scaling.min as usize;
+
+    let desired_counts = AgentTypeCounts {
+        worker: desired_worker_count,
+        planner: desired_planner_count,
+        buddy: desired_buddy_count,
+    };
+
+    let mut actions = Vec::new();
+
+    // Helper function to select agents to stop (prefer idle, then oldest)
+    fn select_agents_to_stop(agents: &[Agent], agent_type: AgentType, count: usize) -> Vec<Agent> {
+        let mut candidates: Vec<Agent> = agents
+            .iter()
+            .filter(|a| a.agent_type == agent_type && a.goodbye_at.is_none())
+            .cloned()
+            .collect();
+
+        // Sort: prefer idle (not active), then oldest (earliest started_at)
+        candidates.sort_by(|a, b| {
+            // Idle agents come first (active agents last)
+            let a_is_idle = a.status != crate::models::AgentStatus::Active;
+            let b_is_idle = b.status != crate::models::AgentStatus::Active;
+            match (a_is_idle, b_is_idle) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.started_at.cmp(&b.started_at), // Oldest first
+            }
+        });
+
+        candidates.into_iter().take(count).collect()
+    }
+
+    // Reconcile workers
+    if current_worker_count < desired_worker_count {
+        let to_spawn = desired_worker_count - current_worker_count;
+        for _ in 0..to_spawn {
+            let executed = if dry_run {
+                false
+            } else {
+                // Spawn a worker using agent_spawn
+                match agent_spawn(
+                    repo_path, "worker", None, // auto-generate name
+                    None, // default cpus
+                    None, // default memory
+                    None, // use repo_path
+                    "main", false, None,
+                ) {
+                    Ok(result) => result.success,
+                    Err(_) => false,
+                }
+            };
+            actions.push(ReconcileAction {
+                action: "spawn".to_string(),
+                agent_type: "worker".to_string(),
+                agent_id: None,
+                agent_name: None,
+                reason: format!(
+                    "Current count ({}) below desired ({}); {} work items available",
+                    current_worker_count, desired_worker_count, work_count
+                ),
+                executed,
+            });
+        }
+    } else if current_worker_count > desired_worker_count {
+        let to_stop = current_worker_count - desired_worker_count;
+        let agents_to_stop = select_agents_to_stop(&agents, AgentType::Worker, to_stop);
+        for agent in agents_to_stop {
+            let executed = if dry_run {
+                false
+            } else {
+                // Stop the agent's container if it has one
+                if let Some(ref container_id) = agent.container_id {
+                    let _ = container_stop(Some(container_id.clone()), false);
+                }
+                // Remove from registry
+                let _ = storage.remove_agent(agent.pid);
+                true
+            };
+            actions.push(ReconcileAction {
+                action: "stop".to_string(),
+                agent_type: "worker".to_string(),
+                agent_id: Some(agent.id.clone()),
+                agent_name: Some(agent.name.clone()),
+                reason: if work_count == 0 {
+                    "No work available".to_string()
+                } else {
+                    format!(
+                        "Current count ({}) above desired ({})",
+                        current_worker_count, desired_worker_count
+                    )
+                },
+                executed,
+            });
+        }
+    }
+
+    // Reconcile planners
+    if current_planner_count < desired_planner_count {
+        let to_spawn = desired_planner_count - current_planner_count;
+        for _ in 0..to_spawn {
+            let executed = if dry_run {
+                false
+            } else {
+                match agent_spawn(
+                    repo_path, "planner", None, None, None, None, "main", false, None,
+                ) {
+                    Ok(result) => result.success,
+                    Err(_) => false,
+                }
+            };
+            actions.push(ReconcileAction {
+                action: "spawn".to_string(),
+                agent_type: "planner".to_string(),
+                agent_id: None,
+                agent_name: None,
+                reason: format!(
+                    "Current count ({}) below minimum ({})",
+                    current_planner_count, desired_planner_count
+                ),
+                executed,
+            });
+        }
+    } else if current_planner_count > desired_planner_count {
+        let to_stop = current_planner_count - desired_planner_count;
+        let agents_to_stop = select_agents_to_stop(&agents, AgentType::Planner, to_stop);
+        for agent in agents_to_stop {
+            let executed = if dry_run {
+                false
+            } else {
+                if let Some(ref container_id) = agent.container_id {
+                    let _ = container_stop(Some(container_id.clone()), false);
+                }
+                let _ = storage.remove_agent(agent.pid);
+                true
+            };
+            actions.push(ReconcileAction {
+                action: "stop".to_string(),
+                agent_type: "planner".to_string(),
+                agent_id: Some(agent.id.clone()),
+                agent_name: Some(agent.name.clone()),
+                reason: format!(
+                    "Current count ({}) above maximum ({})",
+                    current_planner_count, planner_scaling.max
+                ),
+                executed,
+            });
+        }
+    }
+
+    // Reconcile buddies
+    if current_buddy_count < desired_buddy_count {
+        let to_spawn = desired_buddy_count - current_buddy_count;
+        for _ in 0..to_spawn {
+            let executed = if dry_run {
+                false
+            } else {
+                match agent_spawn(
+                    repo_path, "buddy", None, None, None, None, "main", false, None,
+                ) {
+                    Ok(result) => result.success,
+                    Err(_) => false,
+                }
+            };
+            actions.push(ReconcileAction {
+                action: "spawn".to_string(),
+                agent_type: "buddy".to_string(),
+                agent_id: None,
+                agent_name: None,
+                reason: format!(
+                    "Current count ({}) below minimum ({})",
+                    current_buddy_count, desired_buddy_count
+                ),
+                executed,
+            });
+        }
+    } else if current_buddy_count > desired_buddy_count {
+        let to_stop = current_buddy_count - desired_buddy_count;
+        let agents_to_stop = select_agents_to_stop(&agents, AgentType::Buddy, to_stop);
+        for agent in agents_to_stop {
+            let executed = if dry_run {
+                false
+            } else {
+                if let Some(ref container_id) = agent.container_id {
+                    let _ = container_stop(Some(container_id.clone()), false);
+                }
+                let _ = storage.remove_agent(agent.pid);
+                true
+            };
+            actions.push(ReconcileAction {
+                action: "stop".to_string(),
+                agent_type: "buddy".to_string(),
+                agent_id: Some(agent.id.clone()),
+                agent_name: Some(agent.name.clone()),
+                reason: format!(
+                    "Current count ({}) above maximum ({})",
+                    current_buddy_count, buddy_scaling.max
+                ),
+                executed,
+            });
+        }
+    }
+
+    Ok(AgentReconcileResult {
+        success: true,
+        dry_run,
+        actions,
+        current_counts,
+        desired_counts,
+        work_count,
+        error: None,
+    })
+}
+
 /// Force kill a process with SIGKILL (no graceful termination).
 #[cfg(unix)]
 fn force_kill_process(pid: u32) -> bool {

@@ -1116,6 +1116,10 @@ fn run_command(
                 )?;
                 output(&result, human);
             }
+            AgentCommands::Reconcile { dry_run } => {
+                let result = commands::agent_reconcile(repo_path, dry_run)?;
+                output(&result, human);
+            }
         },
         Some(Commands::Container { command }) => match command {
             ContainerCommands::Build { tag, no_cache } => {
@@ -2621,6 +2625,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "no_merge": no_merge,
                     "prompt": prompt.is_some()
                 }),
+            ),
+            AgentCommands::Reconcile { dry_run } => (
+                "agent reconcile".to_string(),
+                serde_json::json!({ "dry_run": dry_run }),
             ),
         },
 

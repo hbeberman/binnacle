@@ -1615,6 +1615,13 @@ pub enum AgentCommands {
         #[arg(long)]
         prompt: Option<String>,
     },
+
+    /// Run reconciliation loop once (spawn/stop containers to match desired counts)
+    Reconcile {
+        /// Show what would be done without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// Container management subcommands (requires containerd/buildah)
