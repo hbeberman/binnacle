@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Active Task Pane - Component Test</title>
+    <link rel="stylesheet" href="css/themes/dark.css">
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/active-task-pane.css">
+    <style>
+        body {
+            padding: 2rem;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            background: var(--accent);
+            color: var(--text-primary);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+        }
+        button:hover {
+            background: var(--accent-light);
+        }
+        .state-display {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 2rem;
+            font-family: monospace;
+            font-size: 0.875rem;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1 class="test-header">Active Task Pane - Component Test</h1>
+        
+        <div class="controls">
+            <button id="btn-no-task">No Active Task</button>
+            <button id="btn-active-task">Set Active Task</button>
+            <button id="btn-toggle-mode">Toggle Mode</button>
+        </div>
+        
+        <div id="pane-container"></div>
+        
+        <div class="state-display" id="state-display">State will appear here...</div>
+    </div>
+
+    <script type="module">
+        import { 
+            setEntities, 
+            setMode, 
+            ConnectionMode,
+            getMode,
+            getTasks,
+            subscribe
+        } from './js/state.js';
+        import { mountActiveTaskPane } from './js/components/active-task-pane.js';
+
+        // Mount the component
+        const pane = mountActiveTaskPane('#pane-container');
+
+        // Subscribe to state changes and update display
+        function updateStateDisplay() {
+            const tasks = getTasks();
+            const mode = getMode();
+            const activeTask = tasks.find(t => t.status === 'in_progress');
+            
+            document.getElementById('state-display').textContent = JSON.stringify({
+                mode,
+                taskCount: tasks.length,
+                activeTask: activeTask ? {
+                    id: activeTask.id,
+                    title: activeTask.title,
+                    short_name: activeTask.short_name,
+                    status: activeTask.status,
+                    updated_at: activeTask.updated_at
+                } : null
+            }, null, 2);
+        }
+
+        subscribe('*', updateStateDisplay);
+
+        // Test controls
+        document.getElementById('btn-no-task').addEventListener('click', () => {
+            setEntities('tasks', [
+                {
+                    id: 'bn-test1',
+                    type: 'task',
+                    title: 'Test Task 1',
+                    short_name: 'Test 1',
+                    status: 'pending',
+                    priority: 1,
+                    updated_at: new Date().toISOString()
+                },
+                {
+                    id: 'bn-test2',
+                    type: 'task',
+                    title: 'Test Task 2',
+                    short_name: 'Test 2',
+                    status: 'done',
+                    priority: 2,
+                    updated_at: new Date(Date.now() - 86400000).toISOString()
+                }
+            ]);
+        });
+
+        document.getElementById('btn-active-task').addEventListener('click', () => {
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+            setEntities('tasks', [
+                {
+                    id: 'bn-active',
+                    type: 'task',
+                    title: 'Port active task pane with timer',
+                    short_name: 'Active task pane',
+                    status: 'in_progress',
+                    priority: 2,
+                    updated_at: fiveMinutesAgo
+                },
+                {
+                    id: 'bn-test2',
+                    type: 'task',
+                    title: 'Another Task',
+                    short_name: 'Test 2',
+                    status: 'pending',
+                    priority: 3,
+                    updated_at: new Date().toISOString()
+                }
+            ]);
+        });
+
+        document.getElementById('btn-toggle-mode').addEventListener('click', () => {
+            const currentMode = getMode();
+            const newMode = currentMode === ConnectionMode.WEBSOCKET 
+                ? ConnectionMode.ARCHIVE 
+                : ConnectionMode.WEBSOCKET;
+            setMode(newMode, {});
+        });
+
+        // Initialize with WebSocket mode and no active task
+        setMode(ConnectionMode.WEBSOCKET, {});
+        document.getElementById('btn-no-task').click();
+    </script>
+</body>
+</html>
