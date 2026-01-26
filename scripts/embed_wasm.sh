@@ -184,3 +184,8 @@ if grep -q "__WASM_INIT_PLACEHOLDER__" "$OUTPUT_FILE"; then
 fi
 
 log_info "✓ Viewer ready: $OUTPUT_FILE"
+echo ""
+log_info "To run the viewer:"
+echo "  just serve-wasm              # Serve on http://localhost:8080"
+echo "  just serve-wasm 3000         # Serve on custom port"
+echo "  just serve-wasm 8080 file.bng   # Pre-load a .bng archive"
