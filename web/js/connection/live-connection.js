@@ -370,6 +370,7 @@ function normalizeAgents(agents) {
             type: 'agent',
             status: agent.status,
             pid: agent.pid,
+            container_id: agent.container_id,
             started_at: agent.started_at,
             last_heartbeat: agent.last_heartbeat,
             // Keep original agent data for renderer (used by drawAgentLabel)
