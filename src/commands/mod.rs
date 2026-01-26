@@ -13986,6 +13986,7 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
     let mut build_cmd = Command::new("buildah");
     build_cmd
         .arg("bud")
+        .arg("--layers") // Enable layer caching for faster rebuilds
         .arg("-t")
         .arg(format!("localhost/binnacle-worker:{}", tag))
         .arg("-f")
