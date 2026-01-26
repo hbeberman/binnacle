@@ -153,6 +153,7 @@ const listeners = new Map();
  * Subscribe to state changes
  * @param {string} path - Dot-notation path to watch (e.g., 'ui.currentView', 'entities.tasks')
  *                        Use '*' to subscribe to all changes
+ *                        Use 'prefix.*' to subscribe to all changes under a prefix (e.g., 'entities.*')
  * @param {Function} callback - Called with (newValue, oldValue, path)
  * @returns {Function} Unsubscribe function
  */
@@ -188,6 +189,22 @@ function notifyListeners(path, newValue, oldValue) {
                 callback(newValue, oldValue, path);
             } catch (e) {
                 console.error(`State listener error for path "${path}":`, e);
+            }
+        }
+    }
+    
+    // Notify prefix pattern listeners (e.g., 'entities.*' matches 'entities.tasks')
+    for (const [pattern, patternListeners] of listeners) {
+        if (pattern.endsWith('.*')) {
+            const prefix = pattern.slice(0, -2); // Remove '.*' suffix
+            if (path.startsWith(prefix + '.')) {
+                for (const callback of patternListeners) {
+                    try {
+                        callback(newValue, oldValue, path);
+                    } catch (e) {
+                        console.error(`State listener error for pattern "${pattern}":`, e);
+                    }
+                }
             }
         }
     }
