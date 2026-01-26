@@ -14309,7 +14309,7 @@ pub struct AgentTypeCounts {
     pub buddy: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ReconcileAction {
     /// Action type: "spawn" or "stop"
     pub action: String,
@@ -14403,7 +14403,37 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
     // Clean up stale agents first
     let _ = storage.cleanup_stale_agents();
 
-    // Get current agent counts by type
+    let mut actions = Vec::new();
+
+    // Handle goodbye agents: stop their containers and remove them from registry
+    // Agents set goodbye_at when they call `bn goodbye`, signaling they're done
+    let all_agents = storage.list_agents(None)?;
+    for agent in all_agents
+        .iter()
+        .filter(|a| a.goodbye_at.is_some() && a.container_id.is_some())
+    {
+        let executed = if dry_run {
+            false
+        } else {
+            // Stop the container (uses 15s timeout internally via container_stop_gracefully)
+            if let Some(ref container_id) = agent.container_id {
+                let _ = container_stop(Some(container_id.clone()), false);
+            }
+            // Remove agent from registry
+            let _ = storage.remove_agent(agent.pid);
+            true
+        };
+        actions.push(ReconcileAction {
+            action: "stop".to_string(),
+            agent_type: format!("{:?}", agent.agent_type).to_lowercase(),
+            agent_id: Some(agent.id.clone()),
+            agent_name: Some(agent.name.clone()),
+            reason: "Agent called goodbye".to_string(),
+            executed,
+        });
+    }
+
+    // Get current agent counts by type (refresh after goodbye cleanup)
     let agents = storage.list_agents(None)?;
     let current_worker_count = agents
         .iter()
@@ -14450,8 +14480,6 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
         planner: desired_planner_count,
         buddy: desired_buddy_count,
     };
-
-    let mut actions = Vec::new();
 
     // Helper function to select agents to stop (prefer idle, then oldest)
     fn select_agents_to_stop(agents: &[Agent], agent_type: AgentType, count: usize) -> Vec<Agent> {
@@ -22493,6 +22521,118 @@ mod tests {
         assert!(human.contains("Terminating agent session"));
         assert!(human.contains("grandparent PID"));
         assert!(human.contains("Reason: Done"));
+    }
+
+    #[test]
+    fn test_reconcile_handles_goodbye_agents() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Register an agent with goodbye_at set
+        let mut agent = Agent::new(
+            99997,
+            1,
+            "test-goodbye-agent".to_string(),
+            AgentType::Worker,
+        );
+        agent.goodbye_at = Some(Utc::now());
+        // No container_id means it won't try to stop a container
+        // (We can't have a real container in tests)
+        storage.register_agent(&agent).unwrap();
+
+        // Verify agent exists
+        assert!(storage.get_agent(99997).is_ok());
+
+        // Reconcile - since agent has no container_id, it won't be in the goodbye cleanup loop
+        // But let's verify reconcile still works and doesn't count goodbye agents as current
+        let result = agent_reconcile(temp.path(), true).unwrap();
+        assert!(result.success);
+        // Current worker count should be 0 (goodbye agents are filtered out)
+        assert_eq!(result.current_counts.worker, 0);
+    }
+
+    #[test]
+    fn test_reconcile_handles_goodbye_agents_with_container_id() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Use the current process PID so is_alive() returns true
+        let test_pid = std::process::id();
+
+        // Register an agent with goodbye_at AND container_id set
+        let mut agent = Agent::new(
+            test_pid,
+            1,
+            "test-container-agent".to_string(),
+            AgentType::Worker,
+        );
+        agent.goodbye_at = Some(Utc::now());
+        agent.container_id = Some("nonexistent-container".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        // Verify agent exists before reconcile
+        assert!(storage.get_agent(test_pid).is_ok());
+
+        // Reconcile (dry run) - should report a stop action for the goodbye agent
+        let result = agent_reconcile(temp.path(), true).unwrap();
+        assert!(result.success);
+
+        // Should have a stop action for the goodbye agent
+        let goodbye_action = result
+            .actions
+            .iter()
+            .find(|a| a.reason == "Agent called goodbye");
+        assert!(
+            goodbye_action.is_some(),
+            "Expected a 'goodbye' stop action, got: {:?}",
+            result.actions
+        );
+
+        // In dry run, executed should be false
+        assert!(!goodbye_action.unwrap().executed);
+
+        // Agent should still exist (dry run doesn't remove)
+        assert!(storage.get_agent(test_pid).is_ok());
+    }
+
+    #[test]
+    fn test_reconcile_removes_goodbye_agents_when_not_dry_run() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Use a derived PID to avoid conflicts with other tests
+        // We use parent PID + 1 which should still be a valid process (test runner)
+        let test_ppid = std::os::unix::process::parent_id();
+
+        // Register an agent with goodbye_at AND container_id set
+        let mut agent = Agent::new(
+            test_ppid,
+            1,
+            "test-cleanup-agent".to_string(),
+            AgentType::Worker,
+        );
+        agent.goodbye_at = Some(Utc::now());
+        agent.container_id = Some("nonexistent-container".to_string());
+        storage.register_agent(&agent).unwrap();
+
+        // Verify agent exists before reconcile
+        assert!(storage.get_agent(test_ppid).is_ok());
+
+        // Reconcile (not dry run) - should remove the goodbye agent
+        let result = agent_reconcile(temp.path(), false).unwrap();
+        assert!(result.success);
+
+        // Should have an executed stop action
+        let goodbye_action = result
+            .actions
+            .iter()
+            .find(|a| a.reason == "Agent called goodbye");
+        assert!(goodbye_action.is_some());
+        assert!(goodbye_action.unwrap().executed);
+
+        // Agent should be removed after reconcile
+        let storage = Storage::open(temp.path()).unwrap();
+        assert!(storage.get_agent(test_ppid).is_err());
     }
 
     // === Agent Kill Tests ===
