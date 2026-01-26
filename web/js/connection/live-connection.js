@@ -213,9 +213,17 @@ export function send(message) {
 /**
  * Request a full state sync from the server
  * Useful when recovering from missed updates.
+ * @returns {Promise<void>} Promise that resolves if request sent, rejects otherwise
  */
 export function requestSync() {
-    return send({ type: 'request_sync' });
+    return new Promise((resolve, reject) => {
+        const success = send({ type: 'request_sync' });
+        if (success) {
+            resolve();
+        } else {
+            reject(new Error('Failed to send sync request: not connected'));
+        }
+    });
 }
 
 // ============================================
