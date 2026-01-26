@@ -126,18 +126,27 @@ Before publishing releases, repository maintainers must configure:
    - Go to Settings → Environments → Release → Environment secrets
    - Add `CARGO_REGISTRY_TOKEN` with your crates.io API token
 
+3. **Add the `NPM_TOKEN` secret** (for @binnacle/viewer package):
+   - Get a token from [npmjs.com/settings/tokens](https://www.npmjs.com/settings/~/tokens)
+   - Create an "Automation" token with publish permissions
+   - Go to Settings → Environments → Release → Environment secrets
+   - Add `NPM_TOKEN` with your npm token
+
 ### Creating a Release
 
 1. Update version in `Cargo.toml`
-2. Commit: `git commit -am "chore: bump version to X.Y.Z"`
-3. Create a GitHub Release with tag `vX.Y.Z` (must match Cargo.toml version)
+2. Update version in `npm/package.json` (must match Cargo.toml version)
+3. Commit: `git commit -am "chore: bump version to X.Y.Z"`
+4. Create a GitHub Release with tag `vX.Y.Z` (must match Cargo.toml version)
 
 The CD workflow will:
 
 - Verify tag matches Cargo.toml version
 - Run preflight checks (fmt, clippy, tests)
 - Build and upload binaries to the release
+- Build the WASM viewer and upload viewer.html to the release
 - Publish to crates.io (only on release events)
+- Publish @binnacle/viewer to npm (only on release events)
 
 ## Questions?
 
