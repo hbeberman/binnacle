@@ -3818,17 +3818,23 @@ impl Storage {
     }
 
     /// Mark agents as idle or stale based on activity.
-    /// - Idle: No activity in the last 5 minutes
-    /// - Stale: PID is no longer running
+    /// - Active: Agent has activity in the last 5 minutes
+    /// - Idle: No activity in the last 5 minutes but less than 30 minutes
+    /// - Stale: PID is no longer running OR no activity for 30+ minutes
     pub fn update_agent_statuses(&mut self) -> Result<()> {
         let agents = self.list_agents(None)?;
         let now = chrono::Utc::now();
         let idle_threshold = chrono::Duration::minutes(5);
+        let stale_threshold = chrono::Duration::minutes(30);
 
         for mut agent in agents {
+            let inactive_duration = now.signed_duration_since(agent.last_activity_at);
             let new_status = if !agent.is_alive() {
                 AgentStatus::Stale
-            } else if now.signed_duration_since(agent.last_activity_at) > idle_threshold {
+            } else if inactive_duration > stale_threshold {
+                // Agent process is alive but unresponsive for 30+ minutes
+                AgentStatus::Stale
+            } else if inactive_duration > idle_threshold {
                 AgentStatus::Idle
             } else {
                 AgentStatus::Active
@@ -5816,6 +5822,63 @@ mod tests {
         // Should be empty now
         let agents = storage.list_agents(None).unwrap();
         assert_eq!(agents.len(), 0);
+    }
+
+    #[test]
+    fn test_update_agent_statuses_30min_stale() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Use the current process PID so the agent appears "alive"
+        let current_pid = std::process::id();
+        let mut agent = Agent::new(current_pid, 1, "test-agent".to_string(), AgentType::Worker);
+
+        // Set last_activity_at to 35 minutes ago (beyond the 30-minute stale threshold)
+        agent.last_activity_at = chrono::Utc::now() - chrono::Duration::minutes(35);
+        agent.status = AgentStatus::Active; // Start as active
+        storage.register_agent(&agent).unwrap();
+
+        // Update statuses - should mark as stale due to 30+ minute inactivity
+        storage.update_agent_statuses().unwrap();
+
+        let updated = storage.get_agent(current_pid).unwrap();
+        assert_eq!(updated.status, AgentStatus::Stale);
+    }
+
+    #[test]
+    fn test_update_agent_statuses_idle_not_stale() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Use the current process PID so the agent appears "alive"
+        let current_pid = std::process::id();
+        let mut agent = Agent::new(current_pid, 1, "test-agent".to_string(), AgentType::Worker);
+
+        // Set last_activity_at to 10 minutes ago (beyond idle threshold but before stale)
+        agent.last_activity_at = chrono::Utc::now() - chrono::Duration::minutes(10);
+        agent.status = AgentStatus::Active; // Start as active
+        storage.register_agent(&agent).unwrap();
+
+        // Update statuses - should mark as idle (not stale)
+        storage.update_agent_statuses().unwrap();
+
+        let updated = storage.get_agent(current_pid).unwrap();
+        assert_eq!(updated.status, AgentStatus::Idle);
+    }
+
+    #[test]
+    fn test_update_agent_statuses_stays_active() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Use the current process PID so the agent appears "alive"
+        let current_pid = std::process::id();
+        let agent = Agent::new(current_pid, 1, "test-agent".to_string(), AgentType::Worker);
+        // Fresh agent with recent activity (created_at and last_activity_at are set to now)
+        storage.register_agent(&agent).unwrap();
+
+        // Update statuses - should stay active
+        storage.update_agent_statuses().unwrap();
+
+        let updated = storage.get_agent(current_pid).unwrap();
+        assert_eq!(updated.status, AgentStatus::Active);
     }
 
     // === Session State Tests ===
