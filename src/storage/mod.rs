@@ -2723,7 +2723,9 @@ impl Storage {
 
     /// Get agent scaling config from config.kdl.
     /// Returns (min, max) for the specified agent type, or defaults (0, 1) if not found.
-    pub fn get_agent_scaling_kdl(&self, agent_type: &str) -> Result<(u32, u32)> {
+    /// Get agent scaling config from config.kdl.
+    /// Returns Some((min, max)) if the agent type is explicitly configured, None otherwise.
+    pub fn get_agent_scaling_kdl(&self, agent_type: &str) -> Result<Option<(u32, u32)>> {
         let doc = self.read_config_kdl()?;
 
         // Look for agents { worker min=X max=Y; ... }
@@ -2739,11 +2741,11 @@ impl Storage {
                 .get("max")
                 .and_then(|v| v.as_integer())
                 .unwrap_or(1) as u32;
-            return Ok((min, max));
+            return Ok(Some((min, max)));
         }
 
-        // Defaults
-        Ok((0, 1))
+        // Not configured in KDL
+        Ok(None)
     }
 
     /// Set agent scaling config in config.kdl.
