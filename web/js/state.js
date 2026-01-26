@@ -340,6 +340,26 @@ export function getReady() {
     return state.ready;
 }
 
+/**
+ * Get a node by ID from any entity type
+ * @param {string} id - Node ID
+ * @returns {Object|null} Node object or null if not found
+ */
+export function getNode(id) {
+    // Search in all entity types
+    const entityTypes = ['tasks', 'bugs', 'ideas', 'tests', 'docs', 'milestones', 'queues', 'agents'];
+    
+    for (const type of entityTypes) {
+        const entities = state.entities[type];
+        const node = entities.find(e => e.id === id);
+        if (node) {
+            return node;
+        }
+    }
+    
+    return null;
+}
+
 export function getCurrentView() {
     return state.ui.currentView;
 }
