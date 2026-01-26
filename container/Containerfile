@@ -48,6 +48,12 @@ RUN mkdir -p /etc/nss_wrapper && \
 ARG BN_BINARY_PATH=container/bn
 COPY ${BN_BINARY_PATH} /usr/local/bin/bn
 
+# Install git wrapper that blocks --no-verify
+# The wrapper intercepts git commit/push --no-verify and rejects it
+# This ensures agents cannot bypass commit hooks
+COPY container/git-wrapper.sh /usr/local/bin/git
+RUN chmod +x /usr/local/bin/git
+
 # Install GitHub Copilot CLI globally using npm
 # Note: Requires COPILOT_GITHUB_TOKEN at runtime for auth
 RUN npm install -g @github/copilot || true
