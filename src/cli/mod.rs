@@ -335,6 +335,18 @@ For detailed instructions, see: container/README.md
     /// Monitors agent scaling configuration and spawns/stops containers
     /// to match desired counts. Prints status updates on each reconciliation
     /// or every 30 seconds when idle.
+    ///
+    /// IMPORTANT: Run with sudo for system containerd access:
+    ///     sudo bn serve
+    ///
+    /// When running via sudo, binnacle automatically:
+    /// 1. Detects SUDO_USER environment variable
+    /// 2. Opens the containerd socket while elevated
+    /// 3. Drops privileges back to your user
+    /// 4. Creates all files with your ownership (not root)
+    ///
+    /// For rootless operation without sudo, see:
+    ///     container/README.md#rootless-setup
     Serve {
         /// Reconciliation interval in seconds (default: 10)
         #[arg(long, default_value = "10")]
