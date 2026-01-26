@@ -23,6 +23,7 @@
     <link rel="stylesheet" href="/css/components/doc-viewer.css">
     <link rel="stylesheet" href="/css/components/edge-info-panel.css">
     <link rel="stylesheet" href="/css/components/graph-controls.css">
+    <link rel="stylesheet" href="/css/components/node-list.css">
     
     <style>
         /* Additional layout styles for the full app */
@@ -223,6 +224,7 @@
         import { mountReadonlyIndicator } from './js/components/readonly-indicator.js';
         import { mountZoomControls } from './js/components/zoom-controls.js';
         import { mountGraphControls } from './js/components/graph-controls.js';
+        import { initializeNodeList } from './js/components/node-list.js';
         
         // Get container element
         const container = document.getElementById('app-container');
@@ -256,6 +258,18 @@
         
         // Initialize agent list
         initializeAgentList('#agents-list');
+        
+        // Initialize node list
+        initializeNodeList('#node-list', {
+            onNodeClick: (node) => {
+                console.log('Node clicked in list:', node);
+                // Switch to graph view and show the node
+                switchView('graph');
+                updateInfoPanelContent(infoPanel, node, [], [], []);
+                showInfoPanel(infoPanel);
+                // TODO: Pan to the node in the graph
+            }
+        });
         
         // Create and mount info panel
         const infoPanel = createInfoPanel();
