@@ -27,3 +27,6 @@ target
 # WASM build artifacts (wasm-pack output)
 pkg/
 *.wasm
+
+# Claude local settings
+.claude/
