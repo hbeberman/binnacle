@@ -309,6 +309,7 @@ pub async fn watch_storage(
     repo_path: PathBuf,
     update_tx: broadcast::Sender<String>,
     version: StateVersion,
+    message_history: super::server::MessageHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
 
@@ -389,82 +390,83 @@ pub async fn watch_storage(
                             // No actual changes, skip sending anything
                         } else if total_changes > MAX_INCREMENTAL_MESSAGES {
                             // Too many changes, fall back to reload
-                            let _ = update_tx.send(
-                                serde_json::json!({
-                                    "type": "reload",
+                            let reload_msg = serde_json::json!({
+                                "type": "reload",
+                                "version": new_version,
+                                "timestamp": timestamp
+                            })
+                            .to_string();
+                            let _ = update_tx.send(reload_msg);
+                            // Clear message history on reload - clients will sync from scratch
+                            message_history.clear().await;
+                        } else {
+                            // Send incremental messages and record them in history
+                            for change in &diff.added {
+                                let msg = serde_json::json!({
+                                    "type": "entity_added",
+                                    "entity_type": change.entity_type,
+                                    "id": change.id,
+                                    "entity": change.entity,
                                     "version": new_version,
                                     "timestamp": timestamp
                                 })
-                                .to_string(),
-                            );
-                        } else {
-                            // Send incremental messages
-                            for change in &diff.added {
-                                let _ = update_tx.send(
-                                    serde_json::json!({
-                                        "type": "entity_added",
-                                        "entity_type": change.entity_type,
-                                        "id": change.id,
-                                        "entity": change.entity,
-                                        "version": new_version,
-                                        "timestamp": timestamp
-                                    })
-                                    .to_string(),
-                                );
+                                .to_string();
+                                let _ = update_tx.send(msg.clone());
+                                message_history.push(new_version, msg).await;
                             }
 
                             for change in &diff.updated {
-                                let _ = update_tx.send(
-                                    serde_json::json!({
-                                        "type": "entity_updated",
-                                        "entity_type": change.entity_type,
-                                        "id": change.id,
-                                        "entity": change.entity,
-                                        "version": new_version,
-                                        "timestamp": timestamp
-                                    })
-                                    .to_string(),
-                                );
+                                let msg = serde_json::json!({
+                                    "type": "entity_updated",
+                                    "entity_type": change.entity_type,
+                                    "id": change.id,
+                                    "entity": change.entity,
+                                    "version": new_version,
+                                    "timestamp": timestamp
+                                })
+                                .to_string();
+                                let _ = update_tx.send(msg.clone());
+                                message_history.push(new_version, msg).await;
                             }
 
                             for removal in &diff.removed {
-                                let _ = update_tx.send(
-                                    serde_json::json!({
-                                        "type": "entity_removed",
-                                        "entity_type": removal.entity_type,
-                                        "id": removal.id,
-                                        "version": new_version,
-                                        "timestamp": timestamp
-                                    })
-                                    .to_string(),
-                                );
+                                let msg = serde_json::json!({
+                                    "type": "entity_removed",
+                                    "entity_type": removal.entity_type,
+                                    "id": removal.id,
+                                    "version": new_version,
+                                    "timestamp": timestamp
+                                })
+                                .to_string();
+                                let _ = update_tx.send(msg.clone());
+                                message_history.push(new_version, msg).await;
                             }
 
                             // Send edge messages
                             for edge in &edge_diff.added {
-                                let _ = update_tx.send(
-                                    serde_json::json!({
-                                        "type": "edge_added",
-                                        "id": edge.id,
-                                        "edge": edge,
-                                        "version": new_version,
-                                        "timestamp": timestamp
-                                    })
-                                    .to_string(),
-                                );
+                                let msg = serde_json::json!({
+                                    "type": "edge_added",
+                                    "id": edge.id,
+                                    "edge": edge,
+                                    "version": new_version,
+                                    "timestamp": timestamp
+                                })
+                                .to_string();
+                                let _ = update_tx.send(msg.clone());
+                                message_history.push(new_version, msg).await;
                             }
 
                             for edge in &edge_diff.removed {
-                                let _ = update_tx.send(
-                                    serde_json::json!({
-                                        "type": "edge_removed",
-                                        "id": edge.id,
-                                        "edge": edge,
-                                        "version": new_version,
-                                        "timestamp": timestamp
-                                    })
-                                    .to_string(),
-                                );
+                                let msg = serde_json::json!({
+                                    "type": "edge_removed",
+                                    "id": edge.id,
+                                    "edge": edge,
+                                    "version": new_version,
+                                    "timestamp": timestamp
+                                })
+                                .to_string();
+                                let _ = update_tx.send(msg.clone());
+                                message_history.push(new_version, msg).await;
                             }
                         }
 

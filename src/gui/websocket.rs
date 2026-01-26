@@ -36,6 +36,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
     let metrics = state.ws_metrics.clone();
     let version = state.version.clone();
+    let message_history = state.message_history.clone();
     let current_version = version.current();
 
     // Track connection opened
@@ -101,9 +102,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         match client_msg {
                             ClientMessage::RequestSync { last_version } => {
                                 let current = version.current();
-                                // For now, always send full sync since incremental messages
-                                // aren't implemented yet. In the future, if last_version is
-                                // recent enough and we have delta history, send incremental.
+
                                 let response = if last_version.is_some_and(|v| v == current) {
                                     // Client is up to date, just acknowledge
                                     serde_json::json!({
@@ -112,18 +111,54 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                         "status": "up_to_date",
                                         "timestamp": chrono::Utc::now().to_rfc3339()
                                     })
+                                } else if let Some(last_v) = last_version {
+                                    // Client has a version - try incremental catch-up
+                                    match message_history.get_since(last_v).await {
+                                        Some(messages) if !messages.is_empty() => {
+                                            // We have the incremental messages!
+                                            // Send them as an array
+                                            let message_list: Vec<serde_json::Value> = messages
+                                                .iter()
+                                                .filter_map(|m| {
+                                                    serde_json::from_str(&m.message).ok()
+                                                })
+                                                .collect();
+
+                                            serde_json::json!({
+                                                "type": "sync_catchup",
+                                                "version": current,
+                                                "last_version": last_v,
+                                                "messages": message_list,
+                                                "timestamp": chrono::Utc::now().to_rfc3339()
+                                            })
+                                        }
+                                        Some(_) => {
+                                            // History exists but no new messages (already up to date)
+                                            serde_json::json!({
+                                                "type": "sync_ack",
+                                                "version": current,
+                                                "status": "up_to_date",
+                                                "timestamp": chrono::Utc::now().to_rfc3339()
+                                            })
+                                        }
+                                        None => {
+                                            // Version too old, not in history - need full reload
+                                            serde_json::json!({
+                                                "type": "sync_response",
+                                                "version": current,
+                                                "action": "reload",
+                                                "reason": "version_too_old",
+                                                "timestamp": chrono::Utc::now().to_rfc3339()
+                                            })
+                                        }
+                                    }
                                 } else {
-                                    // Client needs to reload - send reload message
-                                    // Future: could send delta if gap is small
+                                    // No version provided - client needs full reload
                                     serde_json::json!({
                                         "type": "sync_response",
                                         "version": current,
                                         "action": "reload",
-                                        "reason": if last_version.is_none() {
-                                            "no_version_provided"
-                                        } else {
-                                            "version_gap"
-                                        },
+                                        "reason": "no_version_provided",
                                         "timestamp": chrono::Utc::now().to_rfc3339()
                                     })
                                 };

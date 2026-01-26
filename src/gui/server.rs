@@ -132,6 +132,110 @@ impl StateVersion {
     }
 }
 
+/// Maximum number of messages to keep in history for catch-up
+const MESSAGE_HISTORY_SIZE: usize = 100;
+
+/// Stored message with its version number
+#[derive(Clone)]
+pub struct VersionedMessage {
+    /// Version number when this message was created
+    pub version: u64,
+    /// The serialized message JSON
+    pub message: String,
+}
+
+/// Circular buffer for storing recent incremental messages
+///
+/// This enables clients to catch up on missed messages without reloading
+/// the entire graph state.
+#[derive(Clone)]
+pub struct MessageHistory {
+    /// Internal buffer wrapped for thread-safe access
+    buffer: Arc<Mutex<MessageHistoryInner>>,
+}
+
+struct MessageHistoryInner {
+    /// Circular buffer of recent messages
+    messages: Vec<VersionedMessage>,
+    /// Oldest version number we can serve (start of buffer)
+    oldest_version: u64,
+    /// Maximum buffer size
+    capacity: usize,
+}
+
+impl MessageHistory {
+    /// Create a new message history with the given capacity
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            buffer: Arc::new(Mutex::new(MessageHistoryInner {
+                messages: Vec::with_capacity(capacity),
+                oldest_version: 1,
+                capacity,
+            })),
+        }
+    }
+
+    /// Create a new message history with default capacity
+    pub fn default() -> Self {
+        Self::new(MESSAGE_HISTORY_SIZE)
+    }
+
+    /// Add a message to the history
+    pub async fn push(&self, version: u64, message: String) {
+        let mut inner = self.buffer.lock().await;
+
+        // Add message to buffer
+        inner.messages.push(VersionedMessage { version, message });
+
+        // If we exceed capacity, remove oldest messages
+        if inner.messages.len() > inner.capacity {
+            let excess = inner.messages.len() - inner.capacity;
+            inner.messages.drain(0..excess);
+
+            // Update oldest_version to reflect what's available
+            if let Some(first) = inner.messages.first() {
+                inner.oldest_version = first.version;
+            }
+        }
+    }
+
+    /// Clear the message history (e.g., when a full reload is sent)
+    pub async fn clear(&self) {
+        let mut inner = self.buffer.lock().await;
+        inner.messages.clear();
+        // Keep track of where we are, even though buffer is empty
+        // This will be updated when new messages arrive
+    }
+
+    /// Get messages since the given version (inclusive)
+    ///
+    /// Returns None if the requested version is too old (not in history)
+    /// Returns Some(vec) with the messages if available
+    pub async fn get_since(&self, since_version: u64) -> Option<Vec<VersionedMessage>> {
+        let inner = self.buffer.lock().await;
+
+        // Check if we can serve this request
+        if inner.messages.is_empty() {
+            return Some(Vec::new());
+        }
+
+        // If requested version is older than our oldest, we can't help
+        if since_version < inner.oldest_version {
+            return None;
+        }
+
+        // Find messages with version > since_version
+        let messages: Vec<VersionedMessage> = inner
+            .messages
+            .iter()
+            .filter(|m| m.version > since_version)
+            .cloned()
+            .collect();
+
+        Some(messages)
+    }
+}
+
 /// Shared application state
 #[derive(Clone)]
 pub struct AppState {
@@ -149,6 +253,8 @@ pub struct AppState {
     pub readonly: bool,
     /// Monotonic version counter for state synchronization
     pub version: StateVersion,
+    /// Message history for catch-up synchronization
+    pub message_history: MessageHistory,
 }
 
 /// Start the GUI web server
@@ -170,6 +276,7 @@ pub async fn start_server(
         .to_string();
 
     let version = StateVersion::new();
+    let message_history = MessageHistory::default();
 
     let state = AppState {
         storage: Arc::new(Mutex::new(storage)),
@@ -179,11 +286,13 @@ pub async fn start_server(
         repo_path: repo_path.to_path_buf(),
         readonly,
         version,
+        message_history: message_history.clone(),
     };
 
     // Start file watcher in background
     let watcher_tx = state.update_tx.clone();
     let watcher_version = state.version.clone();
+    let watcher_message_history = message_history;
     let watcher_storage_path = storage_dir.clone();
     let watcher_repo_path = repo_path.to_path_buf();
     tokio::spawn(async move {
@@ -192,6 +301,7 @@ pub async fn start_server(
             watcher_repo_path,
             watcher_tx,
             watcher_version,
+            watcher_message_history,
         )
         .await
         {
