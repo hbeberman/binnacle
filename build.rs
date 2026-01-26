@@ -11,6 +11,9 @@ fn main() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/index");
 
+    // Rerun if GUI files change
+    println!("cargo:rerun-if-changed=src/gui/index.html");
+
     // Get build timestamp
     let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     println!("cargo:rustc-env=BN_BUILD_TIMESTAMP={}", timestamp);

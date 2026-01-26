@@ -3156,6 +3156,24 @@
             color: var(--text-primary);
         }
 
+        /* Follow type selector dropdown */
+        .follow-type-selector {
+            font-size: 0.7rem;
+            padding: 0.15rem 0.25rem;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            cursor: pointer;
+            max-width: 100px;
+            text-overflow: ellipsis;
+        }
+
+        .follow-type-selector option {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
         /* Auto-follow config button */
         .auto-follow-config-btn {
             width: 24px;
@@ -4635,7 +4653,7 @@
             }
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 500px) {
             .graph-controls {
                 max-width: calc(100vw - 2rem);
                 flex-direction: column;
@@ -4646,7 +4664,8 @@
             }
             .hide-completed-toggle,
             .auto-follow-toggle,
-            .chain-length-filter {
+            .chain-length-filter,
+            .end-goals-toggle {
                 border-right: none;
                 padding-right: 0;
                 margin-right: 0;
@@ -5237,6 +5256,13 @@
                     </div>
                     <div class="auto-follow-toggle" style="position: relative;">
                         <span class="auto-follow-label">Follow</span>
+                        <select class="follow-type-selector" id="follow-type-selector" title="Select type to follow">
+                            <option value="">Any</option>
+                            <option value="task">📋 Tasks</option>
+                            <option value="bug">🐛 Bugs</option>
+                            <option value="idea">💡 Ideas</option>
+                            <option value="agent">🤖 Agents</option>
+                        </select>
                         <select class="agent-selector" id="agent-selector" title="Select target to follow">
                             <option value="">None</option>
                         </select>
@@ -5982,6 +6008,7 @@
                 // Auto-follow state
                 autoFollow: true,  // Whether auto-follow is enabled
                 followTargetId: 'auto',  // Target to follow: 'auto', 'active-task', 'queue', or agent ID (e.g., 'bn-xxxx')
+                followTypeFilter: '',  // Type filter for follow targets: '', 'task', 'bug', 'idea', 'agent'
                 followingNodeId: null,  // ID of node currently being followed (for continuous tracking)
                 lastFocusSwitchTime: 0,  // Timestamp of last focus switch (for configurable delay)
                 // Auto-follow config (loaded from localStorage)
@@ -7310,6 +7337,12 @@
             }
         });
 
+        document.getElementById('follow-type-selector').addEventListener('change', (e) => {
+            state.graph.followTypeFilter = e.target.value || '';
+            // Update the agent selector options based on type filter
+            updateFollowSelector();
+        });
+
         // Auto-follow config popover
         const configBtn = document.getElementById('auto-follow-config-btn');
         const configPopover = document.getElementById('auto-follow-config-popover');
@@ -7417,6 +7450,7 @@
             const selector = document.getElementById('agent-selector');
             const workerAgents = (state.agents || []).filter(a => a.agent_type === 'worker');
             const queueNode = state.tasks?.find(t => t.type === 'queue');
+            const typeFilter = state.graph.followTypeFilter || '';
             const hasActiveTask = state.tasks?.some(t => 
                 (t.type === 'task' || t.type === 'bug') && t.status === 'in_progress'
             );
@@ -7427,21 +7461,23 @@
             // Clear and repopulate options - start with 'Auto' (default)
             selector.innerHTML = '<option value="auto">Auto</option>';
             
-            // Add "Active Task" option
-            const activeOption = document.createElement('option');
-            activeOption.value = 'active-task';
-            activeOption.textContent = 'Active Task';
-            if (!hasActiveTask) {
-                activeOption.disabled = true;
-                activeOption.textContent = 'Active Task (none)';
+            // Add "Active Task" option - show if no type filter or filter matches task/bug
+            if (!typeFilter || typeFilter === 'task' || typeFilter === 'bug') {
+                const activeOption = document.createElement('option');
+                activeOption.value = 'active-task';
+                activeOption.textContent = 'Active Task';
+                if (!hasActiveTask) {
+                    activeOption.disabled = true;
+                    activeOption.textContent = 'Active Task (none)';
+                }
+                if (currentValue === 'active-task' || state.graph.followTargetId === 'active-task') {
+                    activeOption.selected = true;
+                }
+                selector.appendChild(activeOption);
             }
-            if (currentValue === 'active-task' || state.graph.followTargetId === 'active-task') {
-                activeOption.selected = true;
-            }
-            selector.appendChild(activeOption);
             
-            // Add "Queue" option
-            if (queueNode) {
+            // Add "Queue" option - show if no type filter (queue is a special type)
+            if (!typeFilter && queueNode) {
                 const queueOption = document.createElement('option');
                 queueOption.value = 'queue';
                 queueOption.textContent = 'Queue';
@@ -7451,8 +7487,8 @@
                 selector.appendChild(queueOption);
             }
             
-            // Add agents if any exist
-            if (workerAgents.length > 0) {
+            // Add agents if any exist - show if no type filter or filter is 'agent'
+            if ((!typeFilter || typeFilter === 'agent') && workerAgents.length > 0) {
                 // Add separator
                 const separator = document.createElement('option');
                 separator.disabled = true;

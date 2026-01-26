@@ -26,6 +26,13 @@ export function createGraphControls() {
         </div>
         <div class="auto-follow-toggle" style="position: relative;">
             <span class="auto-follow-label">Follow</span>
+            <select class="follow-type-selector" id="follow-type-selector" title="Select type to follow">
+                <option value="">Any</option>
+                <option value="task">📋 Tasks</option>
+                <option value="bug">🐛 Bugs</option>
+                <option value="idea">💡 Ideas</option>
+                <option value="agent">🤖 Agents</option>
+            </select>
             <button class="auto-follow-switch" id="auto-follow-switch" title="Auto-focus on selected types"></button>
             <button class="auto-follow-config-btn" id="auto-follow-config-btn" title="Configure auto-follow settings">⚙</button>
             <div class="auto-follow-config-popover" id="auto-follow-config-popover">
@@ -130,6 +137,23 @@ export function initializeGraphControls(controls, options = {}) {
             State.set('ui.autoFollow', newState);
             if (onAutoFollowToggle) {
                 onAutoFollowToggle(newState);
+            }
+        });
+    }
+    
+    // Initialize follow type selector
+    const followTypeSelector = controls.querySelector('#follow-type-selector');
+    if (followTypeSelector) {
+        // Load initial state
+        const followType = State.get('ui.followTypeFilter') || '';
+        followTypeSelector.value = followType;
+        
+        followTypeSelector.addEventListener('change', () => {
+            const newType = followTypeSelector.value;
+            State.set('ui.followTypeFilter', newType);
+            // Optionally trigger a callback if needed
+            if (options.onFollowTypeChange) {
+                options.onFollowTypeChange(newType);
             }
         });
     }

@@ -8,7 +8,9 @@
 //!
 //! Note: Tests use --dry-run to avoid actually terminating processes.
 
-mod common;
+use assert_cmd::Command;
+use predicates::prelude::*;
+use tempfile::TempDir;
 
 /// Get a Command for the bn binary, running in a temp directory.
 /// Clears BN_AGENT_ID to prevent interference from the outer environment
@@ -20,9 +22,11 @@ fn bn_in(dir: &TempDir) -> Command {
     cmd
 }
 
-/// Initialize binnacle and return the TestEnv.
-fn init_binnacle() -> TestEnv {
-    TestEnv::init()
+/// Initialize binnacle in a temp directory and return the temp dir.
+fn init_binnacle() -> TempDir {
+    let temp = TempDir::new().unwrap();
+    bn_in(&temp).args(["system", "init"]).assert().success();
+    temp
 }
 
 // === bn goodbye Tests ===
@@ -135,7 +139,7 @@ fn test_goodbye_removes_agent_from_registry() {
 
 #[test]
 fn test_goodbye_help() {
-    let temp = TestEnv::new();
+    let temp = TempDir::new().unwrap();
 
     bn_in(&temp)
         .args(["goodbye", "--help"])
@@ -208,7 +212,7 @@ fn test_goodbye_json_includes_warning_field() {
 
 #[test]
 fn test_goodbye_force_flag_documented_in_help() {
-    let temp = TestEnv::new();
+    let temp = TempDir::new().unwrap();
 
     bn_in(&temp)
         .args(["goodbye", "--help"])
