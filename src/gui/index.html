@@ -9150,22 +9150,28 @@
                 existingNodes.set(node.id, { x: node.x, y: node.y });
             });
 
-            // Convert tasks to nodes - preserve positions or place in circular layout
-            state.graph.nodes = state.tasks.map((task, index) => {
-                const existing = existingNodes.get(task.id);
+            // Combine tasks and milestones for graph nodes
+            const allEntities = [
+                ...state.tasks,
+                ...(state.milestones || []).map(m => ({ ...m, type: 'milestone' }))
+            ];
+
+            // Convert entities to nodes - preserve positions or place in circular layout
+            state.graph.nodes = allEntities.map((entity, index) => {
+                const existing = existingNodes.get(entity.id);
 
                 if (existing) {
                     // Preserve existing position, but reset velocity to prevent oscillation
                     return {
-                        id: task.id,
-                        title: task.title,
-                        short_name: task.short_name,
-                        status: task.status,
-                        priority: task.priority,
-                        type: task.type || 'task',
-                        closed_at: task.closed_at,  // Track when node was completed for fade-out
-                        _departing: task._departing,  // Track departing agents for fade-out
-                        _agent: task._agent,  // Preserve agent data for double-click modal
+                        id: entity.id,
+                        title: entity.title,
+                        short_name: entity.short_name,
+                        status: entity.status,
+                        priority: entity.priority,
+                        type: entity.type || 'task',
+                        closed_at: entity.closed_at,  // Track when node was completed for fade-out
+                        _departing: entity._departing,  // Track departing agents for fade-out
+                        _agent: entity._agent,  // Preserve agent data for double-click modal
                         x: existing.x,
                         y: existing.y,
                         vx: 0,
@@ -9174,20 +9180,20 @@
                     };
                 } else {
                     // New node - place in circular layout in world space
-                    const totalNodes = state.tasks.length;
+                    const totalNodes = allEntities.length;
                     const angle = (index / totalNodes) * 2 * Math.PI;
                     const radius = 300; // Initial radius in world units
 
                     return {
-                        id: task.id,
-                        title: task.title,
-                        short_name: task.short_name,
-                        status: task.status,
-                        priority: task.priority,
-                        type: task.type || 'task',
-                        closed_at: task.closed_at,  // Track when node was completed for fade-out
-                        _departing: task._departing,  // Track departing agents for fade-out
-                        _agent: task._agent,  // Preserve agent data for double-click modal
+                        id: entity.id,
+                        title: entity.title,
+                        short_name: entity.short_name,
+                        status: entity.status,
+                        priority: entity.priority,
+                        type: entity.type || 'task',
+                        closed_at: entity.closed_at,  // Track when node was completed for fade-out
+                        _departing: entity._departing,  // Track departing agents for fade-out
+                        _agent: entity._agent,  // Preserve agent data for double-click modal
                         x: Math.cos(angle) * radius,
                         y: Math.sin(angle) * radius,
                         vx: 0,
@@ -10493,14 +10499,14 @@
             
             // Sort: open first, ready first, by priority, then by ID
             allNodes.sort((a, b) => {
-                // Type ordering: tasks/bugs first, then ideas, then tests, then docs
-                const typeOrder = { task: 0, bug: 1, idea: 2, test: 3, doc: 4 };
+                // Type ordering: tasks/bugs/milestones first, then ideas, then tests, then docs
+                const typeOrder = { task: 0, bug: 1, milestone: 2, idea: 3, test: 4, doc: 5 };
                 if (typeOrder[a.nodeType] !== typeOrder[b.nodeType]) {
-                    return typeOrder[a.nodeType] - typeOrder[b.nodeType];
+                    return (typeOrder[a.nodeType] ?? 99) - (typeOrder[b.nodeType] ?? 99);
                 }
                 
-                // For tasks/bugs: open first, ready first, priority
-                if (a.nodeType === 'task' || a.nodeType === 'bug') {
+                // For tasks/bugs/milestones: open first, ready first, priority
+                if (a.nodeType === 'task' || a.nodeType === 'bug' || a.nodeType === 'milestone') {
                     const aOpen = a.status !== 'done' && a.status !== 'cancelled';
                     const bOpen = b.status !== 'done' && b.status !== 'cancelled';
                     if (aOpen !== bOpen) return bOpen - aOpen;
