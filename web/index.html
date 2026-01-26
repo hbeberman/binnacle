@@ -343,7 +343,7 @@
             
             // Detect connection mode and connect
             const mode = connection.detectMode();
-            await connection.applyDetectedMode();
+            await connection.applyDetectedMode(mode);
             
             // Start graph animation
             graph.startAnimation();
