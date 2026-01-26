@@ -7,6 +7,7 @@ LABEL org.opencontainers.image.description="AI agent worker with binnacle task t
 LABEL org.opencontainers.image.source="https://github.com/hbeberman/binnacle"
 
 # Install system dependencies
+# gcc/make: Required for Rust's C linker (compiling native crates)
 # Rust toolchain is needed for pre-commit hooks (cargo fmt, clippy, audit)
 RUN dnf install -y \
     git \
@@ -23,6 +24,8 @@ RUN dnf install -y \
     nodejs \
     npm \
     nss_wrapper \
+    gcc \
+    make \
     && dnf clean all
 
 # Install Rust toolchain via rustup
