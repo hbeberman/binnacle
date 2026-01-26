@@ -85,8 +85,8 @@
         initializeInfoPanel(panel, {
             onClose: () => console.log('Panel closed'),
             onTabChange: (tabName) => console.log('Tab changed to:', tabName),
-            onQueueToggle: () => {
-                console.log('Queue toggle clicked');
+            onQueueToggle: (nodeId) => {
+                console.log('Queue toggle clicked for node:', nodeId);
                 const btn = panel.querySelector('#queue-toggle-btn');
                 btn.classList.toggle('active');
             },

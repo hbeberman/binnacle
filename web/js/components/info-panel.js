@@ -62,7 +62,9 @@ export function createInfoPanel() {
         <div id="info-panel-details-tab" class="info-panel-tab-content active">
             <div id="info-panel-queue-section" class="info-panel-queue-section" style="display: none;">
                 <span class="info-panel-queue-label">In Queue</span>
-                <button id="queue-toggle-btn" class="queue-toggle-switch" title="Toggle queue membership"></button>
+                <div class="write-action-container" data-readonly-tooltip="Queue changes unavailable in readonly mode">
+                    <button id="queue-toggle-btn" class="queue-toggle-switch write-action" title="Toggle queue membership"></button>
+                </div>
             </div>
             <div id="info-panel-doc-open-section" class="info-panel-doc-open-section" style="display: none;">
                 <span class="info-panel-doc-open-label">View Document</span>
@@ -146,7 +148,11 @@ export function initializeInfoPanel(panel, options = {}) {
     const queueToggleBtn = panel.querySelector('#queue-toggle-btn');
     if (queueToggleBtn) {
         queueToggleBtn.addEventListener('click', () => {
-            onQueueToggle();
+            // Get the current node ID from the panel's data attribute
+            const nodeId = panel.dataset.currentNodeId;
+            if (nodeId) {
+                onQueueToggle(nodeId);
+            }
         });
     }
     
@@ -219,6 +225,9 @@ export function updateInfoPanelContent(panel, node) {
         hideInfoPanel(panel);
         return;
     }
+    
+    // Store current node ID in panel data attribute for callbacks
+    panel.dataset.currentNodeId = node.id || '';
     
     // Update ID
     const idEl = panel.querySelector('#info-panel-id');
