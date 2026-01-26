@@ -55,13 +55,19 @@ pub(crate) mod test_utils {
     pub fn init_test_env_var() {
         TEST_DATA_DIR.get_or_init(|| {
             let dir = TempDir::new().unwrap();
-            // SAFETY: set_var is technically unsafe on POSIX due to setenv(3) not being
+            // SAFETY: set_var/remove_var is technically unsafe on POSIX due to setenv(3) not being
             // thread-safe. This is acceptable in test code because:
             // 1. OnceLock ensures this runs exactly once
             // 2. Tests call new_with_env() early in setup
             // 3. Integration tests use per-subprocess env vars (completely safe)
             unsafe {
                 std::env::set_var("BN_DATA_DIR", dir.path());
+                // Clear agent-related env vars to prevent test pollution from the calling shell
+                // (e.g., when running tests from an agent session with BN_AGENT_ID set)
+                std::env::remove_var("BN_AGENT_ID");
+                std::env::remove_var("BN_AGENT_SESSION");
+                std::env::remove_var("BN_MCP_SESSION");
+                std::env::remove_var("BN_CONTAINER_MODE");
             }
             dir
         });

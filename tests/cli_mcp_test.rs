@@ -85,7 +85,7 @@ fn test_mcp_manifest_contains_agents_resource() {
 }
 
 #[test]
-fn test_mcp_manifest_has_four_tools() {
+fn test_mcp_manifest_has_five_tools() {
     let env = setup();
 
     let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
@@ -96,8 +96,8 @@ fn test_mcp_manifest_has_four_tools() {
     let tools = manifest["tools"].as_array().unwrap();
     assert_eq!(
         tools.len(),
-        4,
-        "Should have exactly 4 tools: binnacle-set_agent, binnacle-orient, binnacle-goodbye, bn_run"
+        5,
+        "Should have exactly 5 tools: binnacle-set_agent, binnacle-orient, binnacle-goodbye, bn_run, binnacle-debug"
     );
 }
 

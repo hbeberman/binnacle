@@ -1008,6 +1008,8 @@ fn run_command(
                     EmitTemplate::McpClaude => commands::MCP_CLAUDE_CONFIG,
                     EmitTemplate::McpVscode => commands::MCP_VSCODE_CONFIG,
                     EmitTemplate::McpCopilot => commands::MCP_COPILOT_CONFIG,
+                    EmitTemplate::McpLifecycle => commands::MCP_LIFECYCLE_BLURB,
+                    EmitTemplate::McpLifecyclePlanner => commands::MCP_LIFECYCLE_BLURB_PLANNER,
                 };
                 if human {
                     println!("{}", content.trim());
@@ -2571,6 +2573,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     EmitTemplate::McpClaude => "mcp-claude",
                     EmitTemplate::McpVscode => "mcp-vscode",
                     EmitTemplate::McpCopilot => "mcp-copilot",
+                    EmitTemplate::McpLifecycle => "mcp-lifecycle",
+                    EmitTemplate::McpLifecyclePlanner => "mcp-lifecycle-planner",
                 };
                 (
                     "system emit".to_string(),
