@@ -5663,6 +5663,7 @@
             },
             agents: [],
             departingAgents: new Map(), // Map<agent_id, departure_timestamp> for fade-out animation
+            goodbyeParticles: [], // Particles for goodbye animation effect
             edges: [], // Raw edges from API
             edgeFilters: loadEdgeFilters(), // Which edge types are visible
             edgeSpringFilters: loadEdgeSpringFilters(), // Which edge types have spring physics
@@ -6052,6 +6053,11 @@
                 const agentId = agent.id || `agent-${agent.pid}`;
                 if (!newAgentIds.has(agentId) && !state.departingAgents.has(agentId)) {
                     state.departingAgents.set(agentId, now);
+                    // Find the agent's node to get its position for particles
+                    const agentNode = (state.tasks || []).find(t => t.id === agentId && t.type === 'agent');
+                    if (agentNode) {
+                        spawnGoodbyeParticles(agentNode.x, agentNode.y, agentId);
+                    }
                 }
             }
             
@@ -8724,6 +8730,106 @@
         const AGENT_DEPARTURE_FADE_MS = 300;
 
         /**
+         * Duration (in ms) for the goodbye particle effect.
+         */
+        const GOODBYE_PARTICLE_DURATION_MS = 800;
+
+        /**
+         * Spawn particles for the goodbye "poof" effect when an agent departs.
+         * Creates a burst of particles that radiate outward from the agent's position.
+         */
+        function spawnGoodbyeParticles(x, y, agentId) {
+            const numParticles = 16;
+            const now = performance.now();
+            
+            for (let i = 0; i < numParticles; i++) {
+                // Radial distribution - particles burst outward in all directions
+                const angle = (i / numParticles) * Math.PI * 2;
+                // Randomize the speed slightly for more organic feel
+                const speed = 80 + Math.random() * 60;
+                
+                state.goodbyeParticles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    startTime: now,
+                    agentId: agentId,
+                    // Vary particle size slightly
+                    size: 4 + Math.random() * 4,
+                    // Use agent color (cyan/electric blue)
+                    color: `hsl(${190 + Math.random() * 20}, 100%, ${60 + Math.random() * 20}%)`
+                });
+            }
+            
+            // Add a few sparkle particles (smaller, faster, more scattered)
+            for (let i = 0; i < 8; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 120 + Math.random() * 80;
+                
+                state.goodbyeParticles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    startTime: now,
+                    agentId: agentId,
+                    size: 2 + Math.random() * 2,
+                    color: '#ffffff'
+                });
+            }
+        }
+
+        /**
+         * Update and render goodbye particles.
+         * Returns true if there are still active particles.
+         */
+        function updateAndRenderGoodbyeParticles(ctx, canvas) {
+            const now = performance.now();
+            const { viewport } = state.graph;
+            
+            // Filter out expired particles
+            state.goodbyeParticles = state.goodbyeParticles.filter(p => {
+                return (now - p.startTime) < GOODBYE_PARTICLE_DURATION_MS;
+            });
+            
+            if (state.goodbyeParticles.length === 0) return false;
+            
+            // Update and render each particle
+            state.goodbyeParticles.forEach(particle => {
+                const elapsed = now - particle.startTime;
+                const progress = elapsed / GOODBYE_PARTICLE_DURATION_MS;
+                
+                // Update position with deceleration
+                const decel = 1 - progress * 0.8;
+                const dt = 1 / 60; // Approximate frame time
+                particle.x += particle.vx * dt * decel;
+                particle.y += particle.vy * dt * decel;
+                
+                // Convert world position to screen position
+                const screenX = (particle.x + viewport.panX) * viewport.zoom + canvas.width / 2;
+                const screenY = (particle.y + viewport.panY) * viewport.zoom + canvas.height / 2;
+                
+                // Fade out over time
+                const alpha = 1 - progress;
+                
+                // Scale down as particle fades
+                const currentSize = particle.size * (1 - progress * 0.5) * viewport.zoom;
+                
+                // Draw particle
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = particle.color;
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, currentSize, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+            
+            return true;
+        }
+
+        /**
          * Time window (in ms) for the recently completed pane in the header.
          * Configurable - default is 15 minutes.
          */
@@ -8972,6 +9078,9 @@
                 drawNode(ctx, node, canvas);
             });
 
+            // Render goodbye particles (on top of nodes for visibility)
+            const hasActiveParticles = updateAndRenderGoodbyeParticles(ctx, canvas);
+
             // Check for stability (all nodes have very low velocity)
             // Don't stabilize if dragging, panning, or pan animation is active
             const hasActiveInteraction = state.graph.draggedNode || 
@@ -8993,7 +9102,7 @@
                 return style.animated;
             });
             
-            if (!hasActiveInteraction && !hasAnimatedNodes && !hasAnimatedEdges) {
+            if (!hasActiveInteraction && !hasAnimatedNodes && !hasAnimatedEdges && !hasActiveParticles) {
                 const isStable = visibleNodes.every(node => {
                     const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
                     return speed < state.graph.STABLE_THRESHOLD;
