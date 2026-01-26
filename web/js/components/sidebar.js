@@ -8,6 +8,8 @@
  * - Persisted collapse state to localStorage
  */
 
+import * as State from '../state.js';
+
 const SIDEBAR_COLLAPSE_KEY = 'binnacle_sidebar_collapsed';
 
 /**
@@ -120,14 +122,20 @@ export function initializeCollapsibleSections() {
 
 /**
  * Initialize sidebar search functionality
- * @param {Function} onSearch - Callback function called with search query
+ * Updates state.ui.searchQuery to filter visible items in graph
+ * @param {Function} onSearch - Optional callback function called with search query
  */
 export function initializeSidebarSearch(onSearch) {
     const input = document.getElementById('sidebar-search');
     if (!input) return;
 
     input.addEventListener('input', () => {
-        const query = input.value.toLowerCase();
+        const query = input.value.trim();
+        
+        // Update state to trigger graph filtering
+        State.set('ui.searchQuery', query);
+        
+        // Call optional callback
         if (onSearch) {
             onSearch(query);
         }
@@ -136,6 +144,7 @@ export function initializeSidebarSearch(onSearch) {
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             input.value = '';
+            State.set('ui.searchQuery', '');
             if (onSearch) {
                 onSearch('');
             }

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sidebar Search Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/sidebar.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: var(--bg-primary, #1a1a1a);
+        }
+        
+        .content {
+            margin-left: 44px;
+            padding: 2rem;
+            color: var(--text-primary, #e0e0e0);
+        }
+        
+        .test-output {
+            background: var(--bg-secondary, #2a2a2a);
+            padding: 1rem;
+            border-radius: 4px;
+            margin-top: 1rem;
+        }
+        
+        .test-output h3 {
+            margin-top: 0;
+            color: var(--accent-blue, #4a90e2);
+        }
+        
+        .test-output pre {
+            background: var(--bg-primary, #1a1a1a);
+            padding: 0.5rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+        }
+        
+        .test-log {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 1rem;
+        }
+        
+        .log-entry {
+            padding: 0.25rem;
+            border-bottom: 1px solid var(--border-primary, #3a3a3a);
+        }
+        
+        .log-entry.success {
+            color: var(--status-success, #4caf50);
+        }
+        
+        .log-entry.info {
+            color: var(--text-secondary, #a0a0a0);
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="container">
+        <div class="content">
+            <h1>Sidebar Search Test</h1>
+            <p>Type in the search input in the sidebar (hover left edge to expand).</p>
+            <p>Watch the state update in real-time below.</p>
+            
+            <div class="test-output">
+                <h3>Search Query State</h3>
+                <pre id="search-query-display">""</pre>
+                
+                <h3>Test Instructions</h3>
+                <ul>
+                    <li>✅ Type text in the search input - state should update</li>
+                    <li>✅ Press Escape - input and state should clear</li>
+                    <li>✅ State updates trigger graph filtering (check console)</li>
+                </ul>
+                
+                <div class="test-log" id="test-log">
+                    <h4>Event Log:</h4>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeSidebar } from './js/components/sidebar.js';
+        import * as State from './js/state.js';
+        
+        const container = document.getElementById('container');
+        const logContainer = document.getElementById('test-log');
+        
+        // Initialize state
+        State.initFromStorage();
+        
+        // Log helper
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(message);
+        }
+        
+        // Initialize sidebar with search callback
+        const handleSearch = (query) => {
+            log(`Search callback fired: "${query}"`, 'info');
+        };
+        
+        initializeSidebar(container, handleSearch);
+        
+        // Display current search query
+        function updateSearchDisplay() {
+            const searchQuery = State.get('ui.searchQuery') || '';
+            document.getElementById('search-query-display').textContent = 
+                JSON.stringify(searchQuery);
+            log(`State updated: ui.searchQuery = "${searchQuery}"`, 'success');
+        }
+        
+        // Subscribe to search query changes
+        State.subscribe('ui.searchQuery', (newValue, oldValue) => {
+            updateSearchDisplay();
+            log(`Search query changed: "${oldValue}" → "${newValue}"`, 'success');
+        });
+        
+        // Initial display
+        updateSearchDisplay();
+        
+        log('Sidebar search initialized', 'success');
+        log('Try typing in the search input...', 'info');
+    </script>
+</body>
+</html>
