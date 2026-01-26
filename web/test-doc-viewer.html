@@ -98,7 +98,7 @@
                 ✅ Header with title and close button<br>
                 ✅ Scrollable content area<br>
                 ✅ Close via button, ESC key, and backdrop click<br>
-                ⏳ Markdown rendering (blocked on task bn-d605)
+                ✅ Markdown rendering (task bn-d605 complete)
             </p>
         </div>
     </div>
@@ -115,22 +115,26 @@
             {
                 id: 'bn-test1',
                 type: 'doc',
-                title: 'Implementation Notes'
+                title: 'Implementation Notes',
+                content: '# Implementation Notes\n\nThis is a **test document** with *markdown* formatting.\n\n## Key Points\n\n- First point\n- Second point\n- Third point\n\nSee the [documentation](https://example.com) for more details.'
             },
             {
                 id: 'bn-test2',
                 type: 'doc',
-                title: 'A Very Long Document Title That Should Probably Be Truncated With Ellipsis If It Gets Too Long For The Header'
+                title: 'A Very Long Document Title That Should Probably Be Truncated With Ellipsis If It Gets Too Long For The Header',
+                content: '# Long Title Test\n\nThis document tests title truncation in the header.\n\n```javascript\nfunction example() {\n    console.log("Hello!");\n}\n```'
             },
             {
                 id: 'bn-test3',
                 type: 'doc',
-                title: 'Test Document for ESC Key'
+                title: 'Test Document for ESC Key',
+                content: '# ESC Key Test\n\nPress the **ESC key** to close this overlay.'
             },
             {
                 id: 'bn-test4',
                 type: 'doc',
-                title: 'Test Document for Backdrop Click'
+                title: 'Test Document for Backdrop Click',
+                content: '# Backdrop Click Test\n\nClick on the *dark backdrop* outside this content area to close the overlay.'
             }
         ]);
         

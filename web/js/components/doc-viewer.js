@@ -7,6 +7,7 @@
  */
 
 import { getNode } from '../state.js';
+import { renderMarkdown } from '../utils/markdown.js';
 
 /**
  * Create the doc viewer overlay HTML
@@ -53,16 +54,20 @@ export function showDocViewer(docId) {
     const titleEl = document.getElementById('doc-viewer-title');
     titleEl.textContent = node.title || docId;
     
-    // Update content - for now just show placeholder
-    // TODO: Implement markdown rendering (task bn-d605)
+    // Update content - render markdown
     const contentEl = document.getElementById('doc-viewer-content');
-    contentEl.innerHTML = `
-        <div class="doc-viewer-placeholder">
-            <p><strong>Document ID:</strong> ${docId}</p>
-            <p><strong>Title:</strong> ${node.title || 'Untitled'}</p>
-            <p class="doc-viewer-note">Markdown rendering not yet implemented</p>
-        </div>
-    `;
+    
+    if (node.content) {
+        // Render the markdown content
+        renderMarkdown(contentEl, node.content);
+    } else {
+        // Show placeholder if no content
+        contentEl.innerHTML = `
+            <div class="doc-viewer-placeholder">
+                <p class="doc-viewer-note">This document has no content yet.</p>
+            </div>
+        `;
+    }
     
     // Show overlay
     overlay.classList.remove('hidden');
