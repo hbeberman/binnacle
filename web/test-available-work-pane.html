@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Available Work Pane - Component Test</title>
+    <link rel="stylesheet" href="css/themes/dark.css">
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/available-work-pane.css">
+    <style>
+        body {
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+        .test-section {
+            background: var(--bg-secondary);
+            padding: 1.5rem;
+            border-radius: 8px;
+        }
+        .test-section h2 {
+            margin-bottom: 1rem;
+            color: var(--accent-light);
+        }
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            background: var(--accent-blue);
+            color: white;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        button:hover {
+            background: var(--accent-light);
+        }
+        .demo-container {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-section">
+        <h2>Available Work Pane Component Test</h2>
+        <p>Testing the available work pane component with various state scenarios.</p>
+        
+        <div class="controls">
+            <button id="btn-no-work">No Work</button>
+            <button id="btn-tasks-only">Tasks Only (5)</button>
+            <button id="btn-bugs-only">Bugs Only (3)</button>
+            <button id="btn-mixed">Mixed (7 tasks + 2 bugs)</button>
+            <button id="btn-many">Many Items (25+)</button>
+        </div>
+        
+        <div class="demo-container" id="pane-container">
+            <!-- Available work pane will be mounted here -->
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Current State</h2>
+        <pre id="state-display">Loading...</pre>
+    </div>
+
+    <script type="module">
+        import { mountAvailableWorkPane } from './js/components/available-work-pane.js';
+        import { 
+            setEntities, 
+            setReady,
+            getReady,
+            getTasks,
+            getBugs,
+            subscribe
+        } from './js/state.js';
+
+        // Mount the component
+        const pane = mountAvailableWorkPane('#pane-container');
+
+        // Test scenarios
+        const scenarios = {
+            noWork: () => {
+                setReady([]);
+                setEntities('bugs', []);
+            },
+            
+            tasksOnly: () => {
+                const tasks = Array.from({ length: 5 }, (_, i) => ({
+                    id: `bn-task${i}`,
+                    type: 'task',
+                    title: `Test Task ${i + 1}`,
+                    status: 'pending'
+                }));
+                setReady(tasks);
+                setEntities('bugs', []);
+            },
+            
+            bugsOnly: () => {
+                const bugs = Array.from({ length: 3 }, (_, i) => ({
+                    id: `bn-bug${i}`,
+                    type: 'bug',
+                    title: `Test Bug ${i + 1}`,
+                    status: 'pending'
+                }));
+                setReady([]);
+                setEntities('bugs', bugs);
+            },
+            
+            mixed: () => {
+                const tasks = Array.from({ length: 7 }, (_, i) => ({
+                    id: `bn-task${i}`,
+                    type: 'task',
+                    title: `Test Task ${i + 1}`,
+                    status: 'pending'
+                }));
+                const bugs = Array.from({ length: 2 }, (_, i) => ({
+                    id: `bn-bug${i}`,
+                    type: 'bug',
+                    title: `Test Bug ${i + 1}`,
+                    status: 'pending'
+                }));
+                setReady(tasks);
+                setEntities('bugs', bugs);
+            },
+            
+            many: () => {
+                const tasks = Array.from({ length: 25 }, (_, i) => ({
+                    id: `bn-task${i}`,
+                    type: 'task',
+                    title: `Test Task ${i + 1}`,
+                    status: 'pending'
+                }));
+                const bugs = Array.from({ length: 8 }, (_, i) => ({
+                    id: `bn-bug${i}`,
+                    type: 'bug',
+                    title: `Test Bug ${i + 1}`,
+                    status: 'pending'
+                }));
+                setReady(tasks);
+                setEntities('bugs', bugs);
+            }
+        };
+
+        // Wire up buttons
+        document.getElementById('btn-no-work').onclick = scenarios.noWork;
+        document.getElementById('btn-tasks-only').onclick = scenarios.tasksOnly;
+        document.getElementById('btn-bugs-only').onclick = scenarios.bugsOnly;
+        document.getElementById('btn-mixed').onclick = scenarios.mixed;
+        document.getElementById('btn-many').onclick = scenarios.many;
+
+        // Update state display
+        function updateStateDisplay() {
+            const ready = getReady() || [];
+            const bugs = getBugs() || [];
+            const display = document.getElementById('state-display');
+            display.textContent = JSON.stringify({
+                ready: ready.length,
+                readyItems: ready.map(t => ({ id: t.id, type: t.type })),
+                bugs: bugs.length,
+                bugItems: bugs.filter(b => b.status !== 'done' && b.status !== 'cancelled')
+                    .map(b => ({ id: b.id, status: b.status }))
+            }, null, 2);
+        }
+
+        subscribe('ready', updateStateDisplay);
+        subscribe('entities.bugs', updateStateDisplay);
+
+        // Initialize with mixed scenario
+        scenarios.mixed();
+        updateStateDisplay();
+    </script>
+</body>
+</html>
