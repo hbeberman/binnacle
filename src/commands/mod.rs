@@ -8655,6 +8655,10 @@ pub struct ReadyTasks {
     pub bug_count: usize,
     pub queued_count: usize,
     pub queued_bug_count: usize,
+    pub in_progress_tasks: Vec<Task>,
+    pub in_progress_bugs: Vec<Bug>,
+    pub in_progress_count: usize,
+    pub in_progress_bug_count: usize,
 }
 
 impl Output for ReadyTasks {
@@ -8664,6 +8668,46 @@ impl Output for ReadyTasks {
 
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
+
+        // Show in-progress items first
+        if !self.in_progress_bugs.is_empty() || !self.in_progress_tasks.is_empty() {
+            let total = self.in_progress_count + self.in_progress_bug_count;
+            lines.push(format!("{} in progress:\n", total));
+
+            // Show in-progress bugs
+            for bug in &self.in_progress_bugs {
+                let tags = if bug.core.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", bug.core.tags.join(", "))
+                };
+                lines.push(format!(
+                    "  {} P{} {} ({}){}",
+                    bug.core.id,
+                    bug.priority,
+                    bug.core.title,
+                    format!("{:?}", bug.severity).to_lowercase(),
+                    tags
+                ));
+            }
+
+            // Show in-progress tasks
+            for task in &self.in_progress_tasks {
+                let tags = if task.core.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", task.core.tags.join(", "))
+                };
+                lines.push(format!(
+                    "  {} P{} {}{}",
+                    task.core.id, task.priority, task.core.title, tags
+                ));
+            }
+
+            if !self.bugs.is_empty() || !self.tasks.is_empty() {
+                lines.push(String::new()); // blank line before ready section
+            }
+        }
 
         // Show bugs first (higher priority typically)
         if !self.bugs.is_empty() {
@@ -8779,7 +8823,7 @@ impl Output for ReadyTasks {
         }
 
         if lines.is_empty() {
-            return "No ready tasks or bugs.".to_string();
+            return "No in-progress or ready tasks/bugs.".to_string();
         }
 
         lines.join("\n")
@@ -8803,6 +8847,19 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
         Vec::new()
     } else {
         storage.get_ready_bugs()?
+    };
+
+    // Fetch in-progress tasks and bugs
+    let in_progress_tasks = if bugs_only {
+        Vec::new()
+    } else {
+        storage.list_tasks(Some("in_progress"), None, None)?
+    };
+
+    let in_progress_bugs = if tasks_only {
+        Vec::new()
+    } else {
+        storage.list_bugs(Some("in_progress"), None, None, None, false)?
     };
 
     // Get queued task IDs for membership check
@@ -8863,6 +8920,8 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
     let bug_count = bug_items.len();
     let queued_count = task_items.iter().filter(|t| t.queued).count();
     let queued_bug_count = bug_items.iter().filter(|b| b.queued).count();
+    let in_progress_count = in_progress_tasks.len();
+    let in_progress_bug_count = in_progress_bugs.len();
 
     Ok(ReadyTasks {
         tasks: task_items,
@@ -8871,6 +8930,10 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
         bug_count,
         queued_count,
         queued_bug_count,
+        in_progress_tasks,
+        in_progress_bugs,
+        in_progress_count,
+        in_progress_bug_count,
     })
 }
 
