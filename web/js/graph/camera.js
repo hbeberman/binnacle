@@ -10,6 +10,7 @@
  */
 
 import * as state from '../state.js';
+import { toggleSelection, isSelected } from '../state.js';
 import { applyZoom, applyPan, resetViewport, screenToWorld, getZoom } from './transform.js';
 import { findNodeAtPosition, findEdgeAtPosition, setHoveredNode, setDraggedNode, moveNode } from './renderer.js';
 
@@ -106,6 +107,23 @@ function onMouseDown(e) {
     const clickedNode = findNodeAtPosition(canvasX, canvasY);
     
     if (clickedNode) {
+        // Handle selection based on modifier keys
+        const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+        const isShift = e.shiftKey;
+        
+        if (isCtrlOrCmd) {
+            // Ctrl/Cmd + click: Toggle selection (add/remove without clearing others)
+            toggleSelection(clickedNode.id, false);
+        } else if (isShift) {
+            // Shift + click: Add to selection (don't remove if already selected)
+            if (!isSelected(clickedNode.id)) {
+                toggleSelection(clickedNode.id, false);
+            }
+        } else {
+            // Plain click: Select only this node (clear others)
+            toggleSelection(clickedNode.id, true);
+        }
+        
         // Start dragging the node
         draggedNode = clickedNode;
         setDraggedNode(clickedNode);
