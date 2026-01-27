@@ -3,7 +3,7 @@
  * 
  * Handles user interactions for camera control:
  * - Node dragging (click and drag on a node)
- * - Pan (click and drag on empty space)
+ * - Pan (click and drag on empty space, or WASD keys)
  * - Zoom (mouse wheel or buttons)
  * - Reset view
  * - Hover detection for nodes and edges
@@ -38,6 +38,11 @@ let onHoverEnd = null;
 // Canvas reference
 let canvas = null;
 
+// Keyboard panning state
+let keysPressedSet = new Set();
+let keyboardPanInterval = null;
+const PAN_SPEED = 5; // pixels per frame
+
 /**
  * Initialize camera controls on a canvas element
  * @param {HTMLCanvasElement} canvasElement - The canvas to attach controls to
@@ -62,6 +67,10 @@ export function init(canvasElement, callbacks = {}) {
     
     // Wheel for zoom
     canvas.addEventListener('wheel', onWheel, { passive: false });
+    
+    // Keyboard events for WASD panning
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
 }
 
 /**
@@ -357,4 +366,67 @@ function pauseAutoFollow() {
 export function resumeAutoFollow() {
     state.set('ui.userPaused', false);
     console.log('Auto-follow resumed');
+}
+
+/**
+ * Handle keyboard down - WASD panning
+ */
+function onKeyDown(e) {
+    // Don't handle keyboard if user is typing in an input field
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+        return;
+    }
+    
+    const key = e.key.toLowerCase();
+    
+    // Check if it's a WASD key
+    if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+        e.preventDefault();
+        
+        // Add key to set
+        keysPressedSet.add(key);
+        
+        // Start panning interval if not already running
+        if (!keyboardPanInterval) {
+            keyboardPanInterval = setInterval(handleKeyboardPan, 16); // ~60fps
+        }
+    }
+}
+
+/**
+ * Handle keyboard up - stop WASD panning
+ */
+function onKeyUp(e) {
+    const key = e.key.toLowerCase();
+    
+    if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+        // Remove key from set
+        keysPressedSet.delete(key);
+        
+        // Stop panning interval if no keys are pressed
+        if (keysPressedSet.size === 0 && keyboardPanInterval) {
+            clearInterval(keyboardPanInterval);
+            keyboardPanInterval = null;
+        }
+    }
+}
+
+/**
+ * Handle continuous keyboard panning based on pressed keys
+ */
+function handleKeyboardPan() {
+    let dx = 0;
+    let dy = 0;
+    
+    // Calculate pan direction based on pressed keys
+    if (keysPressedSet.has('w')) dy += PAN_SPEED;  // Up
+    if (keysPressedSet.has('s')) dy -= PAN_SPEED;  // Down
+    if (keysPressedSet.has('a')) dx += PAN_SPEED;  // Left
+    if (keysPressedSet.has('d')) dx -= PAN_SPEED;  // Right
+    
+    // Apply panning if any direction is active
+    if (dx !== 0 || dy !== 0) {
+        applyPan(dx, dy);
+        pauseAutoFollow();
+    }
 }
