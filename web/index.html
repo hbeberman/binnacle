@@ -453,7 +453,7 @@
         });
         
         // Watch for currentView changes from other parts of the app
-        state.watch('ui.currentView', (newView) => {
+        state.subscribe('ui.currentView', (newView) => {
             switchView(newView);
         });
         
