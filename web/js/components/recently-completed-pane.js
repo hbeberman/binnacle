@@ -12,8 +12,7 @@
 import { 
     subscribe, 
     getTasks,
-    getBugs,
-    getConfig
+    getBugs
 } from '../state.js';
 
 /**
