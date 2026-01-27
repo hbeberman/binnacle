@@ -379,6 +379,7 @@ pub async fn start_server(
         .route("/api/queue/toggle", post(toggle_queue_membership))
         .route("/api/edges", get(get_edges))
         .route("/api/edges", post(add_edge))
+        .route("/api/links/batch", post(batch_add_links))
         .route("/api/log", get(get_log))
         .route("/api/log/annotations", get(get_log_annotations))
         .route("/api/log/annotations", post(add_log_annotation))
@@ -1119,6 +1120,127 @@ async fn add_edge(
             "target": request.target,
             "edge_type": request.edge_type
         }
+    })))
+}
+
+/// Request body for batch link creation
+#[derive(Deserialize)]
+struct BatchAddLinksRequest {
+    links: Vec<AddEdgeRequest>,
+}
+
+/// Result for a single link creation
+#[derive(serde::Serialize)]
+struct LinkResult {
+    success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edge: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Create multiple links in a single transaction
+///
+/// This endpoint accepts an array of links and creates them all, returning
+/// individual success/failure status for each link. This is useful for batch
+/// operations like creating multiple dependencies at once.
+///
+/// # Request Body
+/// ```json
+/// {
+///   "links": [
+///     {"source": "bn-xxxx", "target": "bn-yyyy", "edge_type": "depends_on"},
+///     {"source": "bn-yyyy", "target": "bn-zzzz", "edge_type": "child_of"}
+///   ]
+/// }
+/// ```
+///
+/// # Response
+/// ```json
+/// {
+///   "success": true,
+///   "total": 2,
+///   "success_count": 2,
+///   "error_count": 0,
+///   "results": [
+///     {"success": true, "edge": {"id": "...", "source": "...", "target": "...", "edge_type": "..."}},
+///     {"success": true, "edge": {"id": "...", "source": "...", "target": "...", "edge_type": "..."}}
+///   ]
+/// }
+/// ```
+///
+/// On partial failure, `success` will be false but results will include details for each link.
+async fn batch_add_links(
+    State(state): State<AppState>,
+    Json(request): Json<BatchAddLinksRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Check readonly mode
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
+    let mut storage = state.storage.lock().await;
+    let mut results = Vec::new();
+    let mut success_count = 0;
+    let mut error_count = 0;
+
+    // Process each link
+    for link in request.links {
+        // Parse edge type
+        let edge_type: EdgeType = match link.edge_type.parse() {
+            Ok(et) => et,
+            Err(_) => {
+                results.push(LinkResult {
+                    success: false,
+                    edge: None,
+                    error: Some(format!("Invalid edge type: {}", link.edge_type)),
+                });
+                error_count += 1;
+                continue;
+            }
+        };
+
+        // Generate ID and create edge
+        let id = storage.generate_edge_id(&link.source, &link.target, edge_type);
+        let edge = Edge::new(
+            id.clone(),
+            link.source.clone(),
+            link.target.clone(),
+            edge_type,
+        );
+
+        // Add edge to storage
+        match storage.add_edge(&edge) {
+            Ok(_) => {
+                results.push(LinkResult {
+                    success: true,
+                    edge: Some(serde_json::json!({
+                        "id": id,
+                        "source": link.source,
+                        "target": link.target,
+                        "edge_type": link.edge_type
+                    })),
+                    error: None,
+                });
+                success_count += 1;
+            }
+            Err(e) => {
+                results.push(LinkResult {
+                    success: false,
+                    edge: None,
+                    error: Some(e.to_string()),
+                });
+                error_count += 1;
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": error_count == 0,
+        "total": results.len(),
+        "success_count": success_count,
+        "error_count": error_count,
+        "results": results
     })))
 }
 
