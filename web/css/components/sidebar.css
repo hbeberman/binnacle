@@ -460,13 +460,13 @@
 }
 
 .edge-physics-btn:hover {
-    border-color: var(--accent-purple);
+    border-color: var(--accent-blue);
     opacity: 0.8;
 }
 
 .edge-physics-btn.active {
-    background: var(--accent-purple);
-    border-color: var(--accent-purple);
+    background: var(--info);
+    border-color: var(--info);
     color: white;
     opacity: 1;
 }
