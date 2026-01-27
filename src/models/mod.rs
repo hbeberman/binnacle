@@ -20,6 +20,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
 
+/// Default empty string for serde deserialization.
+fn default_empty_string() -> String {
+    String::new()
+}
+
 /// Task status in the workflow.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -184,6 +189,7 @@ pub struct EntityCore {
     pub entity_type: String,
 
     /// Entity title
+    #[serde(default = "default_empty_string")]
     pub title: String,
 
     /// Optional short display name (shown in GUI instead of ID)
