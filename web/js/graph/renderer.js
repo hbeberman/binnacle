@@ -80,6 +80,18 @@ export function init(canvasElement, callbacks = {}) {
     state.subscribe('ui.selectedNode', onSelectionChanged);
     state.subscribe('ui.selectedNodes', onMultiSelectionChanged);
     state.subscribe('ui.boxSelection', scheduleRender);
+    
+    // Build initial graph from current state (if any entities already loaded)
+    buildGraphNodes();
+    buildGraphEdges();
+    filterVisibleNodes();
+    
+    console.log(`[Graph] Initialized with ${graphNodes.length} nodes, ${visibleNodes.length} visible`);
+    
+    // Render initial state
+    if (visibleNodes.length > 0) {
+        startAnimation();
+    }
 }
 
 /**
