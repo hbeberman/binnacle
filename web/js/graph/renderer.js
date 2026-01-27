@@ -947,6 +947,9 @@ function drawNode(node) {
     // Draw PRD label for PRD doc nodes
     drawPRDLabel(node, screenPos, radius);
     
+    // Draw node type capsule labels
+    drawNodeTypeCapsule(node, screenPos, radius);
+    
     // Draw IDEA label inside idea cloud nodes
     drawIdeaLabel(node, screenPos, radius);
     
@@ -1167,6 +1170,83 @@ function drawPRDLabel(node, screenPos, radius) {
     
     // Draw text
     ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(displayText, screenPos.x, pillY + pillHeight / 2);
+    
+    ctx.restore();
+}
+
+/**
+ * Draw node type capsule label above nodes (except PRD which has its own)
+ */
+function drawNodeTypeCapsule(node, screenPos, radius) {
+    // Skip PRD docs (they have their own label), agents, and tests
+    if (node.type === 'agent' || node.type === 'test') return;
+    if (node.type === 'doc' && node.doc_type === 'prd') return;
+    
+    // Define capsule text and color for each node type
+    let displayText = '';
+    let backgroundColor = '';
+    
+    switch (node.type) {
+        case 'idea':
+            displayText = 'Idea';
+            backgroundColor = 'rgba(255, 255, 255, 0.95)'; // White for ideas
+            break;
+        case 'doc':
+            displayText = 'Doc';
+            // Use doc type color or default blue
+            if (node.doc_type === 'note') {
+                backgroundColor = 'rgba(232, 184, 74, 0.95)'; // Yellow
+            } else if (node.doc_type === 'handoff') {
+                backgroundColor = 'rgba(232, 125, 74, 0.95)'; // Orange
+            } else {
+                backgroundColor = 'rgba(74, 144, 226, 0.95)'; // Blue
+            }
+            break;
+        case 'milestone':
+            displayText = 'Milestone';
+            backgroundColor = 'rgba(255, 140, 0, 0.95)'; // Orange
+            break;
+        case 'bug':
+            displayText = 'Bug';
+            backgroundColor = 'rgba(224, 120, 120, 0.95)'; // Red
+            break;
+        case 'task':
+            displayText = 'Task';
+            backgroundColor = 'rgba(91, 192, 222, 0.95)'; // Blue
+            break;
+        case 'queue':
+            displayText = 'Queue';
+            backgroundColor = 'rgba(32, 178, 170, 0.95)'; // Teal
+            break;
+        default:
+            return; // Don't draw capsule for unknown types
+    }
+    
+    const zoom = getZoom();
+    const baseFontSize = 13 * Math.max(0.7, Math.min(1.3, zoom));
+    const pillPadding = 6 * zoom;
+    const pillHeight = baseFontSize + pillPadding * 2;
+    const pillY = screenPos.y - radius - pillHeight - 8 * zoom;
+    
+    ctx.font = `bold ${baseFontSize}px sans-serif`;
+    const textWidth = ctx.measureText(displayText).width;
+    const pillWidth = textWidth + pillPadding * 4;
+    
+    ctx.save();
+    
+    // Draw pill background
+    ctx.fillStyle = backgroundColor;
+    ctx.beginPath();
+    const pillX = screenPos.x - pillWidth / 2;
+    const pillRadius = pillHeight / 2;
+    ctx.roundRect(pillX, pillY, pillWidth, pillHeight, pillRadius);
+    ctx.fill();
+    
+    // Draw text - use dark text for white ideas, white for others
+    ctx.fillStyle = node.type === 'idea' ? '#1a2332' : '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(displayText, screenPos.x, pillY + pillHeight / 2);
