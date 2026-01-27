@@ -7,10 +7,14 @@
 import { 
     subscribe, 
     getAgents,
-    setSelectedNode
+    setSelectedNode,
+    getEntities,
+    set as setState
 } from '../state.js';
 import { createClickableId } from '../utils/clickable-ids.js';
 import { showNodeDetailModal } from './node-detail-modal.js';
+import { panToNode } from '../graph/index.js';
+import { sendMessage } from '../connection/index.js';
 
 /**
  * Get status badge configuration for an agent
@@ -144,6 +148,139 @@ function createHealthWarningsSection(agent) {
     }
     
     return section;
+}
+
+/**
+ * Copy text to clipboard
+ * @param {string} text - Text to copy
+ * @returns {Promise<void>}
+ */
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (err) {
+        console.error('Failed to copy to clipboard:', err);
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            return true;
+        } catch (e) {
+            document.body.removeChild(textarea);
+            return false;
+        }
+    }
+}
+
+/**
+ * Terminate an agent
+ * @param {string} agentId - Agent ID to terminate
+ */
+async function terminateAgent(agentId) {
+    const confirmed = confirm(`Terminate agent ${agentId}?\n\nThis will send a termination signal to the agent process.`);
+    if (!confirmed) return;
+    
+    try {
+        // Send terminate message via WebSocket
+        await sendMessage({
+            type: 'terminate_agent',
+            agent_id: agentId
+        });
+        console.log('Termination signal sent for agent:', agentId);
+    } catch (err) {
+        console.error('Failed to terminate agent:', err);
+        alert(`Failed to terminate agent: ${err.message}`);
+    }
+}
+
+/**
+ * View an agent node in the graph
+ * @param {string} agentId - Agent ID to view
+ */
+function viewInGraph(agentId) {
+    // Switch to graph view
+    setState('ui.currentView', 'graph');
+    
+    // Get agent node to find its position
+    const entities = getEntities();
+    const agent = entities.find(e => e.id === agentId);
+    
+    if (agent && typeof agent.x === 'number' && typeof agent.y === 'number') {
+        // Pan to the agent's position
+        panToNode(agent.x, agent.y, {
+            duration: 500,
+            zoom: 1.5
+        });
+        
+        // Select the agent node
+        setSelectedNode(agentId);
+    } else {
+        console.warn('Agent position not found:', agentId);
+    }
+}
+
+/**
+ * Create action buttons footer for an agent card
+ * @param {Object} agent - Agent entity
+ * @returns {HTMLElement} Footer element with action buttons
+ */
+function createActionButtonsFooter(agent) {
+    const footer = document.createElement('div');
+    footer.className = 'agent-card-footer';
+    
+    const isStale = (agent.status || '').toLowerCase() === 'stale';
+    
+    // Terminate button (only for stale agents)
+    if (isStale) {
+        const terminateBtn = document.createElement('button');
+        terminateBtn.className = 'agent-card-action-btn agent-card-terminate-btn';
+        terminateBtn.innerHTML = '🛑 Terminate';
+        terminateBtn.title = 'Terminate this agent';
+        terminateBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            terminateAgent(agent.id);
+        });
+        footer.appendChild(terminateBtn);
+    }
+    
+    // View in Graph button
+    const viewBtn = document.createElement('button');
+    viewBtn.className = 'agent-card-action-btn agent-card-view-btn';
+    viewBtn.innerHTML = '🔍 View in Graph';
+    viewBtn.title = 'View this agent in the graph';
+    viewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        viewInGraph(agent.id);
+    });
+    footer.appendChild(viewBtn);
+    
+    // Copy ID button
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'agent-card-action-btn agent-card-copy-btn';
+    copyBtn.innerHTML = '📋 Copy ID';
+    copyBtn.title = 'Copy agent ID to clipboard';
+    copyBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const success = await copyToClipboard(agent.id);
+        if (success) {
+            // Show visual feedback
+            const originalText = copyBtn.innerHTML;
+            copyBtn.innerHTML = '✅ Copied!';
+            setTimeout(() => {
+                copyBtn.innerHTML = originalText;
+            }, 2000);
+        }
+    });
+    footer.appendChild(copyBtn);
+    
+    return footer;
 }
 
 /**
@@ -283,11 +420,18 @@ function createAgentCard(agent) {
         card.appendChild(purposeDiv);
     }
     
-    // Click to select agent in graph
-    card.addEventListener('click', () => {
+    // Add action buttons footer
+    const footer = createActionButtonsFooter(agent);
+    card.appendChild(footer);
+    
+    // Click to select agent in graph (but not when clicking buttons)
+    card.addEventListener('click', (e) => {
+        // Don't select if clicking a button or link
+        if (e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.closest('a')) {
+            return;
+        }
         setSelectedNode(agent.id);
         console.log('Selected agent:', agent.id);
-        // TODO: Could also switch to graph view and pan to agent
     });
     
     return card;
