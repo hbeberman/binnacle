@@ -232,7 +232,7 @@ function renderKanbanColumn(title, columnId, nodes, readyIds, options) {
 /**
  * Render a single node card
  */
-function renderNodeCard(node, readyIds, options) {
+function renderNodeCard(node, readyIds, _options) {
     switch (node.nodeType) {
         case 'task':
         case 'bug':
@@ -269,7 +269,7 @@ function renderTaskBugCard(node, readyIds) {
             <div class="card-title">${isBug ? '🐛 ' : '📋 '}${escapeHtml(node.title)}</div>
             <div class="card-actions">
                 <button class="card-info-btn" data-node-id="${node.id}" title="View details">ℹ️</button>
-                <button class="card-jump-btn" data-node-id="${node.id}" title="Jump to graph">📍</button>
+                <button class="card-jump-btn" data-node-id="${node.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
         ${node.description ? `<div class="card-description">${escapeHtml(node.description)}</div>` : ''}
@@ -299,7 +299,7 @@ function renderIdeaCard(idea) {
             <div class="card-title">💡 ${escapeHtml(idea.title)}</div>
             <div class="card-actions">
                 <button class="card-info-btn" data-node-id="${idea.id}" title="View details">ℹ️</button>
-                <button class="card-jump-btn" data-node-id="${idea.id}" title="Jump to graph">📍</button>
+                <button class="card-jump-btn" data-node-id="${idea.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
         ${idea.description ? `<div class="card-description">${escapeHtml(idea.description)}</div>` : ''}
@@ -321,7 +321,7 @@ function renderTestCard(test) {
             <div class="card-title">🧪 ${escapeHtml(test.name)}</div>
             <div class="card-actions">
                 <button class="card-info-btn" data-node-id="${test.id}" title="View details">ℹ️</button>
-                <button class="card-jump-btn" data-node-id="${test.id}" title="Jump to graph">📍</button>
+                <button class="card-jump-btn" data-node-id="${test.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
         <div class="card-meta">
@@ -345,7 +345,7 @@ function renderDocCard(doc) {
             <div class="card-title">${docTypeLabel} ${escapeHtml(doc.title)}</div>
             <div class="card-actions">
                 <button class="card-info-btn" data-node-id="${doc.id}" title="View details">ℹ️</button>
-                <button class="card-jump-btn" data-node-id="${doc.id}" title="Jump to graph">📍</button>
+                <button class="card-jump-btn" data-node-id="${doc.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
         <div class="card-meta">
@@ -367,7 +367,7 @@ function renderMilestoneCard(milestone) {
             <div class="card-title">🎯 ${escapeHtml(milestone.title)}</div>
             <div class="card-actions">
                 <button class="card-info-btn" data-node-id="${milestone.id}" title="View details">ℹ️</button>
-                <button class="card-jump-btn" data-node-id="${milestone.id}" title="Jump to graph">📍</button>
+                <button class="card-jump-btn" data-node-id="${milestone.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
         ${milestone.description ? `<div class="card-description">${escapeHtml(milestone.description)}</div>` : ''}
