@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entity ID Linkification Test</title>
+    
+    <!-- Base styles -->
+    <link rel="stylesheet" href="css/themes/dark.css">
+    
+    <!-- Component styles for clickable entity IDs -->
+    <link rel="stylesheet" href="css/components/activity-log.css">
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 2rem;
+            margin: 0;
+        }
+        
+        .test-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: var(--accent-blue);
+            margin-bottom: 1rem;
+        }
+        
+        .test-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .test-section h2 {
+            color: var(--accent-purple);
+            margin-top: 0;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+        
+        .markdown-output {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-top: 1rem;
+            line-height: 1.6;
+        }
+        
+        .description {
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .click-info {
+            background: var(--bg-tertiary);
+            border-left: 3px solid var(--accent-blue);
+            padding: 0.75rem 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🔗 Entity ID Linkification Test</h1>
+        
+        <div class="click-info">
+            ℹ️ Entity IDs (bn-xxxx, bnt-xxxx, bnq-xxxx, etc.) in the rendered markdown below should be styled as clickable links. 
+            Clicking them will show an alert with the entity ID.
+        </div>
+        
+        <div class="test-section">
+            <h2>Test Case 1: Inline Entity IDs</h2>
+            <p class="description">Entity IDs in regular text should be linkified</p>
+            <div id="test1" class="markdown-output"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Test Case 2: Multiple Entity Types</h2>
+            <p class="description">Different entity types (tasks, tests, queues, docs) should all be linkified</p>
+            <div id="test2" class="markdown-output"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Test Case 3: Entity IDs in Lists</h2>
+            <p class="description">Entity IDs in list items should be linkified</p>
+            <div id="test3" class="markdown-output"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Test Case 4: Entity IDs NOT in Code</h2>
+            <p class="description">Entity IDs inside code blocks and inline code should NOT be linkified</p>
+            <div id="test4" class="markdown-output"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Test Case 5: Complex Mixed Content</h2>
+            <p class="description">Entity IDs mixed with formatting, links, and code</p>
+            <div id="test5" class="markdown-output"></div>
+        </div>
+    </div>
+    
+    <script type="module">
+        import { renderMarkdown } from './js/utils/markdown.js';
+        
+        // Test cases
+        const test1Markdown = `See task bn-1234 for more details. Task bn-5678 is related.`;
+        
+        const test2Markdown = `
+### Different Entity Types
+
+- Task: bn-1234
+- Test: bnt-5678
+- Queue: bnq-9abc
+- Doc: bn-def0
+- Milestone: bn-cafe
+        `;
+        
+        const test3Markdown = `
+## Task List
+
+1. Complete bn-1234
+2. Review bn-5678
+3. Update bn-9abc
+4. Close bnt-def0
+        `;
+        
+        const test4Markdown = `
+To reference a task in code, use \`bn-1234\` format.
+
+Code block example:
+\`\`\`bash
+bn task show bn-5678
+bn task update bn-9abc --status done
+\`\`\`
+
+But in regular text, bn-cafe should be linkified.
+        `;
+        
+        const test5Markdown = `
+# Complex Example
+
+**Important**: See task bn-1234 for details on the implementation.
+
+The test suite bnt-5678 verifies this behavior. You can run it with:
+
+\`\`\`bash
+bn test run bnt-5678
+\`\`\`
+
+For more context, check [the documentation](https://example.com) and task bn-9abc.
+
+Tasks bn-def0, bn-cafe, and bn-feed are all related to this feature.
+        `;
+        
+        // Render all test cases
+        renderMarkdown(document.getElementById('test1'), test1Markdown);
+        renderMarkdown(document.getElementById('test2'), test2Markdown);
+        renderMarkdown(document.getElementById('test3'), test3Markdown);
+        renderMarkdown(document.getElementById('test4'), test4Markdown);
+        renderMarkdown(document.getElementById('test5'), test5Markdown);
+        
+        // Add click handler for entity IDs
+        document.addEventListener('click', (e) => {
+            const clickableId = e.target.closest('.clickable-entity-id');
+            if (!clickableId) return;
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const entityId = clickableId.dataset.entityId;
+            if (entityId) {
+                alert(`Clicked entity ID: ${entityId}\n\nIn a real application, this would open the entity detail modal.`);
+            }
+        });
+        
+        console.log('✅ Entity ID linkification test page loaded');
+        console.log('Click on any entity ID (bn-xxxx, bnt-xxxx, etc.) to test the interaction');
+    </script>
+</body>
+</html>

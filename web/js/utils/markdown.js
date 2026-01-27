@@ -39,6 +39,64 @@ renderer.code = function(code, language) {
     return `<pre><code${language ? ` class="language-${language}"` : ''}>${escaped}</code></pre>`;
 };
 
+/**
+ * Regex to match binnacle entity IDs
+ */
+const ENTITY_ID_PATTERN = /\b(bn[a-z]?-[a-f0-9]{4})\b/gi;
+
+/**
+ * Linkify entity IDs in HTML content
+ * Converts entity IDs (bn-xxxx, bnt-xxxx, etc.) to clickable spans
+ * Skips entity IDs inside code blocks and inline code
+ * @param {string} html - HTML content
+ * @returns {string} HTML with linkified entity IDs
+ */
+function linkifyEntityIds(html) {
+    if (!html) return html;
+    
+    // More sophisticated approach: parse HTML to avoid linkifying inside <code> and <pre> tags
+    const codeBlockPattern = /(<(?:code|pre)[^>]*>)([\s\S]*?)(<\/(?:code|pre)>)/gi;
+    const segments = [];
+    let lastIndex = 0;
+    let match;
+    
+    // First, identify all code blocks and preserve them
+    codeBlockPattern.lastIndex = 0;
+    while ((match = codeBlockPattern.exec(html)) !== null) {
+        // Add text before code block (linkify it)
+        const beforeCode = html.slice(lastIndex, match.index);
+        segments.push({ text: beforeCode, isCode: false });
+        
+        // Add the code block (don't linkify)
+        segments.push({ text: match[0], isCode: true });
+        
+        lastIndex = codeBlockPattern.lastIndex;
+    }
+    
+    // Add remaining text after last code block
+    if (lastIndex < html.length) {
+        segments.push({ text: html.slice(lastIndex), isCode: false });
+    }
+    
+    // If no code blocks were found, just process the whole string
+    if (segments.length === 0) {
+        segments.push({ text: html, isCode: false });
+    }
+    
+    // Process each segment
+    return segments.map(segment => {
+        if (segment.isCode) {
+            return segment.text;
+        }
+        
+        // Linkify entity IDs in non-code segments
+        ENTITY_ID_PATTERN.lastIndex = 0;
+        return segment.text.replace(ENTITY_ID_PATTERN, (match) => {
+            return `<span class="clickable-entity-id" data-entity-id="${match}" title="Click to view ${match}">${match}</span>`;
+        });
+    }).join('');
+}
+
 // Configure marked with all options in one place
 marked.use({
     gfm: true,              // Enable GitHub Flavored Markdown
@@ -49,7 +107,7 @@ marked.use({
     hooks: {
         postprocess(html) {
             // Remove trailing newlines in code blocks but preserve paragraph spacing
-            return html
+            let processed = html
                 .replace(/(<code[^>]*>)([\s\S]*?)\n(<\/code>)/g, '$1$2$3')  // Remove trailing \n before </code>
                 .replace(/(<\/p>)\n(<p>)/g, '$1\n\n$2')                      // Double newline between paragraphs
                 .replace(/(<\/[uo]l>)\n(<p>)/g, '$1\n\n$2')                 // Double newline between list and paragraph
@@ -57,6 +115,9 @@ marked.use({
                 .replace(/(<\/p>)\n(<h[1-6]>)/g, '$1\n\n$2')                // Double newline between paragraph and heading
                 .replace(/(<\/h[1-6]>)\n(<h[1-6]>)/g, '$1\n\n$2')           // Double newline between headings
                 .trim();                                                      // Remove leading/trailing whitespace
+            
+            // Linkify entity IDs
+            return linkifyEntityIds(processed);
         }
     },
     // Sanitize HTML in walkTokens
