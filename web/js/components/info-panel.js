@@ -9,6 +9,28 @@
 
 import { createClickableId } from '../utils/clickable-ids.js';
 
+/**
+ * Format a date timestamp for display
+ * @param {string} timestamp - ISO timestamp
+ * @returns {string} Formatted date
+ */
+function formatDate(timestamp) {
+    if (!timestamp) return 'N/A';
+    const date = new Date(timestamp);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+}
+
+/**
+ * Escape HTML to prevent XSS
+ * @param {string} text - Text to escape
+ * @returns {string} Escaped text
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 const INFO_PANEL_ACTIVE_TAB_KEY = 'binnacle_info_panel_active_tab';
 
 /**
@@ -95,9 +117,21 @@ export function createInfoPanel() {
                 <span class="info-panel-doc-open-label">View Document</span>
                 <button id="doc-open-btn" class="doc-open-btn" title="Open document viewer">Open</button>
             </div>
+            <div id="info-panel-summary-section" class="info-panel-section" style="display: none;">
+                <div class="info-panel-section-title">Summary</div>
+                <div id="info-panel-summary-content" class="info-panel-summary-content"></div>
+            </div>
             <div id="info-panel-description-section" class="info-panel-section">
                 <div class="info-panel-section-title">Description</div>
                 <div id="info-panel-description" class="info-panel-description"></div>
+            </div>
+            <div id="info-panel-tags-section" class="info-panel-section" style="display: none;">
+                <div class="info-panel-section-title">Tags</div>
+                <div id="info-panel-tags" class="info-panel-tags"></div>
+            </div>
+            <div id="info-panel-assignee-section" class="info-panel-section" style="display: none;">
+                <div class="info-panel-section-title">Assignee</div>
+                <div id="info-panel-assignee" class="info-panel-assignee"></div>
             </div>
             <div id="info-panel-deps-section" class="info-panel-section" style="display: none;">
                 <div class="info-panel-section-title">Depends On</div>
@@ -335,6 +369,19 @@ export function updateInfoPanelContent(panel, node) {
     
     metaEl.textContent = metaParts.join(' • ');
     
+    // Update summary section (status, priority badges for expanded view)
+    const summarySection = panel.querySelector('#info-panel-summary-section');
+    const summaryContent = panel.querySelector('#info-panel-summary-content');
+    if (node.status || node.priority !== undefined) {
+        summarySection.style.display = 'block';
+        const summaryParts = [];
+        if (node.status) summaryParts.push(`Status: ${node.status}`);
+        if (node.priority !== undefined && node.priority !== null) summaryParts.push(`Priority: ${node.priority}`);
+        summaryContent.textContent = summaryParts.join(' • ');
+    } else {
+        summarySection.style.display = 'none';
+    }
+    
     // Update description
     const descEl = panel.querySelector('#info-panel-description');
     if (node.description) {
@@ -343,6 +390,28 @@ export function updateInfoPanelContent(panel, node) {
     } else {
         descEl.textContent = 'No description provided.';
         descEl.classList.add('empty');
+    }
+    
+    // Update tags (if any)
+    const tagsSection = panel.querySelector('#info-panel-tags-section');
+    const tagsEl = panel.querySelector('#info-panel-tags');
+    if (node.tags && node.tags.length > 0) {
+        tagsSection.style.display = 'block';
+        tagsEl.innerHTML = node.tags.map(tag => 
+            `<span class="tag-badge">${escapeHtml(tag)}</span>`
+        ).join('');
+    } else {
+        tagsSection.style.display = 'none';
+    }
+    
+    // Update assignee (if present)
+    const assigneeSection = panel.querySelector('#info-panel-assignee-section');
+    const assigneeEl = panel.querySelector('#info-panel-assignee');
+    if (node.assignee) {
+        assigneeSection.style.display = 'block';
+        assigneeEl.textContent = node.assignee;
+    } else {
+        assigneeSection.style.display = 'none';
     }
     
     // Update dependencies (if any)
@@ -405,6 +474,26 @@ export function updateInfoPanelContent(panel, node) {
         closedReasonEl.textContent = node.closed_reason;
     } else {
         closedSection.style.display = 'none';
+    }
+    
+    // Update timestamps section
+    const timestampsSection = panel.querySelector('#info-panel-timestamps-section');
+    const timestampsEl = panel.querySelector('#info-panel-timestamps');
+    if (node.created_at || node.updated_at || node.closed_at) {
+        timestampsSection.style.display = 'block';
+        let timestampsHTML = '';
+        if (node.created_at) {
+            timestampsHTML += `<dt>Created</dt><dd>${formatDate(node.created_at)}</dd>`;
+        }
+        if (node.updated_at) {
+            timestampsHTML += `<dt>Updated</dt><dd>${formatDate(node.updated_at)}</dd>`;
+        }
+        if (node.closed_at) {
+            timestampsHTML += `<dt>Closed</dt><dd>${formatDate(node.closed_at)}</dd>`;
+        }
+        timestampsEl.innerHTML = timestampsHTML;
+    } else {
+        timestampsSection.style.display = 'none';
     }
     
     // Update queue section (task/bug only)
