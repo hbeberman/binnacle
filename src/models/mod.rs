@@ -1053,6 +1053,17 @@ pub enum AgentType {
     Buddy,
 }
 
+/// Health status for an agent, including stuck detection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentHealth {
+    /// True if agent is stuck (idle >30min AND has assigned tasks)
+    pub is_stuck: bool,
+    /// Minutes since last activity
+    pub idle_minutes: u64,
+    /// Task IDs the agent is stuck on (empty if not stuck)
+    pub stuck_task_ids: Vec<String>,
+}
+
 /// An AI agent registered with Binnacle for lifecycle management.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
@@ -1307,6 +1318,26 @@ impl Agent {
     pub fn is_alive(&self) -> bool {
         // On non-Unix systems, assume alive (conservative)
         true
+    }
+
+    /// Compute health status for this agent.
+    /// Agent is stuck if idle >30min AND has assigned tasks.
+    pub fn compute_health(&self) -> AgentHealth {
+        let now = Utc::now();
+        let idle_duration = now.signed_duration_since(self.last_activity_at);
+        let idle_minutes = idle_duration.num_minutes().max(0) as u64;
+
+        let is_stuck = idle_minutes > 30 && !self.tasks.is_empty();
+
+        AgentHealth {
+            is_stuck,
+            idle_minutes,
+            stuck_task_ids: if is_stuck {
+                self.tasks.clone()
+            } else {
+                Vec::new()
+            },
+        }
     }
 }
 

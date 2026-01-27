@@ -670,7 +670,23 @@ async fn get_agents(State(state): State<AppState>) -> Result<Json<serde_json::Va
         .list_agents(None)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(serde_json::json!({ "agents": agents })))
+    // Add health status to each agent
+    let agents_with_health: Vec<serde_json::Value> = agents
+        .into_iter()
+        .map(|agent| {
+            let health = agent.compute_health();
+            let mut agent_json = serde_json::to_value(&agent).unwrap_or_default();
+            if let Some(obj) = agent_json.as_object_mut() {
+                obj.insert(
+                    "health".to_string(),
+                    serde_json::to_value(&health).unwrap_or_default(),
+                );
+            }
+            agent_json
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({ "agents": agents_with_health })))
 }
 
 /// Kill an agent by PID

@@ -13877,6 +13877,8 @@ pub struct AgentInfo {
     /// When the agent called goodbye (for fade-out animation timing)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goodbye_at: Option<String>,
+    /// Health status including stuck detection
+    pub health: crate::models::AgentHealth,
 }
 
 impl Output for AgentListResult {
@@ -13899,9 +13901,16 @@ impl Output for AgentListResult {
                 .as_ref()
                 .map(|p| format!(" - {}", p))
                 .unwrap_or_default();
+
+            let health_str = if agent.health.is_stuck {
+                format!(" ⚠️ STUCK ({}m idle)", agent.health.idle_minutes)
+            } else {
+                String::new()
+            };
+
             lines.push(format!(
-                "  {} (PID {})  {}{}  [{}]",
-                agent.id, agent.pid, agent.name, purpose_str, agent.status
+                "  {} (PID {})  {}{}  [{}]{}",
+                agent.id, agent.pid, agent.name, purpose_str, agent.status, health_str
             ));
             lines.push(format!(
                 "    Started: {}  Last activity: {}",
@@ -13911,6 +13920,12 @@ impl Output for AgentListResult {
                 lines.push(format!("    Tasks: {}", agent.tasks.join(", ")));
             }
             lines.push(format!("    Commands: {}", agent.command_count));
+            if agent.health.is_stuck {
+                lines.push(format!(
+                    "    ⚠️ Health: Stuck on tasks for {} minutes",
+                    agent.health.idle_minutes
+                ));
+            }
             lines.push(String::new());
         }
 
@@ -13935,6 +13950,7 @@ pub fn agent_list(repo_path: &Path, status: Option<&str>) -> Result<AgentListRes
                 AgentStatus::Idle => "idle",
                 AgentStatus::Stale => "stale",
             };
+            let health = a.compute_health();
             AgentInfo {
                 id: a.id,
                 pid: a.pid,
@@ -13947,6 +13963,7 @@ pub fn agent_list(repo_path: &Path, status: Option<&str>) -> Result<AgentListRes
                 tasks: a.tasks,
                 command_count: a.command_count,
                 goodbye_at: a.goodbye_at.map(|t| t.to_rfc3339()),
+                health,
             }
         })
         .collect();
