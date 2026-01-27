@@ -255,8 +255,6 @@
         import * as state from './js/state.js';
         import * as graph from './js/graph/index.js';
         import * as connection from './js/connection/index.js';
-        import { initializeSidebar } from './js/components/sidebar.js';
-        import { initializeAgentList } from './js/components/agent-list.js';
         import { initializeAgentCards } from './js/components/agent-cards.js';
         import { createInfoPanel, initializeInfoPanel, showInfoPanel, updateInfoPanelContent } from './js/components/info-panel.js';
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
@@ -274,12 +272,6 @@
         const container = document.getElementById('app-container');
         const canvas = document.getElementById('graph-canvas');
         const graphView = document.getElementById('graph-view');
-        
-        // Initialize sidebar with search functionality in graph view
-        initializeSidebar(graphView, (query) => {
-            console.log('Search query:', query);
-            // TODO: Implement graph search filtering
-        });
         
         // Mount graph controls to graph view (includes inline zoom controls)
         mountGraphControls(graphView, {
@@ -307,9 +299,6 @@
                 zoomLevelElement.textContent = `${percentage}%`;
             }
         });
-        
-        // Initialize agent list (sidebar)
-        initializeAgentList('#agents-sidebar-list');
         
         // Initialize agent cards (agents view)
         initializeAgentCards('#agents-list');
