@@ -23,6 +23,7 @@ export {
     isConnected,
     getConnectionState,
     send,
+    send as sendMessage,
     requestSync
 } from './live-connection.js';
 
