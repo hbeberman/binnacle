@@ -158,6 +158,13 @@ cargo build --release --features gui
 cargo install --path . --features gui
 ```
 
+**How bundling works:**
+- During `cargo build --features gui`, the build script (`build.rs`) automatically runs `scripts/bundle-web.sh`
+- Web assets from `web/` are minified and compressed into `target/web-bundle.tar.zst`
+- The bundle is embedded into the binary at compile time
+- Bundle is cached using a hash of `web/` contents - only rebuilds when files change
+- Development builds can skip bundling with `--dev` flag to serve directly from filesystem
+
 ### Launching the GUI
 
 **Option 1: Using `bn gui` (direct command)**
@@ -189,6 +196,20 @@ The `just gui` recipe offers faster iteration during development:
 - Starts immediately with the existing binary
 - Rebuilds in the background
 - Automatically restarts with the new build
+
+**Option 3: Development mode (for frontend work)**
+
+When working on JavaScript/CSS changes, use development mode for instant updates:
+
+```bash
+just dev-gui        # Serves from web/ directory, no bundle needed
+```
+
+Development mode (`--dev` flag):
+- Serves assets directly from `web/` directory
+- Edit files and refresh browser to see changes instantly
+- No bundling/rebuilding required for frontend changes
+- Uses `cargo run --features gui -- gui --dev` under the hood
 
 **Environment Variables:**
 - `BN_GUI_PORT`: Override default port (default: 3030)

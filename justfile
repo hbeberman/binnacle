@@ -23,6 +23,11 @@ install: (build "release" "gui")
     mv ~/.local/bin/bn.tmp ~/.local/bin/bn
     @echo "Installed bn to ~/.local/bin/bn (with GUI feature)"
 
+# Run GUI in development mode (serves from filesystem, auto-reloads on changes)
+dev-gui:
+    @echo "Starting GUI in development mode..."
+    cargo run --features gui -- gui --dev
+
 gui nobuild="":
     #!/usr/bin/env bash
     set -e
