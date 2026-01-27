@@ -2895,6 +2895,8 @@ impl Storage {
                     entity_id: task.core.id.clone(),
                     action: action.to_string(),
                     details,
+                    actor: None,
+                    actor_type: None,
                 });
 
                 seen_tasks.insert(task.core.id.clone(), task.core.updated_at);
@@ -2923,6 +2925,8 @@ impl Storage {
                         entity_id: test.id.clone(),
                         action: action.to_string(),
                         details: None,
+                        actor: None,
+                        actor_type: None,
                     });
 
                     seen_tests.insert(test.id.clone(), test.created_at);
@@ -2955,6 +2959,8 @@ impl Storage {
                             entity_id: link.sha.clone(),
                             action: "linked".to_string(),
                             details: Some(format!("to task {}", link.task_id)),
+                            actor: None,
+                            actor_type: None,
                         });
                     }
                 }

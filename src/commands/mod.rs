@@ -10736,6 +10736,10 @@ pub struct LogEntry {
     pub action: String, // "created", "updated", "closed", etc.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>, // username or agent ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actor_type: Option<String>, // 'user' or 'agent'
 }
 
 /// Result of the log command.
