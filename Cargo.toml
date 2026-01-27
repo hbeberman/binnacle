@@ -65,13 +65,14 @@ ctrlc = "3"
 # GUI dependencies (feature-gated)
 axum = { version = "0.7", features = ["ws"], optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
+tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["fs", "cors"], optional = true }
 futures = { version = "0.3", optional = true }
 notify = { version = "6", optional = true }
 tracing = { version = "0.1", optional = true }
 
 [features]
-gui = ["axum", "tokio", "tower-http", "futures", "notify", "tracing"]
+gui = ["axum", "tokio", "tower", "tower-http", "futures", "notify", "tracing"]
 wasm = [
   "wasm-bindgen",
   "js-sys",

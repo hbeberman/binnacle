@@ -329,6 +329,11 @@ For detailed instructions, see: container/README.md
         #[arg(long, env = "BN_GUI_READONLY", global = true)]
         readonly: bool,
 
+        /// Development mode: serve assets from filesystem instead of embedded bundle
+        /// Used when no subcommand is given (starts server)
+        #[arg(long, global = true)]
+        dev: bool,
+
         /// Load from a .bng archive file (imports to temp directory and serves from there)
         #[arg(long, global = true)]
         archive: Option<String>,
@@ -1126,6 +1131,10 @@ pub enum GuiCommands {
         /// Start in readonly mode (disables all write operations)
         #[arg(long, env = "BN_GUI_READONLY")]
         readonly: bool,
+
+        /// Development mode: serve assets from filesystem instead of embedded bundle
+        #[arg(long)]
+        dev: bool,
     },
 
     /// Show status of running GUI server
