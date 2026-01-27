@@ -20,11 +20,11 @@ const BUG_STATUS_COLORS = {
     'done': '#8fbc8f'
 };
 
-// Idea colors (deeper purple)
+// Idea colors (white/light tones)
 const IDEA_STATUS_COLORS = {
-    'pending': '#8b5fc9',
-    'in_progress': '#7a4db8',
-    'blocked': '#5c3a8a',
+    'pending': '#ffffff',
+    'in_progress': '#f0f0f0',
+    'blocked': '#d0d0d0',
     'done': '#8fbc8f'
 };
 
@@ -45,7 +45,7 @@ const AGENT_STATUS_COLORS = {
 
 // Doc colors (by doc_type)
 const DOC_TYPE_COLORS = {
-    'prd': '#4a90e2',
+    'prd': '#9333ea',
     'note': '#e8b84a',
     'handoff': '#e87d4a'
 };
