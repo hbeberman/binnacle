@@ -43,7 +43,7 @@ export {
 export {
     drawHexagonPath,
     drawDiamondPath,
-    drawPersonPath,
+    drawRobotPath,
     drawSquarePath,
     drawCloudPath,
     drawDocPath,
