@@ -359,6 +359,7 @@ pub async fn start_server(
         .route("/api/edges", post(add_edge))
         .route("/api/links/batch", post(batch_add_links))
         .route("/api/log", get(get_log))
+        .route("/api/log/owners", get(get_log_owners))
         .route("/api/changes", get(get_changes))
         .route("/api/log/annotations", get(get_log_annotations))
         .route("/api/log/annotations", post(add_log_annotation))
@@ -1107,6 +1108,19 @@ struct LogAnnotationQueryParams {
     author: Option<String>,
     /// Search in content
     search: Option<String>,
+}
+
+/// Get distinct log owners (users and agents)
+async fn get_log_owners(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+
+    let owners = storage
+        .get_distinct_log_owners()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({ "owners": owners })))
 }
 
 /// Get log annotations with optional filtering
