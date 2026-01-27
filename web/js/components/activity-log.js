@@ -5,6 +5,7 @@
  * entry rendering with owner display, and container structure.
  */
 
+import { subscribe } from '../state.js';
 import { showNodeDetailModal } from './node-detail-modal.js';
 
 /**
@@ -456,6 +457,22 @@ export function mountActivityLog(target) {
     
     const log = createActivityLog();
     targetEl.appendChild(log);
+    
+    // Subscribe to log state changes for real-time updates
+    subscribe('log', () => {
+        // When log state changes (e.g., from WebSocket sync), refresh the display
+        const currentOffset = parseInt(log.dataset.currentOffset || '0', 10);
+        updateLogDisplay(log, currentOffset);
+    });
+    
+    // Subscribe to view changes to refresh when switching to log view
+    subscribe('ui.currentView', (view) => {
+        if (view === 'log') {
+            // Refresh log when switching to log view
+            const currentOffset = parseInt(log.dataset.currentOffset || '0', 10);
+            updateLogDisplay(log, currentOffset);
+        }
+    });
     
     return log;
 }
