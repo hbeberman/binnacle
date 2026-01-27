@@ -12,7 +12,7 @@ import * as graph from '../graph/index.js';
  */
 export function createZoomControls() {
     const controls = document.createElement('div');
-    controls.className = 'graph-controls';
+    controls.className = 'zoom-controls-container';
     
     controls.innerHTML = `
         <div class="zoom-controls">
