@@ -12100,6 +12100,11 @@ pub fn system_store_export(
     let files_to_export = [
         "tasks.jsonl",
         "bugs.jsonl",
+        "ideas.jsonl",
+        "docs.jsonl",
+        "milestones.jsonl",
+        "queues.jsonl",
+        "agents.jsonl",
         "edges.jsonl",
         "commits.jsonl",
         "test-results.jsonl",

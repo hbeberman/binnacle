@@ -126,6 +126,7 @@ impl Storage {
             "ideas.jsonl",
             "docs.jsonl",
             "milestones.jsonl",
+            "queues.jsonl",
             "edges.jsonl",
             "commits.jsonl",
             "test-results.jsonl",
