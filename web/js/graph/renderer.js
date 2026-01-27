@@ -46,6 +46,11 @@ const SELECTION_ANIMATION_DURATION = 600; // ms
 // Departing agents tracking (for fade animation)
 const departingAgents = new Map();
 
+// Highlight state (for programmatic highlighting, e.g., from entity links)
+let highlightedNodeId = null;
+const HIGHLIGHT_ANIMATION_DURATION = 2000; // ms - longer than selection for visibility
+let highlightStartTime = null;
+
 /**
  * Initialize the graph renderer with a canvas element
  * @param {HTMLCanvasElement} canvasElement - The canvas to render to
@@ -813,6 +818,39 @@ function drawNode(node) {
         ctx.restore();
     }
     
+    // Draw programmatic highlight (e.g., from entity link hover)
+    if (highlightedNodeId === node.id && highlightStartTime) {
+        const elapsed = performance.now() - highlightStartTime;
+        if (elapsed < HIGHLIGHT_ANIMATION_DURATION) {
+            const progress = elapsed / HIGHLIGHT_ANIMATION_DURATION;
+            // Pulsing glow effect
+            const pulseFreq = 3; // Number of pulses over duration
+            const pulseValue = Math.sin(progress * Math.PI * pulseFreq);
+            const scale = 1.0 + 0.2 * pulseValue;
+            const alpha = 0.8 * (1 - progress * 0.5); // Fade out slowly
+            
+            ctx.save();
+            ctx.globalAlpha *= alpha;
+            
+            ctx.beginPath();
+            const highlightRadius = (radius + 12 * zoom) * scale;
+            drawNodeShapePath(ctx, node.type, screenPos.x, screenPos.y, highlightRadius);
+            
+            // Bright cyan/magenta highlight to stand out from selection
+            ctx.strokeStyle = '#ff00ff'; // Magenta
+            ctx.lineWidth = 5 * scale;
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(255, 0, 255, 0.25)';
+            ctx.fill();
+            
+            ctx.restore();
+        } else {
+            // Animation complete, clear highlight
+            highlightedNodeId = null;
+            highlightStartTime = null;
+        }
+    }
+    
     // Draw drag/hover highlight
     if (isDragging || isHovered) {
         ctx.beginPath();
@@ -1437,6 +1475,33 @@ export function getCanvas() {
 export function markAgentDeparting(agentId) {
     departingAgents.set(agentId, performance.now());
     startAnimation();
+}
+
+/**
+ * Highlight a node with a pulsing glow animation
+ * @param {string} nodeId - Node ID to highlight
+ */
+export function highlightNode(nodeId) {
+    if (!nodeId) return;
+    
+    highlightedNodeId = nodeId;
+    highlightStartTime = performance.now();
+    startAnimation(); // Ensure animation loop is running
+    
+    // Optionally pan to the node if it's not in view
+    const node = graphNodes.find(n => n.id === nodeId);
+    if (node) {
+        panToNode(node);
+    }
+}
+
+/**
+ * Clear the current node highlight
+ */
+export function clearHighlight() {
+    highlightedNodeId = null;
+    highlightStartTime = null;
+    scheduleRender();
 }
 
 // Export for external use

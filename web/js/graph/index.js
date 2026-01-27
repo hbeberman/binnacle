@@ -20,6 +20,8 @@ export {
     getVisibleNodes,
     getCanvas,
     markAgentDeparting,
+    highlightNode,
+    clearHighlight,
     animationTime
 } from './renderer.js';
 
