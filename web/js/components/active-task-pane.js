@@ -134,11 +134,21 @@ function updatePane(pane) {
         const agentName = agent ? (agent.title || agent.id) : 'Unknown';
         const agentDisplay = agent ? `<div class="active-task-agent">${escapeHtml(agentName)}</div>` : '';
         
+        // Determine type label based on task.type
+        let typeLabel = '';
+        if (task.type === 'agent') {
+            typeLabel = '🤖 Worker';
+        } else if (task.type === 'bug') {
+            typeLabel = `Bug: ${task.id}`;
+        } else {
+            typeLabel = task.id;
+        }
+        
         html += `
             <div class="active-task-item">
                 ${agentDisplay}
                 <div class="active-task-id" data-task-id="${task.id}" title="Click to view task">
-                    ${task.id}
+                    ${typeLabel}
                 </div>
                 <div class="active-task-title" title="${task.title}">
                     ${escapeHtml(task.short_name || task.title)}
