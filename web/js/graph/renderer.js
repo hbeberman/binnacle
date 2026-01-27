@@ -254,7 +254,7 @@ export function stopAnimation() {
  * Apply force-directed layout physics to graph nodes
  */
 function applyPhysics() {
-    const physics = state.getState().physics;
+    const physics = state.getState().ui.physics;
     
     // Reset forces
     for (const node of visibleNodes) {
