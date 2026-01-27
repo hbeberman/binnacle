@@ -10,6 +10,7 @@ import {
     setSelectedNode
 } from '../state.js';
 import { createClickableId } from '../utils/clickable-ids.js';
+import { showNodeDetailModal } from './node-detail-modal.js';
 
 /**
  * Get status badge configuration for an agent
@@ -121,6 +122,14 @@ function createTaskLinksSection(tasks) {
         
         // Create clickable task ID
         const clickableId = createClickableId(taskId);
+        
+        // Override click behavior to show detail modal instead of navigating to graph
+        clickableId.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showNodeDetailModal(taskId);
+        });
+        
         taskItem.appendChild(clickableId);
         
         taskList.appendChild(taskItem);
