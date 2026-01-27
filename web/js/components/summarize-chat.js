@@ -150,17 +150,71 @@ function updateQuickActions(suggestions) {
  * Handle quick action button click
  * @param {Object} suggestion - Suggestion object
  */
-function handleQuickAction(suggestion) {
+async function handleQuickAction(suggestion) {
     const modal = document.getElementById('summarize-chat-modal');
     if (!modal) return;
     
-    // Dispatch custom event for parent to handle
-    modal.dispatchEvent(new CustomEvent('chat-action', {
-        detail: {
-            action: suggestion.action,
-            data: suggestion.data
+    const messagesEl = document.getElementById('summarize-chat-messages');
+    
+    // Show processing feedback
+    const processingMsg = document.createElement('div');
+    processingMsg.className = 'chat-message chat-message-agent processing';
+    processingMsg.innerHTML = `
+        <div class="chat-message-header">
+            <span class="chat-message-icon">⚙️</span>
+            <span class="chat-message-label">Processing</span>
+        </div>
+        <div class="chat-message-content">Executing action: ${escapeHtml(suggestion.label)}...</div>
+    `;
+    messagesEl.appendChild(processingMsg);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    try {
+        // Call the API to execute the action
+        const response = await fetch('/api/summarize/action', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                action_type: suggestion.action,
+                params: suggestion.data || {}
+            })
+        });
+        
+        // Remove processing message
+        processingMsg.remove();
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
         }
-    }));
+        
+        const result = await response.json();
+        
+        // Show success message
+        const successHtml = `<p>✓ ${escapeHtml(suggestion.label)} completed successfully.</p>`;
+        addChatMessage(messagesEl, successHtml, 'agent');
+        
+        // Dispatch custom event for parent to handle UI updates
+        modal.dispatchEvent(new CustomEvent('chat-action', {
+            detail: {
+                action: suggestion.action,
+                data: suggestion.data,
+                result: result
+            }
+        }));
+        
+    } catch (error) {
+        // Remove processing message
+        processingMsg.remove();
+        
+        // Show error message
+        const errorHtml = `<p>❌ Failed to execute action: ${escapeHtml(error.message)}</p>`;
+        addChatMessage(messagesEl, errorHtml, 'agent');
+        
+        console.error('Action execution failed:', error);
+    }
 }
 
 /**
@@ -225,7 +279,7 @@ function buildContextSummary(selectedNodes) {
  * @param {Array} selectedNodeIds - Array of node IDs
  * @param {boolean} readonly - Whether in readonly mode
  */
-export function showSummarizeChatModal(selectedNodeIds, readonly = false) {
+export async function showSummarizeChatModal(selectedNodeIds, readonly = false) {
     const overlay = document.getElementById('summarize-chat-modal');
     if (!overlay) {
         console.error('Summarize chat modal overlay not found in DOM');
@@ -246,14 +300,37 @@ export function showSummarizeChatModal(selectedNodeIds, readonly = false) {
     
     // Clear messages
     const messagesEl = document.getElementById('summarize-chat-messages');
-    messagesEl.innerHTML = '';
+    messagesEl.innerHTML = '<div class="summarize-chat-loading">Initializing agent...</div>';
     
-    // Add initial agent message with context
-    const contextSummary = buildContextSummary(selectedNodes);
-    addChatMessage(messagesEl, contextSummary, 'agent');
+    // Show overlay
+    overlay.classList.remove('hidden');
     
-    // Add initial analysis (placeholder - would be replaced by actual agent)
-    const analysisHtml = `<p>I can help you with:</p>
+    try {
+        // Start a summarize session with the backend
+        const response = await fetch('/api/summarize/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                entity_ids: selectedNodeIds
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
+        
+        // Clear loading message
+        messagesEl.innerHTML = '';
+        
+        // Add initial agent message with context
+        const contextSummary = buildContextSummary(selectedNodes);
+        addChatMessage(messagesEl, contextSummary, 'agent');
+        
+        // Add initial analysis with quick actions
+        const analysisHtml = `<p>I can help you with:</p>
 <ul>
     <li>Understanding the current state and relationships</li>
     <li>Identifying blockers and dependencies</li>
@@ -261,12 +338,24 @@ export function showSummarizeChatModal(selectedNodeIds, readonly = false) {
     <li>Answering questions about this selection</li>
 </ul>
 <p>What would you like to know?</p>`;
-    
-    addChatMessage(messagesEl, analysisHtml, 'agent', [
-        { label: 'Show critical path', action: 'show-critical-path', data: { nodeIds: selectedNodeIds } },
-        { label: 'Find blockers', action: 'find-blockers', data: { nodeIds: selectedNodeIds } },
-        { label: 'Export summary', action: 'export-summary', data: { nodeIds: selectedNodeIds } }
-    ]);
+        
+        addChatMessage(messagesEl, analysisHtml, 'agent', [
+            { label: 'Show critical path', action: 'show-critical-path', data: { nodeIds: selectedNodeIds } },
+            { label: 'Find blockers', action: 'find-blockers', data: { nodeIds: selectedNodeIds } },
+            { label: 'Export summary', action: 'export-summary', data: { nodeIds: selectedNodeIds } }
+        ]);
+        
+    } catch (error) {
+        // Show error message
+        messagesEl.innerHTML = `<div class="summarize-chat-error">Failed to start session: ${escapeHtml(error.message)}</div>`;
+        console.error('Failed to start summarize session:', error);
+        
+        // Close modal after a delay
+        setTimeout(() => {
+            hideSummarizeChatModal();
+        }, 3000);
+        return;
+    }
     
     // Handle readonly mode
     const inputEl = document.getElementById('summarize-chat-input');
@@ -282,9 +371,6 @@ export function showSummarizeChatModal(selectedNodeIds, readonly = false) {
         sendBtn.disabled = false;
         inputEl.focus();
     }
-    
-    // Show overlay
-    overlay.classList.remove('hidden');
 }
 
 /**
@@ -308,7 +394,7 @@ export function hideSummarizeChatModal() {
  * Handle sending a message
  * @param {string} message - User message
  */
-function handleSendMessage(message) {
+async function handleSendMessage(message) {
     if (!message || message.trim() === '') return;
     
     const messagesEl = document.getElementById('summarize-chat-messages');
@@ -323,19 +409,69 @@ function handleSendMessage(message) {
         inputEl.value = '';
     }
     
-    // Dispatch event for backend to handle
-    const modal = document.getElementById('summarize-chat-modal');
-    if (modal) {
-        modal.dispatchEvent(new CustomEvent('chat-message', {
-            detail: { message }
-        }));
-    }
+    // Show typing indicator
+    const typingIndicator = document.createElement('div');
+    typingIndicator.className = 'chat-message chat-message-agent typing';
+    typingIndicator.innerHTML = `
+        <div class="chat-message-header">
+            <span class="chat-message-icon">🤖</span>
+            <span class="chat-message-label">Agent</span>
+        </div>
+        <div class="chat-message-content">Thinking...</div>
+    `;
+    messagesEl.appendChild(typingIndicator);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
     
-    // Simulate agent response (placeholder - would be replaced by actual backend)
-    setTimeout(() => {
-        const responseHtml = `<p>I'm analyzing your question. In a real implementation, this would connect to an AI agent backend.</p>`;
-        addChatMessage(messagesEl, responseHtml, 'agent');
-    }, 500);
+    try {
+        // Call the chat API
+        const response = await fetch('/api/summarize/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                message: message
+            })
+        });
+        
+        // Remove typing indicator
+        typingIndicator.remove();
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        // Add agent response with suggested actions
+        const agentResponse = result.response || 'No response from agent';
+        const suggestions = result.suggested_actions || [];
+        
+        addChatMessage(messagesEl, agentResponse, 'agent', suggestions);
+        
+        // Dispatch event for parent to handle
+        const modal = document.getElementById('summarize-chat-modal');
+        if (modal) {
+            modal.dispatchEvent(new CustomEvent('chat-message', {
+                detail: { 
+                    message,
+                    response: agentResponse,
+                    suggestions
+                }
+            }));
+        }
+        
+    } catch (error) {
+        // Remove typing indicator
+        typingIndicator.remove();
+        
+        // Show error message
+        const errorHtml = `<p>❌ Failed to get response: ${escapeHtml(error.message)}</p>`;
+        addChatMessage(messagesEl, errorHtml, 'agent');
+        
+        console.error('Chat message failed:', error);
+    }
 }
 
 /**
