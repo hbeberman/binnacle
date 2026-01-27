@@ -22,6 +22,7 @@
     <link rel="stylesheet" href="/css/components/readonly-indicator.css">
     <link rel="stylesheet" href="/css/components/doc-viewer.css">
     <link rel="stylesheet" href="/css/components/edge-info-panel.css">
+    <link rel="stylesheet" href="/css/components/graph-overlay-panel.css">
     <link rel="stylesheet" href="/css/components/graph-controls.css">
     <link rel="stylesheet" href="/css/components/node-list.css">
     <link rel="stylesheet" href="/css/components/node-detail-modal.css">
@@ -259,6 +260,7 @@
         import * as connection from './js/connection/index.js';
         import { initializeAgentCards } from './js/components/agent-cards.js';
         import { createInfoPanel, initializeInfoPanel, showInfoPanel, updateInfoPanelContent } from './js/components/info-panel.js';
+        import { mountGraphOverlayPanel, initializeGraphOverlayPanel } from './js/components/graph-overlay-panel.js';
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
         import { mountNodeDetailModal, showNodeDetailModal } from './js/components/node-detail-modal.js';
         import { mountNodeDetailPane, showNodeDetailPane } from './js/components/node-detail-pane.js';
@@ -307,6 +309,12 @@
                 zoomLevelElement.textContent = `${percentage}%`;
             }
         });
+        
+        // Mount graph overlay panel for hover info
+        const graphOverlayPanel = mountGraphOverlayPanel(graphView);
+        if (graphOverlayPanel) {
+            initializeGraphOverlayPanel(graphOverlayPanel);
+        }
         
         // Initialize agent cards (agents view)
         initializeAgentCards('#agents-list');

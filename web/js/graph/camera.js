@@ -230,6 +230,8 @@ function checkHover(canvasX, canvasY, screenX, screenY) {
                 currentHoveredEdge = hoveredEdge;
                 currentHoveredNode = null;
                 setHoveredNode(null);
+                // Update state for overlay panel
+                state.set('ui.hoveredEdge', hoveredEdge);
                 canvas.classList.remove('hovering');
                 canvas.classList.add('hovering-edge');
                 
@@ -246,6 +248,8 @@ function checkHover(canvasX, canvasY, screenX, screenY) {
                 currentHoveredNode = null;
                 currentHoveredEdge = null;
                 setHoveredNode(null);
+                // Clear edge hover state
+                state.set('ui.hoveredEdge', null);
                 canvas.classList.remove('hovering');
                 canvas.classList.remove('hovering-edge');
                 
