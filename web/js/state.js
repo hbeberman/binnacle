@@ -122,8 +122,8 @@ const createDefaultState = () => ({
         // Graph physics (for live mode)
         physics: {
             damping: 0.92,
-            gravityStrength: 0.05,
-            repulsionStrength: 2500,
+            gravityStrength: 0.03,
+            repulsionStrength: 8000,
             springStrength: 0.08,
             springRestingLength: 200
         },
