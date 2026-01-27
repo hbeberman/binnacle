@@ -260,7 +260,7 @@ function onMultiSelectionChanged(nodeIds) {
     }
     
     // Clean up animations for deselected nodes
-    for (const [nodeId, _] of selectionAnimations) {
+    for (const [nodeId] of selectionAnimations) {
         if (!selectedNodes.includes(nodeId)) {
             selectionAnimations.delete(nodeId);
         }

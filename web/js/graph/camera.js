@@ -83,7 +83,7 @@ export function init(canvasElement, callbacks = {}) {
     addCanvasLongPress(
         canvas,
         (x, y) => findNodeAtPosition(x, y),
-        (node, event) => {
+        (node, _event) => {
             // Long-press adds to selection without clearing others
             if (node) {
                 toggleSelection(node.id, false);
