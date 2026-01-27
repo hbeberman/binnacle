@@ -6,6 +6,7 @@
     <title>Agent Cards Component Test</title>
     <link rel="stylesheet" href="css/main.css">
     <link rel="stylesheet" href="css/components/agent-cards.css">
+    <link rel="stylesheet" href="css/components/node-detail-modal.css">
     <style>
         body {
             margin: 0;
@@ -61,10 +62,17 @@
         
         <div id="agents-cards"></div>
     </div>
+    
+    <!-- Modal container for node details -->
+    <div id="modal-container"></div>
 
     <script type="module">
         import { initializeAgentCards } from './js/components/agent-cards.js';
+        import { mountNodeDetailModal } from './js/components/node-detail-modal.js';
         import * as state from './js/state.js';
+        
+        // Initialize node detail modal
+        mountNodeDetailModal(document.getElementById('modal-container'));
         
         // Initialize agent cards
         const cardsContainer = document.getElementById('agents-cards');
@@ -143,6 +151,40 @@
         state.subscribe('ui.selectedNode', (nodeId) => {
             console.log('Selected agent:', nodeId);
         });
+        
+        // Add some mock task entities that the agents are working on
+        state.setEntities('tasks', [
+            {
+                id: 'bn-1234',
+                type: 'task',
+                title: 'Implement user authentication',
+                description: 'Add JWT-based authentication to the API endpoints',
+                status: 'in_progress',
+                priority: 1,
+                created_at: new Date(Date.now() - 86400000).toISOString(),
+                updated_at: new Date().toISOString()
+            },
+            {
+                id: 'bn-5678',
+                type: 'task',
+                title: 'Redesign agent cards UI',
+                description: 'Update agent cards to show more detailed status information',
+                status: 'in_progress',
+                priority: 2,
+                created_at: new Date(Date.now() - 172800000).toISOString(),
+                updated_at: new Date().toISOString()
+            },
+            {
+                id: 'bn-abcd',
+                type: 'task',
+                title: 'Database migration script',
+                description: 'Migrate legacy database to new schema',
+                status: 'blocked',
+                priority: 0,
+                created_at: new Date(Date.now() - 259200000).toISOString(),
+                updated_at: new Date(Date.now() - 7200000).toISOString()
+            }
+        ]);
         
         // Add some initial test agents
         state.setEntities('agents', [
