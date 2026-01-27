@@ -58,6 +58,8 @@ pub struct ActionLogEntry {
     pub duration_ms: u64,
     /// User who executed the command
     pub user: String,
+    /// Agent ID if the command was run by an agent
+    pub agent_id: Option<String>,
 }
 
 /// Parsed graph data from a binnacle archive
@@ -444,6 +446,10 @@ fn parse_action_log_line(line: &str) -> Option<ActionLogEntry> {
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
+    let agent_id = json
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     Some(ActionLogEntry {
         timestamp,
@@ -453,6 +459,7 @@ fn parse_action_log_line(line: &str) -> Option<ActionLogEntry> {
         error,
         duration_ms,
         user,
+        agent_id,
     })
 }
 
