@@ -33,7 +33,7 @@ export function initializeNodeList(containerSelector, options = {}) {
 }
 
 /**
- * Render the node list
+ * Render the node list as a kanban board
  */
 function renderNodeList(container, options = {}) {
     const hideCompleted = state.get('ui.hideCompleted');
@@ -99,40 +99,56 @@ function renderNodeList(container, options = {}) {
         });
     }
     
-    // Sort: open first, ready first, by priority, then by ID
-    allNodes.sort((a, b) => {
-        // Type ordering
-        const typeOrder = { task: 0, bug: 1, milestone: 2, idea: 3, test: 4, doc: 5 };
-        if (typeOrder[a.nodeType] !== typeOrder[b.nodeType]) {
-            return (typeOrder[a.nodeType] ?? 99) - (typeOrder[b.nodeType] ?? 99);
+    // Group nodes by status (kanban columns)
+    const columns = {
+        pending: [],
+        in_progress: [],
+        blocked: [],
+        done: []
+    };
+    
+    allNodes.forEach(node => {
+        if (node.nodeType === 'task' || node.nodeType === 'bug' || node.nodeType === 'milestone') {
+            if (node.status === 'done' || node.status === 'cancelled') {
+                columns.done.push(node);
+            } else if (node.status === 'in_progress') {
+                columns.in_progress.push(node);
+            } else if (node.status === 'blocked') {
+                columns.blocked.push(node);
+            } else {
+                // pending or other statuses go in pending
+                columns.pending.push(node);
+            }
+        } else if (node.nodeType === 'idea') {
+            if (node.status === 'promoted' || node.status === 'wilted') {
+                columns.done.push(node);
+            } else {
+                columns.pending.push(node);
+            }
+        } else {
+            // Tests and docs go in pending by default
+            columns.pending.push(node);
         }
-        
-        // For tasks/bugs/milestones: open first, ready first, priority
-        if (a.nodeType === 'task' || a.nodeType === 'bug' || a.nodeType === 'milestone') {
-            const aOpen = a.status !== 'done' && a.status !== 'cancelled';
-            const bOpen = b.status !== 'done' && b.status !== 'cancelled';
-            if (aOpen !== bOpen) return bOpen - aOpen;
-            
+    });
+    
+    // Sort each column
+    Object.values(columns).forEach(column => {
+        column.sort((a, b) => {
+            // Ready first
             const aReady = readyIds.has(a.id);
             const bReady = readyIds.has(b.id);
             if (aReady !== bReady) return bReady - aReady;
             
+            // Priority
             if ((a.priority ?? 2) !== (b.priority ?? 2)) {
                 return (a.priority ?? 2) - (b.priority ?? 2);
             }
-        }
-        
-        // For ideas: open first
-        if (a.nodeType === 'idea') {
-            const aOpen = a.status === 'seed' || a.status === 'germinating';
-            const bOpen = b.status === 'seed' || b.status === 'germinating';
-            if (aOpen !== bOpen) return bOpen - aOpen;
-        }
-        
-        return a.id.localeCompare(b.id);
+            
+            return a.id.localeCompare(b.id);
+        });
     });
     
-    // Render
+    // Render kanban board
     if (allNodes.length === 0) {
         container.innerHTML = searchQuery 
             ? '<div class="empty-state">No nodes match your search</div>'
@@ -140,7 +156,14 @@ function renderNodeList(container, options = {}) {
         return;
     }
     
-    container.innerHTML = allNodes.map(node => renderNodeCard(node, readyIds, options)).join('');
+    container.innerHTML = `
+        <div class="kanban-board">
+            ${renderKanbanColumn('Pending', 'pending', columns.pending, readyIds, options)}
+            ${renderKanbanColumn('In Progress', 'in_progress', columns.in_progress, readyIds, options)}
+            ${renderKanbanColumn('Blocked', 'blocked', columns.blocked, readyIds, options)}
+            ${renderKanbanColumn('Done', 'done', columns.done, readyIds, options)}
+        </div>
+    `;
     
     // Attach event handlers
     container.querySelectorAll('.card-jump-btn').forEach(btn => {
@@ -163,6 +186,26 @@ function renderNodeList(container, options = {}) {
             }
         });
     });
+}
+
+/**
+ * Render a single kanban column
+ */
+function renderKanbanColumn(title, columnId, nodes, readyIds, options) {
+    return `
+        <div class="kanban-column" data-column="${columnId}">
+            <div class="kanban-column-header">
+                <h3 class="kanban-column-title">${title}</h3>
+                <span class="kanban-column-count">${nodes.length}</span>
+            </div>
+            <div class="kanban-column-content">
+                ${nodes.length === 0 
+                    ? '<div class="kanban-column-empty">No items</div>'
+                    : nodes.map(node => renderNodeCard(node, readyIds, options)).join('')
+                }
+            </div>
+        </div>
+    `;
 }
 
 /**
