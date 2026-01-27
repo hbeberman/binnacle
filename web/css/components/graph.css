@@ -52,10 +52,10 @@
 }
 
 /* ==========================================================================
-   Graph Controls Overlay
+   Zoom Controls Overlay
    ========================================================================== */
 
-.graph-controls {
+.zoom-controls-container {
     position: absolute;
     bottom: 16px;
     right: 16px;
@@ -414,7 +414,7 @@
    ========================================================================== */
 
 @media (max-width: 768px) {
-    .graph-controls {
+    .zoom-controls-container {
         bottom: 12px;
         right: 12px;
     }
