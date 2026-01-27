@@ -78,6 +78,10 @@ Usage: ./agent.sh [--loop] <agent-type> [args]
 Global Options:
   --loop              Restart the agent when it exits (works with any agent type)
 
+Environment Variables:
+  BN_MCP_LIFECYCLE    Control MCP lifecycle prompts (default: true)
+                      Set to "false" to disable MCP orient/goodbye guidance
+
 Agent Types:
   auto                Pick a task from 'bn ready' and work on it immediately
   do "desc"           Work on custom task described in the argument
@@ -93,6 +97,7 @@ Examples:
   ./agent.sh prd
   ./agent.sh buddy
   ./agent.sh free
+  BN_MCP_LIFECYCLE=false ./agent.sh auto
 EOF
     exit 1
 }
@@ -124,11 +129,14 @@ emit_template() {
     echo "$output"
 }
 
+# Check if MCP lifecycle prompts should be added (default: true)
+BN_MCP_LIFECYCLE="${BN_MCP_LIFECYCLE:-true}"
+
 case "$AGENT_TYPE" in
     auto)
         echo "Launching Auto Worker Agent"
         PROMPT=$(emit_template auto-worker)
-        PROMPT+=$(emit_template mcp-lifecycle)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     do)
@@ -139,25 +147,25 @@ case "$AGENT_TYPE" in
         # Get template and substitute {description} placeholder
         # Use awk with -v to safely handle arbitrary strings (special chars, slashes, etc.)
         PROMPT=$(emit_template do-agent | awk -v desc="$DESC" '{gsub(/{description}/, desc); print}')
-        PROMPT+=$(emit_template mcp-lifecycle)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     prd)
         echo "Launching PRD Writer Agent"
         PROMPT=$(emit_template prd-writer)
-        PROMPT+=$(emit_template mcp-lifecycle-planner)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle-planner)
         TOOLS=("${TOOLS_PRD[@]}")
         ;;
     buddy)
         echo "Launching Buddy Agent"
         PROMPT=$(emit_template buddy)
-        PROMPT+=$(emit_template mcp-lifecycle)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
         TOOLS=("${TOOLS_BUDDY[@]}")
         ;;
     free)
         echo "Launching Free Agent"
         PROMPT=$(emit_template free)
-        PROMPT+=$(emit_template mcp-lifecycle)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
         TOOLS=("${TOOLS_FULL[@]}")
         ;;
     *)

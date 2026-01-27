@@ -16,6 +16,10 @@ Container Options:
   --name NAME           Container name (auto-generated if not provided)
   --loop                Continuously respawn agents after exit (unattended mode)
 
+Environment Variables:
+  BN_MCP_LIFECYCLE      Control MCP lifecycle prompts (default: true)
+                        Set to "false" to disable MCP orient/goodbye guidance
+
 Agent Types:
   auto                Pick a task from 'bn ready' and work on it immediately
   do "desc"           Work on custom task described in the argument
@@ -31,6 +35,7 @@ Examples:
   ./containeragent.sh --no-merge prd
   ./containeragent.sh buddy
   ./containeragent.sh free
+  BN_MCP_LIFECYCLE=false ./containeragent.sh auto
 EOF
     exit 1
 }
@@ -99,10 +104,14 @@ emit_template() {
     echo "$output"
 }
 
+# Check if MCP lifecycle prompts should be added (default: true)
+BN_MCP_LIFECYCLE="${BN_MCP_LIFECYCLE:-true}"
+
 case "$AGENT_TYPE" in
     auto)
         echo "Launching Container Auto Worker Agent"
         PROMPT=$(emit_template auto-worker)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
         ;;
     do)
         [[ $# -lt 1 ]] && { echo "Error: 'do' requires a description argument"; usage; }
@@ -111,22 +120,22 @@ case "$AGENT_TYPE" in
         echo "Launching Container Make Agent: $DESC"
         # Get template and substitute {description} placeholder
         PROMPT=$(emit_template do-agent | awk -v desc="$DESC" '{gsub(/{description}/, desc); print}')
-        PROMPT+=$(emit_template mcp-lifecycle)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
         ;;
     prd)
         echo "Launching Container PRD Writer Agent"
         PROMPT=$(emit_template prd-writer)
-        PROMPT+=$(emit_template mcp-lifecycle-planner)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle-planner)
         ;;
     buddy)
         echo "Launching Container Buddy Agent"
         PROMPT=$(emit_template buddy)
-        PROMPT+=$(emit_template mcp-lifecycle)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
         ;;
     free)
         echo "Launching Container Free Agent"
         PROMPT=$(emit_template free)
-        PROMPT+=$(emit_template mcp-lifecycle)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
         ;;
     *)
         echo "Error: Unknown agent type '$AGENT_TYPE'"
