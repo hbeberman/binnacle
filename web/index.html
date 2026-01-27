@@ -288,7 +288,12 @@
             },
             onAutoFollowToggle: (autoFollow) => {
                 console.log('Auto-follow:', autoFollow);
-                // TODO: Implement auto-follow behavior
+                if (!autoFollow) {
+                    // When turning off auto-follow, clear the following state
+                    State.set('ui.followingNodeId', null);
+                    State.set('ui.userPaused', false);
+                }
+                // When turning on, the renderer's updateAutoFollow() will handle it
             },
             onZoomIn: () => {
                 graph.zoomIn();
