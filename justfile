@@ -196,6 +196,10 @@ serve-wasm port="8080" archive="":
 bundle-web:
     ./scripts/bundle-web.sh
 
+# Validate web portal with lightpanda (check for JS errors)
+gui-check:
+    ./scripts/validate-web.sh
+
 # Build the container image (builds release binary first)
 container tag="binnacle-worker:latest":
     @echo "Building release binary..."
