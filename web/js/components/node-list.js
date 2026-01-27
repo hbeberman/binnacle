@@ -27,6 +27,7 @@ export function initializeNodeList(containerSelector, options = {}) {
     state.subscribe('entities.*', () => renderNodeList(container, options));
     state.subscribe('ready', () => renderNodeList(container, options));
     state.subscribe('ui.searchQuery', () => renderNodeList(container, options));
+    state.subscribe('ui.hideCompleted', () => renderNodeList(container, options));
     
     // Initial render
     renderNodeList(container, options);
@@ -37,6 +38,7 @@ export function initializeNodeList(containerSelector, options = {}) {
  */
 function renderNodeList(container, options = {}) {
     const searchQuery = state.get('ui.searchQuery');
+    const hideCompleted = state.get('ui.hideCompleted');
     const readyIds = new Set((state.getReady() || []).map(t => t.id));
     
     // Collect all nodes from different sources
@@ -72,8 +74,21 @@ function renderNodeList(container, options = {}) {
         allNodes.push({ ...m, nodeType: 'milestone' });
     });
     
-    // Note: Kanban view always shows all items regardless of hideCompleted setting
-    // The kanban columns themselves provide status visibility
+    // Apply hideCompleted filter
+    if (hideCompleted) {
+        allNodes = allNodes.filter(node => {
+            // Keep non-tasks/bugs/ideas/milestones
+            if (!['task', 'bug', 'idea', 'milestone'].includes(node.nodeType)) {
+                return true;
+            }
+            
+            // Filter out completed statuses
+            if (node.nodeType === 'idea') {
+                return node.status !== 'promoted' && node.status !== 'wilted';
+            }
+            return node.status !== 'done' && node.status !== 'cancelled';
+        });
+    }
     
     // Apply search filter
     if (searchQuery) {
