@@ -16,6 +16,76 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
+/* Filters dropdown */
+.filters-dropdown {
+    position: relative;
+}
+
+.filters-dropdown-btn {
+    height: 32px;
+    padding: 0 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.filters-dropdown-btn:hover {
+    border-color: var(--accent-blue);
+    background: var(--bg-secondary);
+}
+
+.filters-dropdown-btn.active {
+    background: var(--accent-blue);
+    border-color: var(--accent-light);
+    color: white;
+}
+
+.filters-icon {
+    font-size: 0.9rem;
+}
+
+.filters-label {
+    font-size: 0.85rem;
+}
+
+.filters-dropdown-popover {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    background: var(--overlay-bg, rgba(20, 20, 20, 0.95));
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.75rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    min-width: 260px;
+    max-height: 500px;
+    overflow-y: auto;
+    z-index: 200;
+    display: none;
+}
+
+.filters-dropdown-popover.visible {
+    display: block;
+    animation: fadeIn 0.15s ease;
+}
+
+.filters-dropdown-popover .config-section {
+    margin-bottom: 1rem;
+}
+
+.filters-dropdown-popover .config-section:last-child {
+    margin-bottom: 0;
+}
+
+
 .graph-search {
     height: 32px;
     width: 240px;
@@ -291,4 +361,163 @@
 .config-toggle.active::after {
     background: white;
     transform: translateX(14px);
+}
+
+/* Filter styles for dropdown */
+.filters-dropdown-popover .sidebar-filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+/* Node filter buttons */
+.node-filter-btn {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    width: 100%;
+}
+
+.node-filter-btn:hover {
+    border-color: var(--accent-blue);
+}
+
+.node-filter-btn.active {
+    background: #3a7bc8;
+    border-color: var(--accent-light);
+    color: white;
+}
+
+.node-filter-all {
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 0.25rem;
+    padding-bottom: 0.5rem;
+}
+
+.node-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+}
+
+.node-filter-row .node-filter-btn {
+    flex: 1;
+}
+
+.node-visibility-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 0.85rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+}
+
+.node-visibility-btn:hover {
+    border-color: var(--accent-blue);
+    opacity: 0.8;
+}
+
+.node-visibility-btn.active {
+    background: var(--info);
+    border-color: var(--info);
+    color: white;
+    opacity: 1;
+}
+
+/* Edge filter buttons */
+.edge-filter-btn {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    width: 100%;
+}
+
+.edge-filter-btn:hover {
+    border-color: var(--accent-blue);
+}
+
+.edge-filter-btn.active {
+    background: #3a7bc8;
+    border-color: var(--accent-light);
+    color: white;
+}
+
+.edge-filter-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.edge-filter-all {
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 0.25rem;
+    padding-bottom: 0.5rem;
+}
+
+.edge-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+}
+
+.edge-filter-row .edge-filter-btn {
+    flex: 1;
+}
+
+.edge-visibility-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 0.85rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+}
+
+.edge-visibility-btn:hover {
+    border-color: var(--accent-blue);
+    opacity: 0.8;
+}
+
+.edge-visibility-btn.active {
+    background: var(--info);
+    border-color: var(--info);
+    color: white;
+    opacity: 1;
 }

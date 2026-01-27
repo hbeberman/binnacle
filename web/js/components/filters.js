@@ -41,11 +41,12 @@ const EDGE_TYPES = {
 };
 
 /**
- * Initialize node type filters in the sidebar
+ * Initialize node type filters
  * Creates filter buttons with eye icons for each node type
+ * @param {string} containerId - ID of the container element (default: 'sidebar-node-filters')
  */
-export function initializeNodeTypeFilters() {
-    const container = document.getElementById('sidebar-node-filters');
+export function initializeNodeTypeFilters(containerId = 'sidebar-node-filters') {
+    const container = document.getElementById(containerId);
     if (!container) return;
     
     const currentFilters = State.get('ui.nodeTypeFilters');
@@ -168,11 +169,12 @@ export function initializeNodeTypeFilters() {
 }
 
 /**
- * Initialize edge type filters in the sidebar
+ * Initialize edge type filters
  * Creates filter buttons with visibility and color indicators for each edge type
+ * @param {string} containerId - ID of the container element (default: 'sidebar-edge-filters')
  */
-export function initializeEdgeTypeFilters() {
-    const container = document.getElementById('sidebar-edge-filters');
+export function initializeEdgeTypeFilters(containerId = 'sidebar-edge-filters') {
+    const container = document.getElementById(containerId);
     if (!container) return;
     
     const currentFilters = State.get('ui.edgeTypeFilters');
