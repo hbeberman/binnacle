@@ -25,6 +25,11 @@ fn default_empty_string() -> String {
     String::new()
 }
 
+/// Default timestamp for missing fields (Unix epoch).
+fn default_timestamp() -> DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp(0, 0).expect("Unix epoch timestamp is valid")
+}
+
 /// Task status in the workflow.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -205,9 +210,11 @@ pub struct EntityCore {
     pub tags: Vec<String>,
 
     /// Creation timestamp
+    #[serde(default = "default_timestamp")]
     pub created_at: DateTime<Utc>,
 
     /// Last update timestamp
+    #[serde(default = "default_timestamp")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -951,6 +958,7 @@ pub struct TestNode {
     pub linked_bugs: Vec<String>,
 
     /// Creation timestamp
+    #[serde(default = "default_timestamp")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -999,6 +1007,7 @@ pub struct TestResult {
     pub duration_ms: u64,
 
     /// Execution timestamp
+    #[serde(default = "default_timestamp")]
     pub executed_at: DateTime<Utc>,
 }
 
@@ -1014,6 +1023,7 @@ pub struct CommitLink {
     pub task_id: String,
 
     /// When the link was created
+    #[serde(default = "default_timestamp")]
     pub linked_at: DateTime<Utc>,
 }
 
@@ -1081,9 +1091,11 @@ pub struct Agent {
     pub mcp_session_id: Option<String>,
 
     /// When the agent was registered
+    #[serde(default = "default_timestamp")]
     pub started_at: DateTime<Utc>,
 
     /// When the agent last ran a binnacle command
+    #[serde(default = "default_timestamp")]
     pub last_activity_at: DateTime<Utc>,
 
     /// Task IDs the agent is currently working on
@@ -1310,6 +1322,7 @@ pub struct SessionState {
     pub agent_type: AgentType,
 
     /// When the session started (orient was called)
+    #[serde(default = "default_timestamp")]
     pub started_at: DateTime<Utc>,
 
     /// Whether orient was called in this session
@@ -1347,9 +1360,11 @@ pub struct Queue {
     pub description: Option<String>,
 
     /// Creation timestamp
+    #[serde(default = "default_timestamp")]
     pub created_at: DateTime<Utc>,
 
     /// Last update timestamp
+    #[serde(default = "default_timestamp")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -1394,9 +1409,11 @@ pub struct LogAnnotation {
     pub author: String,
 
     /// When the annotation was created
+    #[serde(default = "default_timestamp")]
     pub created_at: DateTime<Utc>,
 
     /// When the annotation was last updated
+    #[serde(default = "default_timestamp")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -1566,6 +1583,7 @@ pub struct Edge {
     pub reason: Option<String>,
 
     /// When the edge was created
+    #[serde(default = "default_timestamp")]
     pub created_at: DateTime<Utc>,
 
     /// Who created the edge (user or agent)
