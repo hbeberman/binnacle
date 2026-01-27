@@ -2223,3 +2223,70 @@ fn test_system_build_info_human_output() {
         .stdout(predicate::str::contains("Commit:"))
         .stdout(predicate::str::contains("Built:"));
 }
+
+#[test]
+fn test_store_import_handles_missing_title_field() {
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+
+    let temp = TestEnv::new();
+
+    // Create a minimal archive with a task missing the title field (old format)
+    let manifest = r#"{"version":1,"format":"binnacle-store-v1","exported_at":"2026-01-27T08:00:00Z","source_repo":"/test/repo","binnacle_version":"0.1.0","task_count":1,"test_count":0,"commit_count":0,"checksums":{}}"#;
+    let tasks_jsonl = r#"{"id":"bn-test","type":"task","description":"Old task without title","priority":2,"status":"pending","depends_on":[],"created_at":"2026-01-27T08:00:00Z","updated_at":"2026-01-27T08:00:00Z"}"#;
+
+    // Create tar.gz archive
+    let archive_path = temp.path().join("old_format.bng");
+    let archive_file = std::fs::File::create(&archive_path).unwrap();
+    let encoder = GzEncoder::new(archive_file, Compression::default());
+    let mut archive = tar::Builder::new(encoder);
+
+    // Add manifest
+    let mut header = tar::Header::new_gnu();
+    header.set_size(manifest.len() as u64);
+    header.set_mode(0o644);
+    header.set_cksum();
+    archive
+        .append_data(&mut header, "manifest.json", manifest.as_bytes())
+        .unwrap();
+
+    // Add tasks.jsonl
+    let mut header = tar::Header::new_gnu();
+    header.set_size(tasks_jsonl.len() as u64);
+    header.set_mode(0o644);
+    header.set_cksum();
+    archive
+        .append_data(&mut header, "tasks.jsonl", tasks_jsonl.as_bytes())
+        .unwrap();
+
+    archive.finish().unwrap();
+    drop(archive);
+
+    // Import should succeed despite missing title field
+    let output = bn_in(&temp)
+        .args(["system", "store", "import", archive_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["imported"], true);
+    assert_eq!(json["tasks_imported"], 1);
+
+    // Verify task was imported with empty title
+    let list_output = bn_in(&temp)
+        .args(["task", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let tasks: serde_json::Value = serde_json::from_slice(&list_output).unwrap();
+    assert_eq!(tasks["tasks"].as_array().unwrap().len(), 1);
+    let task = &tasks["tasks"][0];
+    assert_eq!(task["id"], "bn-test");
+    assert_eq!(task["title"], ""); // Should default to empty string when missing
+}
