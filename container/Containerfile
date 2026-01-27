@@ -42,6 +42,14 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
     cargo install cargo-audit && \
     chmod -R a+rw $RUSTUP_HOME $CARGO_HOME
 
+# Install Lightpanda headless browser for GUI validation
+RUN curl -L -o /usr/local/bin/lightpanda \
+    https://github.com/lightpanda-io/browser/releases/download/v0.2.0/lightpanda-x86_64-linux && \
+    chmod +x /usr/local/bin/lightpanda
+
+# Disable Lightpanda telemetry (belt-and-suspenders with inline env at invocation)
+ENV LIGHTPANDA_DISABLE_TELEMETRY=true
+
 # Create nss_wrapper template files for default (non-sudo) mode
 # Used by entrypoint.sh to provide user identity for Node.js os.userInfo(), git, etc.
 # when running as host user (not root)
