@@ -682,6 +682,9 @@ function drawNode(node) {
         drawAgentLabel(node, screenPos, radius);
     }
     
+    // Draw PRD label for PRD doc nodes
+    drawPRDLabel(node, screenPos, radius);
+    
     ctx.globalAlpha = 1.0;
 }
 
@@ -861,6 +864,43 @@ function drawAgentLabel(node, screenPos, radius) {
     ctx.fill();
     
     ctx.globalAlpha = fadeAlpha;
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(displayText, screenPos.x, pillY + pillHeight / 2);
+    
+    ctx.restore();
+}
+
+/**
+ * Draw PRD label above doc nodes that are PRDs
+ */
+function drawPRDLabel(node, screenPos, radius) {
+    if (node.type !== 'doc' || node.doc_type !== 'prd') return;
+    
+    const zoom = getZoom();
+    const baseFontSize = 13 * Math.max(0.7, Math.min(1.3, zoom));
+    const pillPadding = 6 * zoom;
+    const pillHeight = baseFontSize + pillPadding * 2;
+    const pillY = screenPos.y - radius - pillHeight - 8 * zoom;
+    
+    const displayText = 'PRD';
+    
+    ctx.font = `bold ${baseFontSize}px sans-serif`;
+    const textWidth = ctx.measureText(displayText).width;
+    const pillWidth = textWidth + pillPadding * 4;
+    
+    ctx.save();
+    
+    // Draw pill background
+    ctx.fillStyle = 'rgba(147, 51, 234, 0.95)';  // Purple background
+    ctx.beginPath();
+    const pillX = screenPos.x - pillWidth / 2;
+    const pillRadius = pillHeight / 2;
+    ctx.roundRect(pillX, pillY, pillWidth, pillHeight, pillRadius);
+    ctx.fill();
+    
+    // Draw text
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
