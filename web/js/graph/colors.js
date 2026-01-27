@@ -20,12 +20,12 @@ const BUG_STATUS_COLORS = {
     'done': '#8fbc8f'
 };
 
-// Idea colors (white/light tones)
+// Idea colors (white tones for fluffy cloud appearance)
 const IDEA_STATUS_COLORS = {
     'pending': '#ffffff',
-    'in_progress': '#f0f0f0',
-    'blocked': '#d0d0d0',
-    'done': '#8fbc8f'
+    'in_progress': '#ffffff',
+    'blocked': '#ffffff',
+    'done': '#ffffff'
 };
 
 // Milestone colors (orange tones)
@@ -72,7 +72,7 @@ export function getNodeColor(node) {
             return BUG_STATUS_COLORS[status] || '#e07878';
         
         case 'idea':
-            return IDEA_STATUS_COLORS[status] || '#8b5fc9';
+            return IDEA_STATUS_COLORS[status] || '#ffffff';
         
         case 'milestone':
             return MILESTONE_STATUS_COLORS[status] || '#228b22';
