@@ -348,11 +348,19 @@ fn parse_entity_line(line: &str) -> Option<GraphEntity> {
         .and_then(|v| v.as_str())
         .unwrap_or("task")
         .to_string();
-    let title = json
-        .get("title")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+
+    // Test entities use "name" instead of "title"
+    let title = if entity_type == "test" {
+        json.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        json.get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     let short_name = json
         .get("short_name")
         .and_then(|v| v.as_str())
@@ -529,6 +537,17 @@ mod tests {
         let entity = parse_entity_line(line).unwrap();
         assert_eq!(entity.id, "bn-5678");
         assert_eq!(entity.short_name, Some("bug fix".to_string()));
+    }
+
+    #[test]
+    fn test_parse_test_entity_uses_name_field() {
+        let line =
+            r#"{"id":"bnt-1234","type":"test","name":"Test Name","status":"pending","priority":2}"#;
+        let entity = parse_entity_line(line).unwrap();
+        assert_eq!(entity.id, "bnt-1234");
+        assert_eq!(entity.entity_type, "test");
+        assert_eq!(entity.title, "Test Name"); // title should come from "name" field for test entities
+        assert_eq!(entity.status, "pending");
     }
 
     #[test]
