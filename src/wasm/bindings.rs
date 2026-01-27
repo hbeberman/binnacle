@@ -86,6 +86,7 @@ struct ActionLogInfo {
     error: Option<String>,
     duration_ms: u64,
     user: String,
+    agent_id: Option<String>,
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -301,6 +302,7 @@ impl BinnacleViewer {
                 error: log.error.clone(),
                 duration_ms: log.duration_ms,
                 user: log.user.clone(),
+                agent_id: log.agent_id.clone(),
             });
         }
 
@@ -545,7 +547,7 @@ impl BinnacleViewer {
     /// Get action logs as JSON array
     ///
     /// Returns an array of action log entries from the archive.
-    /// Each entry has: timestamp, command, args, success, error, duration_ms, user.
+    /// Each entry has: timestamp, command, args, success, error, duration_ms, user, agent_id.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = getActionLogsJson))]
     pub fn get_action_logs_json(&self) -> String {
         let logs: Vec<serde_json::Value> = self
@@ -560,6 +562,7 @@ impl BinnacleViewer {
                     "error": log.error,
                     "duration_ms": log.duration_ms,
                     "user": log.user,
+                    "agent_id": log.agent_id,
                 })
             })
             .collect();

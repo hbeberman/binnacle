@@ -37,6 +37,10 @@ pub struct ActionLog {
 
     /// User who executed the command
     pub user: String,
+
+    /// Agent ID if the command was run by an agent (from BN_AGENT_ID env var)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
 }
 
 /// Log an action to the configured log file.
@@ -83,6 +87,9 @@ pub fn log_action(
     // Get current user
     let user = get_current_user();
 
+    // Get agent ID from environment variable if present
+    let agent_id = std::env::var("BN_AGENT_ID").ok();
+
     // Create log entry
     let entry = ActionLog {
         timestamp: Utc::now(),
@@ -93,6 +100,7 @@ pub fn log_action(
         error,
         duration_ms,
         user,
+        agent_id,
     };
 
     // Write to log file (JSONL format for backward compatibility)

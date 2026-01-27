@@ -580,6 +580,23 @@ impl Storage {
             )?;
         }
 
+        // Migration: Add agent_id column to action_logs if it doesn't exist
+        let has_action_log_agent_id: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('action_logs') WHERE name = 'agent_id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_action_log_agent_id {
+            conn.execute("ALTER TABLE action_logs ADD COLUMN agent_id TEXT", [])?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_action_logs_agent_id ON action_logs(agent_id)",
+                [],
+            )?;
+        }
+
         // Migration: Create action_logs table if it doesn't exist
         conn.execute_batch(
             r#"
@@ -600,6 +617,27 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_action_logs_user ON action_logs(user);
             CREATE INDEX IF NOT EXISTS idx_action_logs_success ON action_logs(success);
             "#,
+        )?;
+
+        // Migration: Add agent_id column to action_logs if it doesn't exist
+        // Check if column exists first
+        let has_agent_id: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('action_logs') WHERE name='agent_id'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+
+        if !has_agent_id {
+            conn.execute("ALTER TABLE action_logs ADD COLUMN agent_id TEXT", [])?;
+        }
+
+        // Always try to create the index (idempotent)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_action_logs_agent_id ON action_logs(agent_id)",
+            [],
         )?;
 
         // Migration: Create log_annotations table if it doesn't exist
@@ -4048,8 +4086,8 @@ impl Storage {
         let args_str = serde_json::to_string(&log.args)?;
         self.conn.execute(
             r#"
-            INSERT INTO action_logs (timestamp, repo_path, command, args, success, error, duration_ms, user)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            INSERT INTO action_logs (timestamp, repo_path, command, args, success, error, duration_ms, user, agent_id)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
             params![
                 log.timestamp.to_rfc3339(),
@@ -4060,6 +4098,7 @@ impl Storage {
                 log.error,
                 log.duration_ms as i64,
                 log.user,
+                log.agent_id,
             ],
         )?;
         Ok(())
@@ -4090,7 +4129,7 @@ impl Storage {
 
         // Build the query dynamically based on filters
         let mut sql = String::from(
-            "SELECT timestamp, repo_path, command, args, success, error, duration_ms, user FROM action_logs WHERE 1=1",
+            "SELECT timestamp, repo_path, command, args, success, error, duration_ms, user, agent_id FROM action_logs WHERE 1=1",
         );
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
@@ -4142,6 +4181,7 @@ impl Storage {
                 error: row.get(5)?,
                 duration_ms: duration_ms as u64,
                 user: row.get(7)?,
+                agent_id: row.get(8)?,
             })
         })?;
 
@@ -6330,6 +6370,7 @@ mod tests {
             error: None,
             duration_ms: 42,
             user: "testuser".to_string(),
+            agent_id: None,
         };
 
         // Add the entry
@@ -6360,6 +6401,7 @@ mod tests {
                 error: None,
                 duration_ms: 10,
                 user: "testuser".to_string(),
+                agent_id: None,
             };
             storage.add_action_log(&log_entry).unwrap();
         }
@@ -6397,6 +6439,7 @@ mod tests {
             error: None,
             duration_ms: 10,
             user: "alice".to_string(),
+            agent_id: None,
         };
         storage.add_action_log(&log_success).unwrap();
 
@@ -6409,6 +6452,7 @@ mod tests {
             error: Some("Not found".to_string()),
             duration_ms: 5,
             user: "bob".to_string(),
+            agent_id: None,
         };
         storage.add_action_log(&log_failure).unwrap();
 
@@ -6449,6 +6493,7 @@ mod tests {
                 error: None,
                 duration_ms: 10,
                 user: "testuser".to_string(),
+                agent_id: None,
             };
             storage.add_action_log(&log_entry).unwrap();
         }
@@ -6506,6 +6551,7 @@ mod tests {
                 error: None,
                 duration_ms: 10,
                 user: "testuser".to_string(),
+                agent_id: None,
             };
             storage.add_action_log(&old_entry).unwrap();
         }
@@ -6520,6 +6566,7 @@ mod tests {
                 error: None,
                 duration_ms: 10,
                 user: "testuser".to_string(),
+                agent_id: None,
             };
             storage.add_action_log(&recent_entry).unwrap();
         }
@@ -6568,6 +6615,7 @@ mod tests {
                 error: None,
                 duration_ms: 10,
                 user: "testuser".to_string(),
+                agent_id: None,
             };
             storage.add_action_log(&log_entry).unwrap();
         }
