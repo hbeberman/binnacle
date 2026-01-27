@@ -6,8 +6,9 @@
  * - Scrollable content area for rendered markdown
  */
 
-import { getNode } from '../state.js';
+import { getNode, setSelectedNode, setCurrentView } from '../state.js';
 import { renderMarkdown } from '../utils/markdown.js';
+import { panToNode } from '../graph/index.js';
 
 /**
  * Create the doc viewer overlay HTML
@@ -109,6 +110,40 @@ export function initDocViewer() {
         if (e.key === 'Escape' && !overlay.classList.contains('hidden')) {
             hideDocViewer();
         }
+    });
+    
+    // Entity ID click handler - navigate graph to clicked entity
+    const contentEl = document.getElementById('doc-viewer-content');
+    contentEl.addEventListener('click', (e) => {
+        const clickableId = e.target.closest('.clickable-entity-id');
+        if (!clickableId) return;
+        
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const entityId = clickableId.dataset.entityId;
+        if (!entityId) return;
+        
+        // Get the node to find its position
+        const node = getNode(entityId);
+        if (!node) {
+            console.warn(`Entity ${entityId} not found`);
+            return;
+        }
+        
+        // Switch to graph view
+        setCurrentView('graph');
+        
+        // Pan to the node's position if coordinates exist
+        if (typeof node.x === 'number' && typeof node.y === 'number') {
+            panToNode(node.x, node.y, {
+                duration: 500,
+                zoom: 1.5
+            });
+        }
+        
+        // Select the node
+        setSelectedNode(entityId);
     });
 }
 

@@ -109,6 +109,41 @@ describe('Doc Viewer Overlay', () => {
         
         expect(overlay.classList.contains('hidden')).toBe(true);
     });
+    
+    it('should navigate graph when entity link clicked', async () => {
+        const { mountDocViewer, showDocViewer } = await import('./doc-viewer.js');
+        const { setEntities, getState } = await import('../state.js');
+        
+        // Setup test doc with content containing entity IDs
+        setEntities('docs', [
+            { 
+                id: 'bn-doc1', 
+                type: 'doc', 
+                title: 'Test Doc',
+                content: 'Related to task bn-1234 and bug bn-5678.'
+            }
+        ]);
+        
+        // Setup entities in graph
+        setEntities('tasks', [
+            { id: 'bn-1234', type: 'task', title: 'Test Task', x: 100, y: 200 }
+        ]);
+        
+        mountDocViewer(container);
+        showDocViewer('bn-doc1');
+        
+        // Find the entity link
+        const entityLink = container.querySelector('.clickable-entity-id[data-entity-id="bn-1234"]');
+        expect(entityLink).toBeDefined();
+        
+        // Click the entity link
+        entityLink.click();
+        
+        // Check that the view switched to graph and node was selected
+        const state = getState();
+        expect(state.ui.currentView).toBe('graph');
+        expect(state.ui.selectedNode).toBe('bn-1234');
+    });
 });
 
 console.log('✓ Doc Viewer tests defined');
