@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test: Clickable Agent ID in Activity Log</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/themes/dark.css">
+    <link rel="stylesheet" href="/css/components/activity-log.css">
+    <link rel="stylesheet" href="/css/components/node-detail-modal.css">
+    <style>
+        body {
+            padding: 2rem;
+            background: var(--bg-primary);
+        }
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-info {
+            background: var(--bg-secondary);
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+        .test-info h2 {
+            margin-top: 0;
+        }
+        .test-info ul {
+            margin: 0.5rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <div class="test-info">
+            <h2>Test: Clickable Agent ID in Activity Log</h2>
+            <p><strong>Task:</strong> bn-6735 - Frontend: Agent ID click opens modal</p>
+            <p><strong>Expected behavior:</strong></p>
+            <ul>
+                <li>Agent IDs in owner badges should be clickable (e.g., 🤖 bn-34ef)</li>
+                <li>Clicking an agent ID should open the node detail modal</li>
+                <li>Hovering over an agent ID should show visual feedback (slight lift + shadow)</li>
+                <li>The cursor should change to pointer when hovering over agent IDs</li>
+            </ul>
+            <p><strong>Test:</strong> The sample log entries below include agent IDs. Try clicking them!</p>
+        </div>
+
+        <div id="activity-log"></div>
+    </div>
+
+    <script type="module">
+        import { showNodeDetailModal } from '/js/components/node-detail-modal.js';
+
+        // Create a mock activity log with sample entries
+        const container = document.getElementById('activity-log');
+        container.className = 'activity-log-container';
+
+        // Sample log entries with agent IDs
+        const sampleEntries = [
+            {
+                timestamp: new Date(Date.now() - 120000).toISOString(), // 2 minutes ago
+                user: 'bn-34ef',
+                command: 'task',
+                args: ['update', 'bn-6735', '--status', 'in_progress'],
+                exit_code: 0,
+                success: true
+            },
+            {
+                timestamp: new Date(Date.now() - 300000).toISOString(), // 5 minutes ago
+                user: 'bn-486c',
+                command: 'ready',
+                args: [],
+                exit_code: 0,
+                success: true
+            },
+            {
+                timestamp: new Date(Date.now() - 600000).toISOString(), // 10 minutes ago
+                user: 'alice',
+                command: 'task',
+                args: ['create', '"Implement feature"', '-p', '1'],
+                exit_code: 0,
+                success: true
+            },
+            {
+                timestamp: new Date(Date.now() - 900000).toISOString(), // 15 minutes ago
+                user: 'bn-abc1',
+                command: 'task',
+                args: ['close', 'bn-1234', '--reason', '"Completed"'],
+                exit_code: 0,
+                success: true
+            }
+        ];
+
+        // Helper functions (copied from activity-log.js)
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function formatRelativeTime(isoString) {
+            if (!isoString) return 'N/A';
+            try {
+                const date = new Date(isoString);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffSec = Math.floor(diffMs / 1000);
+                const diffMin = Math.floor(diffSec / 60);
+                const diffHour = Math.floor(diffMin / 60);
+                
+                if (diffHour > 0) {
+                    return `${diffHour}h ago`;
+                } else if (diffMin > 0) {
+                    return `${diffMin}m ago`;
+                } else {
+                    return `${diffSec}s ago`;
+                }
+            } catch (e) {
+                return isoString;
+            }
+        }
+
+        function getStatusColorClass(success) {
+            return success ? 'log-status-success' : 'log-status-failure';
+        }
+
+        function renderOwnerBadge(user) {
+            if (!user) return '<span class="owner-badge unknown">Unknown</span>';
+            
+            // Check if it's an agent ID (starts with bn-)
+            const isAgent = user.startsWith('bn-');
+            const icon = isAgent ? '🤖' : '👤';
+            const className = isAgent ? 'owner-badge agent' : 'owner-badge user';
+            
+            // Make agent IDs clickable
+            if (isAgent) {
+                return `<span class="${className} clickable-entity-id" data-entity-id="${escapeHtml(user)}" title="Click to view ${escapeHtml(user)}">${icon} ${escapeHtml(user)}</span>`;
+            }
+            
+            return `<span class="${className}">${icon} ${escapeHtml(user)}</span>`;
+        }
+
+        const ENTITY_ID_PATTERN = /\b(bn[a-z]?-[a-f0-9]{4})\b/gi;
+
+        function makeEntityIdsClickable(text) {
+            if (!text || !ENTITY_ID_PATTERN.test(text)) {
+                return escapeHtml(text);
+            }
+            
+            ENTITY_ID_PATTERN.lastIndex = 0;
+            
+            let result = '';
+            let lastIndex = 0;
+            let match;
+            
+            while ((match = ENTITY_ID_PATTERN.exec(text)) !== null) {
+                result += escapeHtml(text.slice(lastIndex, match.index));
+                const entityId = match[0];
+                result += `<span class="clickable-entity-id" data-entity-id="${entityId}" title="Click to view ${entityId}">${entityId}</span>`;
+                lastIndex = ENTITY_ID_PATTERN.lastIndex;
+            }
+            
+            result += escapeHtml(text.slice(lastIndex));
+            return result;
+        }
+
+        function renderLogEntry(entry) {
+            const timestamp = formatRelativeTime(entry.timestamp);
+            const statusClass = getStatusColorClass(entry.success);
+            const ownerBadge = renderOwnerBadge(entry.user);
+            const command = escapeHtml(entry.command || 'unknown');
+            const exitCode = entry.exit_code !== undefined ? entry.exit_code : '?';
+            
+            const argsWithClickableIds = entry.args && entry.args.length > 0
+                ? makeEntityIdsClickable(entry.args.join(' '))
+                : '';
+            
+            return `
+                <div class="log-entry ${statusClass}">
+                    <div class="log-entry-header">
+                        <span class="log-timestamp">${timestamp}</span>
+                        ${ownerBadge}
+                        <span class="log-command">${command}</span>
+                        <span class="log-exit-code">Exit: ${exitCode}</span>
+                    </div>
+                    ${entry.args && entry.args.length > 0 ? `
+                    <div class="log-entry-details">
+                        <span class="log-args">${argsWithClickableIds}</span>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // Render sample entries
+        container.innerHTML = `
+            <div class="activity-log-header">
+                <h3>Sample Log Entries (Test)</h3>
+            </div>
+            <div class="log-entries">
+                ${sampleEntries.map(renderLogEntry).join('')}
+            </div>
+        `;
+
+        // Add click handlers for clickable entity IDs
+        container.addEventListener('click', (e) => {
+            const clickableId = e.target.closest('.clickable-entity-id');
+            if (!clickableId) return;
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const entityId = clickableId.dataset.entityId;
+            if (entityId) {
+                console.log('Clicked entity ID:', entityId);
+                // In a real scenario, this would open the modal
+                // For testing, just show an alert
+                alert(`Would open modal for: ${entityId}`);
+                
+                // If the modal component is available, you could uncomment this:
+                // showNodeDetailModal(entityId);
+            }
+        });
+    </script>
+</body>
+</html>
