@@ -25,7 +25,6 @@ export function initializeNodeList(containerSelector, options = {}) {
     // Subscribe to state changes and re-render
     state.subscribe('entities.*', () => renderNodeList(container, options));
     state.subscribe('ready', () => renderNodeList(container, options));
-    state.subscribe('ui.hideCompleted', () => renderNodeList(container, options));
     state.subscribe('ui.searchQuery', () => renderNodeList(container, options));
     
     // Initial render
@@ -36,7 +35,6 @@ export function initializeNodeList(containerSelector, options = {}) {
  * Render the node list as a kanban board
  */
 function renderNodeList(container, options = {}) {
-    const hideCompleted = state.get('ui.hideCompleted');
     const searchQuery = state.get('ui.searchQuery');
     const readyIds = new Set((state.getReady() || []).map(t => t.id));
     
@@ -73,18 +71,8 @@ function renderNodeList(container, options = {}) {
         allNodes.push({ ...m, nodeType: 'milestone' });
     });
     
-    // Filter by completed status
-    if (hideCompleted) {
-        allNodes = allNodes.filter(node => {
-            if (node.nodeType === 'task' || node.nodeType === 'bug' || node.nodeType === 'milestone') {
-                return node.status !== 'done' && node.status !== 'cancelled';
-            } else if (node.nodeType === 'idea') {
-                return node.status === 'seed' || node.status === 'germinating';
-            }
-            // Tests and docs don't have a closed state
-            return true;
-        });
-    }
+    // Note: Kanban view always shows all items regardless of hideCompleted setting
+    // The kanban columns themselves provide status visibility
     
     // Apply search filter
     if (searchQuery) {
