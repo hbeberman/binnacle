@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Multi-Entity Link Builder</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/themes/dark.css">
+    <link rel="stylesheet" href="/css/components/link-builder.css">
+    <style>
+        body {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        button {
+            padding: 10px 20px;
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: var(--accent-hover);
+        }
+        .status {
+            padding: 10px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+        .test-controls {
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Multi-Entity Link Builder Test</h1>
+    
+    <div class="test-controls">
+        <button id="show-builder-2">Show 2-Entity Mode</button>
+        <button id="show-builder-3">Show 3-Entity Mode</button>
+        <button id="show-builder-5">Show 5-Entity Mode</button>
+    </div>
+    
+    <div class="status">
+        <h3>Instructions:</h3>
+        <ul>
+            <li>Click "Show 2-Entity Mode" for classic mode (source/target)</li>
+            <li>Click "Show 3-Entity Mode" to test multi-mode with 3 entities</li>
+            <li>Click "Show 5-Entity Mode" to test multi-mode with 5 entities</li>
+            <li>Test chain, hub, and mesh modes</li>
+            <li>Verify preview updates correctly</li>
+        </ul>
+    </div>
+    
+    <div class="status" id="event-log">
+        <h3>Event Log:</h3>
+        <div id="log-content"></div>
+    </div>
+
+    <script type="module">
+        import { createLinkBuilder, initializeLinkBuilder, updateLinkBuilderContent } from './js/components/link-builder.js';
+
+        // Mock node data
+        const mockNodes = [
+            {
+                id: 'bn-1234',
+                type: 'task',
+                title: 'Implement authentication system',
+                short_name: 'Auth system'
+            },
+            {
+                id: 'bn-5678',
+                type: 'task',
+                title: 'Add JWT validation middleware',
+                short_name: 'JWT middleware'
+            },
+            {
+                id: 'bn-abcd',
+                type: 'task',
+                title: 'Create user registration flow',
+                short_name: 'User registration'
+            },
+            {
+                id: 'bn-efgh',
+                type: 'task',
+                title: 'Implement password reset',
+                short_name: 'Password reset'
+            },
+            {
+                id: 'bn-ijkl',
+                type: 'task',
+                title: 'Add two-factor authentication',
+                short_name: '2FA'
+            }
+        ];
+
+        // Create and mount link builder
+        const linkBuilder = createLinkBuilder();
+        document.body.appendChild(linkBuilder);
+
+        // Initialize with callbacks
+        initializeLinkBuilder(linkBuilder, {
+            onCreate: async (linkData) => {
+                logEvent('onCreate', linkData);
+                
+                // Simulate API call
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                if (linkData.batch) {
+                    logEvent(`Created ${linkData.links.length} links successfully`, linkData.links);
+                } else {
+                    logEvent('Link created successfully', linkData);
+                }
+            },
+            onCancel: () => {
+                logEvent('onCancel', null);
+            }
+        });
+
+        // Show builder buttons
+        document.getElementById('show-builder-2').addEventListener('click', () => {
+            updateLinkBuilderContent(linkBuilder, mockNodes.slice(0, 2));
+            logEvent('Link builder opened (2 entities)', null);
+        });
+
+        document.getElementById('show-builder-3').addEventListener('click', () => {
+            updateLinkBuilderContent(linkBuilder, mockNodes.slice(0, 3));
+            logEvent('Link builder opened (3 entities)', null);
+        });
+
+        document.getElementById('show-builder-5').addEventListener('click', () => {
+            updateLinkBuilderContent(linkBuilder, mockNodes);
+            logEvent('Link builder opened (5 entities)', null);
+        });
+
+        // Logging function
+        function logEvent(event, data) {
+            const logContent = document.getElementById('log-content');
+            const entry = document.createElement('div');
+            entry.style.padding = '5px';
+            entry.style.borderBottom = '1px solid var(--border-color)';
+            
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `
+                <strong>${timestamp}</strong> - ${event}
+                ${data ? `<pre style="font-size:11px;overflow:auto;max-height:200px;">${JSON.stringify(data, null, 2)}</pre>` : ''}
+            `;
+            
+            logContent.insertBefore(entry, logContent.firstChild);
+        }
+    </script>
+</body>
+</html>

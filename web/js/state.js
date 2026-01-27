@@ -622,6 +622,113 @@ export function selectAll(visibleNodes) {
 }
 
 // ============================================
+// Selection persistence helpers
+// ============================================
+
+/**
+ * Persist current selection to localStorage
+ */
+export function persistSelection() {
+    saveToStorage('selectedNodes', state.ui.selectedNodes);
+}
+
+/**
+ * Restore selection from localStorage
+ */
+export function restoreSelection() {
+    const storedSelection = loadFromStorage('selectedNodes', []);
+    if (storedSelection && storedSelection.length > 0) {
+        setSelectedNodes(storedSelection);
+    }
+}
+
+/**
+ * Clear persisted selection from localStorage
+ */
+export function clearPersistedSelection() {
+    saveToStorage('selectedNodes', []);
+}
+
+// ============================================
+// Undo/Redo support for batch operations
+// ============================================
+
+// Undo stack (stores operation records)
+const undoStack = [];
+const MAX_UNDO_STACK_SIZE = 50;
+
+/**
+ * Record a batch operation for undo support
+ * @param {Object} operation - Operation record
+ * @param {string} operation.type - Operation type ('batch-close', 'batch-queue-add', etc.)
+ * @param {Array<Object>} operation.changes - Array of changes (entity snapshots before/after)
+ * @param {string} operation.description - Human-readable description
+ * @param {Function} operation.undo - Undo function
+ */
+export function recordBatchOperation(operation) {
+    undoStack.push({
+        ...operation,
+        timestamp: Date.now()
+    });
+    
+    // Limit stack size
+    if (undoStack.length > MAX_UNDO_STACK_SIZE) {
+        undoStack.shift();
+    }
+    
+    notifyListeners('undo.stack', undoStack);
+}
+
+/**
+ * Undo the last batch operation
+ * @returns {Object|null} The undone operation, or null if stack is empty
+ */
+export function undoLastOperation() {
+    if (undoStack.length === 0) {
+        return null;
+    }
+    
+    const operation = undoStack.pop();
+    
+    try {
+        if (operation.undo && typeof operation.undo === 'function') {
+            operation.undo();
+        }
+        notifyListeners('undo.stack', undoStack);
+        return operation;
+    } catch (e) {
+        console.error('Failed to undo operation:', e);
+        // Re-add operation to stack if undo failed
+        undoStack.push(operation);
+        throw e;
+    }
+}
+
+/**
+ * Get the undo stack
+ * @returns {Array} Array of operation records
+ */
+export function getUndoStack() {
+    return [...undoStack];
+}
+
+/**
+ * Check if undo is available
+ * @returns {boolean} True if there are operations to undo
+ */
+export function canUndo() {
+    return undoStack.length > 0;
+}
+
+/**
+ * Clear the undo stack
+ */
+export function clearUndoStack() {
+    undoStack.length = 0;
+    notifyListeners('undo.stack', undoStack);
+}
+
+// ============================================
 // LocalStorage persistence helpers
 // ============================================
 
@@ -697,6 +804,13 @@ export function initFromStorage() {
     if (followTypeFilter !== null) {
         set('ui.followTypeFilter', followTypeFilter);
     }
+    
+    // Restore selection (but only if not empty - empty means user cleared it)
+    const selectedNodes = loadFromStorage('selectedNodes', null);
+    if (selectedNodes && selectedNodes.length > 0) {
+        set('ui.selectedNodes', selectedNodes);
+        set('ui.selectedNode', selectedNodes[selectedNodes.length - 1]);
+    }
 }
 
 // Auto-persist certain UI settings when they change
@@ -707,3 +821,14 @@ subscribe('ui.autoFollow', (value) => saveToStorage('autoFollow', value));
 subscribe('ui.autoFollowConfig', (value) => saveToStorage('autoFollowConfig', value));
 subscribe('ui.hideCompleted', (value) => saveToStorage('hideCompleted', value));
 subscribe('ui.followTypeFilter', (value) => saveToStorage('followTypeFilter', value));
+
+// Persist selection when changed (debounced to avoid excessive writes)
+let selectionPersistTimer = null;
+subscribe('ui.selectedNodes', (value) => {
+    if (selectionPersistTimer) {
+        clearTimeout(selectionPersistTimer);
+    }
+    selectionPersistTimer = setTimeout(() => {
+        saveToStorage('selectedNodes', value);
+    }, 500); // Debounce for 500ms
+});

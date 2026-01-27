@@ -39,6 +39,10 @@ let hoveredNode = null;
 let selectedNodes = []; // Multi-selection array
 let draggedNode = null;
 
+// Selection animation tracking (for pulse effect on new selections)
+const selectionAnimations = new Map(); // nodeId -> timestamp when selected
+const SELECTION_ANIMATION_DURATION = 600; // ms
+
 // Departing agents tracking (for fade animation)
 const departingAgents = new Map();
 
@@ -244,7 +248,25 @@ function onSelectionChanged(_nodeId) {
  * Handle multi-selection changes
  */
 function onMultiSelectionChanged(nodeIds) {
+    const previousSelection = new Set(selectedNodes);
     selectedNodes = nodeIds || [];
+    
+    // Track newly selected nodes for animation
+    const now = performance.now();
+    for (const nodeId of selectedNodes) {
+        if (!previousSelection.has(nodeId)) {
+            selectionAnimations.set(nodeId, now);
+        }
+    }
+    
+    // Clean up animations for deselected nodes
+    for (const [nodeId, _] of selectionAnimations) {
+        if (!selectedNodes.includes(nodeId)) {
+            selectionAnimations.delete(nodeId);
+        }
+    }
+    
+    startAnimation(); // Ensure animation runs for selection effects
     scheduleRender();
 }
 
@@ -523,6 +545,13 @@ function animate() {
         }
     }
     
+    // Clean up completed selection animations
+    for (const [nodeId, selectionTime] of selectionAnimations.entries()) {
+        if (now - selectionTime >= SELECTION_ANIMATION_DURATION) {
+            selectionAnimations.delete(nodeId);
+        }
+    }
+    
     // Auto-follow logic
     updateAutoFollow();
     
@@ -709,23 +738,47 @@ function drawNode(node) {
     
     // Draw selection highlight
     if (isSelected) {
+        // Calculate animation progress for newly selected nodes
+        let animScale = 1.0;
+        let animAlpha = 1.0;
+        const selectionTime = selectionAnimations.get(node.id);
+        if (selectionTime) {
+            const elapsed = performance.now() - selectionTime;
+            if (elapsed < SELECTION_ANIMATION_DURATION) {
+                const progress = elapsed / SELECTION_ANIMATION_DURATION;
+                // Pulse effect: scale slightly larger then back to normal
+                animScale = 1.0 + 0.15 * Math.sin(progress * Math.PI);
+                // Glow effect: alpha pulsates
+                animAlpha = 0.7 + 0.3 * (1 - progress);
+            } else {
+                // Animation complete, remove from tracking
+                selectionAnimations.delete(node.id);
+            }
+        }
+        
+        ctx.save();
+        ctx.globalAlpha *= animAlpha;
+        
         ctx.beginPath();
-        drawNodeShapePath(ctx, node.type, screenPos.x, screenPos.y, radius + 10 * zoom);
+        const highlightRadius = (radius + 10 * zoom) * animScale;
+        drawNodeShapePath(ctx, node.type, screenPos.x, screenPos.y, highlightRadius);
         
         // Different style for multi-selection vs single selection
         if (isMultiSelect) {
             ctx.strokeStyle = '#6a9bdc'; // Blue for multi-select
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 3 * animScale;
             ctx.stroke();
             ctx.fillStyle = 'rgba(106, 155, 220, 0.2)';
             ctx.fill();
         } else {
             ctx.strokeStyle = '#f0ad4e'; // Orange for single select
-            ctx.lineWidth = 4;
+            ctx.lineWidth = 4 * animScale;
             ctx.stroke();
             ctx.fillStyle = 'rgba(240, 173, 78, 0.15)';
             ctx.fill();
         }
+        
+        ctx.restore();
     }
     
     // Draw drag/hover highlight
