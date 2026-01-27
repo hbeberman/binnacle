@@ -328,6 +328,10 @@ For detailed instructions, see: container/README.md
         /// Used when no subcommand is given (starts server)
         #[arg(long, env = "BN_GUI_READONLY", global = true)]
         readonly: bool,
+
+        /// Load from a .bng archive file (imports to temp directory and serves from there)
+        #[arg(long, global = true)]
+        archive: Option<String>,
     },
 
     /// Run agent supervisor daemon (continuously reconciles agent counts)
