@@ -292,7 +292,7 @@ export function initializeGraphControls(controls, options = {}) {
                 const type = toggle.dataset.type;
                 if (type) {
                     const config = State.get('ui.autoFollowConfig');
-                    if (config.nodeTypes.hasOwnProperty(type)) {
+                    if (Object.prototype.hasOwnProperty.call(config.nodeTypes, type)) {
                         config.nodeTypes[type] = !config.nodeTypes[type];
                         State.set('ui.autoFollowConfig', config);
                         toggle.classList.toggle('active', config.nodeTypes[type]);
@@ -427,9 +427,11 @@ export function initializeGraphControls(controls, options = {}) {
                     </div>
                 `;
                 
-                // Click to focus agent in graph
+                // Click to focus agent in graph and enable agent follow mode
                 item.addEventListener('click', () => {
                     State.set('ui.selectedNode', agent.id);
+                    State.set('ui.autoFollow', true);
+                    State.set('ui.followTypeFilter', 'agent');
                 });
                 
                 agentList.appendChild(item);
