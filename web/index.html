@@ -276,6 +276,7 @@
         import { initializeNodeList } from './js/components/node-list.js';
         import { mountConnectionStatus } from './js/components/connection-status.js';
         import { mountActivityLog } from './js/components/activity-log.js';
+        import { gatherSelectionContext, formatContextAsMarkdown, formatContextAsJSON } from './js/utils/selection-context.js';
         
         // Get container element
         const container = document.getElementById('app-container');
@@ -496,8 +497,40 @@
                     console.log('Batch queue remove not yet implemented');
                     break;
                 case 'export':
-                    // TODO: Implement batch export
-                    console.log('Batch export not yet implemented');
+                    // Gather selection context
+                    const context = gatherSelectionContext();
+                    
+                    if (context.selectionCount === 0) {
+                        state.addToast({
+                            type: 'warning',
+                            message: 'No entities selected to export'
+                        });
+                        break;
+                    }
+                    
+                    // Ask user for format preference (markdown or JSON)
+                    const format = confirm('Export as Markdown?\n\nOK = Markdown\nCancel = JSON') ? 'markdown' : 'json';
+                    
+                    // Format based on choice
+                    const exportText = format === 'markdown' 
+                        ? formatContextAsMarkdown(context)
+                        : formatContextAsJSON(context);
+                    
+                    // Copy to clipboard
+                    navigator.clipboard.writeText(exportText)
+                        .then(() => {
+                            state.addToast({
+                                type: 'success',
+                                message: `Exported ${context.selectionCount} entities as ${format.toUpperCase()} to clipboard`
+                            });
+                        })
+                        .catch(err => {
+                            console.error('Failed to copy to clipboard:', err);
+                            state.addToast({
+                                type: 'error',
+                                message: 'Failed to copy to clipboard'
+                            });
+                        });
                     break;
                 default:
                     console.warn('Unknown batch action:', action);

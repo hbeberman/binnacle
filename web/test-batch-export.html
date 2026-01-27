@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch Export Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/info-panel.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 2rem;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary, #1a1a1a);
+            color: var(--text-primary, #e0e0e0);
+        }
+        
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .test-btn {
+            padding: 0.75rem 1.5rem;
+            background: var(--accent-blue, #0066cc);
+            border: 1px solid var(--accent-light, #0088ff);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            cursor: pointer;
+            margin: 0.5rem;
+        }
+        
+        .test-btn:hover {
+            background: var(--accent-light, #0088ff);
+        }
+        
+        .output {
+            background: var(--bg-secondary, #2a2a2a);
+            padding: 1rem;
+            border-radius: 4px;
+            margin-top: 1rem;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+        
+        .toast {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .toast.success {
+            border-left: 4px solid #4caf50;
+        }
+        
+        .toast.error {
+            border-left: 4px solid #f44336;
+        }
+        
+        .toast.warning {
+            border-left: 4px solid #ff9800;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 Batch Export Test</h1>
+        <p>This test verifies the batch export to clipboard functionality.</p>
+        
+        <div>
+            <button class="test-btn" id="btn-export-markdown">Export as Markdown</button>
+            <button class="test-btn" id="btn-export-json">Export as JSON</button>
+            <button class="test-btn" id="btn-export-empty">Export Empty Selection</button>
+        </div>
+        
+        <div class="output" id="output">Click a button to test export...</div>
+    </div>
+
+    <script type="module">
+        import * as state from './js/state.js';
+        import { gatherSelectionContext, formatContextAsMarkdown, formatContextAsJSON } from './js/utils/selection-context.js';
+        
+        const output = document.getElementById('output');
+        
+        // Mock some test data
+        state.set('entities.tasks', [
+            {
+                id: 'bn-1d63',
+                type: 'task',
+                title: 'Implement selection export to clipboard',
+                short_name: 'batch-export',
+                description: 'Export selected entities as markdown or JSON. Include titles, statuses, descriptions. Copy to clipboard with toast confirmation.',
+                status: 'in_progress',
+                priority: 2,
+                tags: ['frontend', 'batch-ops'],
+                created_at: '2026-01-27T06:02:59.828938124Z',
+                updated_at: '2026-01-27T20:10:00.000000000Z'
+            },
+            {
+                id: 'bn-01a0',
+                type: 'task',
+                title: 'Implement batch close operation',
+                short_name: 'batch-close',
+                description: 'Add batchClose() handler with reason prompt modal. Close all selected tasks/bugs with shared reason. Show confirmation before executing.',
+                status: 'pending',
+                priority: 2,
+                tags: ['frontend', 'batch-ops'],
+                created_at: '2026-01-27T06:02:59.789842643Z'
+            },
+            {
+                id: 'bn-1794',
+                type: 'task',
+                title: 'Implement batch queue add/remove operations',
+                short_name: 'batch-queue-ops',
+                description: 'Add batchAddToQueue() and batchRemoveFromQueue() handlers. Wire to batch action buttons. Show toast on completion. May need backend batch endpoint.',
+                status: 'pending',
+                priority: 2,
+                tags: ['frontend', 'batch-ops'],
+                created_at: '2026-01-27T06:02:59.758210747Z'
+            }
+        ]);
+        
+        // Mock edges
+        state.set('edges', [
+            { source: 'bn-1d63', target: 'bn-f33a', type: 'depends_on', label: 'depends on' },
+            { source: 'bn-01a0', target: 'bn-1d63', type: 'related_to', label: 'related to' }
+        ]);
+        
+        function log(message) {
+            output.textContent = message;
+        }
+        
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+        
+        // Test export markdown
+        document.getElementById('btn-export-markdown').addEventListener('click', async () => {
+            // Select all three tasks
+            state.set('graph.selectedNodes', ['bn-1d63', 'bn-01a0', 'bn-1794']);
+            
+            const context = gatherSelectionContext();
+            const markdown = formatContextAsMarkdown(context);
+            
+            log(`Generated Markdown (${markdown.length} chars):\n\n${markdown}`);
+            
+            try {
+                await navigator.clipboard.writeText(markdown);
+                showToast(`Exported ${context.selectionCount} entities as MARKDOWN to clipboard`, 'success');
+            } catch (err) {
+                showToast('Failed to copy to clipboard', 'error');
+                console.error(err);
+            }
+        });
+        
+        // Test export JSON
+        document.getElementById('btn-export-json').addEventListener('click', async () => {
+            // Select all three tasks
+            state.set('graph.selectedNodes', ['bn-1d63', 'bn-01a0', 'bn-1794']);
+            
+            const context = gatherSelectionContext();
+            const json = formatContextAsJSON(context);
+            
+            log(`Generated JSON (${json.length} chars):\n\n${json}`);
+            
+            try {
+                await navigator.clipboard.writeText(json);
+                showToast(`Exported ${context.selectionCount} entities as JSON to clipboard`, 'success');
+            } catch (err) {
+                showToast('Failed to copy to clipboard', 'error');
+                console.error(err);
+            }
+        });
+        
+        // Test empty selection
+        document.getElementById('btn-export-empty').addEventListener('click', () => {
+            state.set('graph.selectedNodes', []);
+            
+            const context = gatherSelectionContext();
+            log(`Context: ${JSON.stringify(context, null, 2)}`);
+            showToast('No entities selected to export', 'warning');
+        });
+        
+        log('Ready! Click a button to test export functionality.');
+    </script>
+</body>
+</html>
