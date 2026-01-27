@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activity Log CSS Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/activity-log.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: var(--bg-primary);
+        }
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            height: 90vh;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <div class="activity-log-container">
+            <div class="activity-log-header">
+                <h3>Activity Log - CSS Test</h3>
+                <div class="activity-log-controls">
+                    <div class="streaming-indicator">
+                        <span class="pulse"></span>
+                        <span>Live</span>
+                    </div>
+                    <button class="btn-toggle-view active">Compact</button>
+                    <button class="btn-refresh" title="Refresh log">🔄 Refresh</button>
+                </div>
+            </div>
+
+            <div class="log-filter-bar">
+                <div class="filter-group">
+                    <span class="filter-label">View:</span>
+                    <select class="filter-select">
+                        <option>All</option>
+                        <option>Entity Changes</option>
+                        <option>Commands</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <span class="filter-label">Type:</span>
+                    <select class="filter-select">
+                        <option>All Types</option>
+                        <option>Task</option>
+                        <option>Bug</option>
+                        <option>Idea</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <span class="filter-label">Owner:</span>
+                    <select class="filter-select">
+                        <option>All</option>
+                        <option>Humans</option>
+                        <option>Agents</option>
+                    </select>
+                </div>
+                <input type="text" class="filter-search" placeholder="🔍 Search logs...">
+                <button class="filter-clear-btn">Clear</button>
+            </div>
+
+            <div class="log-entries">
+                <!-- Entity change: Task created -->
+                <div class="log-entry log-action-created">
+                    <div class="log-entry-header">
+                        <span class="log-action-icon">🟢</span>
+                        <span class="log-timestamp">2m ago</span>
+                        <span class="owner-badge agent">🤖 bn-f19b</span>
+                        <span class="entity-type-badge task">task</span>
+                        <span class="log-entity-id">bn-d9d8</span>
+                        <span class="log-action-text">created</span>
+                    </div>
+                    <div class="log-entry-details">
+                        <span class="log-args">"Implement robot icon for agent cards"</span>
+                    </div>
+                </div>
+
+                <!-- Entity change: Task updated -->
+                <div class="log-entry log-action-updated">
+                    <div class="log-entry-header">
+                        <span class="log-action-icon">🔵</span>
+                        <span class="log-timestamp">5m ago</span>
+                        <span class="owner-badge agent">🤖 bn-f19b</span>
+                        <span class="entity-type-badge task">task</span>
+                        <span class="log-entity-id">bn-d9d8</span>
+                        <span class="log-action-text">updated status → in_progress</span>
+                    </div>
+                </div>
+
+                <!-- Entity change: Task closed -->
+                <div class="log-entry log-action-closed">
+                    <div class="log-entry-header">
+                        <span class="log-action-icon">🟣</span>
+                        <span class="log-timestamp">10m ago</span>
+                        <span class="owner-badge user">👤 henry</span>
+                        <span class="entity-type-badge task">task</span>
+                        <span class="log-entity-id">bn-c4be</span>
+                        <span class="log-action-text">closed</span>
+                    </div>
+                    <div class="log-entry-details">
+                        <span class="log-args">Reason: "Completed implementation and tests"</span>
+                    </div>
+                </div>
+
+                <!-- Command: Success -->
+                <div class="log-entry log-status-success">
+                    <div class="log-entry-header">
+                        <span class="log-action-icon">✅</span>
+                        <span class="log-timestamp">15m ago</span>
+                        <span class="owner-badge user">👤 henry</span>
+                        <span class="log-command">task create</span>
+                        <span class="log-exit-code success">Exit: 0</span>
+                    </div>
+                    <div class="log-entry-details">
+                        <span class="log-args">"Add user authentication" --priority 1 --tag security</span>
+                    </div>
+                </div>
+
+                <!-- Command: Failure -->
+                <div class="log-entry log-status-failure">
+                    <div class="log-entry-header">
+                        <span class="log-action-icon">❌</span>
+                        <span class="log-timestamp">20m ago</span>
+                        <span class="owner-badge agent">🤖 bn-abc1</span>
+                        <span class="log-command">test run</span>
+                        <span class="log-exit-code failure">Exit: 1</span>
+                    </div>
+                    <div class="log-entry-details">
+                        <span class="log-args">bnt-9876 --verbose</span>
+                    </div>
+                </div>
+
+                <!-- Bug entity -->
+                <div class="log-entry log-action-created">
+                    <div class="log-entry-header">
+                        <span class="log-action-icon">🟢</span>
+                        <span class="log-timestamp">25m ago</span>
+                        <span class="owner-badge user">👤 sarah</span>
+                        <span class="entity-type-badge bug">bug</span>
+                        <span class="log-entity-id">bn-bug1</span>
+                        <span class="log-action-text">created</span>
+                    </div>
+                </div>
+
+                <!-- Idea entity -->
+                <div class="log-entry log-action-created">
+                    <div class="log-entry-header">
+                        <span class="log-action-icon">🟢</span>
+                        <span class="log-timestamp">30m ago</span>
+                        <span class="owner-badge agent">🤖 bn-xyz9</span>
+                        <span class="entity-type-badge idea">idea</span>
+                        <span class="log-entity-id">bn-idea1</span>
+                        <span class="log-action-text">created</span>
+                    </div>
+                </div>
+
+                <!-- Link action -->
+                <div class="log-entry log-action-linked">
+                    <div class="log-entry-header">
+                        <span class="log-action-icon">🔗</span>
+                        <span class="log-timestamp">35m ago</span>
+                        <span class="owner-badge user">👤 henry</span>
+                        <span class="log-action-text">linked</span>
+                        <span class="log-entity-id">bn-a1b2</span>
+                        <span class="log-action-text">→</span>
+                        <span class="log-entity-id">bn-c3d4</span>
+                    </div>
+                </div>
+
+                <!-- Compact mode example -->
+                <div class="log-entry log-action-updated compact">
+                    <div class="log-entry-header">
+                        <span class="log-action-icon">🔵</span>
+                        <span class="log-timestamp">40m ago</span>
+                        <span class="owner-badge agent">🤖 bn-test</span>
+                        <span class="entity-type-badge milestone">milestone</span>
+                        <span class="log-entity-id">bn-m001</span>
+                        <span class="log-action-text">updated</span>
+                    </div>
+                    <div class="log-entry-details">
+                        <span class="log-args">This should be hidden in compact mode</span>
+                    </div>
+                </div>
+
+                <!-- Unknown owner -->
+                <div class="log-entry log-status-success">
+                    <div class="log-entry-header">
+                        <span class="log-action-icon">✅</span>
+                        <span class="log-timestamp">45m ago</span>
+                        <span class="owner-badge unknown">Unknown</span>
+                        <span class="log-command">ready</span>
+                        <span class="log-exit-code success">Exit: 0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="log-pagination">
+                <button class="pagination-btn">← Previous</button>
+                <span class="pagination-info">Page 1 of 5 (247 total)</span>
+                <button class="pagination-btn">Next →</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Add click handlers to test interactivity
+        document.querySelectorAll('.log-entity-id').forEach(el => {
+            el.addEventListener('click', () => {
+                alert('Open modal for: ' + el.textContent);
+            });
+        });
+
+        document.querySelectorAll('.owner-badge.agent, .owner-badge.user').forEach(el => {
+            el.addEventListener('click', () => {
+                alert('Filter by owner: ' + el.textContent);
+            });
+        });
+
+        // Toggle compact/detailed view
+        document.querySelector('.btn-toggle-view').addEventListener('click', function() {
+            const entries = document.querySelectorAll('.log-entry');
+            entries.forEach(entry => {
+                entry.classList.toggle('compact');
+            });
+            this.textContent = this.textContent === 'Compact' ? 'Detailed' : 'Compact';
+        });
+    </script>
+</body>
+</html>
