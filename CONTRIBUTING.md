@@ -18,7 +18,13 @@ Thank you for contributing to binnacle! This guide will help you get started.
    cargo install cargo-audit
    ```
 
-3. **Enable git hooks**
+3. **Install Node.js dependencies** (required for JavaScript linting)
+
+   ```bash
+   npm install
+   ```
+
+4. **Enable git hooks**
 
    ```bash
    git config core.hooksPath hooks
@@ -27,6 +33,7 @@ Thank you for contributing to binnacle! This guide will help you get started.
    This configures git to use the tracked hooks in the `hooks/` directory, which includes a pre-commit hook that validates:
    - Code formatting (`cargo fmt --check`)
    - Linting (`cargo clippy -- -D warnings`)
+   - JavaScript linting (`npx eslint` on staged .js files)
    - Security vulnerabilities (`cargo audit`)
 
 ## Development Workflow
@@ -49,6 +56,7 @@ cargo audit
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
+npm run lint:js  # Lint all JavaScript files
 ```
 
 ### Code Style
