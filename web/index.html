@@ -391,7 +391,8 @@
         mountNodeDetailModal(container);
         
         // Mount node detail pane (side panel for double-click)
-        mountNodeDetailPane(container);
+        const mainContent = document.querySelector('.main-content');
+        mountNodeDetailPane(mainContent);
         
         // Create and mount available work pane
         const availableWorkPane = createAvailableWorkPane();
