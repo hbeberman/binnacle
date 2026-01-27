@@ -32,7 +32,7 @@
     color: var(--text-primary);
     font-size: 0.85rem;
     flex-shrink: 0;
-    order: -1; /* Force to leftmost position */
+    order: -2; /* Force to leftmost position, before filters */
 }
 
 .graph-search::placeholder {
@@ -45,8 +45,10 @@
     background: rgba(0, 0, 0, 0.4);
     box-shadow: 0 0 0 2px rgba(106, 168, 240, 0.15);
 }
+/* Filters dropdown - positioned after search */
 .filters-dropdown {
     position: relative;
+    order: -1; /* After search (order: -2), before other controls */
 }
 
 .filters-dropdown-btn {
