@@ -9,6 +9,7 @@
  */
 
 import * as state from '../state.js';
+import { ConnectionStatus } from '../state.js';
 import { drawNodeShapePath } from './shapes.js';
 import { getNodeColor, getEdgeStyle, getCSSColors } from './colors.js';
 import { worldToScreen, screenToWorld, getZoom } from './transform.js';
@@ -422,7 +423,14 @@ function render() {
     filterVisibleNodes();
     
     if (visibleNodes.length === 0) {
-        renderEmptyState('No matching nodes');
+        // Show connection status if still connecting
+        const connectionStatus = state.getConnectionStatus();
+        if (connectionStatus === ConnectionStatus.CONNECTING || 
+            connectionStatus === ConnectionStatus.RECONNECTING) {
+            renderEmptyState('Connecting...');
+        } else {
+            renderEmptyState('No matching nodes');
+        }
         return;
     }
     
