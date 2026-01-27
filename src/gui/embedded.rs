@@ -31,6 +31,12 @@ fn extract_assets() -> HashMap<String, Vec<u8>> {
     let mut archive = tar::Archive::new(&decompressed[..]);
     for entry in archive.entries().expect("Failed to read tar entries") {
         let mut entry = entry.expect("Failed to read tar entry");
+
+        // Skip directory entries
+        if entry.header().entry_type().is_dir() {
+            continue;
+        }
+
         let path = entry.path().expect("Failed to read entry path");
 
         // Strip "web-bundle/" prefix and convert to String
@@ -49,6 +55,11 @@ fn extract_assets() -> HashMap<String, Vec<u8>> {
     }
 
     assets
+}
+
+/// Extract assets as a map (public API for export functionality)
+pub fn extract_assets_map() -> Result<HashMap<String, Vec<u8>>, String> {
+    Ok(extract_assets())
 }
 
 /// Get MIME type from file extension

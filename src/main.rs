@@ -1229,6 +1229,9 @@ fn run_command(
             Some(GuiCommands::Kill { force }) => {
                 kill_gui(repo_path, force, human)?;
             }
+            Some(GuiCommands::Export { output, archive }) => {
+                export_static_gui(repo_path, &output, archive.as_deref(), human)?;
+            }
             None => {
                 // Default: start server (same as `bn gui serve`)
                 run_gui(repo_path, port, &host, readonly, archive.as_deref(), dev)?;
@@ -1768,6 +1771,114 @@ fn send_signal(pid: u32, signal: Signal) -> bool {
         .output()
         .map(|out| out.status.success())
         .unwrap_or(false)
+}
+
+/// Export static viewer bundle
+#[cfg(feature = "gui")]
+fn export_static_gui(
+    repo_path: &Path,
+    output_dir: &str,
+    archive_path: Option<&str>,
+    human: bool,
+) -> Result<(), binnacle::Error> {
+    use std::fs;
+    use std::path::PathBuf;
+
+    let output = PathBuf::from(output_dir);
+
+    // Create output directory
+    fs::create_dir_all(&output)
+        .map_err(|e| binnacle::Error::Other(format!("Failed to create output directory: {}", e)))?;
+
+    // Create archive if not provided
+    let archive_file = if let Some(path) = archive_path {
+        PathBuf::from(path)
+    } else {
+        let temp_archive = output.join("data.bng");
+        binnacle::commands::system_store_export(
+            repo_path,
+            temp_archive.to_str().unwrap(),
+            "archive",
+        )?;
+        temp_archive
+    };
+
+    // Copy archive to output directory
+    let dest_archive = output.join("data.bng");
+    if archive_file != dest_archive {
+        fs::copy(&archive_file, &dest_archive)
+            .map_err(|e| binnacle::Error::Other(format!("Failed to copy archive: {}", e)))?;
+    }
+
+    // Extract embedded web assets
+    use binnacle::gui::embedded;
+    let assets = embedded::extract_assets_map()
+        .map_err(|e| binnacle::Error::Other(format!("Failed to extract assets: {}", e)))?;
+
+    // Write assets to output directory
+    for (path, content) in assets {
+        // Skip if path ends with / (directory entry)
+        if path.ends_with('/') || path.is_empty() {
+            continue;
+        }
+
+        let dest_path = output.join(&path);
+        if let Some(parent) = dest_path.parent()
+            && parent != output
+        {
+            fs::create_dir_all(parent).map_err(|e| {
+                binnacle::Error::Other(format!("Failed to create directory for {}: {}", path, e))
+            })?;
+        }
+        fs::write(&dest_path, content)
+            .map_err(|e| binnacle::Error::Other(format!("Failed to write file {}: {}", path, e)))?;
+    }
+
+    // Create/update index.html to auto-load the archive
+    let index_path = output.join("index.html");
+    let mut index_html = fs::read_to_string(&index_path)
+        .map_err(|e| binnacle::Error::Other(format!("Failed to read index.html: {}", e)))?;
+
+    // Add script to auto-load archive
+    let auto_load_script = r#"
+<script>
+// Auto-load embedded archive on page load
+window.addEventListener('DOMContentLoaded', () => {
+    // Trigger archive load via URL parameter
+    if (!window.location.search.includes('url=')) {
+        const archiveUrl = './data.bng';
+        window.location.href = window.location.pathname + '?url=' + encodeURIComponent(archiveUrl);
+    }
+});
+</script>
+</head>"#;
+
+    index_html = index_html.replace("</head>", auto_load_script);
+    fs::write(&index_path, index_html)
+        .map_err(|e| binnacle::Error::Other(format!("Failed to write index.html: {}", e)))?;
+
+    if human {
+        println!("Static viewer exported to: {}", output.display());
+        println!("  - Archive: data.bng");
+        println!(
+            "  - Open {} in a browser",
+            output.join("index.html").display()
+        );
+        println!("\nTo host on GitHub Pages:");
+        println!("  1. Commit {} to your repo", output_dir);
+        println!("  2. Enable Pages in repo settings (source: branch)");
+        println!(
+            "  3. Visit https://<username>.github.io/<repo>/{}",
+            output_dir
+        );
+    } else {
+        println!(
+            r#"{{"status":"success","output_dir":"{}","archive":"data.bng"}}"#,
+            output.display()
+        );
+    }
+
+    Ok(())
 }
 
 /// Serialize command to extract name and arguments for logging.
@@ -2744,6 +2855,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 }
                 Some(GuiCommands::Kill { force }) => {
                     serde_json::json!({ "subcommand": "kill", "force": force })
+                }
+                Some(GuiCommands::Export { output, archive }) => {
+                    serde_json::json!({ "subcommand": "export", "output": output, "archive": archive })
                 }
                 None => {
                     serde_json::json!({ "subcommand": null, "port": port, "host": host, "readonly": readonly, "dev": dev, "archive": archive })
