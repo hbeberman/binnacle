@@ -220,11 +220,14 @@
             <!-- Nodes list view -->
             <div class="view" id="nodes-view">
                 <div class="nodes-view-header">
-                    <h2>All Nodes</h2>
                     <div class="search-container">
                         <input type="text" id="nodes-search" class="search-input" placeholder="Search nodes...">
                         <button id="clear-search" class="clear-search-btn" style="display: none;">✕</button>
                     </div>
+                    <label class="toggle-container">
+                        <input type="checkbox" id="nodes-hide-completed" checked>
+                        <span>Hide completed</span>
+                    </label>
                 </div>
                 <div class="node-list" id="node-list"></div>
             </div>
@@ -332,6 +335,18 @@
                 state.set('ui.searchQuery', '');
                 clearSearchBtn.style.display = 'none';
                 nodesSearchInput.focus();
+            });
+        }
+        
+        // Initialize nodes hide completed toggle
+        const nodesHideCompletedToggle = document.getElementById('nodes-hide-completed');
+        if (nodesHideCompletedToggle) {
+            // Set initial state from storage
+            const hideCompleted = state.get('ui.hideCompleted');
+            nodesHideCompletedToggle.checked = hideCompleted !== false; // default to true
+            
+            nodesHideCompletedToggle.addEventListener('change', (e) => {
+                state.set('ui.hideCompleted', e.target.checked);
             });
         }
         

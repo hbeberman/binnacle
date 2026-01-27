@@ -40,6 +40,23 @@
     color: var(--text-secondary);
 }
 
+.toggle-container {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle-container input[type="checkbox"] {
+    cursor: pointer;
+}
+
+.toggle-container span {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
 .clear-search-btn {
     position: absolute;
     right: 0.5rem;
