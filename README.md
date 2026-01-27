@@ -163,15 +163,18 @@ cargo install --path . --features gui
 **Option 1: Using `bn gui` (direct command)**
 
 ```bash
-bn gui              # Start on default port (3030)
-bn gui -p 8080      # Start on custom port
-bn gui --readonly   # Start in read-only mode
+bn gui                           # Start on default port (3030)
+bn gui -p 8080                   # Start on custom port
+bn gui --readonly                # Start in read-only mode
+bn gui --archive data.bng        # Load a .bng archive file (read-only snapshot)
 ```
 
 The server will start and print the URL to access the interface. Open it in your browser:
 ```
 http://localhost:3030
 ```
+
+**Note**: The `--archive` flag must be specified **before** any subcommand (e.g., `bn gui --archive file.bng serve`). It appears in `bn gui --help` but not in `bn gui serve --help` because it's a top-level option.
 
 **Option 2: Using `just gui` (with hot reload)**
 
