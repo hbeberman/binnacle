@@ -81,7 +81,18 @@ export function init(canvasElement, callbacks = {}) {
  * Handle mouse down - start dragging node or canvas
  */
 function onMouseDown(e) {
-    if (e.button !== 0) return; // Only left mouse button
+    // Middle mouse button (button 1) always pans
+    if (e.button === 1) {
+        e.preventDefault(); // Prevent default middle-click behavior
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        canvas.classList.add('dragging');
+        return;
+    }
+    
+    // Left mouse button (button 0) can drag nodes or pan
+    if (e.button !== 0) return;
     
     // Get canvas-relative coordinates
     const rect = canvas.getBoundingClientRect();
@@ -238,9 +249,10 @@ function checkHover(canvasX, canvasY, screenX, screenY) {
  * Handle mouse up - stop dragging node or canvas
  */
 function onMouseUp(e) {
-    if (e.button !== 0) return;
+    // Handle both left (0) and middle (1) mouse buttons
+    if (e.button !== 0 && e.button !== 1) return;
     
-    if (draggedNode) {
+    if (draggedNode && e.button === 0) {
         // Apply momentum to the node based on drag velocity
         // Convert screen velocity to world velocity (accounting for zoom)
         const zoom = getZoom();
