@@ -22,6 +22,7 @@
     <link rel="stylesheet" href="/css/components/readonly-indicator.css">
     <link rel="stylesheet" href="/css/components/doc-viewer.css">
     <link rel="stylesheet" href="/css/components/edge-info-panel.css">
+    <link rel="stylesheet" href="/css/components/link-builder.css">
     <link rel="stylesheet" href="/css/components/graph-overlay-panel.css">
     <link rel="stylesheet" href="/css/components/graph-controls.css">
     <link rel="stylesheet" href="/css/components/node-list.css">
@@ -261,6 +262,7 @@
         import * as connection from './js/connection/index.js';
         import { initializeAgentCards } from './js/components/agent-cards.js';
         import { createInfoPanel, initializeInfoPanel, showInfoPanel, updateInfoPanelContent } from './js/components/info-panel.js';
+        import { createLinkBuilder, initializeLinkBuilder, updateLinkBuilderContent } from './js/components/link-builder.js';
         import { mountGraphOverlayPanel, initializeGraphOverlayPanel } from './js/components/graph-overlay-panel.js';
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
         import { mountNodeDetailModal, showNodeDetailModal } from './js/components/node-detail-modal.js';
@@ -397,12 +399,82 @@
             }
         });
         
+        // Create and mount link builder
+        const linkBuilder = createLinkBuilder();
+        container.appendChild(linkBuilder);
+        initializeLinkBuilder(linkBuilder, {
+            onCreate: async (linkData) => {
+                console.log('Creating link:', linkData);
+                
+                try {
+                    // Get base URL from connection
+                    const baseUrl = state.get('connection.baseUrl') || '';
+                    
+                    // Call API to create link
+                    const response = await fetch(`${baseUrl}/api/links/batch`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            links: [linkData]
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Failed to create link: ${response.statusText}`);
+                    }
+                    
+                    const result = await response.json();
+                    
+                    if (!result.success) {
+                        throw new Error('Link creation failed');
+                    }
+                    
+                    // Refresh graph data
+                    await connection.refresh();
+                    
+                    console.log('Link created successfully');
+                } catch (error) {
+                    console.error('Link creation error:', error);
+                    throw error;
+                }
+            },
+            onCancel: () => {
+                console.log('Link builder cancelled');
+            }
+        });
+        
         // Handle batch actions from info panel
         infoPanel.addEventListener('batch-action', (e) => {
             const { action, nodeIds } = e.detail;
             console.log('Batch action:', action, nodeIds);
             
             switch (action) {
+                case 'create-link':
+                    // Get the selected nodes from state
+                    const selectedNodes = state.get('graph.selectedNodes') || [];
+                    if (selectedNodes.length === 2) {
+                        // Get full node data
+                        const nodes = selectedNodes.map(nodeId => {
+                            const allEntities = [
+                                ...state.get('entities.tasks') || [],
+                                ...state.get('entities.bugs') || [],
+                                ...state.get('entities.ideas') || [],
+                                ...state.get('entities.tests') || [],
+                                ...state.get('entities.docs') || [],
+                                ...state.get('entities.milestones') || [],
+                                ...state.get('entities.queues') || [],
+                                ...state.get('entities.agents') || []
+                            ];
+                            return allEntities.find(e => e.id === nodeId);
+                        }).filter(n => n !== undefined);
+                        
+                        if (nodes.length === 2) {
+                            updateLinkBuilderContent(linkBuilder, nodes);
+                        }
+                    }
+                    break;
                 case 'summarize':
                     // Open summarize chat modal with selected nodes
                     const readonly = state.get('connection.readonly') || false;
