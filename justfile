@@ -187,6 +187,10 @@ serve-wasm port="8080" archive="":
     # Use Python's built-in HTTP server (most portable)
     cd "$SERVE_DIR" && python3 -m http.server {{port}}
 
+# Bundle web assets (JS/CSS) and compress with zstd
+bundle-web:
+    ./scripts/bundle-web.sh
+
 # Build the container image (builds release binary first)
 container tag="binnacle-worker:latest":
     @echo "Building release binary..."
