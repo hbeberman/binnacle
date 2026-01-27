@@ -28,11 +28,11 @@ const IDEA_STATUS_COLORS = {
     'done': '#8fbc8f'
 };
 
-// Milestone colors (flag/goal theme - green/gold tones)
+// Milestone colors (orange tones)
 const MILESTONE_STATUS_COLORS = {
-    'pending': '#228b22',
-    'in_progress': '#32cd32',
-    'blocked': '#8b4513',
+    'pending': '#ff8c00',
+    'in_progress': '#ffa500',
+    'blocked': '#ff6347',
     'done': '#ffd700'
 };
 
