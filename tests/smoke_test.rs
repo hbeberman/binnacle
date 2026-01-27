@@ -12,9 +12,17 @@ use predicates::prelude::*;
 
 use common::TestEnv;
 
-/// Get a Command for the bn binary.
+/// Get a Command for the bn binary with test isolation.
 fn bn() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_bn"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    // Clear container mode to prevent tests from polluting production /binnacle
+    cmd.env_remove("BN_CONTAINER_MODE");
+    cmd.env_remove("BN_AGENT_ID");
+    cmd.env_remove("BN_AGENT_NAME");
+    cmd.env_remove("BN_AGENT_TYPE");
+    cmd.env_remove("BN_MCP_SESSION");
+    cmd.env_remove("BN_AGENT_SESSION");
+    cmd
 }
 
 #[test]
@@ -124,6 +132,7 @@ fn test_explicit_repo_path_bypasses_git_root_detection() {
     // Use subdir_env's data_dir for isolation
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.env("BN_DATA_DIR", subdir_env.data_path());
+    cmd.env_remove("BN_CONTAINER_MODE"); // Prevent container mode leaking into tests
     cmd.args(["-C", subdir.to_str().unwrap(), "system", "init"])
         .assert()
         .success();
@@ -131,6 +140,7 @@ fn test_explicit_repo_path_bypasses_git_root_detection() {
     // Create a task in the subdir's binnacle
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.env("BN_DATA_DIR", subdir_env.data_path());
+    cmd.env_remove("BN_CONTAINER_MODE");
     cmd.args([
         "-C",
         subdir.to_str().unwrap(),
@@ -144,6 +154,7 @@ fn test_explicit_repo_path_bypasses_git_root_detection() {
     // Now run from the git ROOT with root_env's data_dir
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.env("BN_DATA_DIR", root_env.data_path());
+    cmd.env_remove("BN_CONTAINER_MODE");
     let output = cmd
         .args(["-C", root.to_str().unwrap(), "system", "init"])
         .output()
@@ -152,6 +163,7 @@ fn test_explicit_repo_path_bypasses_git_root_detection() {
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.env("BN_DATA_DIR", root_env.data_path());
+    cmd.env_remove("BN_CONTAINER_MODE");
     let list_output = cmd
         .args(["-C", root.to_str().unwrap(), "task", "list"])
         .output()
