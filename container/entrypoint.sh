@@ -64,7 +64,7 @@ fi
 BN_AGENT_TYPE="${BN_AGENT_TYPE:-worker}"
 BN_MERGE_TARGET="${BN_MERGE_TARGET:-main}"
 BN_INITIAL_PROMPT="${BN_INITIAL_PROMPT:-Run bn ready to see available tasks, pick one, and complete it. Call bn goodbye when done.}"
-BN_AUTO_MERGE="${BN_AUTO_MERGE:-true}"
+BN_AUTO_MERGE="${BN_AUTO_MERGE:-false}"
 
 cd /workspace
 
@@ -80,41 +80,31 @@ EOF
     echo "🔑 GitHub SSH host keys added to known_hosts"
 fi
 
-# Generate MCP config for copilot CLI
-# This enables binnacle MCP tools inside the container
-#
-# Env var flow:
-#   1. entrypoint.sh writes ${VAR} placeholders into mcp-config.json
-#   2. Copilot expands these placeholders when spawning the MCP server process
-#   3. MCP server (bn mcp serve) passes actual values to bn subprocesses
-#
-# We start with the base config and inject env vars that are actually set,
-# since Copilot MCP zeros out all env vars except PATH and unset ${VAR}
-# placeholders become literal strings.
-echo "🔌 Generating MCP configuration..."
-mkdir -p "$HOME/.copilot"
-
-# Generate base config
-if ! bn --human system emit mcp-copilot > "$HOME/.copilot/mcp-config.json"; then
-    echo "❌ Failed to generate MCP configuration"
-    echo "   bn system emit mcp-copilot failed"
+# Initialize binnacle configs:
+# - AGENTS.md binnacle section (preserves content outside markers)
+# - Claude skills file (~/.claude/skills/binnacle/SKILL.md)
+# - Copilot MCP config (~/.copilot/mcp-config.json) - merges with existing
+echo "📝 Initializing binnacle configuration..."
+if ! bn system init --write-agents-md --write-claude-skills --write-mcp-copilot -y > /dev/null 2>&1; then
+    echo "❌ Failed to initialize binnacle configuration"
+    echo "   bn system init failed"
     exit 1
 fi
+echo "✅ Binnacle configuration initialized"
 
-# Build env block with only vars that are actually set
-# These use ${VAR} syntax which Copilot will expand when starting the MCP server
-# Use jq --arg for each variable to safely escape values
+# Inject container env vars into MCP config
+# Copilot MCP zeros out all env vars except PATH, so we inject ${VAR} placeholders
+# that Copilot will expand when spawning the MCP server process.
 #
 # Note: BN_AGENT_SESSION is intentionally omitted here - it's set dynamically
 # via 'export BN_AGENT_SESSION=1' later in this script (after git hooks config).
 # The MCP server passes it through to subprocesses from the runtime environment.
+MCP_CONFIG="$HOME/.copilot/mcp-config.json"
 ENV_JSON="{}"
 INJECTED_VARS=""
 for var in BN_DATA_DIR BN_CONTAINER_MODE BN_STORAGE_HASH BN_AGENT_ID BN_AGENT_NAME BN_AGENT_TYPE; do
-    # Use indirect expansion to get the value of the variable
     val="${!var:-}"
     if [ -n "$val" ]; then
-        # Use jq --arg to safely escape the variable name and build ${VAR} reference
         ENV_JSON=$(echo "$ENV_JSON" | jq --arg k "$var" --arg v "\${$var}" '. + {($k): $v}')
         if [ -n "$INJECTED_VARS" ]; then
             INJECTED_VARS="$INJECTED_VARS, $var"
@@ -124,24 +114,11 @@ for var in BN_DATA_DIR BN_CONTAINER_MODE BN_STORAGE_HASH BN_AGENT_ID BN_AGENT_NA
     fi
 done
 
-# If we have any env vars, inject them into the config using jq
 if [ "$ENV_JSON" != "{}" ]; then
-    jq --argjson env "$ENV_JSON" '.mcpServers.binnacle.env = $env' "$HOME/.copilot/mcp-config.json" > "$HOME/.copilot/mcp-config.json.tmp"
-    mv "$HOME/.copilot/mcp-config.json.tmp" "$HOME/.copilot/mcp-config.json"
-    echo "   Injected env vars: $INJECTED_VARS"
+    jq --argjson env "$ENV_JSON" '.mcpServers.binnacle.env = $env' "$MCP_CONFIG" > "$MCP_CONFIG.tmp"
+    mv "$MCP_CONFIG.tmp" "$MCP_CONFIG"
+    echo "🔌 Injected MCP env vars: $INJECTED_VARS"
 fi
-echo "✅ MCP config written to $HOME/.copilot/mcp-config.json"
-
-# Generate AGENTS.md from embedded template
-# This avoids copying AGENTS.md into the container image at build time,
-# keeping the host repo clean. The pre-commit hook uses this injected file.
-echo "📝 Generating AGENTS.md from embedded template..."
-if ! bn system emit agents -H > /workspace/AGENTS.md; then
-    echo "❌ Failed to generate AGENTS.md"
-    echo "   bn system emit agents failed"
-    exit 1
-fi
-echo "✅ AGENTS.md written to /workspace/AGENTS.md"
 
 # Configure git hooks path so commit-msg hook adds co-author trailer
 # The hooks/ directory in the repo contains the commit-msg hook that adds
@@ -236,7 +213,7 @@ git fetch origin "$BN_MERGE_TARGET" 2>/dev/null || true
 git checkout "$BN_MERGE_TARGET"
 if git merge --ff-only "$WORK_BRANCH"; then
     echo "✅ Successfully merged $WORK_BRANCH into $BN_MERGE_TARGET"
-    
+
     # Generate graph snapshot for the merge commit on main branch
     # This preserves the graph state at this point in the commit history
     MERGE_COMMIT=$(git rev-parse HEAD)
