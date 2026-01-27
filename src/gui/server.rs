@@ -353,6 +353,8 @@ pub async fn start_server(
         .route("/api/queue", get(get_queue))
         .route("/api/queue/toggle", post(toggle_queue_membership))
         .route("/api/batch/close", post(batch_close))
+        .route("/api/batch/queue-add", post(batch_queue_add))
+        .route("/api/batch/queue-remove", post(batch_queue_remove))
         .route("/api/edges", get(get_edges))
         .route("/api/edges", post(add_edge))
         .route("/api/links/batch", post(batch_add_links))
@@ -1616,6 +1618,204 @@ async fn batch_close(
         "summary": {
             "total": request.node_ids.len(),
             "closed_count": closed.len(),
+            "failed_count": failed.len(),
+            "skipped_count": skipped.len()
+        }
+    })))
+}
+
+/// Request body for batch queue operations
+#[derive(Deserialize)]
+struct BatchQueueRequest {
+    node_ids: Vec<String>,
+}
+
+/// Batch add multiple tasks/bugs to the queue
+async fn batch_queue_add(
+    State(state): State<AppState>,
+    Json(request): Json<BatchQueueRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Check readonly mode
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
+    let mut storage = state.storage.lock().await;
+
+    // Get or create the queue
+    let queue = match storage.get_queue() {
+        Ok(q) => q,
+        Err(_) => {
+            // Create default queue if it doesn't exist
+            let title = "Work Queue".to_string();
+            let queue_id = generate_id("bnq", &title);
+            let new_queue = Queue::new(queue_id.clone(), title);
+            storage.create_queue(&new_queue).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+            })?;
+            new_queue
+        }
+    };
+
+    let mut added = Vec::new();
+    let mut failed = Vec::new();
+    let mut skipped = Vec::new();
+
+    for node_id in &request.node_ids {
+        // Check if already queued
+        let edges = storage
+            .list_edges(Some(EdgeType::Queued), Some(node_id), Some(&queue.id))
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+            })?;
+
+        if !edges.is_empty() {
+            skipped.push(serde_json::json!({
+                "id": node_id,
+                "reason": "already in queue"
+            }));
+            continue;
+        }
+
+        // Check if the item is closed before adding to queue
+        let is_closed = if let Ok(task) = storage.get_task(node_id) {
+            task.status == TaskStatus::Done || task.status == TaskStatus::Cancelled
+        } else if let Ok(bug) = storage.get_bug(node_id) {
+            bug.status == TaskStatus::Done || bug.status == TaskStatus::Cancelled
+        } else {
+            false
+        };
+
+        if is_closed {
+            failed.push(serde_json::json!({
+                "id": node_id,
+                "error": "item is closed"
+            }));
+            continue;
+        }
+
+        // Verify item exists (task, bug, or milestone)
+        let exists = storage.get_task(node_id).is_ok()
+            || storage.get_bug(node_id).is_ok()
+            || storage.get_milestone(node_id).is_ok();
+
+        if !exists {
+            failed.push(serde_json::json!({
+                "id": node_id,
+                "error": "entity not found"
+            }));
+            continue;
+        }
+
+        // Add to queue
+        let edge_id = storage.generate_edge_id(node_id, &queue.id, EdgeType::Queued);
+        let edge = Edge::new(edge_id, node_id.clone(), queue.id.clone(), EdgeType::Queued);
+
+        match storage.add_edge(&edge) {
+            Ok(_) => {
+                added.push(serde_json::json!({
+                    "id": node_id
+                }));
+            }
+            Err(e) => {
+                failed.push(serde_json::json!({
+                    "id": node_id,
+                    "error": e.to_string()
+                }));
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "added": added,
+        "failed": failed,
+        "skipped": skipped,
+        "summary": {
+            "total": request.node_ids.len(),
+            "added_count": added.len(),
+            "failed_count": failed.len(),
+            "skipped_count": skipped.len()
+        }
+    })))
+}
+
+/// Batch remove multiple tasks/bugs from the queue
+async fn batch_queue_remove(
+    State(state): State<AppState>,
+    Json(request): Json<BatchQueueRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Check readonly mode
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
+    let mut storage = state.storage.lock().await;
+
+    // Get the queue
+    let queue = match storage.get_queue() {
+        Ok(q) => q,
+        Err(e) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": format!("Queue not found: {}", e) })),
+            ));
+        }
+    };
+
+    let mut removed = Vec::new();
+    let mut failed = Vec::new();
+    let mut skipped = Vec::new();
+
+    for node_id in &request.node_ids {
+        // Check if the node is queued
+        let edges = storage
+            .list_edges(Some(EdgeType::Queued), Some(node_id), Some(&queue.id))
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+            })?;
+
+        if edges.is_empty() {
+            skipped.push(serde_json::json!({
+                "id": node_id,
+                "reason": "not in queue"
+            }));
+            continue;
+        }
+
+        // Remove from queue
+        match storage.remove_edge(node_id, &queue.id, EdgeType::Queued) {
+            Ok(_) => {
+                removed.push(serde_json::json!({
+                    "id": node_id
+                }));
+            }
+            Err(e) => {
+                failed.push(serde_json::json!({
+                    "id": node_id,
+                    "error": e.to_string()
+                }));
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "removed": removed,
+        "failed": failed,
+        "skipped": skipped,
+        "summary": {
+            "total": request.node_ids.len(),
+            "removed_count": removed.len(),
             "failed_count": failed.len(),
             "skipped_count": skipped.len()
         }
