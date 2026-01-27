@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Summarize Chat Component Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: var(--text-primary);
+            margin-bottom: 20px;
+        }
+        
+        .controls {
+            background: var(--bg-secondary);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .controls button {
+            margin: 5px;
+            padding: 10px 20px;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .controls button:hover {
+            opacity: 0.9;
+        }
+        
+        .controls button:disabled {
+            background: var(--text-secondary);
+            cursor: not-allowed;
+        }
+        
+        .event-log {
+            background: var(--bg-secondary);
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .event-log-item {
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        
+        .event-log-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 Summarize Chat Component Test</h1>
+        
+        <div class="controls">
+            <h3>Test Controls</h3>
+            <button id="btn-open-single">Open Chat (1 task)</button>
+            <button id="btn-open-multi">Open Chat (5 mixed entities)</button>
+            <button id="btn-open-readonly">Open Chat (Readonly Mode)</button>
+            <button id="btn-send-message">Simulate Agent Response</button>
+            <button id="btn-add-suggestions">Add Quick Actions</button>
+        </div>
+        
+        <div class="event-log">
+            <h3>Event Log</h3>
+            <div id="event-log-content"></div>
+        </div>
+    </div>
+    
+    <div id="modal-container"></div>
+    
+    <script type="module">
+        import { 
+            mountSummarizeChatModal, 
+            showSummarizeChatModal,
+            addChatMessage
+        } from './js/components/summarize-chat.js';
+        
+        // Mock state module
+        window.mockNodes = {
+            'bn-0001': {
+                id: 'bn-0001',
+                type: 'task',
+                title: 'Implement OAuth2 flow',
+                short_name: 'OAuth2',
+                status: 'in_progress',
+                priority: 1,
+                queued: false
+            },
+            'bn-0002': {
+                id: 'bn-0002',
+                type: 'task',
+                title: 'Add refresh token handling',
+                short_name: 'Refresh tokens',
+                status: 'pending',
+                priority: 2,
+                queued: false
+            },
+            'bn-0003': {
+                id: 'bn-0003',
+                type: 'bug',
+                title: 'Token expires prematurely',
+                short_name: 'Token expiry bug',
+                status: 'open',
+                priority: 0,
+                queued: true
+            },
+            'bn-0004': {
+                id: 'bn-0004',
+                type: 'idea',
+                title: 'Consider alternative auth providers',
+                short_name: 'Alt auth',
+                status: 'seed',
+                priority: 3,
+                queued: false
+            },
+            'bn-0005': {
+                id: 'bn-0005',
+                type: 'doc',
+                title: 'Authentication Architecture',
+                name: 'Auth Architecture',
+                doc_type: 'prd',
+                queued: false
+            }
+        };
+        
+        // Mock getNode function
+        window.getNode = (id) => window.mockNodes[id];
+        
+        // Create a mock state module
+        const mockState = {
+            getNode: window.getNode
+        };
+        
+        // Override the import (hacky but works for testing)
+        import('../js/state.js').catch(() => {
+            // State module not found, use mock
+            window.getNode = (id) => window.mockNodes[id];
+        });
+        
+        // Mount the modal
+        mountSummarizeChatModal('#modal-container');
+        
+        // Event log
+        function logEvent(event, detail) {
+            const logEl = document.getElementById('event-log-content');
+            const item = document.createElement('div');
+            item.className = 'event-log-item';
+            item.textContent = `[${new Date().toLocaleTimeString()}] ${event}: ${JSON.stringify(detail)}`;
+            logEl.appendChild(item);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        // Listen for events from the modal
+        const modal = document.getElementById('summarize-chat-modal');
+        modal.addEventListener('chat-message', (e) => {
+            logEvent('chat-message', e.detail);
+        });
+        
+        modal.addEventListener('chat-action', (e) => {
+            logEvent('chat-action', e.detail);
+        });
+        
+        // Test controls
+        document.getElementById('btn-open-single').addEventListener('click', () => {
+            showSummarizeChatModal(['bn-0001'], false);
+            logEvent('opened', { nodeIds: ['bn-0001'], readonly: false });
+        });
+        
+        document.getElementById('btn-open-multi').addEventListener('click', () => {
+            const nodeIds = ['bn-0001', 'bn-0002', 'bn-0003', 'bn-0004', 'bn-0005'];
+            showSummarizeChatModal(nodeIds, false);
+            logEvent('opened', { nodeIds, readonly: false });
+        });
+        
+        document.getElementById('btn-open-readonly').addEventListener('click', () => {
+            showSummarizeChatModal(['bn-0001', 'bn-0002'], true);
+            logEvent('opened', { nodeIds: ['bn-0001', 'bn-0002'], readonly: true });
+        });
+        
+        document.getElementById('btn-send-message').addEventListener('click', () => {
+            const messagesEl = document.getElementById('summarize-chat-messages');
+            if (messagesEl) {
+                const responseHtml = `<p><strong>Analysis:</strong> Based on the selected entities, here's what I found:</p>
+<ul>
+    <li>Task bn-0001 is currently in progress (P1 - Critical)</li>
+    <li>Task bn-0002 is blocked waiting for bn-0001</li>
+    <li>Bug bn-0003 may be related to the OAuth2 implementation</li>
+</ul>
+<p>Would you like me to suggest a dependency link between the bug and the OAuth2 task?</p>`;
+                
+                addChatMessage(messagesEl, responseHtml, 'agent', [
+                    { label: 'Create link: bn-0003 depends_on bn-0001', action: 'create-link', data: { from: 'bn-0003', to: 'bn-0001', type: 'depends_on' } },
+                    { label: 'Show dependency graph', action: 'show-graph', data: { nodeIds: ['bn-0001', 'bn-0002', 'bn-0003'] } }
+                ]);
+                
+                logEvent('agent-response-simulated', {});
+            }
+        });
+        
+        document.getElementById('btn-add-suggestions').addEventListener('click', () => {
+            const messagesEl = document.getElementById('summarize-chat-messages');
+            if (messagesEl) {
+                addChatMessage(messagesEl, '<p>Here are some suggested actions:</p>', 'agent', [
+                    { label: 'Export as markdown', action: 'export', data: { format: 'markdown' } },
+                    { label: 'Add all to queue', action: 'queue-add', data: { nodeIds: ['bn-0001', 'bn-0002'] } },
+                    { label: 'Close completed items', action: 'close-batch', data: { nodeIds: [] } }
+                ]);
+                logEvent('suggestions-added', {});
+            }
+        });
+    </script>
+</body>
+</html>
