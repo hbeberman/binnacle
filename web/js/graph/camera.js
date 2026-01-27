@@ -10,7 +10,7 @@
  */
 
 import * as state from '../state.js';
-import { applyZoom, applyPan, resetViewport, screenToWorld } from './transform.js';
+import { applyZoom, applyPan, resetViewport, screenToWorld, getZoom } from './transform.js';
 import { findNodeAtPosition, findEdgeAtPosition, setHoveredNode, setDraggedNode, moveNode } from './renderer.js';
 
 // Mouse interaction state
@@ -20,6 +20,11 @@ let dragStartY = 0;
 
 // Node dragging state
 let draggedNode = null;
+let lastDragX = 0;
+let lastDragY = 0;
+let lastDragTime = 0;
+let dragVelocityX = 0;
+let dragVelocityY = 0;
 
 // Hover state
 let currentHoveredNode = null;
@@ -78,6 +83,13 @@ function onMouseDown(e) {
         draggedNode = clickedNode;
         setDraggedNode(clickedNode);
         canvas.classList.add('dragging-node');
+        
+        // Initialize drag velocity tracking
+        lastDragX = canvasX;
+        lastDragY = canvasY;
+        lastDragTime = Date.now();
+        dragVelocityX = 0;
+        dragVelocityY = 0;
     } else {
         // Start dragging the canvas (panning)
         isDragging = true;
@@ -99,6 +111,25 @@ function onMouseMove(e) {
         // Dragging a node - move it to follow cursor
         const worldPos = screenToWorld(x, y, canvas);
         moveNode(draggedNode, worldPos.x, worldPos.y);
+        
+        // Track velocity for momentum (calculate in screen space, then convert)
+        const now = Date.now();
+        const dt = now - lastDragTime;
+        
+        if (dt > 0) {
+            // Calculate screen-space velocity (pixels per millisecond)
+            const screenDx = x - lastDragX;
+            const screenDy = y - lastDragY;
+            
+            // Exponential moving average for smooth velocity
+            const alpha = 0.3;
+            dragVelocityX = alpha * (screenDx / dt) + (1 - alpha) * dragVelocityX;
+            dragVelocityY = alpha * (screenDy / dt) + (1 - alpha) * dragVelocityY;
+            
+            lastDragX = x;
+            lastDragY = y;
+            lastDragTime = now;
+        }
         
         // Pause auto-follow while dragging
         pauseAutoFollow();
@@ -197,10 +228,22 @@ function onMouseUp(e) {
     if (e.button !== 0) return;
     
     if (draggedNode) {
+        // Apply momentum to the node based on drag velocity
+        // Convert screen velocity to world velocity (accounting for zoom)
+        const zoom = getZoom();
+        const momentumScale = 0.5; // Tune this for desired momentum strength
+        
+        draggedNode.vx = (dragVelocityX / zoom) * momentumScale;
+        draggedNode.vy = (dragVelocityY / zoom) * momentumScale;
+        
         // Stop dragging node
         setDraggedNode(null);
         draggedNode = null;
         canvas.classList.remove('dragging-node');
+        
+        // Reset velocity tracking
+        dragVelocityX = 0;
+        dragVelocityY = 0;
     }
     
     if (isDragging) {
@@ -215,9 +258,20 @@ function onMouseUp(e) {
  */
 function onMouseLeave() {
     if (draggedNode) {
+        // Apply momentum even when mouse leaves (same as mouseup)
+        const zoom = getZoom();
+        const momentumScale = 0.5;
+        
+        draggedNode.vx = (dragVelocityX / zoom) * momentumScale;
+        draggedNode.vy = (dragVelocityY / zoom) * momentumScale;
+        
         setDraggedNode(null);
         draggedNode = null;
         canvas.classList.remove('dragging-node');
+        
+        // Reset velocity tracking
+        dragVelocityX = 0;
+        dragVelocityY = 0;
     }
     
     if (isDragging) {
