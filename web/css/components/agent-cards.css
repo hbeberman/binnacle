@@ -117,6 +117,51 @@
     font-family: 'Monaco', 'Courier New', monospace;
 }
 
+.agent-card-tasks-section {
+    padding: 1rem;
+    background: var(--bg-tertiary, #1a2332);
+    border-radius: 8px;
+    border-left: 3px solid var(--accent-green, #22c55e);
+}
+
+.agent-card-tasks-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary, #9ca3af);
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.agent-card-tasks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.agent-card-task-item {
+    font-size: 0.95rem;
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.agent-card-no-tasks {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    color: var(--text-secondary, #9ca3af);
+    font-style: italic;
+}
+
+.agent-card-no-tasks-icon {
+    font-size: 1.25rem;
+    opacity: 0.5;
+}
+
+.agent-card-no-tasks-text {
+    font-size: 0.95rem;
+}
+
 .agent-card-purpose {
     margin-top: 0.5rem;
     padding: 1rem;
