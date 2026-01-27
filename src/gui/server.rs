@@ -733,14 +733,36 @@ async fn terminate_agent(
 
     let pid = agent.pid;
     let agent_name = agent.name.clone();
+    let container_id = agent.container_id.clone();
 
-    // Send SIGTERM to the process
-    #[cfg(unix)]
-    {
-        use std::process::Command;
-        let _ = Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .status();
+    // Terminate the agent (container or process)
+    if let Some(cid) = container_id {
+        // Containerized agent: use containerd to stop the container
+        #[cfg(unix)]
+        {
+            use std::process::Command;
+            let result = Command::new("ctr")
+                .args(["task", "kill", "--signal", "SIGTERM", &cid])
+                .status();
+
+            if let Err(e) = result {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": format!("Failed to terminate container {}: {}", cid, e)
+                    })),
+                ));
+            }
+        }
+    } else {
+        // Regular process: send SIGTERM
+        #[cfg(unix)]
+        {
+            use std::process::Command;
+            let _ = Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .status();
+        }
     }
 
     // Remove the agent from the registry
