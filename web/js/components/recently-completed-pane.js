@@ -19,7 +19,7 @@ import { createClickableId } from '../utils/clickable-ids.js';
 /**
  * Default number of items to show
  */
-const DEFAULT_ITEMS_TO_SHOW = 5;
+const DEFAULT_ITEMS_TO_SHOW = 3;
 
 /**
  * Format time since completion to human-readable string
