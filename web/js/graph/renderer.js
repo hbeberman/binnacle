@@ -373,7 +373,7 @@ function applyPhysics() {
 
 /**
  * Update auto-follow camera behavior
- * Pans the camera to follow active agents based on configuration
+ * Pans the camera to follow nodes based on user configuration
  */
 function updateAutoFollow() {
     const autoFollow = state.get('ui.autoFollow');
@@ -384,30 +384,49 @@ function updateAutoFollow() {
         return;
     }
     
-    // Get auto-follow configuration
-    // Currently unused but reserved for future auto-follow feature implementation
-    // const config = state.get('ui.autoFollowConfig') || {
-    //     nodeTypes: { task: true, bug: true, idea: false, test: false, doc: false },
-    //     focusDelaySeconds: 10
-    // };
+    // Get follow type filter ('' = any, 'task', 'bug', 'idea', 'agent')
+    const followTypeFilter = state.get('ui.followTypeFilter') || '';
     
-    // Find agents to follow
-    const agents = visibleNodes.filter(node => node.type === 'agent');
+    // Filter nodes based on type selection
+    let candidateNodes;
+    if (followTypeFilter === '') {
+        // "Any" - follow agents, tasks, bugs, ideas
+        candidateNodes = visibleNodes.filter(node => 
+            node.type === 'agent' || 
+            node.type === 'task' || 
+            node.type === 'bug' || 
+            node.type === 'idea'
+        );
+    } else {
+        // Specific type selected
+        candidateNodes = visibleNodes.filter(node => node.type === followTypeFilter);
+    }
     
-    if (agents.length === 0) {
+    if (candidateNodes.length === 0) {
         return;
     }
     
-    // Sort agents by status (active first, then idle, then stale) and recent updates
-    const statusOrder = { 'active': 0, 'idle': 1, 'stale': 2 };
-    const sortedAgents = [...agents].sort((a, b) => {
-        const aStatus = (a.status || 'unknown').toLowerCase();
-        const bStatus = (b.status || 'unknown').toLowerCase();
-        const orderA = statusOrder[aStatus] ?? 3;
-        const orderB = statusOrder[bStatus] ?? 3;
+    // Sort nodes to find the best one to follow
+    const sortedNodes = [...candidateNodes].sort((a, b) => {
+        // For agents, prioritize by status
+        if (a.type === 'agent' && b.type === 'agent') {
+            const statusOrder = { 'active': 0, 'idle': 1, 'stale': 2 };
+            const orderA = statusOrder[(a.status || 'unknown').toLowerCase()] ?? 3;
+            const orderB = statusOrder[(b.status || 'unknown').toLowerCase()] ?? 3;
+            
+            if (orderA !== orderB) {
+                return orderA - orderB;
+            }
+        }
         
-        if (orderA !== orderB) {
-            return orderA - orderB;
+        // For tasks/bugs, prioritize in_progress status
+        if ((a.type === 'task' || a.type === 'bug') && (b.type === 'task' || b.type === 'bug')) {
+            const aInProgress = a.status === 'in_progress' ? 0 : 1;
+            const bInProgress = b.status === 'in_progress' ? 0 : 1;
+            
+            if (aInProgress !== bInProgress) {
+                return aInProgress - bInProgress;
+            }
         }
         
         // Secondary sort by updated_at (most recent first)
@@ -416,25 +435,25 @@ function updateAutoFollow() {
         return bTime - aTime;
     });
     
-    // Get the top agent to follow (most active/recent)
-    const targetAgent = sortedAgents[0];
+    // Get the top node to follow
+    const targetNode = sortedNodes[0];
     
-    if (!targetAgent) {
+    if (!targetNode) {
         return;
     }
     
-    // Check if we're already following this agent
+    // Check if we're already following this node
     const currentFollowingId = state.get('ui.followingNodeId');
     
-    if (currentFollowingId !== targetAgent.id) {
-        // New agent to follow
-        state.set('ui.followingNodeId', targetAgent.id);
-        console.log(`Auto-following agent: ${targetAgent.id}`);
+    if (currentFollowingId !== targetNode.id) {
+        // New node to follow
+        state.set('ui.followingNodeId', targetNode.id);
+        console.log(`Auto-following ${targetNode.type}: ${targetNode.id}`);
     }
     
-    // Pan to the agent's position (with smooth animation)
-    if (canvas && targetAgent.x !== undefined && targetAgent.y !== undefined) {
-        panToNode(targetAgent.x, targetAgent.y, {
+    // Pan to the node's position (with smooth animation)
+    if (canvas && targetNode.x !== undefined && targetNode.y !== undefined) {
+        panToNode(targetNode.x, targetNode.y, {
             canvas: canvas,
             duration: 1000 // Smooth 1-second pan
         });
