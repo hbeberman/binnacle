@@ -36,7 +36,7 @@ let visibleNodeIds = new Set();
 
 // Interaction state
 let hoveredNode = null;
-let selectedNode = null;
+let selectedNodes = []; // Multi-selection array
 let draggedNode = null;
 
 // Departing agents tracking (for fade animation)
@@ -69,6 +69,7 @@ export function init(canvasElement, callbacks = {}) {
     state.subscribe('ui.nodeTypeFilters', scheduleRender);
     state.subscribe('ui.edgeTypeFilters', scheduleRender);
     state.subscribe('ui.selectedNode', onSelectionChanged);
+    state.subscribe('ui.selectedNodes', onMultiSelectionChanged);
 }
 
 /**
@@ -232,10 +233,18 @@ function onEdgesChanged() {
 }
 
 /**
- * Handle selection changes
+ * Handle single selection changes (backward compatibility)
  */
-function onSelectionChanged(nodeId) {
-    selectedNode = graphNodes.find(n => n.id === nodeId) || null;
+function onSelectionChanged(_nodeId) {
+    // Keep for backward compatibility with components that use ui.selectedNode
+    scheduleRender();
+}
+
+/**
+ * Handle multi-selection changes
+ */
+function onMultiSelectionChanged(nodeIds) {
+    selectedNodes = nodeIds || [];
     scheduleRender();
 }
 
@@ -555,6 +564,47 @@ function animate() {
 }
 
 /**
+ * Draw a badge showing the number of selected nodes
+ * @param {number} count - Number of selected nodes
+ */
+function drawSelectionBadge(count) {
+    // Badge position (top-right corner with padding)
+    const padding = 20;
+    const badgeWidth = 120;
+    const badgeHeight = 40;
+    const x = canvas.width - badgeWidth - padding;
+    const y = padding;
+    
+    // Draw background
+    ctx.fillStyle = 'rgba(106, 155, 220, 0.9)';
+    ctx.strokeStyle = '#4a7bb8';
+    ctx.lineWidth = 2;
+    
+    // Rounded rectangle
+    const radius = 8;
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + badgeWidth - radius, y);
+    ctx.quadraticCurveTo(x + badgeWidth, y, x + badgeWidth, y + radius);
+    ctx.lineTo(x + badgeWidth, y + badgeHeight - radius);
+    ctx.quadraticCurveTo(x + badgeWidth, y + badgeHeight, x + badgeWidth - radius, y + badgeHeight);
+    ctx.lineTo(x + radius, y + badgeHeight);
+    ctx.quadraticCurveTo(x, y + badgeHeight, x, y + badgeHeight - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    
+    // Draw text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${count} selected`, x + badgeWidth / 2, y + badgeHeight / 2);
+}
+
+/**
  * Main render function
  */
 function render() {
@@ -599,6 +649,11 @@ function render() {
     for (const node of visibleNodes) {
         drawNode(node);
     }
+    
+    // Draw multi-selection badge if multiple nodes selected
+    if (selectedNodes.length > 1) {
+        drawSelectionBadge(selectedNodes.length);
+    }
 }
 
 /**
@@ -622,7 +677,8 @@ function renderEmptyState(message) {
 function drawNode(node) {
     const isHovered = node === hoveredNode;
     const isDragging = node === draggedNode;
-    const isSelected = selectedNode && node.id === selectedNode.id;
+    const isSelected = selectedNodes.includes(node.id);
+    const isMultiSelect = selectedNodes.length > 1;
     const zoom = getZoom();
     
     // Transform to screen coordinates
@@ -648,11 +704,21 @@ function drawNode(node) {
     if (isSelected) {
         ctx.beginPath();
         drawNodeShapePath(ctx, node.type, screenPos.x, screenPos.y, radius + 10 * zoom);
-        ctx.strokeStyle = '#f0ad4e';
-        ctx.lineWidth = 4;
-        ctx.stroke();
-        ctx.fillStyle = 'rgba(240, 173, 78, 0.15)';
-        ctx.fill();
+        
+        // Different style for multi-selection vs single selection
+        if (isMultiSelect) {
+            ctx.strokeStyle = '#6a9bdc'; // Blue for multi-select
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(106, 155, 220, 0.2)';
+            ctx.fill();
+        } else {
+            ctx.strokeStyle = '#f0ad4e'; // Orange for single select
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(240, 173, 78, 0.15)';
+            ctx.fill();
+        }
     }
     
     // Draw drag/hover highlight
