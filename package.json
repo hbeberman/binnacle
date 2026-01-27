@@ -5,7 +5,9 @@
   "description": "Development dependencies for binnacle project",
   "devDependencies": {
     "esbuild": "^0.24.2",
-    "eslint": "^8.57.0"
+    "eslint": "^8.57.0",
+    "highlight.js": "^11.11.1",
+    "marked": "^12.0.2"
   },
   "scripts": {
     "lint:js": "eslint web/js/**/*.js",
