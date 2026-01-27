@@ -294,7 +294,12 @@ function applyPhysics() {
     
     // Edge attraction (spring-based with resting length)
     const visibleNodeMap = new Map(visibleNodes.map(n => [n.id, n]));
+    const physicsFilters = state.get('ui.edgePhysicsFilters') || {};
+    
     for (const edge of graphEdges) {
+        // Skip edges that have physics disabled
+        if (physicsFilters[edge.edge_type] === false) continue;
+        
         const source = visibleNodeMap.get(edge.from);
         const target = visibleNodeMap.get(edge.to);
         
