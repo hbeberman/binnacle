@@ -16,7 +16,35 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-/* Filters dropdown */
+/* Spacer to push right-side controls to the end */
+.graph-controls-spacer {
+    flex: 1;
+}
+
+/* Search bar - leftmost with translucent styling */
+.graph-search {
+    height: 32px;
+    width: 280px;
+    padding: 0 0.75rem;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    flex-shrink: 0;
+    order: -1; /* Force to leftmost position */
+}
+
+.graph-search::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.graph-search:focus {
+    outline: none;
+    border-color: rgba(106, 168, 240, 0.5);
+    background: rgba(0, 0, 0, 0.4);
+    box-shadow: 0 0 0 2px rgba(106, 168, 240, 0.15);
+}
 .filters-dropdown {
     position: relative;
 }
@@ -85,27 +113,11 @@
     margin-bottom: 0;
 }
 
-
-.graph-search {
-    height: 32px;
-    width: 240px;
-    padding: 0 0.75rem;
-    border-radius: 4px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    flex-shrink: 0;
-}
-
-.graph-search::placeholder {
-    color: var(--text-secondary);
-}
-
-.graph-search:focus {
-    outline: none;
-    border-color: var(--accent-light);
-    box-shadow: 0 0 0 2px rgba(106, 168, 240, 0.2);
+/* Inline zoom controls - horizontal layout after follow toggle */
+.zoom-controls-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
 }
 
 /* Hide completed toggle */
@@ -520,4 +532,159 @@
     border-color: var(--info);
     color: white;
     opacity: 1;
+}
+
+/* Inline zoom controls styles */
+.zoom-controls-inline .graph-control-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 1rem;
+    font-weight: bold;
+}
+
+.zoom-controls-inline .graph-control-btn:hover {
+    background: var(--bg-secondary);
+    border-color: var(--accent-blue);
+}
+
+.zoom-controls-inline .graph-control-btn:active {
+    transform: scale(0.95);
+}
+
+.zoom-controls-inline .zoom-level {
+    font-size: 0.7rem;
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 0.25rem 0.5rem;
+    min-width: 48px;
+}
+
+/* Agent dropdown styles */
+.agent-dropdown {
+    position: relative;
+}
+
+.agent-dropdown-btn {
+    height: 32px;
+    padding: 0 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.agent-dropdown-btn:hover {
+    border-color: var(--accent-blue);
+    background: var(--bg-secondary);
+}
+
+.agent-dropdown-btn.active {
+    background: var(--accent-blue);
+    border-color: var(--accent-light);
+    color: white;
+}
+
+.agent-icon {
+    font-size: 0.9rem;
+}
+
+.agent-label {
+    font-size: 0.85rem;
+}
+
+.agent-count {
+    display: inline-block;
+    min-width: 18px;
+    height: 18px;
+    line-height: 18px;
+    text-align: center;
+    background: var(--accent-blue);
+    color: white;
+    border-radius: 9px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0 0.35rem;
+}
+
+.agent-dropdown-popover {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    background: var(--overlay-bg, rgba(20, 20, 20, 0.95));
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.75rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    min-width: 260px;
+    max-width: 320px;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 200;
+    display: none;
+}
+
+.agent-dropdown-popover.visible {
+    display: block;
+    animation: fadeIn 0.15s ease;
+}
+
+.agent-dropdown-popover .agent-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.agent-dropdown-popover .agent-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.agent-dropdown-popover .agent-item:hover {
+    background: var(--bg-secondary);
+}
+
+.agent-dropdown-popover .agent-item-status {
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+.agent-dropdown-popover .agent-item-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.agent-dropdown-popover .agent-item-name {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.agent-dropdown-popover .agent-list-empty {
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
 }
