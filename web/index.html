@@ -485,8 +485,8 @@
                     showSummarizeChatModal(nodeIds, readonly);
                     break;
                 case 'close':
-                    // TODO: Implement batch close
-                    console.log('Batch close not yet implemented');
+                    // Batch close with reason prompt
+                    batchClose(nodeIds);
                     break;
                 case 'queue-add':
                     // TODO: Implement batch queue add
@@ -615,6 +615,71 @@
         state.subscribe('ui.currentView', (newView) => {
             switchView(newView);
         });
+        
+        // Batch close handler
+        async function batchClose(nodeIds) {
+            if (!nodeIds || nodeIds.length === 0) {
+                state.addToast({
+                    type: 'warning',
+                    message: 'No items selected to close'
+                });
+                return;
+            }
+            
+            // Prompt for close reason
+            const reason = prompt(`Close ${nodeIds.length} item(s)?\n\nEnter reason for closing:`);
+            
+            if (!reason) {
+                // User cancelled
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/batch/close', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        node_ids: nodeIds,
+                        reason: reason
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Batch close failed');
+                }
+                
+                const result = await response.json();
+                
+                // Show success message
+                const { summary } = result;
+                let message = `Closed ${summary.closed_count} item(s)`;
+                if (summary.skipped_count > 0) {
+                    message += `, skipped ${summary.skipped_count}`;
+                }
+                if (summary.failed_count > 0) {
+                    message += `, failed ${summary.failed_count}`;
+                }
+                
+                state.addToast({
+                    type: summary.failed_count > 0 ? 'warning' : 'success',
+                    message: message
+                });
+                
+                // Clear selection
+                state.set('graph.selectedNodes', []);
+                
+                // Refresh data to show updated state
+                connection.refreshData();
+                
+            } catch (error) {
+                console.error('Batch close error:', error);
+                state.addToast({
+                    type: 'error',
+                    message: `Failed to close items: ${error.message}`
+                });
+            }
+        }
         
         // Fetch version
         async function fetchVersion() {
