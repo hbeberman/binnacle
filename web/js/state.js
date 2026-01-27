@@ -90,6 +90,7 @@ const createDefaultState = () => ({
         followTargetId: 'auto',
         followingNodeId: null,
         userPaused: false,  // Set to true when user manually pans/zooms
+        followTypeFilter: '',  // Follow mode type filter ('', 'task', 'bug', 'idea', 'agent')
         autoFollowConfig: {
             nodeTypes: { task: true, bug: true, idea: false, test: false, doc: false },
             focusDelaySeconds: 10
@@ -691,6 +692,11 @@ export function initFromStorage() {
     if (hideCompleted !== null) {
         set('ui.hideCompleted', hideCompleted);
     }
+    
+    const followTypeFilter = loadFromStorage('followTypeFilter', null);
+    if (followTypeFilter !== null) {
+        set('ui.followTypeFilter', followTypeFilter);
+    }
 }
 
 // Auto-persist certain UI settings when they change
@@ -700,3 +706,4 @@ subscribe('ui.edgePhysicsFilters', (value) => saveToStorage('edgePhysicsFilters'
 subscribe('ui.autoFollow', (value) => saveToStorage('autoFollow', value));
 subscribe('ui.autoFollowConfig', (value) => saveToStorage('autoFollowConfig', value));
 subscribe('ui.hideCompleted', (value) => saveToStorage('hideCompleted', value));
+subscribe('ui.followTypeFilter', (value) => saveToStorage('followTypeFilter', value));
