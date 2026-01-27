@@ -7,12 +7,14 @@
  * - Zoom (mouse wheel or buttons)
  * - Reset view
  * - Hover detection for nodes and edges
+ * - Touch support with long-press for multi-select
  */
 
 import * as state from '../state.js';
 import { toggleSelection, isSelected } from '../state.js';
 import { applyZoom, applyPan, resetViewport, screenToWorld, getZoom } from './transform.js';
 import { findNodeAtPosition, findEdgeAtPosition, setHoveredNode, setDraggedNode, moveNode } from './renderer.js';
+import { addCanvasLongPress } from '../utils/touch-handler.js';
 
 // Mouse interaction state
 let isDragging = false;
@@ -76,6 +78,24 @@ export function init(canvasElement, callbacks = {}) {
     // Keyboard events for WASD panning
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
+    
+    // Touch support with long-press for multi-select
+    addCanvasLongPress(
+        canvas,
+        (x, y) => findNodeAtPosition(x, y),
+        (node, event) => {
+            // Long-press adds to selection without clearing others
+            if (node) {
+                toggleSelection(node.id, false);
+                // Visual feedback - show toast
+                state.addToast({
+                    type: 'info',
+                    message: `Added ${node.id} to selection`,
+                    duration: 2000
+                });
+            }
+        }
+    );
 }
 
 /**
