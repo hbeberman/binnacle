@@ -580,6 +580,11 @@ export function initFromStorage() {
         set('ui.edgeTypeFilters', edgeFilters);
     }
     
+    const autoFollow = loadFromStorage('autoFollow', null);
+    if (autoFollow !== null) {
+        set('ui.autoFollow', autoFollow);
+    }
+    
     const autoFollowConfig = loadFromStorage('autoFollowConfig', null);
     if (autoFollowConfig) {
         set('ui.autoFollowConfig', autoFollowConfig);
@@ -594,5 +599,6 @@ export function initFromStorage() {
 // Auto-persist certain UI settings when they change
 subscribe('ui.nodeTypeFilters', (value) => saveToStorage('nodeTypeFilters', value));
 subscribe('ui.edgeTypeFilters', (value) => saveToStorage('edgeTypeFilters', value));
+subscribe('ui.autoFollow', (value) => saveToStorage('autoFollow', value));
 subscribe('ui.autoFollowConfig', (value) => saveToStorage('autoFollowConfig', value));
 subscribe('ui.hideCompleted', (value) => saveToStorage('hideCompleted', value));
