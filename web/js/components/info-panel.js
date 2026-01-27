@@ -424,8 +424,8 @@ function updateBatchView(panel, selectedNodes) {
     const batchActionsSection = document.createElement('div');
     batchActionsSection.className = 'info-panel-section batch-actions-section';
     
-    // If exactly 2 nodes selected, add "Create Link" button
-    const createLinkBtn = selectedNodes.length === 2 
+    // If 2+ nodes selected, add "Create Link" button
+    const createLinkBtn = selectedNodes.length >= 2 
         ? `<button class="batch-action-btn batch-action-btn-link" data-action="create-link">🔗 Create Link</button>`
         : '';
     
