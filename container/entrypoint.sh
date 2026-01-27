@@ -132,6 +132,17 @@ if [ "$ENV_JSON" != "{}" ]; then
 fi
 echo "✅ MCP config written to $HOME/.copilot/mcp-config.json"
 
+# Generate AGENTS.md from embedded template
+# This avoids copying AGENTS.md into the container image at build time,
+# keeping the host repo clean. The pre-commit hook uses this injected file.
+echo "📝 Generating AGENTS.md from embedded template..."
+if ! bn system emit agents -H > /workspace/AGENTS.md; then
+    echo "❌ Failed to generate AGENTS.md"
+    echo "   bn system emit agents failed"
+    exit 1
+fi
+echo "✅ AGENTS.md written to /workspace/AGENTS.md"
+
 # Configure git hooks path so commit-msg hook adds co-author trailer
 # The hooks/ directory in the repo contains the commit-msg hook that adds
 # "Co-authored-by: binnacle-bot <noreply@binnacle.bot>" when BN_AGENT_SESSION=1

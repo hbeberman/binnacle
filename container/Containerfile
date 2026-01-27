@@ -61,10 +61,6 @@ COPY ${BN_BINARY_PATH} /usr/local/bin/bn
 COPY container/git-wrapper.sh /usr/local/bin/git
 RUN chmod +x /usr/local/bin/git
 
-# Copy AGENTS.md for pre-commit hook verification
-# The pre-commit hook checks if AGENTS.md is in sync with the embedded blurb
-COPY AGENTS.md /workspace/AGENTS.md
-
 # Install GitHub Copilot CLI globally using npm
 # Note: Requires COPILOT_GITHUB_TOKEN at runtime for auth
 RUN npm install -g @github/copilot || true
