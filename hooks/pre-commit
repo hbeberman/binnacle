@@ -146,5 +146,38 @@ if [ -n "$litter_found" ]; then
     exit 1
 fi
 
+# Check for web asset changes (web/ directory or GUI server code)
+echo "  → Checking for web asset changes..."
+staged_web_files=$(git diff --cached --name-only --diff-filter=ACM -- 'web/*' 'src/gui/*' 2>/dev/null || true)
+
+if [ -n "$staged_web_files" ]; then
+    echo "  → Web assets changed, running lightpanda validation..."
+    
+    # Check if lightpanda is installed
+    if ! command -v lightpanda &> /dev/null; then
+        echo ""
+        echo "⚠️  lightpanda not installed!"
+        echo "   Web assets (web/ or src/gui/) were modified but cannot be validated."
+        echo ""
+        echo "   To validate your changes:"
+        echo "     1. Install lightpanda: https://github.com/lightpanda-io/lightpanda/releases"
+        echo "     2. Run: just gui-check"
+        echo ""
+        echo "   Skipping validation for now, but CI may fail."
+        echo "   Consider installing lightpanda to validate locally before committing."
+    else
+        # Run validation script
+        if ! ./scripts/validate-web.sh 2>&1; then
+            echo ""
+            echo "❌ Web portal validation failed!"
+            echo "   Fix JavaScript errors before committing."
+            echo "   Run 'just gui-check' to validate interactively."
+            exit 1
+        fi
+    fi
+else
+    echo "  ✓ No web assets changed, skipping lightpanda validation"
+fi
+
 echo "✅ All pre-commit checks passed!"
 exit 0
