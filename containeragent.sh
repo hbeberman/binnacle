@@ -103,7 +103,6 @@ case "$AGENT_TYPE" in
     auto)
         echo "Launching Container Auto Worker Agent"
         PROMPT=$(emit_template auto-worker)
-        PROMPT+=$(emit_template mcp-lifecycle)
         ;;
     do)
         [[ $# -lt 1 ]] && { echo "Error: 'do' requires a description argument"; usage; }
