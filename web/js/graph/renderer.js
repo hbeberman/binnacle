@@ -12,7 +12,7 @@ import * as state from '../state.js';
 import { ConnectionStatus } from '../state.js';
 import { drawNodeShapePath } from './shapes.js';
 import { getNodeColor, getEdgeStyle, getCSSColors } from './colors.js';
-import { worldToScreen, screenToWorld, getZoom, panToNode } from './transform.js';
+import { worldToScreen, screenToWorld, getZoom, panToNode, centerOn } from './transform.js';
 import * as camera from './camera.js';
 
 // Animation constants
@@ -421,6 +421,34 @@ function updateAutoFollow() {
 }
 
 /**
+ * Update camera to keep focused node centered
+ */
+function updateFocusedNode() {
+    const focusedNodeId = state.get('ui.focusedNode');
+    
+    // No focus lock active
+    if (!focusedNodeId) {
+        return;
+    }
+    
+    // Find the focused node in visible nodes
+    const focusedNode = visibleNodes.find(node => node.id === focusedNodeId);
+    
+    if (!focusedNode) {
+        // Node is no longer visible or doesn't exist, clear focus
+        state.set('ui.focusedNode', null);
+        console.log('Focused node no longer visible, clearing focus');
+        return;
+    }
+    
+    // Keep camera centered on the focused node
+    if (canvas && focusedNode.x !== undefined && focusedNode.y !== undefined) {
+        centerOn(focusedNode.x, focusedNode.y);
+    }
+}
+
+
+/**
  * Animation loop
  */
 function animate() {
@@ -441,6 +469,9 @@ function animate() {
     
     // Auto-follow logic
     updateAutoFollow();
+    
+    // Focus lock logic (takes priority over auto-follow)
+    updateFocusedNode();
     
     // Apply physics simulation
     applyPhysics();

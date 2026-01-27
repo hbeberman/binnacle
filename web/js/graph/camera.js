@@ -88,6 +88,9 @@ function onMouseDown(e) {
         dragStartX = e.clientX;
         dragStartY = e.clientY;
         canvas.classList.add('dragging');
+        
+        // Clear focus when manually panning
+        clearFocus();
         return;
     }
     
@@ -114,12 +117,21 @@ function onMouseDown(e) {
         lastDragTime = Date.now();
         dragVelocityX = 0;
         dragVelocityY = 0;
+        
+        // Clear focus when clicking a different node (focus is set by link clicks)
+        const focusedNode = state.get('ui.focusedNode');
+        if (focusedNode && focusedNode !== clickedNode.id) {
+            clearFocus();
+        }
     } else {
         // Start dragging the canvas (panning)
         isDragging = true;
         dragStartX = e.clientX;
         dragStartY = e.clientY;
         canvas.classList.add('dragging');
+        
+        // Clear focus when clicking on empty space
+        clearFocus();
     }
 }
 
@@ -404,7 +416,18 @@ export function resumeAutoFollow() {
 }
 
 /**
- * Handle keyboard down - WASD panning
+ * Clear focused node state
+ */
+function clearFocus() {
+    const focusedNode = state.get('ui.focusedNode');
+    if (focusedNode) {
+        state.set('ui.focusedNode', null);
+        console.log('Focus cleared');
+    }
+}
+
+/**
+ * Handle keyboard down - WASD panning and Escape to clear focus
  */
 function onKeyDown(e) {
     // Don't handle keyboard if user is typing in an input field
@@ -413,6 +436,16 @@ function onKeyDown(e) {
     }
     
     const key = e.key.toLowerCase();
+    
+    // Escape key clears focused node
+    if (e.key === 'Escape') {
+        const focusedNode = state.get('ui.focusedNode');
+        if (focusedNode) {
+            state.set('ui.focusedNode', null);
+            console.log('Focus cleared by Escape key');
+        }
+        return;
+    }
     
     // Check if it's a WASD key
     if (key === 'w' || key === 'a' || key === 's' || key === 'd') {

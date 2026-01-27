@@ -82,6 +82,7 @@ const createDefaultState = () => ({
         selectedEdge: null,
         hoveredNode: null,
         hoveredEdge: null,
+        focusedNode: null,  // Node to keep centered until dismissed
         
         // Auto-follow configuration
         autoFollow: true,
