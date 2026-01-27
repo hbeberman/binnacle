@@ -8,7 +8,6 @@ import {
     subscribe, 
     getAgents,
     setSelectedNode,
-    getEntities,
     set as setState
 } from '../state.js';
 import { createClickableId } from '../utils/clickable-ids.js';
@@ -209,8 +208,8 @@ function viewInGraph(agentId) {
     setState('ui.currentView', 'graph');
     
     // Get agent node to find its position
-    const entities = getEntities();
-    const agent = entities.find(e => e.id === agentId);
+    const agents = getAgents();
+    const agent = agents.find(e => e.id === agentId);
     
     if (agent && typeof agent.x === 'number' && typeof agent.y === 'number') {
         // Pan to the agent's position
