@@ -1088,6 +1088,8 @@ function drawEdge(fromNode, toNode, edge) {
 export function setHoveredNode(node) {
     if (hoveredNode !== node) {
         hoveredNode = node;
+        // Update state for overlay panel
+        state.set('ui.hoveredNode', node ? node.id : null);
         scheduleRender();
     }
 }

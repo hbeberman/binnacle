@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Overlay Panel Test</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/themes/dark.css">
+    <link rel="stylesheet" href="/css/components/graph.css">
+    <link rel="stylesheet" href="/css/components/graph-overlay-panel.css">
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        .test-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background: var(--bg-secondary);
+            border: 2px solid var(--border-color);
+            margin: 20px 0;
+        }
+        
+        .controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+        }
+        
+        button {
+            padding: 8px 16px;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <h1>Graph Overlay Panel Test</h1>
+    
+    <div class="controls">
+        <button id="show-node">Show Node Info</button>
+        <button id="show-edge">Show Edge Info</button>
+        <button id="show-empty">Show Empty State</button>
+    </div>
+    
+    <div class="test-container" id="test-container">
+        <!-- Panel will be mounted here -->
+    </div>
+    
+    <script type="module">
+        import * as state from './js/state.js';
+        import { 
+            mountGraphOverlayPanel, 
+            initializeGraphOverlayPanel,
+            showNodeInfo,
+            showEdgeInfo,
+            showEmptyState
+        } from './js/components/graph-overlay-panel.js';
+        
+        // Initialize state with test data
+        state.set('entities.tasks', [
+            {
+                id: 'bn-9272',
+                type: 'task',
+                title: 'Show node/edge summary in compact panel on hover',
+                short_name: 'Compact hover content',
+                status: 'in_progress',
+                priority: 2
+            },
+            {
+                id: 'bn-25a0',
+                type: 'task',
+                title: 'Implement empty state with compass emoji and dotted border',
+                short_name: 'Empty state UI',
+                status: 'pending',
+                priority: 2
+            }
+        ]);
+        
+        state.set('entities.bugs', [
+            {
+                id: 'bnb-1234',
+                type: 'bug',
+                title: 'Graph overlay panel not showing on hover',
+                status: 'open',
+                severity: 'high'
+            }
+        ]);
+        
+        state.set('entities.ideas', [
+            {
+                id: 'bni-5678',
+                type: 'idea',
+                title: 'Add animation when switching between hover states',
+                status: 'open'
+            }
+        ]);
+        
+        // Mount and initialize panel
+        const container = document.getElementById('test-container');
+        const panel = mountGraphOverlayPanel(container);
+        initializeGraphOverlayPanel(panel);
+        
+        // Test controls
+        document.getElementById('show-node').addEventListener('click', () => {
+            state.set('ui.hoveredNode', 'bn-9272');
+        });
+        
+        document.getElementById('show-edge').addEventListener('click', () => {
+            state.set('ui.hoveredEdge', {
+                from: 'bn-9272',
+                to: 'bn-25a0',
+                edge_type: 'depends_on',
+                created_at: new Date().toISOString()
+            });
+            state.set('ui.hoveredNode', null);
+        });
+        
+        document.getElementById('show-empty').addEventListener('click', () => {
+            state.set('ui.hoveredNode', null);
+            state.set('ui.hoveredEdge', null);
+        });
+        
+        console.log('Panel mounted and initialized');
+    </script>
+</body>
+</html>
