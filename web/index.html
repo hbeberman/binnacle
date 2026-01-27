@@ -27,6 +27,7 @@
     <link rel="stylesheet" href="/css/components/node-detail-modal.css">
     <link rel="stylesheet" href="/css/components/node-detail-pane.css">
     <link rel="stylesheet" href="/css/components/agent-cards.css">
+    <link rel="stylesheet" href="/css/components/activity-log.css">
     
     <style>
         /* Additional layout styles for the full app */
@@ -268,6 +269,7 @@
         import { mountGraphControls } from './js/components/graph-controls.js';
         import { initializeNodeList } from './js/components/node-list.js';
         import { mountConnectionStatus } from './js/components/connection-status.js';
+        import { mountActivityLog } from './js/components/activity-log.js';
         
         // Get container element
         const container = document.getElementById('app-container');
@@ -303,6 +305,9 @@
         
         // Initialize agent cards (agents view)
         initializeAgentCards('#agents-list');
+        
+        // Initialize activity log (log view)
+        mountActivityLog('#activity-log');
         
         // Initialize node list
         initializeNodeList('#node-list', {
