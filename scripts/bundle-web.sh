@@ -31,8 +31,9 @@ done
 echo "Bundling CSS..."
 mkdir -p "$BUNDLE_DIR/css"
 
-# Concatenate all component CSS files
+# Concatenate all CSS files: main.css, theme, and components
 cat web/css/main.css > "$BUNDLE_DIR/css/main.css"
+cat web/css/themes/dark.css >> "$BUNDLE_DIR/css/main.css"
 find web/css/components -name "*.css" -type f | while read -r cssfile; do
     cat "$cssfile" >> "$BUNDLE_DIR/css/main.css"
 done
@@ -41,9 +42,11 @@ done
 npx esbuild "$BUNDLE_DIR/css/main.css" --minify --outfile="$BUNDLE_DIR/css/main.css.tmp"
 mv "$BUNDLE_DIR/css/main.css.tmp" "$BUNDLE_DIR/css/main.css"
 
-# Copy index.html
-echo "Copying index.html..."
-cp web/index.html "$BUNDLE_DIR/"
+# Process index.html to use only bundled main.css
+echo "Processing index.html..."
+# Remove all individual CSS component links, keep only /css/main.css
+sed '/<link rel="stylesheet" href="\/css\/themes\/dark.css">/d' web/index.html | \
+sed '/<link rel="stylesheet" href="\/css\/components\//d' > "$BUNDLE_DIR/index.html"
 
 # Copy assets directory if it has files
 if [ -n "$(ls -A web/assets 2>/dev/null | grep -v '.gitkeep')" ]; then
