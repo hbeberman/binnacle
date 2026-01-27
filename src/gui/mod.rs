@@ -4,6 +4,8 @@
 //! dependencies, tests, and activity logs.
 
 #[cfg(feature = "gui")]
+mod embedded;
+#[cfg(feature = "gui")]
 mod pid_file;
 #[cfg(feature = "gui")]
 mod server;

@@ -289,6 +289,7 @@ pub async fn start_server(
     port: u16,
     host: &str,
     readonly: bool,
+    dev: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let storage = Storage::open(repo_path)?;
     let storage_dir = crate::storage::get_storage_dir(repo_path)?;
@@ -336,34 +337,8 @@ pub async fn start_server(
         }
     });
 
-    // Find the web directory (project root / web)
-    // Start by checking if repo_path itself has a web/ subdirectory
-    let web_dir = {
-        let mut current = repo_path;
-        loop {
-            let web_path = current.join("web");
-            if web_path.exists() && web_path.is_dir() {
-                break Some(web_path);
-            }
-            current = match current.parent() {
-                Some(p) => p,
-                None => break None,
-            };
-        }
-    }
-    .or_else(|| {
-        // Fallback: try relative to current directory
-        let cwd = std::env::current_dir().ok()?;
-        let web_path = cwd.join("web");
-        if web_path.exists() && web_path.is_dir() {
-            Some(web_path)
-        } else {
-            None
-        }
-    })
-    .ok_or("Could not find web/ directory")?;
-
-    let app = Router::new()
+    // Build the app router with API routes
+    let mut app = Router::new()
         .route("/api/config", get(get_config))
         .route("/api/tasks", get(get_tasks))
         .route("/api/bugs", get(get_bugs))
@@ -398,8 +373,42 @@ pub async fn start_server(
         .route("/api/summarize/chat", post(summarize_chat))
         .route("/api/summarize/action", post(summarize_action))
         .route("/ws", get(crate::gui::websocket::ws_handler))
-        .with_state(state)
-        .fallback_service(ServeDir::new(&web_dir));
+        .with_state(state);
+
+    // Add asset service based on dev mode
+    if dev {
+        // Development mode: serve from filesystem
+        let web_dir = {
+            let mut current = repo_path;
+            loop {
+                let web_path = current.join("web");
+                if web_path.exists() && web_path.is_dir() {
+                    break Some(web_path);
+                }
+                current = match current.parent() {
+                    Some(p) => p,
+                    None => break None,
+                };
+            }
+        }
+        .or_else(|| {
+            // Fallback: try relative to current directory
+            let cwd = std::env::current_dir().ok()?;
+            let web_path = cwd.join("web");
+            if web_path.exists() && web_path.is_dir() {
+                Some(web_path)
+            } else {
+                None
+            }
+        })
+        .ok_or("Could not find web/ directory (use --dev only during development)")?;
+
+        app = app.fallback_service(ServeDir::new(&web_dir));
+    } else {
+        // Production mode: serve embedded assets
+        use crate::gui::embedded::EmbeddedAssetService;
+        app = app.fallback_service(EmbeddedAssetService::new());
+    }
 
     let host_addr: std::net::IpAddr = host
         .parse()
