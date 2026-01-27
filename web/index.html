@@ -438,7 +438,13 @@
         navButtons.forEach(btn => {
             btn.addEventListener('click', () => {
                 switchView(btn.dataset.view);
+                state.set('ui.currentView', btn.dataset.view);
             });
+        });
+        
+        // Watch for currentView changes from other parts of the app
+        state.watch('ui.currentView', (newView) => {
+            switchView(newView);
         });
         
         // Fetch version
