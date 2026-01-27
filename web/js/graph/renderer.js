@@ -94,15 +94,26 @@ function buildGraphNodes() {
     const existingNodes = new Map(graphNodes.map(n => [n.id, n]));
     
     // Combine all entity types
+    const tasks = state.get('entities.tasks') || [];
+    const bugs = state.get('entities.bugs') || [];
+    const ideas = state.get('entities.ideas') || [];
+    const tests = state.get('entities.tests') || [];
+    const docs = state.get('entities.docs') || [];
+    const milestones = state.get('entities.milestones') || [];
+    const queues = state.get('entities.queues') || [];
+    const agents = state.get('entities.agents') || [];
+    
+    console.log(`[Graph] buildGraphNodes called: tasks=${tasks.length}, bugs=${bugs.length}, ideas=${ideas.length}, tests=${tests.length}, docs=${docs.length}, milestones=${milestones.length}, queues=${queues.length}, agents=${agents.length}`);
+    
     const allEntities = [
-        ...state.get('entities.tasks') || [],
-        ...state.get('entities.bugs') || [],
-        ...state.get('entities.ideas') || [],
-        ...state.get('entities.tests') || [],
-        ...state.get('entities.docs') || [],
-        ...state.get('entities.milestones') || [],
-        ...state.get('entities.queues') || [],
-        ...state.get('entities.agents') || []
+        ...tasks,
+        ...bugs,
+        ...ideas,
+        ...tests,
+        ...docs,
+        ...milestones,
+        ...queues,
+        ...agents
     ];
     
     graphNodes = allEntities.map((entity, index) => {
@@ -201,9 +212,11 @@ function filterVisibleNodes() {
 /**
  * Handle entity changes
  */
-function onEntitiesChanged() {
+function onEntitiesChanged(newValue, oldValue, path) {
+    console.log(`[Graph] Entity changed: ${path}`, { nodesBefore: graphNodes.length, visibleBefore: visibleNodes.length });
     buildGraphNodes();
     filterVisibleNodes();
+    console.log(`[Graph] After rebuild: ${graphNodes.length} nodes, ${visibleNodes.length} visible`);
     startAnimation();
 }
 
