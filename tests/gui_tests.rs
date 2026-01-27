@@ -9,9 +9,23 @@ mod gui_enabled {
     use super::common::TestEnv;
     use assert_cmd::Command;
 
+    /// Helper to create an isolated bn command (without TestEnv).
+    /// Clears container mode and agent env vars to prevent test data leaking into production.
+    fn bn_isolated() -> Command {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.env_remove("BN_CONTAINER_MODE");
+        cmd.env_remove("BN_AGENT_ID");
+        cmd.env_remove("BN_AGENT_NAME");
+        cmd.env_remove("BN_AGENT_TYPE");
+        cmd.env_remove("BN_MCP_SESSION");
+        cmd.env_remove("BN_AGENT_SESSION");
+        cmd.env_remove("BN_DATA_DIR");
+        cmd
+    }
+
     #[test]
     fn test_gui_help() {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.arg("gui").arg("--help");
         cmd.assert()
             .success()
@@ -31,7 +45,7 @@ mod gui_enabled {
     #[test]
     fn test_gui_serve_custom_port_parsing() {
         // Just test that the CLI accepts a custom port argument
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.arg("gui")
             .arg("serve")
             .arg("--port")
@@ -42,7 +56,7 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_stop_subcommand_in_help() {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.arg("gui").arg("--help");
         cmd.assert()
             .success()
@@ -55,13 +69,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Stop should report not running (JSON)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("stop");
         cmd.assert()
@@ -74,13 +88,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Stop should report not running (human-readable)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("stop").arg("-H");
         cmd.assert()
@@ -90,7 +104,7 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_serve_replace_in_help() {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.arg("gui").arg("serve").arg("--help");
         cmd.assert()
             .success()
@@ -105,7 +119,7 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // serve --replace should also require initialization
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("serve").arg("--replace");
         cmd.assert()
@@ -115,7 +129,7 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_status_subcommand_in_help() {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.arg("gui").arg("--help");
         cmd.assert()
             .success()
@@ -128,13 +142,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Status should report not running (JSON)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("status");
         cmd.assert()
@@ -147,13 +161,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Status should report not running (human-readable)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("status").arg("-H");
         cmd.assert()
@@ -167,7 +181,7 @@ mod gui_enabled {
 
         // status should work even without initialization
         // (it just checks for a PID file, and reports not running if none exists)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("status");
         cmd.assert()
@@ -180,7 +194,7 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
@@ -193,7 +207,7 @@ mod gui_enabled {
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Status should detect the stale PID
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("status");
         let output = cmd.assert().success();
@@ -211,7 +225,7 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
@@ -223,7 +237,7 @@ mod gui_enabled {
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Stop should clean up the stale PID file
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("stop");
         cmd.assert()
@@ -242,7 +256,7 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
@@ -254,7 +268,7 @@ mod gui_enabled {
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Stop should clean up the stale PID file and report it
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("stop").arg("-H");
         cmd.assert()
@@ -270,7 +284,7 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_serve_host_flag_in_help() {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.arg("gui").arg("serve").arg("--help");
         cmd.assert()
             .success()
@@ -280,7 +294,7 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_serve_port_flag_in_help() {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.arg("gui").arg("serve").arg("--help");
         cmd.assert()
             .success()
@@ -290,7 +304,7 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_kill_subcommand_in_help() {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.arg("gui").arg("--help");
         cmd.assert()
             .success()
@@ -300,7 +314,7 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_kill_force_flag_in_help() {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.arg("gui").arg("kill").arg("--help");
         cmd.assert()
             .success()
@@ -314,13 +328,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Kill should report not running (JSON)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill");
         cmd.assert()
@@ -333,13 +347,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Kill --force should also report not running
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill").arg("--force");
         cmd.assert()
@@ -352,13 +366,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Kill -9 should also work
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill").arg("-9");
         cmd.assert()
@@ -371,7 +385,7 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
@@ -383,7 +397,7 @@ mod gui_enabled {
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Kill should clean up the stale PID file
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill");
         cmd.assert()
@@ -402,13 +416,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Kill should report not running (human-readable)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill").arg("-H");
         cmd.assert()
@@ -421,13 +435,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Kill --force should also report not running (human-readable)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill").arg("--force").arg("-H");
         cmd.assert()
@@ -440,13 +454,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Kill -9 -H should report not running (human-readable)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill").arg("-9").arg("-H");
         cmd.assert()
@@ -459,7 +473,7 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
@@ -471,7 +485,7 @@ mod gui_enabled {
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Kill should clean up the stale PID file (human-readable)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill").arg("-H");
         cmd.assert()
@@ -491,13 +505,13 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
 
         // Verify JSON structure when not running (no PID file)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill");
         let output = cmd.assert().success();
@@ -514,7 +528,7 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
@@ -526,7 +540,7 @@ mod gui_enabled {
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Verify JSON structure when stale PID file exists
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill");
         let output = cmd.assert().success();
@@ -542,7 +556,7 @@ mod gui_enabled {
         let temp = tempfile::tempdir().unwrap();
 
         // Initialize binnacle first
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("system").arg("init");
         cmd.assert().success();
@@ -554,7 +568,7 @@ mod gui_enabled {
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Kill --force should also clean up the stale PID file
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill").arg("--force");
         cmd.assert()
@@ -574,7 +588,7 @@ mod gui_enabled {
 
         // Kill should work even without initialization
         // (it just checks for a PID file, and reports not running if none exists)
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.current_dir(&temp);
         cmd.arg("gui").arg("kill");
         cmd.assert()
@@ -587,9 +601,22 @@ mod gui_enabled {
 mod gui_disabled {
     use assert_cmd::Command;
 
+    /// Helper to create an isolated bn command (without TestEnv).
+    fn bn_isolated() -> Command {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        cmd.env_remove("BN_CONTAINER_MODE");
+        cmd.env_remove("BN_AGENT_ID");
+        cmd.env_remove("BN_AGENT_NAME");
+        cmd.env_remove("BN_AGENT_TYPE");
+        cmd.env_remove("BN_MCP_SESSION");
+        cmd.env_remove("BN_AGENT_SESSION");
+        cmd.env_remove("BN_DATA_DIR");
+        cmd
+    }
+
     #[test]
     fn test_gui_command_not_available() {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        let mut cmd = bn_isolated();
         cmd.arg("gui").arg("--help");
         // When GUI feature is disabled, the command should not exist
         cmd.assert().failure();
