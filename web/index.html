@@ -194,6 +194,7 @@
                 <h1 class="header-title">
                     🧭 Binnacle 
                     <span class="version-badge" id="version-badge">v0.0.0</span>
+                    <div id="connection-status-container"></div>
                 </h1>
                 <p class="subtitle">Agent Navigation Graph</p>
                 <nav class="nav-buttons">
@@ -267,6 +268,7 @@
         import { mountReadonlyIndicator } from './js/components/readonly-indicator.js';
         import { mountGraphControls } from './js/components/graph-controls.js';
         import { initializeNodeList } from './js/components/node-list.js';
+        import { mountConnectionStatus } from './js/components/connection-status.js';
         
         // Get container element
         const container = document.getElementById('app-container');
@@ -481,6 +483,9 @@
             
             // Fetch version
             await fetchVersion();
+            
+            // Mount connection status indicator
+            mountConnectionStatus('#connection-status-container');
             
             // Detect connection mode
             const detection = connection.detectMode();
