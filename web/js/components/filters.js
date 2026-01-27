@@ -171,7 +171,7 @@ export function initializeNodeTypeFilters(containerId = 'sidebar-node-filters') 
 
 /**
  * Initialize edge type filters
- * Creates filter buttons with visibility and color indicators for each edge type
+ * Creates filter buttons with visibility, color indicators, and physics toggle for each edge type
  * @param {string} containerId - ID of the container element (default: 'sidebar-edge-filters')
  */
 export function initializeEdgeTypeFilters(containerId = 'sidebar-edge-filters') {
@@ -179,6 +179,7 @@ export function initializeEdgeTypeFilters(containerId = 'sidebar-edge-filters') 
     if (!container) return;
     
     const currentFilters = State.get('ui.edgeTypeFilters');
+    const currentPhysicsFilters = State.get('ui.edgePhysicsFilters');
     
     // Clear existing content
     container.innerHTML = '';
@@ -235,8 +236,9 @@ export function initializeEdgeTypeFilters(containerId = 'sidebar-edge-filters') 
     // Create filter row for each edge type
     for (const [type, info] of Object.entries(EDGE_TYPES)) {
         const isActive = currentFilters[type] !== false;
+        const physicsEnabled = currentPhysicsFilters[type] !== false;
         
-        // Create row container: [eye visibility] [color label]
+        // Create row container: [eye visibility] [color label] [magnet physics]
         const row = document.createElement('div');
         row.className = 'edge-filter-row';
         
@@ -261,6 +263,15 @@ export function initializeEdgeTypeFilters(containerId = 'sidebar-edge-filters') 
         
         btn.appendChild(dot);
         btn.appendChild(document.createTextNode(info.name));
+        
+        // Create magnet physics button
+        const magnetBtn = document.createElement('button');
+        magnetBtn.className = 'edge-physics-btn' + (physicsEnabled ? ' active' : '');
+        magnetBtn.dataset.edgeType = type;
+        magnetBtn.innerHTML = '🧲';
+        magnetBtn.title = physicsEnabled
+            ? `Disable physics for ${info.name} edges`
+            : `Enable physics for ${info.name} edges`;
         
         // Eye button: toggle visibility
         visBtn.addEventListener('click', (e) => {
@@ -296,8 +307,24 @@ export function initializeEdgeTypeFilters(containerId = 'sidebar-edge-filters') 
             updateAllBtnState();
         });
         
+        // Magnet button: toggle physics
+        magnetBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const current = State.get('ui.edgePhysicsFilters');
+            const newFilters = { ...current };
+            newFilters[type] = !current[type];
+            
+            State.set('ui.edgePhysicsFilters', newFilters);
+            
+            magnetBtn.classList.toggle('active', newFilters[type]);
+            magnetBtn.title = newFilters[type]
+                ? `Disable physics for ${info.name} edges`
+                : `Enable physics for ${info.name} edges`;
+        });
+        
         row.appendChild(visBtn);
         row.appendChild(btn);
+        row.appendChild(magnetBtn);
         container.appendChild(row);
     }
     

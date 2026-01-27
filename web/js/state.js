@@ -117,6 +117,18 @@ const createDefaultState = () => ({
             working_on: true,
             documents: true
         },
+        edgePhysicsFilters: {
+            depends_on: true,
+            blocks: true,
+            related_to: true,
+            child_of: true,
+            parent_of: true,
+            tests: true,
+            fixes: true,
+            queued: true,
+            working_on: true,
+            documents: true
+        },
         hideCompleted: true,
         searchQuery: '',
         
@@ -581,6 +593,11 @@ export function initFromStorage() {
         set('ui.edgeTypeFilters', edgeFilters);
     }
     
+    const edgePhysicsFilters = loadFromStorage('edgePhysicsFilters', null);
+    if (edgePhysicsFilters) {
+        set('ui.edgePhysicsFilters', edgePhysicsFilters);
+    }
+    
     const autoFollow = loadFromStorage('autoFollow', null);
     if (autoFollow !== null) {
         set('ui.autoFollow', autoFollow);
@@ -600,6 +617,7 @@ export function initFromStorage() {
 // Auto-persist certain UI settings when they change
 subscribe('ui.nodeTypeFilters', (value) => saveToStorage('nodeTypeFilters', value));
 subscribe('ui.edgeTypeFilters', (value) => saveToStorage('edgeTypeFilters', value));
+subscribe('ui.edgePhysicsFilters', (value) => saveToStorage('edgePhysicsFilters', value));
 subscribe('ui.autoFollow', (value) => saveToStorage('autoFollow', value));
 subscribe('ui.autoFollowConfig', (value) => saveToStorage('autoFollowConfig', value));
 subscribe('ui.hideCompleted', (value) => saveToStorage('hideCompleted', value));

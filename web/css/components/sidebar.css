@@ -440,3 +440,33 @@
     color: white;
     opacity: 1;
 }
+
+.edge-physics-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 0.85rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+    flex-shrink: 0;
+}
+
+.edge-physics-btn:hover {
+    border-color: var(--accent-purple);
+    opacity: 0.8;
+}
+
+.edge-physics-btn.active {
+    background: var(--accent-purple);
+    border-color: var(--accent-purple);
+    color: white;
+    opacity: 1;
+}
