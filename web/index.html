@@ -489,12 +489,10 @@
                     batchClose(nodeIds);
                     break;
                 case 'queue-add':
-                    // TODO: Implement batch queue add
-                    console.log('Batch queue add not yet implemented');
+                    batchAddToQueue(nodeIds);
                     break;
                 case 'queue-remove':
-                    // TODO: Implement batch queue remove
-                    console.log('Batch queue remove not yet implemented');
+                    batchRemoveFromQueue(nodeIds);
                     break;
                 case 'export':
                     // Gather selection context
@@ -677,6 +675,110 @@
                 state.addToast({
                     type: 'error',
                     message: `Failed to close items: ${error.message}`
+                });
+            }
+        }
+        
+        async function batchAddToQueue(nodeIds) {
+            if (!nodeIds || nodeIds.length === 0) {
+                state.addToast({
+                    type: 'warning',
+                    message: 'No items selected to add to queue'
+                });
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/batch/queue-add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        node_ids: nodeIds
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Batch queue add failed');
+                }
+                
+                const result = await response.json();
+                
+                // Show success message
+                const { summary } = result;
+                let message = `Added ${summary.added_count} item(s) to queue`;
+                if (summary.skipped_count > 0) {
+                    message += `, skipped ${summary.skipped_count}`;
+                }
+                if (summary.failed_count > 0) {
+                    message += `, failed ${summary.failed_count}`;
+                }
+                
+                state.addToast({
+                    type: summary.failed_count > 0 ? 'warning' : 'success',
+                    message: message
+                });
+                
+                // Refresh data to show updated state
+                connection.refreshData();
+                
+            } catch (error) {
+                console.error('Batch queue add error:', error);
+                state.addToast({
+                    type: 'error',
+                    message: `Failed to add items to queue: ${error.message}`
+                });
+            }
+        }
+        
+        async function batchRemoveFromQueue(nodeIds) {
+            if (!nodeIds || nodeIds.length === 0) {
+                state.addToast({
+                    type: 'warning',
+                    message: 'No items selected to remove from queue'
+                });
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/batch/queue-remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        node_ids: nodeIds
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Batch queue remove failed');
+                }
+                
+                const result = await response.json();
+                
+                // Show success message
+                const { summary } = result;
+                let message = `Removed ${summary.removed_count} item(s) from queue`;
+                if (summary.skipped_count > 0) {
+                    message += `, skipped ${summary.skipped_count}`;
+                }
+                if (summary.failed_count > 0) {
+                    message += `, failed ${summary.failed_count}`;
+                }
+                
+                state.addToast({
+                    type: summary.failed_count > 0 ? 'warning' : 'success',
+                    message: message
+                });
+                
+                // Refresh data to show updated state
+                connection.refreshData();
+                
+            } catch (error) {
+                console.error('Batch queue remove error:', error);
+                state.addToast({
+                    type: 'error',
+                    message: `Failed to remove items from queue: ${error.message}`
                 });
             }
         }
