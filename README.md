@@ -203,6 +203,62 @@ bn gui stop         # Gracefully stop the GUI (SIGTERM)
 bn gui kill         # Force kill the GUI immediately
 ```
 
+### Static Viewer Export (GitHub Pages Hosting)
+
+You can create a static HTML bundle of your project's current state for hosting on GitHub Pages or any static site host:
+
+```bash
+# Export to default location (target/static-viewer/)
+bn gui export
+
+# Export to custom location
+bn gui export -o docs/viewer
+
+# Export with specific archive
+bn gui export --archive path/to/snapshot.bng
+```
+
+The exported bundle includes:
+- A standalone web viewer (all HTML, CSS, JS assets)
+- A `.bng` archive snapshot of your project
+- Auto-load script that opens the archive on page load
+
+**Hosting on GitHub Pages:**
+
+1. Export to a directory that will be committed:
+   ```bash
+   bn gui export -o docs/viewer
+   ```
+
+2. Commit the exported files:
+   ```bash
+   git add docs/viewer
+   git commit -m "Add static project viewer"
+   git push
+   ```
+
+3. Enable GitHub Pages in your repository settings:
+   - Go to Settings → Pages
+   - Set source to your branch (e.g., `main`)
+   - Set folder to `/docs` (or root if you exported to root)
+
+4. Visit your viewer at:
+   ```
+   https://<username>.github.io/<repo>/docs/viewer/
+   ```
+
+**Remote Archive URLs:**
+
+The viewer can also load archives from remote URLs. Share a viewer URL with an archive parameter:
+```
+https://<username>.github.io/<repo>/viewer/?url=https://example.com/snapshot.bng
+```
+
+This allows you to:
+- Host multiple snapshots and switch between them
+- Share project state with collaborators
+- Create time-based archives for project history
+
 ### Testing the GUI
 
 1. **Launch the GUI:**
