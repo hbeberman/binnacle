@@ -6,11 +6,17 @@
 //! # Archive Structure
 //!
 //! A `.bng` archive contains:
-//! - `binnacle-export/tasks.jsonl`: All entities (tasks, bugs, ideas, etc.)
-//! - `binnacle-export/bugs.jsonl`: Bug entities (separate from tasks)
+//! - `binnacle-export/tasks.jsonl`: Task and test node entities
+//! - `binnacle-export/bugs.jsonl`: Bug entities
+//! - `binnacle-export/ideas.jsonl`: Idea entities
+//! - `binnacle-export/docs.jsonl`: Documentation node entities
+//! - `binnacle-export/milestones.jsonl`: Milestone entities
+//! - `binnacle-export/queues.jsonl`: Queue entities
+//! - `binnacle-export/agents.jsonl`: Agent entities
 //! - `binnacle-export/edges.jsonl`: Entity relationships
 //! - `binnacle-export/commits.jsonl`: Commit-to-entity links
 //! - `binnacle-export/test-results.jsonl`: Test execution history
+//! - `binnacle-export/action-log.jsonl`: Activity log entries
 //! - `binnacle-export/manifest.json`: Archive metadata
 //!
 //! # Loading Flow
@@ -278,30 +284,28 @@ fn parse_archive_files(files: &HashMap<String, Vec<u8>>) -> Result<GraphData, Ar
         }
     }
 
-    // Parse tasks.jsonl (contains tasks, ideas, milestones, queues, docs, agents)
-    if let Some(tasks_data) = files.get("tasks.jsonl") {
-        let content = String::from_utf8_lossy(tasks_data);
-        for line in content.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            if let Some(entity) = parse_entity_line(line) {
-                entity_ids.insert(entity.id.clone());
-                graph.entities.push(entity);
-            }
-        }
-    }
+    // Parse all entity JSONL files
+    let entity_files = [
+        "tasks.jsonl",
+        "bugs.jsonl",
+        "ideas.jsonl",
+        "docs.jsonl",
+        "milestones.jsonl",
+        "queues.jsonl",
+        "agents.jsonl",
+    ];
 
-    // Parse bugs.jsonl (separate file for bug entities)
-    if let Some(bugs_data) = files.get("bugs.jsonl") {
-        let content = String::from_utf8_lossy(bugs_data);
-        for line in content.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            if let Some(entity) = parse_entity_line(line) {
-                entity_ids.insert(entity.id.clone());
-                graph.entities.push(entity);
+    for filename in &entity_files {
+        if let Some(data) = files.get(*filename) {
+            let content = String::from_utf8_lossy(data);
+            for line in content.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Some(entity) = parse_entity_line(line) {
+                    entity_ids.insert(entity.id.clone());
+                    graph.entities.push(entity);
+                }
             }
         }
     }
