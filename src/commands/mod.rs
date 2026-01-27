@@ -8902,6 +8902,62 @@ impl Output for ReadyTasks {
     }
 }
 
+/// Find the nearest queued ancestor by traversing child_of edges upward.
+/// Returns the ID of the queued ancestor if one exists.
+pub fn find_queued_ancestors(storage: &Storage, entity_id: &str) -> Result<Option<String>> {
+    use std::collections::{HashSet, VecDeque};
+
+    // Get all queued task and bug IDs
+    let queued_tasks = storage.get_queued_tasks().unwrap_or_default();
+    let queued_bugs = storage.get_queued_bugs().unwrap_or_default();
+    let queued_milestones = storage.get_queued_milestones().unwrap_or_default();
+
+    let mut queued_ids = HashSet::new();
+    for task in queued_tasks {
+        queued_ids.insert(task.core.id.clone());
+    }
+    for bug in queued_bugs {
+        queued_ids.insert(bug.core.id.clone());
+    }
+    for milestone in queued_milestones {
+        queued_ids.insert(milestone.core.id.clone());
+    }
+
+    // BFS to find nearest queued ancestor
+    let mut queue = VecDeque::new();
+    let mut visited = HashSet::new();
+
+    queue.push_back(entity_id.to_string());
+    visited.insert(entity_id.to_string());
+
+    while let Some(current_id) = queue.pop_front() {
+        // Get all edges for this entity
+        let edges = storage.get_edges_for_entity(&current_id)?;
+
+        // Look for child_of edges (where current entity is the source/child)
+        for hydrated_edge in edges {
+            if hydrated_edge.edge.edge_type == crate::models::EdgeType::ChildOf
+                && hydrated_edge.direction == crate::models::EdgeDirection::Outbound
+            {
+                let parent_id = &hydrated_edge.edge.target;
+
+                // Check if this parent is queued
+                if queued_ids.contains(parent_id) {
+                    return Ok(Some(parent_id.clone()));
+                }
+
+                // Continue BFS if not visited
+                if !visited.contains(parent_id) {
+                    visited.insert(parent_id.clone());
+                    queue.push_back(parent_id.clone());
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 /// Get tasks and bugs that are ready (no open blockers).
 /// Queued tasks/bugs are sorted first, then by priority.
 pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<ReadyTasks> {
@@ -24778,5 +24834,263 @@ mod tests {
         let cmd = ctr_command(&mode);
         // In rootless mode, program should be "ctr"
         assert_eq!(cmd.get_program(), "ctr");
+    }
+
+    #[test]
+    #[serial]
+    fn test_find_queued_ancestors_direct_parent() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Create queue
+        queue_create(temp.path(), "Work Queue".to_string(), None).unwrap();
+
+        // Create parent task and add to queue
+        let parent = task_create(
+            temp.path(),
+            "Parent Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let queue = storage.get_queue().unwrap();
+        link_add(temp.path(), &parent.id, &queue.id, "queued", None, false).unwrap();
+
+        // Create child task
+        let child = task_create(
+            temp.path(),
+            "Child Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link child to parent
+        link_add(temp.path(), &child.id, &parent.id, "child_of", None, false).unwrap();
+
+        // Test: child should find parent as queued ancestor
+        let result = find_queued_ancestors(&storage, &child.id).unwrap();
+        assert_eq!(result, Some(parent.id.clone()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_find_queued_ancestors_grandparent() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Create queue
+        queue_create(temp.path(), "Work Queue".to_string(), None).unwrap();
+
+        // Create grandparent milestone and add to queue
+        let grandparent = milestone_create(
+            temp.path(),
+            "Grandparent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        let queue = storage.get_queue().unwrap();
+        link_add(
+            temp.path(),
+            &grandparent.id,
+            &queue.id,
+            "queued",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Create parent task (not queued)
+        let parent = task_create(
+            temp.path(),
+            "Parent Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link parent to grandparent
+        link_add(
+            temp.path(),
+            &parent.id,
+            &grandparent.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Create child task
+        let child = task_create(
+            temp.path(),
+            "Child Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link child to parent
+        link_add(temp.path(), &child.id, &parent.id, "child_of", None, false).unwrap();
+
+        // Test: child should find grandparent as queued ancestor
+        let result = find_queued_ancestors(&storage, &child.id).unwrap();
+        assert_eq!(result, Some(grandparent.id.clone()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_find_queued_ancestors_none() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Create parent task (not queued)
+        let parent = task_create(
+            temp.path(),
+            "Parent Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create child task
+        let child = task_create(
+            temp.path(),
+            "Child Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link child to parent
+        link_add(temp.path(), &child.id, &parent.id, "child_of", None, false).unwrap();
+
+        // Test: child should find no queued ancestor
+        let result = find_queued_ancestors(&storage, &child.id).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    #[serial]
+    fn test_find_queued_ancestors_no_parents() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Create standalone task
+        let task = task_create(
+            temp.path(),
+            "Standalone Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Test: task with no parents should find no queued ancestor
+        let result = find_queued_ancestors(&storage, &task.id).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    #[serial]
+    fn test_find_queued_ancestors_finds_nearest() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Create queue
+        queue_create(temp.path(), "Work Queue".to_string(), None).unwrap();
+        let queue = storage.get_queue().unwrap();
+
+        // Create both grandparent and parent queued
+        let grandparent = milestone_create(
+            temp.path(),
+            "Grandparent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        link_add(
+            temp.path(),
+            &grandparent.id,
+            &queue.id,
+            "queued",
+            None,
+            false,
+        )
+        .unwrap();
+
+        let parent = task_create(
+            temp.path(),
+            "Parent Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        link_add(temp.path(), &parent.id, &queue.id, "queued", None, false).unwrap();
+
+        // Link parent to grandparent
+        link_add(
+            temp.path(),
+            &parent.id,
+            &grandparent.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Create child task
+        let child = task_create(
+            temp.path(),
+            "Child Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link child to parent
+        link_add(temp.path(), &child.id, &parent.id, "child_of", None, false).unwrap();
+
+        // Test: BFS should find the nearest queued ancestor (parent, not grandparent)
+        let result = find_queued_ancestors(&storage, &child.id).unwrap();
+        assert_eq!(result, Some(parent.id.clone()));
     }
 }
