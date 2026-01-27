@@ -199,10 +199,11 @@ function renderNodeList(container, options = {}) {
         });
     });
     
-    container.querySelectorAll('.card-info-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const nodeId = e.currentTarget.getAttribute('data-node-id');
-            if (options.onInfoClick) {
+    // Add double-click handler to cards
+    container.querySelectorAll('.node-card').forEach(card => {
+        card.addEventListener('dblclick', (_e) => {
+            const nodeId = card.getAttribute('data-node-id');
+            if (nodeId && options.onInfoClick) {
                 options.onInfoClick(nodeId);
             }
         });
@@ -261,14 +262,13 @@ function renderTaskBugCard(node, readyIds) {
     const isBug = node.nodeType === 'bug';
     
     return `
-    <div class="node-card ${isBlocked ? 'card-blocked' : ''} ${isClosed ? 'card-closed' : ''} ${isInProgress ? 'card-in-progress' : ''}">
+    <div class="node-card ${isBlocked ? 'card-blocked' : ''} ${isClosed ? 'card-closed' : ''} ${isInProgress ? 'card-in-progress' : ''}" data-node-id="${node.id}">
         ${isClosed ? `<div class="closed-banner">✓ ${node.status === 'done' ? (isBug ? 'Fixed' : 'Done') : 'Cancelled'}</div>` : ''}
         ${isInProgress ? `<div class="in-progress-banner">⚡ In Progress</div>` : ''}
         ${isBlocked ? `<div class="blocked-banner">🚫 Blocked</div>` : ''}
         <div class="card-header">
             <div class="card-title">${isBug ? '🐛 ' : '📋 '}${escapeHtml(node.title)}</div>
             <div class="card-actions">
-                <button class="card-info-btn" data-node-id="${node.id}" title="View details">ℹ️</button>
                 <button class="card-jump-btn" data-node-id="${node.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
@@ -293,12 +293,11 @@ function renderIdeaCard(idea) {
         : idea.status;
     
     return `
-    <div class="node-card ${isClosed ? 'card-closed' : ''}">
+    <div class="node-card ${isClosed ? 'card-closed' : ''}" data-node-id="${idea.id}">
         ${isClosed ? `<div class="closed-banner">✓ ${idea.status === 'promoted' ? 'Promoted' : 'Wilted'}</div>` : ''}
         <div class="card-header">
             <div class="card-title">💡 ${escapeHtml(idea.title)}</div>
             <div class="card-actions">
-                <button class="card-info-btn" data-node-id="${idea.id}" title="View details">ℹ️</button>
                 <button class="card-jump-btn" data-node-id="${idea.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
@@ -316,11 +315,10 @@ function renderIdeaCard(idea) {
  */
 function renderTestCard(test) {
     return `
-    <div class="node-card">
+    <div class="node-card" data-node-id="${test.id}">
         <div class="card-header">
             <div class="card-title">🧪 ${escapeHtml(test.name)}</div>
             <div class="card-actions">
-                <button class="card-info-btn" data-node-id="${test.id}" title="View details">ℹ️</button>
                 <button class="card-jump-btn" data-node-id="${test.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
@@ -340,11 +338,10 @@ function renderDocCard(doc) {
         : '📝 Note';
     
     return `
-    <div class="node-card">
+    <div class="node-card" data-node-id="${doc.id}">
         <div class="card-header">
             <div class="card-title">${docTypeLabel} ${escapeHtml(doc.title)}</div>
             <div class="card-actions">
-                <button class="card-info-btn" data-node-id="${doc.id}" title="View details">ℹ️</button>
                 <button class="card-jump-btn" data-node-id="${doc.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
@@ -361,12 +358,11 @@ function renderMilestoneCard(milestone) {
     const isClosed = milestone.status === 'done' || milestone.status === 'cancelled';
     
     return `
-    <div class="node-card ${isClosed ? 'card-closed' : ''}">
+    <div class="node-card ${isClosed ? 'card-closed' : ''}" data-node-id="${milestone.id}">
         ${isClosed ? `<div class="closed-banner">✓ ${milestone.status === 'done' ? 'Done' : 'Cancelled'}</div>` : ''}
         <div class="card-header">
             <div class="card-title">🎯 ${escapeHtml(milestone.title)}</div>
             <div class="card-actions">
-                <button class="card-info-btn" data-node-id="${milestone.id}" title="View details">ℹ️</button>
                 <button class="card-jump-btn" data-node-id="${milestone.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
