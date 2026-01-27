@@ -154,6 +154,44 @@ function renderLogEntry(entry) {
 }
 
 /**
+ * Fetch distinct log owners from API
+ * @returns {Promise<Array>} List of owner usernames/agent IDs
+ */
+async function fetchLogOwners() {
+    try {
+        const response = await fetch('/api/log/owners');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        return data.owners || [];
+    } catch (error) {
+        console.error('Failed to fetch log owners:', error);
+        return [];
+    }
+}
+
+/**
+ * Populate owner dropdown with distinct owners
+ * @param {HTMLSelectElement} select - The owner select element
+ */
+async function populateOwnerDropdown(select) {
+    const owners = await fetchLogOwners();
+    
+    // Keep "All Owners" option
+    select.innerHTML = '<option value="all">All Owners</option>';
+    
+    // Add each owner as an option
+    owners.forEach(owner => {
+        const option = document.createElement('option');
+        option.value = owner;
+        option.textContent = owner;
+        select.appendChild(option);
+    });
+}
+
+/**
  * Fetch log entries from API
  * @param {number} limit - Maximum entries to fetch
  * @param {number} offset - Offset for pagination
@@ -178,7 +216,7 @@ async function fetchLogs(limit = 50, offset = 0, filters = {}) {
             params.set('time_range', filters.timeRange);
         }
         if (filters.owner && filters.owner !== 'all') {
-            params.set('owner', filters.owner);
+            params.set('user', filters.owner);
         }
         if (filters.search) {
             params.set('search', filters.search);
@@ -358,8 +396,7 @@ export function createActivityLog() {
                 <label class="filter-label" for="filter-owner">Owner:</label>
                 <select class="filter-select" name="owner" id="filter-owner">
                     <option value="all">All Owners</option>
-                    <option value="users">Users Only</option>
-                    <option value="agents">Agents Only</option>
+                    <!-- Dynamically populated -->
                 </select>
             </div>
             
@@ -388,6 +425,10 @@ export function createActivityLog() {
             Load More
         </button>
     `;
+    
+    // Populate owner dropdown with distinct owners
+    const ownerSelect = container.querySelector('[name="owner"]');
+    populateOwnerDropdown(ownerSelect);
     
     // Initial load
     updateLogDisplay(container, 0);

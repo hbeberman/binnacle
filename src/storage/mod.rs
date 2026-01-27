@@ -4398,6 +4398,20 @@ impl Storage {
         Ok(count)
     }
 
+    /// Get distinct owners (users) from action logs.
+    pub fn get_distinct_log_owners(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT user FROM action_logs WHERE user IS NOT NULL ORDER BY user",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+
+        let mut owners = Vec::new();
+        for row in rows {
+            owners.push(row?);
+        }
+        Ok(owners)
+    }
+
     /// Delete old action logs based on retention settings.
     ///
     /// Returns the number of entries deleted.
