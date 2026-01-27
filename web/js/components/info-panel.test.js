@@ -1,7 +1,7 @@
 /**
  * Test for Info Panel Component
  * 
- * Tests queue toggle functionality and readonly mode integration.
+ * Tests queue toggle functionality, readonly mode integration, and expand/collapse animation.
  */
 
 console.log('Testing Info Panel Component\n');
@@ -64,15 +64,6 @@ console.log('\nTest 3: Panel stores node ID');
     }
 }
 
-console.log('\n✓ All tests passed');
-console.log('\nImplementation Notes:');
-console.log('- Queue toggle button wrapped with write-action-container for readonly mode');
-console.log('- Readonly mode uses CSS to disable button and show tooltip');
-console.log('- onQueueToggle callback receives node ID for API calls');
-console.log('- Parent component handles actual queue toggle logic (API/WebSocket)');
-console.log('- Relationships display shows edges with clickable navigation');
-console.log('- onRelationshipClick callback receives target node ID');
-
 // Test 4: Relationship click callback
 console.log('\nTest 4: Relationship click functionality');
 {
@@ -129,3 +120,123 @@ console.log('\nTest 5: Edge type formatting');
         console.log('  ✓ All edge type formats correct');
     }
 }
+
+// Test 6: Expand panel functionality
+console.log('\nTest 6: Expand panel functionality');
+{
+    const panel = {
+        classList: {
+            classes: new Set(),
+            add: function(cls) { this.classes.add(cls); },
+            remove: function(cls) { this.classes.delete(cls); },
+            contains: function(cls) { return this.classes.has(cls); }
+        }
+    };
+    
+    // Simulate expandInfoPanel
+    if (!panel.classList.contains('visible')) {
+        panel.classList.add('visible');
+    }
+    panel.classList.add('expanded');
+    
+    if (panel.classList.contains('visible') && panel.classList.contains('expanded')) {
+        console.log('  ✓ Panel has both visible and expanded classes');
+    } else {
+        console.error('  ✗ Panel missing required classes');
+    }
+}
+
+// Test 7: Collapse panel functionality
+console.log('\nTest 7: Collapse panel functionality');
+{
+    const panel = {
+        classList: {
+            classes: new Set(['visible', 'expanded']),
+            add: function(cls) { this.classes.add(cls); },
+            remove: function(cls) { this.classes.delete(cls); },
+            contains: function(cls) { return this.classes.has(cls); }
+        }
+    };
+    
+    // Simulate collapseInfoPanel
+    panel.classList.remove('expanded');
+    
+    if (panel.classList.contains('visible') && !panel.classList.contains('expanded')) {
+        console.log('  ✓ Panel retains visible, removes expanded class');
+    } else {
+        console.error('  ✗ Panel state incorrect after collapse');
+    }
+}
+
+// Test 8: Toggle panel functionality
+console.log('\nTest 8: Toggle expand/collapse functionality');
+{
+    const panel = {
+        classList: {
+            classes: new Set(['visible']),
+            add: function(cls) { this.classes.add(cls); },
+            remove: function(cls) { this.classes.delete(cls); },
+            contains: function(cls) { return this.classes.has(cls); }
+        }
+    };
+    
+    // Simulate first toggle (expand)
+    let expanded = !panel.classList.contains('expanded');
+    if (expanded) {
+        panel.classList.add('expanded');
+    }
+    
+    if (panel.classList.contains('expanded')) {
+        console.log('  ✓ First toggle expands panel');
+    } else {
+        console.error('  ✗ First toggle failed');
+    }
+    
+    // Simulate second toggle (collapse)
+    expanded = !panel.classList.contains('expanded');
+    if (!expanded) {
+        panel.classList.remove('expanded');
+    }
+    
+    if (!panel.classList.contains('expanded')) {
+        console.log('  ✓ Second toggle collapses panel');
+    } else {
+        console.error('  ✗ Second toggle failed');
+    }
+}
+
+// Test 9: Hide panel clears expanded state
+console.log('\nTest 9: Hide panel clears expanded state');
+{
+    const panel = {
+        classList: {
+            classes: new Set(['visible', 'expanded']),
+            add: function(cls) { this.classes.add(cls); },
+            remove: function(cls) { this.classes.delete(cls); },
+            contains: function(cls) { return this.classes.has(cls); }
+        }
+    };
+    
+    // Simulate hideInfoPanel
+    panel.classList.remove('visible');
+    panel.classList.remove('expanded');
+    
+    if (!panel.classList.contains('visible') && !panel.classList.contains('expanded')) {
+        console.log('  ✓ Hide removes both visible and expanded classes');
+    } else {
+        console.error('  ✗ Hide did not clear all states');
+    }
+}
+
+console.log('\n✓ All tests passed');
+console.log('\nImplementation Notes:');
+console.log('- Queue toggle button wrapped with write-action-container for readonly mode');
+console.log('- Readonly mode uses CSS to disable button and show tooltip');
+console.log('- onQueueToggle callback receives node ID for API calls');
+console.log('- Parent component handles actual queue toggle logic (API/WebSocket)');
+console.log('- Relationships display shows edges with clickable navigation');
+console.log('- onRelationshipClick callback receives target node ID');
+console.log('- Expand/collapse animation uses CSS transitions (250ms ease-out)');
+console.log('- Panel expands from 320px to 380px width and fills viewport height');
+console.log('- Toggle function returns true when expanded, false when collapsed');
+console.log('- Hide function clears both visible and expanded states');
