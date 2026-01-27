@@ -254,10 +254,7 @@ export function stopAnimation() {
  * Apply force-directed layout physics to graph nodes
  */
 function applyPhysics() {
-    const REPULSION_STRENGTH = 5000;  // Nodes repel each other
-    const EDGE_ATTRACTION = 0.01;      // Edges pull nodes together
-    const CENTER_GRAVITY = 0.001;      // Weak pull toward center
-    const DAMPING = 0.85;              // Friction to stabilize
+    const physics = state.getState().physics;
     
     // Reset forces
     for (const node of visibleNodes) {
@@ -279,7 +276,7 @@ function applyPhysics() {
             if (distSq === 0) continue;
             
             const dist = Math.sqrt(distSq);
-            const force = REPULSION_STRENGTH / distSq;
+            const force = physics.repulsionStrength / distSq;
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
             
@@ -290,7 +287,7 @@ function applyPhysics() {
         }
     }
     
-    // Edge attraction (connected nodes)
+    // Edge attraction (spring-based with resting length)
     const visibleNodeMap = new Map(visibleNodes.map(n => [n.id, n]));
     for (const edge of graphEdges) {
         const source = visibleNodeMap.get(edge.from);
@@ -300,9 +297,17 @@ function applyPhysics() {
         
         const dx = target.x - source.x;
         const dy = target.y - source.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
         
-        const fx = dx * EDGE_ATTRACTION;
-        const fy = dy * EDGE_ATTRACTION;
+        if (distance === 0) continue;
+        
+        // Spring force: pulls nodes toward resting length
+        // - If compressed (distance < resting): pushes apart
+        // - If extended (distance > resting): pulls together
+        const deviation = distance - physics.springRestingLength;
+        const force = physics.springStrength * deviation;
+        const fx = (dx / distance) * force;
+        const fy = (dy / distance) * force;
         
         source.fx += fx;
         source.fy += fy;
@@ -312,8 +317,10 @@ function applyPhysics() {
     
     // Center gravity
     for (const node of visibleNodes) {
-        node.fx -= node.x * CENTER_GRAVITY;
-        node.fy -= node.y * CENTER_GRAVITY;
+        // Queue nodes are HEAVY - they barely respond to gravity
+        const gravityMultiplier = node.type === 'queue' ? 0.1 : 1.0;
+        node.fx -= node.x * physics.gravityStrength * gravityMultiplier;
+        node.fy -= node.y * physics.gravityStrength * gravityMultiplier;
     }
     
     // Update velocities and positions
@@ -321,8 +328,17 @@ function applyPhysics() {
         // Skip dragged nodes
         if (node === draggedNode) continue;
         
-        node.vx = (node.vx + node.fx) * DAMPING;
-        node.vy = (node.vy + node.fy) * DAMPING;
+        node.vx = (node.vx + node.fx) * physics.damping;
+        node.vy = (node.vy + node.fy) * physics.damping;
+        
+        // Max velocity (queue nodes move slower)
+        const maxVelocity = node.type === 'queue' ? 0.9 : 3.0;
+        const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+        if (speed > maxVelocity) {
+            const scale = maxVelocity / speed;
+            node.vx *= scale;
+            node.vy *= scale;
+        }
         
         node.x += node.vx;
         node.y += node.vy;
