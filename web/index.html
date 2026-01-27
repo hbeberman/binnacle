@@ -410,14 +410,17 @@
                     // Get base URL from connection
                     const baseUrl = state.get('connection.baseUrl') || '';
                     
-                    // Call API to create link
+                    // Handle both single and batch link creation
+                    const links = linkData.batch ? linkData.links : [linkData];
+                    
+                    // Call API to create link(s)
                     const response = await fetch(`${baseUrl}/api/links/batch`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            links: [linkData]
+                            links: links
                         })
                     });
                     
@@ -434,7 +437,7 @@
                     // Refresh graph data
                     await connection.refresh();
                     
-                    console.log('Link created successfully');
+                    console.log('Link(s) created successfully:', links.length);
                 } catch (error) {
                     console.error('Link creation error:', error);
                     throw error;
@@ -454,7 +457,7 @@
                 case 'create-link':
                     // Get the selected nodes from state
                     const selectedNodes = state.get('graph.selectedNodes') || [];
-                    if (selectedNodes.length === 2) {
+                    if (selectedNodes.length >= 2) {
                         // Get full node data
                         const nodes = selectedNodes.map(nodeId => {
                             const allEntities = [
@@ -470,7 +473,7 @@
                             return allEntities.find(e => e.id === nodeId);
                         }).filter(n => n !== undefined);
                         
-                        if (nodes.length === 2) {
+                        if (nodes.length >= 2) {
                             updateLinkBuilderContent(linkBuilder, nodes);
                         }
                     }
