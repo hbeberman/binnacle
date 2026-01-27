@@ -78,7 +78,8 @@ const createDefaultState = () => ({
         },
         
         // Selection state
-        selectedNode: null,
+        selectedNode: null,        // For backward compatibility (single selection)
+        selectedNodes: [],         // Multi-selection array
         selectedEdge: null,
         hoveredNode: null,
         hoveredEdge: null,
@@ -411,6 +412,8 @@ export function setCurrentView(view) {
 
 export function setSelectedNode(nodeId) {
     set('ui.selectedNode', nodeId);
+    // Also update selectedNodes array for consistency
+    set('ui.selectedNodes', nodeId ? [nodeId] : []);
 }
 
 export function setSelectedEdge(edgeId) {
@@ -539,6 +542,82 @@ export function addToast(toast) {
 export function dismissToast(id) {
     const toasts = state.ui.toasts.filter(t => t.id !== id);
     set('ui.toasts', toasts);
+}
+
+// ============================================
+// Multi-selection helpers
+// ============================================
+
+/**
+ * Get all selected node IDs
+ * @returns {Array<string>} Array of selected node IDs
+ */
+export function getSelectedNodes() {
+    return state.ui.selectedNodes;
+}
+
+/**
+ * Check if a node is currently selected
+ * @param {string} nodeId - Node ID to check
+ * @returns {boolean} True if node is selected
+ */
+export function isSelected(nodeId) {
+    return state.ui.selectedNodes.includes(nodeId);
+}
+
+/**
+ * Toggle selection of a node
+ * @param {string} nodeId - Node ID to toggle
+ * @param {boolean} clearOthers - If true, clear other selections first (default: false)
+ */
+export function toggleSelection(nodeId, clearOthers = false) {
+    let selectedNodes;
+    
+    if (clearOthers) {
+        // Single select mode: clear others first
+        selectedNodes = [nodeId];
+    } else {
+        // Multi-select mode: toggle this node
+        if (state.ui.selectedNodes.includes(nodeId)) {
+            selectedNodes = state.ui.selectedNodes.filter(id => id !== nodeId);
+        } else {
+            selectedNodes = [...state.ui.selectedNodes, nodeId];
+        }
+    }
+    
+    set('ui.selectedNodes', selectedNodes);
+    
+    // Update single selectedNode for backward compatibility
+    // Use the last selected node, or null if none selected
+    set('ui.selectedNode', selectedNodes.length > 0 ? selectedNodes[selectedNodes.length - 1] : null);
+}
+
+/**
+ * Set multiple nodes as selected (replaces current selection)
+ * @param {Array<string>} nodeIds - Array of node IDs to select
+ */
+export function setSelectedNodes(nodeIds) {
+    set('ui.selectedNodes', [...nodeIds]);
+    
+    // Update single selectedNode for backward compatibility
+    set('ui.selectedNode', nodeIds.length > 0 ? nodeIds[nodeIds.length - 1] : null);
+}
+
+/**
+ * Clear all node selections
+ */
+export function clearSelection() {
+    set('ui.selectedNodes', []);
+    set('ui.selectedNode', null);
+}
+
+/**
+ * Select all visible nodes (respecting current filters)
+ * @param {Array<Object>} visibleNodes - Array of visible node objects
+ */
+export function selectAll(visibleNodes) {
+    const nodeIds = visibleNodes.map(node => node.id);
+    setSelectedNodes(nodeIds);
 }
 
 // ============================================

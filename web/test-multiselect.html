@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Selection State Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding: 2rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-section {
+            margin: 2rem 0;
+            padding: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .node-item {
+            padding: 0.5rem;
+            margin: 0.5rem 0;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            background: white;
+            transition: all 0.2s;
+        }
+        .node-item.selected {
+            border-color: #0066cc;
+            background: #e6f2ff;
+        }
+        .state-display {
+            padding: 1rem;
+            background: #f5f5f5;
+            border-radius: 4px;
+            font-family: monospace;
+            margin: 1rem 0;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            margin: 0.25rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #f0f0f0;
+        }
+        .info {
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        h2 {
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <h1>Multi-Selection State Management Test</h1>
+    
+    <div class="test-section">
+        <h2>Current Selection State</h2>
+        <div class="state-display">
+            <div>Selected Nodes: <span id="selectedNodes">[]</span></div>
+            <div>Selected Node (single): <span id="selectedNode">null</span></div>
+            <div>Count: <span id="selectionCount">0</span></div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Interactive Test Nodes</h2>
+        <p class="info">Click nodes to toggle selection. Hold Ctrl/Cmd for multi-select.</p>
+        <div id="nodeList"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Actions</h2>
+        <button id="btnSelectAll">Select All</button>
+        <button id="btnClearSelection">Clear Selection</button>
+        <button id="btnSelectFirst3">Select First 3</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Results</h2>
+        <div id="testResults"></div>
+    </div>
+
+    <script type="module">
+        import {
+            subscribe,
+            getSelectedNodes,
+            getSelectedNode,
+            isSelected,
+            toggleSelection,
+            setSelectedNodes,
+            clearSelection,
+            selectAll,
+            setSelectedNode
+        } from './js/state.js';
+
+        const testNodes = [
+            { id: 'bn-test1', title: 'Task: Implement feature A' },
+            { id: 'bn-test2', title: 'Bug: Fix critical error' },
+            { id: 'bn-test3', title: 'Task: Add documentation' },
+            { id: 'bn-test4', title: 'Task: Refactor module B' },
+            { id: 'bn-test5', title: 'Idea: New optimization' }
+        ];
+
+        // Render nodes
+        const nodeList = document.getElementById('nodeList');
+        testNodes.forEach(node => {
+            const div = document.createElement('div');
+            div.className = 'node-item';
+            div.dataset.nodeId = node.id;
+            div.innerHTML = `<strong>${node.id}</strong>: ${node.title}`;
+            
+            div.addEventListener('click', (e) => {
+                const clearOthers = !e.ctrlKey && !e.metaKey;
+                toggleSelection(node.id, clearOthers);
+            });
+            
+            nodeList.appendChild(div);
+        });
+
+        // Update display
+        function updateDisplay() {
+            const selectedNodes = getSelectedNodes();
+            const selectedNode = getSelectedNode();
+            
+            document.getElementById('selectedNodes').textContent = JSON.stringify(selectedNodes);
+            document.getElementById('selectedNode').textContent = JSON.stringify(selectedNode);
+            document.getElementById('selectionCount').textContent = selectedNodes.length;
+            
+            // Update visual state
+            document.querySelectorAll('.node-item').forEach(el => {
+                const nodeId = el.dataset.nodeId;
+                el.classList.toggle('selected', isSelected(nodeId));
+            });
+        }
+
+        // Subscribe to selection changes
+        subscribe('ui.selectedNodes', updateDisplay);
+        subscribe('ui.selectedNode', updateDisplay);
+
+        // Action buttons
+        document.getElementById('btnSelectAll').addEventListener('click', () => {
+            selectAll(testNodes);
+        });
+
+        document.getElementById('btnClearSelection').addEventListener('click', () => {
+            clearSelection();
+        });
+
+        document.getElementById('btnSelectFirst3').addEventListener('click', () => {
+            setSelectedNodes(['bn-test1', 'bn-test2', 'bn-test3']);
+        });
+
+        // Run automated tests
+        const results = document.getElementById('testResults');
+        let testOutput = '<ul>';
+
+        function addTest(name, pass) {
+            testOutput += `<li style="color: ${pass ? 'green' : 'red'}">${pass ? '✓' : '✗'} ${name}</li>`;
+        }
+
+        // Test 1: Initial state
+        addTest('Initial state is empty', getSelectedNodes().length === 0);
+
+        // Test 2: Single selection
+        setSelectedNode('bn-test1');
+        addTest('setSelectedNode sets both fields', 
+            getSelectedNode() === 'bn-test1' && 
+            getSelectedNodes().length === 1
+        );
+
+        // Test 3: Multi-selection
+        setSelectedNodes(['bn-test1', 'bn-test2']);
+        addTest('setSelectedNodes works', getSelectedNodes().length === 2);
+        addTest('isSelected works', isSelected('bn-test1') && isSelected('bn-test2'));
+
+        // Test 4: Toggle
+        toggleSelection('bn-test3', false);
+        addTest('toggleSelection adds node', getSelectedNodes().length === 3);
+        toggleSelection('bn-test3', false);
+        addTest('toggleSelection removes node', getSelectedNodes().length === 2);
+
+        // Test 5: Clear
+        clearSelection();
+        addTest('clearSelection works', getSelectedNodes().length === 0);
+
+        testOutput += '</ul>';
+        results.innerHTML = testOutput;
+
+        // Initial display update
+        updateDisplay();
+    </script>
+</body>
+</html>
