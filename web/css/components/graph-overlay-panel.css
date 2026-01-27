@@ -36,12 +36,13 @@
     min-height: 56px;
     border: 2px dotted #666;
     border-radius: 6px;
-    margin: 0;
+    margin: 4px; /* Slightly inset from panel edge */
 }
 
 .graph-overlay-compass {
     font-size: 2rem;
-    opacity: 0.4;
+    color: #666; /* Muted grey color */
+    opacity: 0.6;
     filter: grayscale(100%);
 }
 
