@@ -8672,6 +8672,8 @@ pub struct ReadyTasks {
     pub in_progress_bugs: Vec<Bug>,
     pub in_progress_count: usize,
     pub in_progress_bug_count: usize,
+    pub recently_completed_tasks: Vec<Task>,
+    pub recently_completed_bugs: Vec<Bug>,
 }
 
 impl Output for ReadyTasks {
@@ -8856,6 +8858,42 @@ impl Output for ReadyTasks {
             }
         }
 
+        // Show recently completed section at the bottom
+        if !self.recently_completed_tasks.is_empty() || !self.recently_completed_bugs.is_empty() {
+            lines.push(String::new()); // blank line before completed section
+            lines.push("Recently completed:\n".to_string());
+
+            // Show completed bugs
+            for bug in &self.recently_completed_bugs {
+                let tags = if bug.core.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", bug.core.tags.join(", "))
+                };
+                lines.push(format!(
+                    "  {} P{} {} ({}){}",
+                    bug.core.id,
+                    bug.priority,
+                    bug.core.title,
+                    format!("{:?}", bug.severity).to_lowercase(),
+                    tags
+                ));
+            }
+
+            // Show completed tasks
+            for task in &self.recently_completed_tasks {
+                let tags = if task.core.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", task.core.tags.join(", "))
+                };
+                lines.push(format!(
+                    "  {} P{} {}{}",
+                    task.core.id, task.priority, task.core.title, tags
+                ));
+            }
+        }
+
         if lines.is_empty() {
             return "No in-progress or ready tasks/bugs.".to_string();
         }
@@ -8957,6 +8995,10 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
     let in_progress_count = in_progress_tasks.len();
     let in_progress_bug_count = in_progress_bugs.len();
 
+    // Fetch recently completed tasks and bugs
+    let recently_completed_tasks = storage.get_recently_completed_tasks().unwrap_or_default();
+    let recently_completed_bugs = storage.get_recently_completed_bugs().unwrap_or_default();
+
     Ok(ReadyTasks {
         tasks: task_items,
         bugs: bug_items,
@@ -8968,6 +9010,8 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
         in_progress_bugs,
         in_progress_count,
         in_progress_bug_count,
+        recently_completed_tasks,
+        recently_completed_bugs,
     })
 }
 

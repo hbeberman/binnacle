@@ -2348,6 +2348,44 @@ impl Storage {
         Ok(blocked)
     }
 
+    /// Get the 3 most recently completed tasks.
+    pub fn get_recently_completed_tasks(&self) -> Result<Vec<Task>> {
+        let sql = "SELECT id FROM tasks WHERE status = 'done' ORDER BY updated_at DESC LIMIT 3";
+        let mut stmt = self.conn.prepare(sql)?;
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut tasks = Vec::new();
+        for id in ids {
+            if let Ok(task) = self.get_task(&id) {
+                tasks.push(task);
+            }
+        }
+
+        Ok(tasks)
+    }
+
+    /// Get the 3 most recently completed bugs.
+    pub fn get_recently_completed_bugs(&self) -> Result<Vec<Bug>> {
+        let sql = "SELECT id FROM bugs WHERE status = 'done' ORDER BY updated_at DESC LIMIT 3";
+        let mut stmt = self.conn.prepare(sql)?;
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut bugs = Vec::new();
+        for id in ids {
+            if let Ok(bug) = self.get_bug(&id) {
+                bugs.push(bug);
+            }
+        }
+
+        Ok(bugs)
+    }
+
     /// Get the storage root path.
     pub fn root(&self) -> &Path {
         &self.root
