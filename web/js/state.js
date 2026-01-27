@@ -197,12 +197,15 @@ export function subscribe(path, callback) {
  * @param {*} oldValue - Previous value
  */
 function notifyListeners(path, newValue, oldValue) {
+    let notifiedCount = 0;
+    
     // Notify specific path listeners
     const pathListeners = listeners.get(path);
     if (pathListeners) {
         for (const callback of pathListeners) {
             try {
                 callback(newValue, oldValue, path);
+                notifiedCount++;
             } catch (e) {
                 console.error(`State listener error for path "${path}":`, e);
             }
@@ -217,6 +220,7 @@ function notifyListeners(path, newValue, oldValue) {
                 for (const callback of patternListeners) {
                     try {
                         callback(newValue, oldValue, path);
+                        notifiedCount++;
                     } catch (e) {
                         console.error(`State listener error for pattern "${pattern}":`, e);
                     }
@@ -231,10 +235,16 @@ function notifyListeners(path, newValue, oldValue) {
         for (const callback of wildcardListeners) {
             try {
                 callback(newValue, oldValue, path);
+                notifiedCount++;
             } catch (e) {
                 console.error('State wildcard listener error:', e);
             }
         }
+    }
+    
+    // Debug log for entity changes
+    if (path.startsWith('entities.') && Array.isArray(newValue)) {
+        console.log(`[State.notify] "${path}" notified ${notifiedCount} listeners`);
     }
 }
 
@@ -249,9 +259,15 @@ export function get(path) {
     
     for (const part of parts) {
         if (current === null || current === undefined) {
+            console.warn(`[State.get] Path "${path}" failed at "${part}": current is ${current}`);
             return undefined;
         }
         current = current[part];
+    }
+    
+    // Debug logging for entity queries
+    if (path.startsWith('entities.') && Array.isArray(current)) {
+        console.log(`[State.get] "${path}" => array with ${current.length} items`);
     }
     
     return current;
@@ -277,6 +293,11 @@ export function set(path, value) {
     
     const oldValue = current[lastPart];
     current[lastPart] = value;
+    
+    // Debug logging for entity updates
+    if (path.startsWith('entities.') && Array.isArray(value)) {
+        console.log(`[State.set] "${path}" => array with ${value.length} items`);
+    }
     
     notifyListeners(path, value, oldValue);
 }
@@ -849,3 +870,12 @@ subscribe('ui.selectedNodes', (value) => {
         saveToStorage('selectedNodes', value);
     }, 500); // Debounce for 500ms
 });
+
+
+/**
+ * Debug function: get the internal state object reference
+ * Used to verify that all modules are using the same state instance
+ */
+export function _getStateObjectRef() {
+    return state;
+}
