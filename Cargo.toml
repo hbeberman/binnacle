@@ -47,6 +47,9 @@ thiserror = "1"
 # Subprocess timeout
 wait-timeout = "0.2"
 
+# Temporary directory creation
+tempfile = "3"
+
 # Configuration file format
 kdl = "6"
 

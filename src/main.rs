@@ -1185,6 +1185,7 @@ fn run_command(
             port,
             host,
             readonly,
+            archive,
         }) => match command {
             Some(GuiCommands::Serve {
                 port: sub_port,
@@ -1196,9 +1197,22 @@ fn run_command(
                 let actual_host = &sub_host;
                 let actual_readonly = sub_readonly || readonly;
                 if replace {
-                    replace_gui(repo_path, actual_port, actual_host, actual_readonly, human)?;
+                    replace_gui(
+                        repo_path,
+                        actual_port,
+                        actual_host,
+                        actual_readonly,
+                        archive.as_deref(),
+                        human,
+                    )?;
                 } else {
-                    run_gui(repo_path, actual_port, actual_host, actual_readonly)?;
+                    run_gui(
+                        repo_path,
+                        actual_port,
+                        actual_host,
+                        actual_readonly,
+                        archive.as_deref(),
+                    )?;
                 }
             }
             Some(GuiCommands::Status) => {
@@ -1212,7 +1226,7 @@ fn run_command(
             }
             None => {
                 // Default: start server (same as `bn gui serve`)
-                run_gui(repo_path, port, &host, readonly)?;
+                run_gui(repo_path, port, &host, readonly, archive.as_deref())?;
             }
         },
         None => {
@@ -1253,16 +1267,47 @@ fn run_gui(
     port: Option<u16>,
     host: &str,
     readonly: bool,
+    archive_path: Option<&str>,
 ) -> Result<(), binnacle::Error> {
+    use binnacle::commands::system_store_import;
     use binnacle::gui::{DEFAULT_PORT, GuiPidFile, GuiPidInfo, ProcessStatus, find_available_port};
     use binnacle::storage::{Storage, get_storage_dir};
 
-    // Ensure storage is initialized
-    if !Storage::exists(repo_path)? {
-        return Err(binnacle::Error::NotInitialized);
-    }
+    // Handle archive mode: import to temp directory and serve from there
+    let (_temp_repo_dir, _temp_data_dir, actual_repo_path) = if let Some(archive) = archive_path {
+        // Create temporary directories for repo and data storage
+        let temp_repo_dir = tempfile::tempdir().map_err(|e| {
+            binnacle::Error::Other(format!("Failed to create temp repo directory: {}", e))
+        })?;
+        let temp_data_dir = tempfile::tempdir().map_err(|e| {
+            binnacle::Error::Other(format!("Failed to create temp data directory: {}", e))
+        })?;
 
-    let storage_dir = get_storage_dir(repo_path)?;
+        let temp_repo_path = temp_repo_dir.path().to_path_buf();
+        let temp_data_path = temp_data_dir.path();
+
+        // Set BN_DATA_DIR to use our temp data directory
+        // This will be used by all subsequent storage operations in this process
+        // SAFETY: We control the process and this is the only place we set BN_DATA_DIR
+        unsafe {
+            std::env::set_var("BN_DATA_DIR", temp_data_path);
+        }
+
+        // Import archive to temp directory
+        system_store_import(&temp_repo_path, archive, "replace", false)
+            .map_err(|e| binnacle::Error::Other(format!("Failed to import archive: {}", e)))?;
+
+        // Return temp directories (to keep them alive) and the repo path
+        (Some(temp_repo_dir), Some(temp_data_dir), temp_repo_path)
+    } else {
+        // Ensure storage is initialized for normal mode
+        if !Storage::exists(repo_path)? {
+            return Err(binnacle::Error::NotInitialized);
+        }
+        (None, None, repo_path.to_path_buf())
+    };
+
+    let storage_dir = get_storage_dir(&actual_repo_path)?;
     let pid_file = GuiPidFile::new(&storage_dir);
 
     // Check if another GUI is already running
@@ -1306,19 +1351,24 @@ fn run_gui(
         .write(&pid_info)
         .map_err(|e| binnacle::Error::Other(format!("Failed to write PID file: {}", e)))?;
 
+    // Force readonly mode when serving from archive
+    let actual_readonly = readonly || archive_path.is_some();
+
     // Create tokio runtime and run the server
     let result = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?
         .block_on(async {
-            binnacle::gui::start_server(repo_path, actual_port, host, readonly)
+            binnacle::gui::start_server(&actual_repo_path, actual_port, host, actual_readonly)
                 .await
                 .map_err(|e| binnacle::Error::Other(format!("GUI server error: {}", e)))
         });
 
     // Clean up PID file on shutdown (whether success or error)
     pid_file.delete().ok();
+
+    // Note: temp_dir is automatically cleaned up when it goes out of scope
 
     result
 }
@@ -1330,16 +1380,20 @@ fn replace_gui(
     port: Option<u16>,
     host: &str,
     readonly: bool,
+    archive_path: Option<&str>,
     human: bool,
 ) -> Result<(), binnacle::Error> {
-    use binnacle::gui::{DEFAULT_PORT, GuiPidFile, GuiPidInfo, ProcessStatus, find_available_port};
+    use binnacle::gui::{GuiPidFile, ProcessStatus};
     use binnacle::storage::{Storage, get_storage_dir};
     use std::thread;
     use std::time::Duration;
 
-    // Ensure storage is initialized
-    if !Storage::exists(repo_path)? {
-        return Err(binnacle::Error::NotInitialized);
+    // For archive mode, we don't check the original repo_path storage
+    if archive_path.is_none() {
+        // Ensure storage is initialized for normal mode
+        if !Storage::exists(repo_path)? {
+            return Err(binnacle::Error::NotInitialized);
+        }
     }
 
     let storage_dir = get_storage_dir(repo_path)?;
@@ -1403,48 +1457,8 @@ fn replace_gui(
         }
     }
 
-    // Determine port: use specified port or find an available one
-    let actual_port = match port {
-        Some(p) => p,
-        None => find_available_port(host, DEFAULT_PORT).ok_or_else(|| {
-            binnacle::Error::Other(format!(
-                "Could not find an available port starting from {}",
-                DEFAULT_PORT
-            ))
-        })?,
-    };
-
-    // Now start the new server
-    if human {
-        println!("Starting GUI server on http://{}:{}...", host, actual_port);
-    }
-
-    // Write PID file before starting server
-    let current_pid = std::process::id();
-    let pid_info = GuiPidInfo {
-        pid: current_pid,
-        port: actual_port,
-        host: host.to_string(),
-    };
-    pid_file
-        .write(&pid_info)
-        .map_err(|e| binnacle::Error::Other(format!("Failed to write PID file: {}", e)))?;
-
-    // Create tokio runtime and run the server
-    let result = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?
-        .block_on(async {
-            binnacle::gui::start_server(repo_path, actual_port, host, readonly)
-                .await
-                .map_err(|e| binnacle::Error::Other(format!("GUI server error: {}", e)))
-        });
-
-    // Clean up PID file on shutdown (whether success or error)
-    pid_file.delete().ok();
-
-    result
+    // Now delegate to run_gui which handles archive logic
+    run_gui(repo_path, port, host, readonly, archive_path)
 }
 
 /// Show the status of the GUI server
@@ -2704,6 +2718,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             port,
             host,
             readonly,
+            archive,
         }) => {
             let subcommand = match command {
                 Some(GuiCommands::Serve {
@@ -2712,7 +2727,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     replace,
                     readonly: sub_readonly,
                 }) => {
-                    serde_json::json!({ "subcommand": "serve", "port": sub_port.or(*port), "host": sub_host, "replace": replace, "readonly": *sub_readonly || *readonly })
+                    serde_json::json!({ "subcommand": "serve", "port": sub_port.or(*port), "host": sub_host, "replace": replace, "readonly": *sub_readonly || *readonly, "archive": archive })
                 }
                 Some(GuiCommands::Status) => serde_json::json!({ "subcommand": "status" }),
                 Some(GuiCommands::Stop { force }) => {
@@ -2722,7 +2737,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     serde_json::json!({ "subcommand": "kill", "force": force })
                 }
                 None => {
-                    serde_json::json!({ "subcommand": null, "port": port, "host": host, "readonly": readonly })
+                    serde_json::json!({ "subcommand": null, "port": port, "host": host, "readonly": readonly, "archive": archive })
                 }
             };
             ("gui".to_string(), subcommand)
