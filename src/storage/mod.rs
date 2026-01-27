@@ -640,6 +640,72 @@ impl Storage {
             [],
         )?;
 
+        // Migration: Add actor and actor_type columns to action_logs
+        let has_actor: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('action_logs') WHERE name='actor'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+
+        if !has_actor {
+            // Add columns
+            conn.execute("ALTER TABLE action_logs ADD COLUMN actor TEXT", [])?;
+            conn.execute("ALTER TABLE action_logs ADD COLUMN actor_type TEXT", [])?;
+
+            // Migrate existing data: prefer agent_id over user
+            conn.execute(
+                r#"
+                UPDATE action_logs
+                SET actor = COALESCE(agent_id, user, 'unknown'),
+                    actor_type = CASE
+                        WHEN agent_id IS NOT NULL THEN 'agent'
+                        WHEN user IS NOT NULL AND user != '' THEN 'user'
+                        ELSE 'unknown'
+                    END
+                "#,
+                [],
+            )?;
+
+            // Create index for actor queries
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_action_logs_actor ON action_logs(actor)",
+                [],
+            )?;
+        }
+
+        // Migration: Add actor and actor_type columns to log_annotations
+        let has_log_annotation_actor: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('log_annotations') WHERE name='actor'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+
+        if !has_log_annotation_actor {
+            // Add columns
+            conn.execute("ALTER TABLE log_annotations ADD COLUMN actor TEXT", [])?;
+            conn.execute("ALTER TABLE log_annotations ADD COLUMN actor_type TEXT", [])?;
+
+            // Migrate existing data: use author field
+            conn.execute(
+                r#"
+                UPDATE log_annotations
+                SET actor = COALESCE(author, 'unknown'),
+                    actor_type = CASE
+                        WHEN author LIKE 'bn-%' THEN 'agent'
+                        WHEN author IS NOT NULL AND author != '' THEN 'user'
+                        ELSE 'unknown'
+                    END
+                "#,
+                [],
+            )?;
+        }
+
         // Migration: Create log_annotations table if it doesn't exist
         conn.execute_batch(
             r#"
@@ -4800,6 +4866,61 @@ mod tests {
         // Verify we can retrieve it with short_name intact
         let retrieved = storage2.get_task("bn-test").unwrap();
         assert_eq!(retrieved.core.short_name, Some("Short".to_string()));
+    }
+
+    #[test]
+    fn test_migration_adds_actor_columns() {
+        let env = TestEnv::new();
+
+        // Initialize storage (creates schema with actor columns)
+        let storage = env.init_storage();
+
+        // Verify actor and actor_type columns exist in action_logs
+        let has_actor: bool = storage
+            .conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('action_logs') WHERE name = 'actor'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        let has_actor_type: bool = storage
+            .conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('action_logs') WHERE name = 'actor_type'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        assert!(has_actor, "action_logs should have actor column");
+        assert!(has_actor_type, "action_logs should have actor_type column");
+
+        // Verify actor and actor_type columns exist in log_annotations
+        let has_anno_actor: bool = storage
+            .conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('log_annotations') WHERE name = 'actor'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        let has_anno_actor_type: bool = storage
+            .conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('log_annotations') WHERE name = 'actor_type'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        assert!(has_anno_actor, "log_annotations should have actor column");
+        assert!(
+            has_anno_actor_type,
+            "log_annotations should have actor_type column"
+        );
     }
 
     #[test]
