@@ -319,6 +319,17 @@
     cursor: default;
 }
 
+/* Clickable agent badges (have both owner-badge and clickable-entity-id classes) */
+.owner-badge.clickable-entity-id {
+    cursor: pointer;
+}
+
+.owner-badge.clickable-entity-id:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
 /* Entity type badges */
 .entity-type-badge {
     display: inline-flex;
