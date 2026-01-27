@@ -70,7 +70,7 @@ export function addLongPressHandler(element, onLongPress, onClick = null) {
         }
     }
     
-    function handleTouchCancel(e) {
+    function handleTouchCancel(_e) {
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
@@ -161,7 +161,7 @@ export function addCanvasLongPress(canvas, getNodeAtPosition, onNodeLongPress) {
         touchStartPos = null;
     }
     
-    function handleTouchCancel(e) {
+    function handleTouchCancel(_e) {
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
