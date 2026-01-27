@@ -55,7 +55,7 @@ fi
 # Create compressed archive with zstd
 echo "Compressing bundle with zstd..."
 cd target
-tar cf - web-bundle | zstd -19 -o web-bundle.tar.zst
+tar cf - web-bundle | zstd -19 -f -o web-bundle.tar.zst
 cd ..
 
 # Show bundle size
