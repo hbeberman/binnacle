@@ -131,7 +131,7 @@ export function drawSquarePath(ctx, cx, cy, radius) {
  */
 export function drawCloudPath(ctx, cx, cy, radius) {
     const w = radius * 1.1;  // Width scale
-    const h = radius * 0.75;  // Height scale (slightly flattened)
+    const h = radius * 1.0;  // Height scale (made taller to fit "IDEA" label)
     
     ctx.moveTo(cx - w, cy + h * 0.3);
     
