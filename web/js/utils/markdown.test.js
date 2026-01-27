@@ -212,4 +212,96 @@ See [docs](https://example.com) for more.`;
     }
 });
 
+test('Entity ID linkification - single ID in paragraph', () => {
+    const result = parseMarkdown('See task bn-1234 for details');
+    if (!result.includes('clickable-entity-id')) {
+        throw new Error('Missing clickable-entity-id class');
+    }
+    if (!result.includes('data-entity-id="bn-1234"')) {
+        throw new Error('Missing data-entity-id attribute');
+    }
+    if (!result.includes('title="Click to view bn-1234"')) {
+        throw new Error('Missing title attribute');
+    }
+});
+
+test('Entity ID linkification - multiple IDs', () => {
+    const result = parseMarkdown('Tasks bn-1234 and bn-5678 are related');
+    const matches = result.match(/clickable-entity-id/g);
+    if (!matches || matches.length !== 2) {
+        throw new Error('Expected 2 linkified entity IDs');
+    }
+});
+
+test('Entity ID linkification - different entity types', () => {
+    const result = parseMarkdown('Task bn-1234, test bnt-5678, queue bnq-9abc');
+    if (!result.includes('data-entity-id="bn-1234"')) {
+        throw new Error('Missing task ID linkification');
+    }
+    if (!result.includes('data-entity-id="bnt-5678"')) {
+        throw new Error('Missing test ID linkification');
+    }
+    if (!result.includes('data-entity-id="bnq-9abc"')) {
+        throw new Error('Missing queue ID linkification');
+    }
+});
+
+test('Entity ID linkification - in headings', () => {
+    const result = parseMarkdown('# Task bn-1234');
+    if (!result.includes('<h1>Task <span class="clickable-entity-id"')) {
+        throw new Error('Entity ID not linkified in heading');
+    }
+});
+
+test('Entity ID linkification - in lists', () => {
+    const result = parseMarkdown('- Task bn-1234\n- Task bn-5678');
+    const matches = result.match(/clickable-entity-id/g);
+    if (!matches || matches.length !== 2) {
+        throw new Error('Entity IDs not linkified in list items');
+    }
+});
+
+test('Entity ID linkification - not in code blocks', () => {
+    const markdown = '```\nbn-1234\n```';
+    const result = parseMarkdown(markdown);
+    // Should not linkify inside code blocks
+    if (result.includes('clickable-entity-id')) {
+        throw new Error('Entity ID should not be linkified inside code blocks');
+    }
+    if (!result.includes('bn-1234')) {
+        throw new Error('Entity ID should still be present in code block');
+    }
+});
+
+test('Entity ID linkification - not in inline code', () => {
+    const result = parseMarkdown('Use `bn-1234` as reference');
+    // Should not linkify inside inline code
+    if (result.includes('clickable-entity-id')) {
+        throw new Error('Entity ID should not be linkified inside inline code');
+    }
+    if (!result.includes('bn-1234')) {
+        throw new Error('Entity ID should still be present in inline code');
+    }
+});
+
+test('Entity ID linkification - mixed with other formatting', () => {
+    const result = parseMarkdown('**Important**: See bn-1234 for details');
+    if (!result.includes('clickable-entity-id')) {
+        throw new Error('Entity ID not linkified with bold text present');
+    }
+    if (!result.includes('<strong>Important</strong>')) {
+        throw new Error('Bold formatting should be preserved');
+    }
+});
+
+test('Entity ID linkification - preserves special characters around IDs', () => {
+    const result = parseMarkdown('Tasks: bn-1234, bn-5678.');
+    if (!result.match(/bn-1234<\/span>,/)) {
+        throw new Error('Comma after entity ID not preserved correctly');
+    }
+    if (!result.match(/bn-5678<\/span>\./)) {
+        throw new Error('Period after entity ID not preserved correctly');
+    }
+});
+
 console.log('\n✓ All tests passed!');
