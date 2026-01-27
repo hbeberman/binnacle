@@ -156,12 +156,24 @@ function renderNodeList(container, options = {}) {
         return;
     }
     
+    // Build array of non-empty columns to render
+    const columnsToRender = [];
+    if (columns.pending.length > 0) {
+        columnsToRender.push(renderKanbanColumn('Pending', 'pending', columns.pending, readyIds, options));
+    }
+    if (columns.in_progress.length > 0) {
+        columnsToRender.push(renderKanbanColumn('In Progress', 'in_progress', columns.in_progress, readyIds, options));
+    }
+    if (columns.blocked.length > 0) {
+        columnsToRender.push(renderKanbanColumn('Blocked', 'blocked', columns.blocked, readyIds, options));
+    }
+    if (columns.done.length > 0) {
+        columnsToRender.push(renderKanbanColumn('Done', 'done', columns.done, readyIds, options));
+    }
+    
     container.innerHTML = `
         <div class="kanban-board">
-            ${renderKanbanColumn('Pending', 'pending', columns.pending, readyIds, options)}
-            ${renderKanbanColumn('In Progress', 'in_progress', columns.in_progress, readyIds, options)}
-            ${renderKanbanColumn('Blocked', 'blocked', columns.blocked, readyIds, options)}
-            ${renderKanbanColumn('Done', 'done', columns.done, readyIds, options)}
+            ${columnsToRender.join('')}
         </div>
     `;
     
