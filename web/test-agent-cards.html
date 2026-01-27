@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Cards Component Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/agent-cards.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        
+        .container {
+            width: 100vw;
+            min-height: 100vh;
+            background: var(--bg-primary, #1a2332);
+            padding: 2rem;
+        }
+        
+        h1 {
+            color: var(--text-primary, #e0e0e0);
+            margin: 0 0 2rem 0;
+        }
+        
+        .test-controls {
+            background: var(--bg-secondary, #243447);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+        
+        .test-controls button {
+            margin: 0.5rem 0.5rem 0.5rem 0;
+            padding: 0.5rem 1rem;
+            background: var(--accent-blue, #4a90e2);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .test-controls button:hover {
+            background: var(--accent-light, #6aa8f0);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧭 Agent Cards Component Test</h1>
+        
+        <div class="test-controls">
+            <h3 style="color: var(--text-primary, #e0e0e0); margin: 0 0 1rem 0;">Test Controls</h3>
+            <button id="add-active">Add Active Agent</button>
+            <button id="add-idle">Add Idle Agent</button>
+            <button id="add-stale">Add Stale Agent</button>
+            <button id="clear-agents">Clear All Agents</button>
+        </div>
+        
+        <div id="agents-cards"></div>
+    </div>
+
+    <script type="module">
+        import { initializeAgentCards } from './js/components/agent-cards.js';
+        import * as state from './js/state.js';
+        
+        // Initialize agent cards
+        const cardsContainer = document.getElementById('agents-cards');
+        initializeAgentCards(cardsContainer);
+        
+        // Test controls
+        let agentCounter = 0;
+        
+        document.getElementById('add-active').addEventListener('click', () => {
+            const agent = {
+                id: `bn-${Math.random().toString(36).substr(2, 4)}`,
+                title: `Active Agent ${++agentCounter}`,
+                short_name: `agent-${agentCounter}`,
+                type: 'agent',
+                status: 'active',
+                pid: 1000 + agentCounter,
+                started_at: new Date().toISOString(),
+                _agent: {
+                    name: `Worker Agent ${agentCounter}`,
+                    purpose: `Currently working on task bn-${Math.random().toString(36).substr(2, 4)}. Processing complex data transformations and running validation tests.`,
+                    status: 'active',
+                    started_at: new Date().toISOString()
+                }
+            };
+            const agents = state.getAgents();
+            state.setEntities('agents', [...agents, agent]);
+        });
+        
+        document.getElementById('add-idle').addEventListener('click', () => {
+            const agent = {
+                id: `bn-${Math.random().toString(36).substr(2, 4)}`,
+                title: `Idle Agent ${++agentCounter}`,
+                short_name: `agent-${agentCounter}`,
+                type: 'agent',
+                status: 'idle',
+                pid: 1000 + agentCounter,
+                started_at: new Date(Date.now() - 3600000).toISOString(),
+                _agent: {
+                    name: `Waiting Agent ${agentCounter}`,
+                    purpose: `Idle and waiting for work. Ready to pick up the next available task from the queue.`,
+                    status: 'idle',
+                    started_at: new Date(Date.now() - 3600000).toISOString()
+                }
+            };
+            const agents = state.getAgents();
+            state.setEntities('agents', [...agents, agent]);
+        });
+        
+        document.getElementById('add-stale').addEventListener('click', () => {
+            const agent = {
+                id: `bn-${Math.random().toString(36).substr(2, 4)}`,
+                title: `Stale Agent ${++agentCounter}`,
+                short_name: `agent-${agentCounter}`,
+                type: 'agent',
+                status: 'stale',
+                pid: 1000 + agentCounter,
+                started_at: new Date(Date.now() - 7200000).toISOString(),
+                _agent: {
+                    name: `Stale Agent ${agentCounter}`,
+                    purpose: `Process may have exited or become unresponsive. Last seen working on data migration tasks.`,
+                    status: 'stale',
+                    started_at: new Date(Date.now() - 7200000).toISOString()
+                }
+            };
+            const agents = state.getAgents();
+            state.setEntities('agents', [...agents, agent]);
+        });
+        
+        document.getElementById('clear-agents').addEventListener('click', () => {
+            state.setEntities('agents', []);
+            agentCounter = 0;
+        });
+        
+        // Subscribe to selection changes
+        state.subscribe('ui.selectedNode', (nodeId) => {
+            console.log('Selected agent:', nodeId);
+        });
+        
+        // Add some initial test agents
+        state.setEntities('agents', [
+            {
+                id: 'bn-c1ad',
+                title: 'Active Worker',
+                short_name: 'worker-001',
+                type: 'agent',
+                status: 'active',
+                pid: 1234,
+                started_at: new Date().toISOString(),
+                _agent: {
+                    name: 'Primary Agent Worker',
+                    purpose: 'Implementing new features for the GUI. Currently working on agent card redesign to show more detailed information.',
+                    status: 'active',
+                    started_at: new Date().toISOString()
+                }
+            },
+            {
+                id: 'bn-test2',
+                title: 'Idle Agent',
+                short_name: 'worker-002',
+                type: 'agent',
+                status: 'idle',
+                pid: 5678,
+                started_at: new Date(Date.now() - 3600000).toISOString(),
+                _agent: {
+                    name: 'Backup Worker',
+                    purpose: 'Waiting for work assignments from the task queue.',
+                    status: 'idle',
+                    started_at: new Date(Date.now() - 3600000).toISOString()
+                }
+            },
+            {
+                id: 'bn-test3',
+                title: 'Stale Worker',
+                short_name: 'worker-003',
+                type: 'agent',
+                status: 'stale',
+                pid: 9012,
+                started_at: new Date(Date.now() - 7200000).toISOString(),
+                _agent: {
+                    name: 'Abandoned Process',
+                    purpose: 'Process may have exited unexpectedly during database migration.',
+                    status: 'stale',
+                    started_at: new Date(Date.now() - 7200000).toISOString()
+                }
+            }
+        ]);
+    </script>
+</body>
+</html>
