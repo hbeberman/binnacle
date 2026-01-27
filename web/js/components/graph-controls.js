@@ -5,6 +5,8 @@
  * - Search input for filtering nodes
  * - Hide completed toggle
  * - Auto-follow configuration
+ * - Agent dropdown menu
+ * - Zoom controls
  */
 
 import * as State from '../state.js';
@@ -19,6 +21,7 @@ export function createGraphControls() {
     controls.id = 'graph-controls';
     
     controls.innerHTML = `
+        <input class="graph-search" id="graph-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" />
         <div class="filters-dropdown" style="position: relative;">
             <button class="filters-dropdown-btn" id="filters-dropdown-btn" title="Show/hide filters">
                 <span class="filters-icon">⚙</span>
@@ -40,7 +43,6 @@ export function createGraphControls() {
                 </div>
             </div>
         </div>
-        <input class="graph-search" id="graph-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" />
         <div class="hide-completed-toggle">
             <span class="hide-completed-label">Hide completed</span>
             <button class="hide-completed-switch" id="hide-completed-switch" title="Hide completed nodes (except in active chains)"></button>
@@ -85,6 +87,25 @@ export function createGraphControls() {
                 </div>
             </div>
         </div>
+        <div class="graph-controls-spacer"></div>
+        <div class="zoom-controls-inline">
+            <button class="graph-control-btn zoom-out-btn" id="zoom-out-btn" title="Zoom Out">−</button>
+            <div class="zoom-level" id="zoom-level">100%</div>
+            <button class="graph-control-btn zoom-in-btn" id="zoom-in-btn" title="Zoom In">+</button>
+        </div>
+        <div class="agent-dropdown" style="position: relative;">
+            <button class="agent-dropdown-btn" id="agent-dropdown-btn" title="Show agents">
+                <span class="agent-icon">🤖</span>
+                <span class="agent-label">Agents</span>
+                <span class="agent-count" id="agent-count">0</span>
+            </button>
+            <div class="agent-dropdown-popover" id="agent-dropdown-popover">
+                <div class="config-popover-title">Active Agents</div>
+                <div class="agent-list" id="graph-agent-list">
+                    <!-- Agent items will be populated dynamically -->
+                </div>
+            </div>
+        </div>
     `;
     
     return controls;
@@ -97,12 +118,18 @@ export function createGraphControls() {
  * @param {Function} options.onSearch - Callback for search input changes
  * @param {Function} options.onHideCompletedToggle - Callback for hide completed toggle
  * @param {Function} options.onAutoFollowToggle - Callback for auto-follow toggle
+ * @param {Function} options.onZoomIn - Callback for zoom in
+ * @param {Function} options.onZoomOut - Callback for zoom out
+ * @param {Function} options.updateZoomLevel - Callback to update zoom level display
  */
 export function initializeGraphControls(controls, options = {}) {
     const {
         onSearch = null,
         onHideCompletedToggle = null,
-        onAutoFollowToggle = null
+        onAutoFollowToggle = null,
+        onZoomIn = null,
+        onZoomOut = null,
+        updateZoomLevel = null
     } = options;
     
     // Initialize filters dropdown
@@ -274,6 +301,158 @@ export function initializeGraphControls(controls, options = {}) {
             }
         });
     }
+    
+    // Initialize zoom controls
+    const zoomInBtn = controls.querySelector('#zoom-in-btn');
+    const zoomOutBtn = controls.querySelector('#zoom-out-btn');
+    const zoomLevel = controls.querySelector('#zoom-level');
+    
+    if (zoomInBtn && onZoomIn) {
+        zoomInBtn.addEventListener('click', () => {
+            onZoomIn();
+            if (updateZoomLevel && zoomLevel) {
+                updateZoomLevel(zoomLevel);
+            }
+        });
+    }
+    
+    if (zoomOutBtn && onZoomOut) {
+        zoomOutBtn.addEventListener('click', () => {
+            onZoomOut();
+            if (updateZoomLevel && zoomLevel) {
+                updateZoomLevel(zoomLevel);
+            }
+        });
+    }
+    
+    // Initial zoom level update
+    if (updateZoomLevel && zoomLevel) {
+        updateZoomLevel(zoomLevel);
+    }
+    
+    // Initialize agent dropdown
+    const agentBtn = controls.querySelector('#agent-dropdown-btn');
+    const agentPopover = controls.querySelector('#agent-dropdown-popover');
+    const agentList = controls.querySelector('#graph-agent-list');
+    const agentCount = controls.querySelector('#agent-count');
+    
+    if (agentBtn && agentPopover) {
+        // Toggle popover visibility
+        agentBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            agentBtn.classList.toggle('active');
+            agentPopover.classList.toggle('visible');
+        });
+        
+        // Close popover when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!agentPopover.contains(e.target) && e.target !== agentBtn) {
+                agentBtn.classList.remove('active');
+                agentPopover.classList.remove('visible');
+            }
+        });
+        
+        // Update agent list from state
+        const updateAgentList = () => {
+            if (!agentList) return;
+            
+            const agents = State.get('entities.agents') || [];
+            
+            // Update count badge
+            if (agentCount) {
+                agentCount.textContent = agents.length;
+                agentCount.style.display = agents.length > 0 ? 'inline-block' : 'none';
+            }
+            
+            // Clear existing items
+            agentList.innerHTML = '';
+            
+            if (agents.length === 0) {
+                const emptyState = document.createElement('div');
+                emptyState.className = 'agent-list-empty';
+                emptyState.textContent = 'No agents';
+                agentList.appendChild(emptyState);
+                return;
+            }
+            
+            // Sort agents: active first, then idle, then stale
+            const statusOrder = { 'active': 0, 'idle': 1, 'stale': 2, 'unknown': 3 };
+            const sortedAgents = [...agents].sort((a, b) => {
+                const aStatus = (a.status || 'unknown').toLowerCase();
+                const bStatus = (b.status || 'unknown').toLowerCase();
+                const orderA = statusOrder[aStatus] ?? 3;
+                const orderB = statusOrder[bStatus] ?? 3;
+                
+                if (orderA !== orderB) {
+                    return orderA - orderB;
+                }
+                
+                // Secondary sort by name
+                const nameA = a._agent?.name || a.title || a.id;
+                const nameB = b._agent?.name || b.title || b.id;
+                return nameA.localeCompare(nameB);
+            });
+            
+            // Create agent items
+            for (const agent of sortedAgents) {
+                const item = document.createElement('div');
+                item.className = 'agent-item';
+                item.dataset.agentId = agent.id;
+                
+                // Get status badge
+                const statusLower = (agent.status || 'unknown').toLowerCase();
+                let badge;
+                switch (statusLower) {
+                    case 'active':
+                        badge = { emoji: '🟢', className: 'status-active', label: 'Active' };
+                        break;
+                    case 'idle':
+                        badge = { emoji: '🟡', className: 'status-idle', label: 'Idle' };
+                        break;
+                    case 'stale':
+                        badge = { emoji: '🔴', className: 'status-stale', label: 'Stale' };
+                        break;
+                    default:
+                        badge = { emoji: '⚪', className: 'status-unknown', label: 'Unknown' };
+                }
+                
+                const name = agent._agent?.purpose || agent._agent?.name || agent.title || agent.id;
+                
+                item.innerHTML = `
+                    <div class="agent-item-status ${badge.className}" title="${badge.label}">
+                        ${badge.emoji}
+                    </div>
+                    <div class="agent-item-content">
+                        <div class="agent-item-name">${escapeHtml(name)}</div>
+                    </div>
+                `;
+                
+                // Click to focus agent in graph
+                item.addEventListener('click', () => {
+                    State.set('ui.selectedNode', agent.id);
+                });
+                
+                agentList.appendChild(item);
+            }
+        };
+        
+        // Subscribe to agent updates
+        State.subscribe('entities.agents', updateAgentList);
+        
+        // Initial update
+        updateAgentList();
+    }
+}
+
+/**
+ * Simple HTML escaping
+ * @param {string} str - String to escape
+ * @returns {string} Escaped string
+ */
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 /**
