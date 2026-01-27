@@ -119,6 +119,9 @@ function buildGraphNodes() {
     graphNodes = allEntities.map((entity, index) => {
         const existing = existingNodes.get(entity.id);
         
+        // For agent nodes, store the agent data in _agent for label rendering
+        const agentData = entity.type === 'agent' ? entity : entity._agent;
+        
         if (existing) {
             // Preserve position, update data
             return {
@@ -131,7 +134,7 @@ function buildGraphNodes() {
                 closed_at: entity.closed_at,
                 doc_type: entity.doc_type,
                 _departing: entity._departing,
-                _agent: entity._agent,
+                _agent: agentData,
                 vx: 0,  // Reset velocity to prevent oscillation
                 vy: 0
             };
@@ -151,7 +154,7 @@ function buildGraphNodes() {
                 closed_at: entity.closed_at,
                 doc_type: entity.doc_type,
                 _departing: entity._departing,
-                _agent: entity._agent,
+                _agent: agentData,
                 x: Math.cos(angle) * radius,
                 y: Math.sin(angle) * radius,
                 vx: 0,
