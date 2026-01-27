@@ -205,7 +205,13 @@
             
             <!-- Nodes list view -->
             <div class="view" id="nodes-view">
-                <h2>All Nodes</h2>
+                <div class="nodes-view-header">
+                    <h2>All Nodes</h2>
+                    <div class="search-container">
+                        <input type="text" id="nodes-search" class="search-input" placeholder="Search nodes...">
+                        <button id="clear-search" class="clear-search-btn" style="display: none;">✕</button>
+                    </div>
+                </div>
                 <div class="node-list" id="node-list"></div>
             </div>
             
@@ -291,6 +297,25 @@
                 showNodeDetailModal(nodeId);
             }
         });
+        
+        // Initialize nodes search
+        const nodesSearchInput = document.getElementById('nodes-search');
+        const clearSearchBtn = document.getElementById('clear-search');
+        
+        if (nodesSearchInput && clearSearchBtn) {
+            nodesSearchInput.addEventListener('input', (e) => {
+                const query = e.target.value.trim();
+                state.set('ui.searchQuery', query);
+                clearSearchBtn.style.display = query ? 'block' : 'none';
+            });
+            
+            clearSearchBtn.addEventListener('click', () => {
+                nodesSearchInput.value = '';
+                state.set('ui.searchQuery', '');
+                clearSearchBtn.style.display = 'none';
+                nodesSearchInput.focus();
+            });
+        }
         
         // Create and mount info panel
         const infoPanel = createInfoPanel();
