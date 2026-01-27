@@ -8,7 +8,6 @@
  * - Preview and create link buttons
  */
 
-import * as state from '../state.js';
 import { createClickableId } from '../utils/clickable-ids.js';
 
 // Link type definitions with their descriptions
