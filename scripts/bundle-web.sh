@@ -24,7 +24,8 @@ find web/js -name "*.js" ! -name "*.test.js" -type f | while read -r jsfile; do
     mkdir -p "$(dirname "$outfile")"
     
     # Use esbuild to bundle and minify (includes npm dependencies like marked, highlight.js)
-    npx esbuild "$jsfile" --bundle --minify --format=esm --outfile="$outfile"
+    # Keep state.js external to avoid duplicate module instances
+    npx esbuild "$jsfile" --bundle --minify --format=esm --external:../state.js --outfile="$outfile"
 done
 
 # Bundle all CSS files into a single main.css
