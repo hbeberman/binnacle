@@ -422,6 +422,22 @@
     word-break: break-all;
 }
 
+/* Clickable entity IDs in log entries */
+.clickable-entity-id {
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: var(--accent-blue);
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    transition: color 0.2s;
+}
+
+.clickable-entity-id:hover {
+    color: var(--accent-purple);
+    text-decoration-style: solid;
+}
+
 .log-pagination {
     display: flex;
     justify-content: space-between;

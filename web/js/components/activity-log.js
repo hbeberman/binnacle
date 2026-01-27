@@ -5,6 +5,8 @@
  * entry rendering with owner display, and container structure.
  */
 
+import { showNodeDetailModal } from './node-detail-modal.js';
+
 /**
  * Simple HTML escaping
  * @param {string} str - String to escape
@@ -73,6 +75,45 @@ function renderOwnerBadge(user) {
 }
 
 /**
+ * Regex to match binnacle entity IDs
+ */
+const ENTITY_ID_PATTERN = /\b(bn[a-z]?-[a-f0-9]{4})\b/gi;
+
+/**
+ * Make entity IDs in text clickable
+ * @param {string} text - Text that may contain entity IDs
+ * @returns {string} HTML with clickable entity IDs
+ */
+function makeEntityIdsClickable(text) {
+    if (!text || !ENTITY_ID_PATTERN.test(text)) {
+        return escapeHtml(text);
+    }
+    
+    // Reset regex
+    ENTITY_ID_PATTERN.lastIndex = 0;
+    
+    let result = '';
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = ENTITY_ID_PATTERN.exec(text)) !== null) {
+        // Add escaped text before match
+        result += escapeHtml(text.slice(lastIndex, match.index));
+        
+        // Add clickable entity ID
+        const entityId = match[0];
+        result += `<span class="clickable-entity-id" data-entity-id="${entityId}" title="Click to view ${entityId}">${entityId}</span>`;
+        
+        lastIndex = ENTITY_ID_PATTERN.lastIndex;
+    }
+    
+    // Add remaining text
+    result += escapeHtml(text.slice(lastIndex));
+    
+    return result;
+}
+
+/**
  * Render a single log entry
  * @param {Object} entry - Log entry object
  * @returns {string} HTML for the entry
@@ -84,6 +125,11 @@ function renderLogEntry(entry) {
     const command = escapeHtml(entry.command || 'unknown');
     const exitCode = entry.exit_code !== undefined ? entry.exit_code : '?';
     
+    // Make entity IDs clickable in args
+    const argsWithClickableIds = entry.args && entry.args.length > 0
+        ? makeEntityIdsClickable(entry.args.join(' '))
+        : '';
+    
     return `
         <div class="log-entry ${statusClass}">
             <div class="log-entry-header">
@@ -94,7 +140,7 @@ function renderLogEntry(entry) {
             </div>
             ${entry.args && entry.args.length > 0 ? `
             <div class="log-entry-details">
-                <span class="log-args">${escapeHtml(entry.args.join(' '))}</span>
+                <span class="log-args">${argsWithClickableIds}</span>
             </div>
             ` : ''}
         </div>
@@ -231,6 +277,20 @@ export function createActivityLog() {
             updateLogDisplay(container, Math.max(0, currentOffset - 50));
         } else if (action === 'next') {
             updateLogDisplay(container, currentOffset + 50);
+        }
+    });
+    
+    // Entity ID click handlers
+    container.addEventListener('click', (e) => {
+        const clickableId = e.target.closest('.clickable-entity-id');
+        if (!clickableId) return;
+        
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const entityId = clickableId.dataset.entityId;
+        if (entityId) {
+            showNodeDetailModal(entityId);
         }
     });
     
