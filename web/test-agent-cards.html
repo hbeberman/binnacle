@@ -57,6 +57,7 @@
             <button id="add-active">Add Active Agent</button>
             <button id="add-idle">Add Idle Agent</button>
             <button id="add-stale">Add Stale Agent</button>
+            <button id="add-stuck">Add Stuck Agent</button>
             <button id="clear-agents">Clear All Agents</button>
         </div>
         
@@ -135,7 +136,39 @@
                     name: `Stale Agent ${agentCounter}`,
                     purpose: `Process may have exited or become unresponsive. Last seen working on data migration tasks.`,
                     status: 'stale',
-                    started_at: new Date(Date.now() - 7200000).toISOString()
+                    started_at: new Date(Date.now() - 7200000).toISOString(),
+                    health: {
+                        is_stuck: false,
+                        idle_minutes: 120,
+                        stuck_task_ids: []
+                    }
+                }
+            };
+            const agents = state.getAgents();
+            state.setEntities('agents', [...agents, agent]);
+        });
+        
+        document.getElementById('add-stuck').addEventListener('click', () => {
+            const taskId = `bn-${Math.random().toString(36).substr(2, 4)}`;
+            const agent = {
+                id: `bn-${Math.random().toString(36).substr(2, 4)}`,
+                title: `Stuck Agent ${++agentCounter}`,
+                short_name: `agent-${agentCounter}`,
+                type: 'agent',
+                status: 'idle',
+                pid: 1000 + agentCounter,
+                started_at: new Date(Date.now() - 5400000).toISOString(),
+                _agent: {
+                    name: `Stuck Agent ${agentCounter}`,
+                    purpose: `Agent appears stuck. Idle for over 30 minutes while still having assigned tasks.`,
+                    status: 'idle',
+                    started_at: new Date(Date.now() - 5400000).toISOString(),
+                    tasks: [taskId],
+                    health: {
+                        is_stuck: true,
+                        idle_minutes: 45,
+                        stuck_task_ids: [taskId]
+                    }
                 }
             };
             const agents = state.getAgents();
@@ -233,7 +266,33 @@
                     purpose: 'Process may have exited unexpectedly during database migration.',
                     status: 'stale',
                     started_at: new Date(Date.now() - 7200000).toISOString(),
-                    tasks: ['bn-abcd']
+                    tasks: ['bn-abcd'],
+                    health: {
+                        is_stuck: false,
+                        idle_minutes: 120,
+                        stuck_task_ids: []
+                    }
+                }
+            },
+            {
+                id: 'bn-test4',
+                title: 'Stuck Worker',
+                short_name: 'worker-004',
+                type: 'agent',
+                status: 'idle',
+                pid: 3456,
+                started_at: new Date(Date.now() - 5400000).toISOString(),
+                _agent: {
+                    name: 'Stuck Agent Example',
+                    purpose: 'Agent appears to be stuck on a task. Idle for over 30 minutes.',
+                    status: 'idle',
+                    started_at: new Date(Date.now() - 5400000).toISOString(),
+                    tasks: ['bn-1234'],
+                    health: {
+                        is_stuck: true,
+                        idle_minutes: 90,
+                        stuck_task_ids: ['bn-1234']
+                    }
                 }
             }
         ]);

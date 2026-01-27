@@ -185,6 +185,44 @@
     line-height: 1.5;
 }
 
+/* Health Warnings */
+.agent-card-health-warnings {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.agent-card-health-warning {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.agent-card-health-warning.agent-card-health-stale {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+}
+
+.agent-card-health-warning.agent-card-health-stuck {
+    background: rgba(251, 191, 36, 0.15);
+    border: 1px solid rgba(251, 191, 36, 0.4);
+    color: #fcd34d;
+}
+
+.agent-card-health-icon {
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.agent-card-health-text {
+    flex: 1;
+}
+
 .agent-cards-empty {
     grid-column: 1 / -1;
     text-align: center;

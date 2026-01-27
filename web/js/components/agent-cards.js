@@ -89,6 +89,64 @@ function formatElapsedTime(startTime) {
 }
 
 /**
+ * Create health warnings section for an agent card
+ * @param {Object} agent - Agent entity
+ * @returns {HTMLElement|null} Health warnings element or null if no warnings
+ */
+function createHealthWarningsSection(agent) {
+    const health = agent._agent?.health || agent.health;
+    const status = (agent.status || '').toLowerCase();
+    
+    // Only show warnings for stale or stuck agents
+    if (status !== 'stale' && (!health || !health.is_stuck)) {
+        return null;
+    }
+    
+    const section = document.createElement('div');
+    section.className = 'agent-card-health-warnings';
+    
+    // Stale agent warning
+    if (status === 'stale' && health) {
+        const staleWarning = document.createElement('div');
+        staleWarning.className = 'agent-card-health-warning agent-card-health-stale';
+        
+        const idleMinutes = health.idle_minutes || 0;
+        const timeStr = idleMinutes >= 60 
+            ? `${Math.floor(idleMinutes / 60)}h ${idleMinutes % 60}m`
+            : `${idleMinutes}m`;
+        
+        staleWarning.innerHTML = `
+            <span class="agent-card-health-icon">⚠️</span>
+            <span class="agent-card-health-text">Agent stale (${timeStr} since last activity)</span>
+        `;
+        section.appendChild(staleWarning);
+    }
+    
+    // Stuck agent warning
+    if (health && health.is_stuck) {
+        const stuckWarning = document.createElement('div');
+        stuckWarning.className = 'agent-card-health-warning agent-card-health-stuck';
+        
+        const idleMinutes = health.idle_minutes || 0;
+        const timeStr = idleMinutes >= 60 
+            ? `${Math.floor(idleMinutes / 60)}h ${idleMinutes % 60}m`
+            : `${idleMinutes}m`;
+        
+        const taskInfo = health.stuck_task_ids && health.stuck_task_ids.length > 0
+            ? ` on task${health.stuck_task_ids.length > 1 ? 's' : ''}`
+            : '';
+        
+        stuckWarning.innerHTML = `
+            <span class="agent-card-health-icon">🔒</span>
+            <span class="agent-card-health-text">Agent stuck${taskInfo} (${timeStr} idle)</span>
+        `;
+        section.appendChild(stuckWarning);
+    }
+    
+    return section;
+}
+
+/**
  * Create task links section for an agent card
  * @param {Array<string>} tasks - Array of task IDs
  * @returns {HTMLElement} Task section element
@@ -173,6 +231,12 @@ function createAgentCard(agent) {
             </div>
         </div>
     `;
+    
+    // Add health warnings section (if any)
+    const healthWarnings = createHealthWarningsSection(agent);
+    if (healthWarnings) {
+        card.appendChild(healthWarnings);
+    }
     
     // Add task links section
     const taskSection = createTaskLinksSection(tasks);
