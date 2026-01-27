@@ -25,6 +25,7 @@
     <link rel="stylesheet" href="/css/components/graph-controls.css">
     <link rel="stylesheet" href="/css/components/node-list.css">
     <link rel="stylesheet" href="/css/components/node-detail-modal.css">
+    <link rel="stylesheet" href="/css/components/node-detail-pane.css">
     <link rel="stylesheet" href="/css/components/agent-cards.css">
     
     <style>
@@ -259,6 +260,7 @@
         import { createInfoPanel, initializeInfoPanel, showInfoPanel, updateInfoPanelContent } from './js/components/info-panel.js';
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
         import { mountNodeDetailModal, showNodeDetailModal } from './js/components/node-detail-modal.js';
+        import { mountNodeDetailPane, showNodeDetailPane } from './js/components/node-detail-pane.js';
         import { createAvailableWorkPane } from './js/components/available-work-pane.js';
         import { createActiveTaskPane } from './js/components/active-task-pane.js';
         import { createRecentlyCompletedPane } from './js/components/recently-completed-pane.js';
@@ -386,6 +388,9 @@
         // Mount node detail modal
         mountNodeDetailModal(container);
         
+        // Mount node detail pane (side panel for double-click)
+        mountNodeDetailPane(container);
+        
         // Create and mount available work pane
         const availableWorkPane = createAvailableWorkPane();
         document.getElementById('available-work-container').appendChild(availableWorkPane);
@@ -416,6 +421,11 @@
             onEdgeClick: (edge) => {
                 console.log('Edge clicked:', edge);
                 // TODO: Show edge info panel
+            },
+            onNodeDoubleClick: (node) => {
+                console.log('Node double-clicked:', node);
+                // Show detail pane for the double-clicked node
+                showNodeDetailPane(node.id);
             }
         });
         

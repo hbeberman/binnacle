@@ -34,6 +34,7 @@ let currentHoveredEdge = null;
 let onNodeHover = null;
 let onEdgeHover = null;
 let onHoverEnd = null;
+let onNodeDoubleClick = null;
 
 // Canvas reference
 let canvas = null;
@@ -50,6 +51,7 @@ const PAN_SPEED = 5; // pixels per frame
  * @param {Function} callbacks.onNodeHover - Called when hovering over a node: (node, mouseX, mouseY)
  * @param {Function} callbacks.onEdgeHover - Called when hovering over an edge: (edge, mouseX, mouseY)
  * @param {Function} callbacks.onHoverEnd - Called when hover ends: ()
+ * @param {Function} callbacks.onNodeDoubleClick - Called when double-clicking a node: (node)
  */
 export function init(canvasElement, callbacks = {}) {
     canvas = canvasElement;
@@ -58,12 +60,14 @@ export function init(canvasElement, callbacks = {}) {
     onNodeHover = callbacks.onNodeHover || null;
     onEdgeHover = callbacks.onEdgeHover || null;
     onHoverEnd = callbacks.onHoverEnd || null;
+    onNodeDoubleClick = callbacks.onNodeDoubleClick || null;
     
     // Mouse events for pan and hover
     canvas.addEventListener('mousedown', onMouseDown);
     canvas.addEventListener('mousemove', onMouseMove);
     canvas.addEventListener('mouseup', onMouseUp);
     canvas.addEventListener('mouseleave', onMouseLeave);
+    canvas.addEventListener('dblclick', onDoubleClick);
     
     // Wheel for zoom
     canvas.addEventListener('wheel', onWheel, { passive: false });
@@ -297,6 +301,25 @@ function onMouseLeave() {
     
     if (onHoverEnd) {
         onHoverEnd();
+    }
+}
+
+/**
+ * Handle double click - show detail pane for clicked node
+ */
+function onDoubleClick(e) {
+    if (!onNodeDoubleClick) return;
+    
+    // Get canvas-relative coordinates
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    
+    // Check if we're double-clicking on a node
+    const clickedNode = findNodeAtPosition(canvasX, canvasY);
+    
+    if (clickedNode) {
+        onNodeDoubleClick(clickedNode);
     }
 }
 

@@ -12,7 +12,7 @@ import * as state from '../state.js';
 import { ConnectionStatus } from '../state.js';
 import { drawNodeShapePath } from './shapes.js';
 import { getNodeColor, getEdgeStyle, getCSSColors } from './colors.js';
-import { worldToScreen, screenToWorld, getZoom, panToNode, cancelPanAnimation } from './transform.js';
+import { worldToScreen, screenToWorld, getZoom, panToNode } from './transform.js';
 import * as camera from './camera.js';
 
 // Animation constants
@@ -45,8 +45,10 @@ const departingAgents = new Map();
 /**
  * Initialize the graph renderer with a canvas element
  * @param {HTMLCanvasElement} canvasElement - The canvas to render to
+ * @param {Object} callbacks - Optional callback functions
+ * @param {Function} callbacks.onNodeDoubleClick - Called when double-clicking a node
  */
-export function init(canvasElement) {
+export function init(canvasElement, callbacks = {}) {
     canvas = canvasElement;
     ctx = canvas.getContext('2d');
     
@@ -54,7 +56,9 @@ export function init(canvasElement) {
     resizeCanvas();
     
     // Initialize camera controls (panning, zooming, node dragging, hover)
-    camera.init(canvasElement);
+    camera.init(canvasElement, {
+        onNodeDoubleClick: callbacks.onNodeDoubleClick || null
+    });
     
     // Subscribe to state changes that require re-render
     state.subscribe('entities.*', onEntitiesChanged);
@@ -360,10 +364,11 @@ function updateAutoFollow() {
     }
     
     // Get auto-follow configuration
-    const config = state.get('ui.autoFollowConfig') || {
-        nodeTypes: { task: true, bug: true, idea: false, test: false, doc: false },
-        focusDelaySeconds: 10
-    };
+    // Currently unused but reserved for future auto-follow feature implementation
+    // const config = state.get('ui.autoFollowConfig') || {
+    //     nodeTypes: { task: true, bug: true, idea: false, test: false, doc: false },
+    //     focusDelaySeconds: 10
+    // };
     
     // Find agents to follow
     const agents = visibleNodes.filter(node => node.type === 'agent');
@@ -485,7 +490,6 @@ function render() {
     if (!ctx || !canvas) return;
     
     const colors = getCSSColors();
-    const zoom = getZoom();
     
     // Clear canvas
     ctx.fillStyle = colors.bgSecondary;
@@ -743,7 +747,7 @@ function drawInProgressRings(cx, cy, radius) {
 /**
  * Draw node text (short_name and ID)
  */
-function drawNodeText(node, screenPos, radius) {
+function drawNodeText(node, screenPos, _radius) {
     const zoom = getZoom();
     const isHovered = node === hoveredNode;
     const isDragging = node === draggedNode;
@@ -996,7 +1000,6 @@ export function setDraggedNode(node) {
  */
 export function findNodeAtPosition(screenX, screenY) {
     const worldPos = screenToWorld(screenX, screenY, canvas);
-    const zoom = getZoom();
     
     // Search in reverse order (topmost first)
     for (let i = visibleNodes.length - 1; i >= 0; i--) {
