@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Link Builder Component</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/themes/dark.css">
+    <link rel="stylesheet" href="/css/components/link-builder.css">
+    <style>
+        body {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        button {
+            padding: 10px 20px;
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: var(--accent-hover);
+        }
+        .status {
+            padding: 10px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Link Builder Component Test</h1>
+    
+    <button id="show-builder">Show Link Builder</button>
+    
+    <div class="status">
+        <h3>Instructions:</h3>
+        <ul>
+            <li>Click "Show Link Builder" to open the component</li>
+            <li>Test the direction swap button</li>
+            <li>Select different link types</li>
+            <li>Add an optional reason</li>
+            <li>Preview the link</li>
+            <li>Test create/cancel buttons</li>
+        </ul>
+    </div>
+    
+    <div class="status" id="event-log">
+        <h3>Event Log:</h3>
+        <div id="log-content"></div>
+    </div>
+
+    <script type="module">
+        import { createLinkBuilder, initializeLinkBuilder, updateLinkBuilderContent } from './js/components/link-builder.js';
+
+        // Mock node data
+        const mockNodes = [
+            {
+                id: 'bn-1234',
+                type: 'task',
+                title: 'Implement authentication system',
+                short_name: 'Auth system'
+            },
+            {
+                id: 'bn-5678',
+                type: 'task',
+                title: 'Add JWT validation middleware',
+                short_name: 'JWT middleware'
+            }
+        ];
+
+        // Create and mount link builder
+        const linkBuilder = createLinkBuilder();
+        document.body.appendChild(linkBuilder);
+
+        // Initialize with callbacks
+        initializeLinkBuilder(linkBuilder, {
+            onCreate: async (linkData) => {
+                logEvent('onCreate', linkData);
+                
+                // Simulate API call
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                logEvent('Link created successfully', linkData);
+            },
+            onCancel: () => {
+                logEvent('onCancel', null);
+            }
+        });
+
+        // Show builder button
+        document.getElementById('show-builder').addEventListener('click', () => {
+            updateLinkBuilderContent(linkBuilder, mockNodes);
+            logEvent('Link builder opened', null);
+        });
+
+        // Logging function
+        function logEvent(event, data) {
+            const logContent = document.getElementById('log-content');
+            const entry = document.createElement('div');
+            entry.style.padding = '5px';
+            entry.style.borderBottom = '1px solid var(--border-color)';
+            
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `
+                <strong>${timestamp}</strong> - ${event}
+                ${data ? `<pre>${JSON.stringify(data, null, 2)}</pre>` : ''}
+            `;
+            
+            logContent.insertBefore(entry, logContent.firstChild);
+        }
+    </script>
+</body>
+</html>
