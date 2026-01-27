@@ -120,6 +120,13 @@
     font-style: italic;
 }
 
+.summarize-chat-error {
+    text-align: center;
+    color: var(--color-error, #f44336);
+    padding: 2rem;
+    font-weight: 500;
+}
+
 /* ==========================================================================
    Chat Messages
    ========================================================================== */
@@ -206,6 +213,24 @@
 
 .chat-message-user .chat-message-content strong {
     color: white;
+}
+
+/* Typing and processing indicators */
+.chat-message.typing .chat-message-content,
+.chat-message.processing .chat-message-content {
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.chat-message.typing .chat-message-content::after {
+    content: '...';
+    animation: ellipsis 1.5s infinite;
+}
+
+@keyframes ellipsis {
+    0%, 20% { content: '.'; }
+    40% { content: '..'; }
+    60%, 100% { content: '...'; }
 }
 
 /* ==========================================================================
