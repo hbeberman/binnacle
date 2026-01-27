@@ -230,13 +230,15 @@ function hasActiveFilters(filters) {
  * Update the log display
  * @param {HTMLElement} container - Container element
  * @param {number} offset - Current pagination offset
+ * @param {boolean} append - If true, append to existing entries instead of replacing
  */
-async function updateLogDisplay(container, offset = 0) {
+async function updateLogDisplay(container, offset = 0, append = false) {
     const entriesContainer = container.querySelector('.log-entries');
     const loadingEl = container.querySelector('.log-loading');
     const errorEl = container.querySelector('.log-error');
     const emptyEl = container.querySelector('.log-empty');
-    const paginationEl = container.querySelector('.log-pagination');
+    const loadMoreBtn = container.querySelector('.log-load-more-btn');
+    const loadingMoreEl = container.querySelector('.log-loading-more');
     
     // Get current filters
     const filters = getCurrentFilters(container);
@@ -247,15 +249,22 @@ async function updateLogDisplay(container, offset = 0) {
         clearBtn.disabled = !hasActiveFilters(filters);
     }
     
-    // Show loading state
-    loadingEl.style.display = 'block';
-    errorEl.style.display = 'none';
-    emptyEl.style.display = 'none';
-    entriesContainer.innerHTML = '';
+    // Show appropriate loading state
+    if (append) {
+        loadingMoreEl.style.display = 'block';
+        if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+    } else {
+        loadingEl.style.display = 'block';
+        errorEl.style.display = 'none';
+        emptyEl.style.display = 'none';
+        entriesContainer.innerHTML = '';
+    }
     
     const result = await fetchLogs(50, offset, filters);
     
+    // Hide loading states
     loadingEl.style.display = 'none';
+    loadingMoreEl.style.display = 'none';
     
     if (result.error) {
         errorEl.textContent = `Error loading logs: ${result.error}`;
@@ -265,27 +274,29 @@ async function updateLogDisplay(container, offset = 0) {
     
     if (result.entries.length === 0 && offset === 0) {
         emptyEl.style.display = 'block';
+        if (loadMoreBtn) loadMoreBtn.style.display = 'none';
         return;
     }
     
     // Render entries
     const entriesHTML = result.entries.map(renderLogEntry).join('');
-    entriesContainer.innerHTML = entriesHTML;
+    if (append) {
+        entriesContainer.insertAdjacentHTML('beforeend', entriesHTML);
+    } else {
+        entriesContainer.innerHTML = entriesHTML;
+    }
     
-    // Update pagination
-    const currentPage = Math.floor(offset / 50) + 1;
-    const totalPages = Math.ceil(result.total / 50);
-    const hasPrev = offset > 0;
-    const hasNext = offset + 50 < result.total;
+    // Update load more button visibility
+    const hasMore = offset + result.entries.length < result.total;
+    if (loadMoreBtn) {
+        loadMoreBtn.style.display = hasMore ? 'block' : 'none';
+        const loadedCount = offset + result.entries.length;
+        loadMoreBtn.textContent = `Load More (${loadedCount} of ${result.total})`;
+    }
     
-    paginationEl.innerHTML = `
-        <button class="pagination-btn" data-action="prev" ${!hasPrev ? 'disabled' : ''}>← Previous</button>
-        <span class="pagination-info">Page ${currentPage} of ${totalPages} (${result.total} total)</span>
-        <button class="pagination-btn" data-action="next" ${!hasNext ? 'disabled' : ''}>Next →</button>
-    `;
-    
-    // Store current offset for pagination handlers
-    container.dataset.currentOffset = offset.toString();
+    // Store current offset for load more handler
+    container.dataset.currentOffset = (offset + result.entries.length).toString();
+    container.dataset.totalEntries = result.total.toString();
 }
 
 /**
@@ -366,7 +377,11 @@ export function createActivityLog() {
         
         <div class="log-entries"></div>
         
-        <div class="log-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-top: 1px solid var(--border-color);"></div>
+        <div class="log-loading-more" style="display: none; text-align: center; padding: 1rem; color: var(--text-secondary);">Loading more entries...</div>
+        
+        <button class="log-load-more-btn" style="display: none; width: 100%; padding: 1rem; margin-top: 1rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; font-size: 0.9rem;">
+            Load More
+        </button>
     `;
     
     // Initial load
@@ -374,8 +389,8 @@ export function createActivityLog() {
     
     // Refresh button handler
     container.querySelector('.btn-refresh').addEventListener('click', () => {
-        const offset = parseInt(container.dataset.currentOffset || '0', 10);
-        updateLogDisplay(container, offset);
+        // Reset to top on refresh
+        updateLogDisplay(container, 0);
     });
     
     // Filter change handlers
@@ -408,19 +423,10 @@ export function createActivityLog() {
         updateLogDisplay(container, 0);
     });
     
-    // Pagination handlers
-    container.addEventListener('click', (e) => {
-        const btn = e.target.closest('.pagination-btn');
-        if (!btn || btn.disabled) return;
-        
-        const action = btn.dataset.action;
+    // Load more button handler
+    container.querySelector('.log-load-more-btn').addEventListener('click', () => {
         const currentOffset = parseInt(container.dataset.currentOffset || '0', 10);
-        
-        if (action === 'prev') {
-            updateLogDisplay(container, Math.max(0, currentOffset - 50));
-        } else if (action === 'next') {
-            updateLogDisplay(container, currentOffset + 50);
-        }
+        updateLogDisplay(container, currentOffset, true);
     });
     
     // Entity ID click handlers
@@ -460,17 +466,16 @@ export function mountActivityLog(target) {
     
     // Subscribe to log state changes for real-time updates
     subscribe('log', () => {
-        // When log state changes (e.g., from WebSocket sync), refresh the display
-        const currentOffset = parseInt(log.dataset.currentOffset || '0', 10);
-        updateLogDisplay(log, currentOffset);
+        // When log state changes (e.g., from WebSocket sync), refresh from top
+        // New entries appear at top, so resetting makes sense
+        updateLogDisplay(log, 0);
     });
     
     // Subscribe to view changes to refresh when switching to log view
     subscribe('ui.currentView', (view) => {
         if (view === 'log') {
-            // Refresh log when switching to log view
-            const currentOffset = parseInt(log.dataset.currentOffset || '0', 10);
-            updateLogDisplay(log, currentOffset);
+            // Refresh log from top when switching to log view
+            updateLogDisplay(log, 0);
         }
     });
     
