@@ -5,6 +5,7 @@
  */
 
 import * as state from '../state.js';
+import { makeIdsClickable } from '../utils/clickable-ids.js';
 
 /**
  * Initialize the node list view
@@ -164,6 +165,11 @@ function renderNodeList(container, options = {}) {
             ${columnsToRender.join('')}
         </div>
     `;
+    
+    // Make all badge-id elements clickable
+    container.querySelectorAll('.badge-id').forEach(el => {
+        makeIdsClickable(el);
+    });
     
     // Attach event handlers
     container.querySelectorAll('.card-jump-btn').forEach(btn => {

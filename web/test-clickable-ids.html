@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Clickable IDs</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 2rem;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        
+        .test-section {
+            margin-bottom: 2rem;
+            padding: 1rem;
+            background: #2a2a2a;
+            border-radius: 8px;
+        }
+        
+        h2 {
+            margin-top: 0;
+            color: #4a9eff;
+        }
+        
+        .clickable-id {
+            cursor: pointer;
+            text-decoration: underline;
+            color: #4a9eff;
+        }
+        
+        .clickable-id:hover {
+            color: #6ab0ff;
+        }
+        
+        #status {
+            padding: 1rem;
+            background: #333;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <h1>Clickable IDs Test</h1>
+    
+    <div id="status">Status: Initializing...</div>
+    
+    <div class="test-section">
+        <h2>Test 1: createClickableId()</h2>
+        <div>Click this ID: <span id="test1"></span></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: makeIdsClickable() with single ID</h2>
+        <div id="test2">This text contains bn-1234 which should become clickable.</div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: makeIdsClickable() with multiple IDs</h2>
+        <div id="test3">Multiple IDs: bn-1234 depends on bnt-5678 and relates to bnq-abcd.</div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 4: Mixed content</h2>
+        <div id="test4">Task bn-9999 is blocked by bn-8888, tested by bnt-7777.</div>
+    </div>
+
+    <script type="module">
+        import { createClickableId, makeIdsClickable, navigateToNode } from './js/utils/clickable-ids.js';
+        
+        const status = document.getElementById('status');
+        
+        // Test 1: Create a clickable ID element
+        const test1 = document.getElementById('test1');
+        test1.appendChild(createClickableId('bn-test1'));
+        
+        // Test 2-4: Make existing text IDs clickable
+        makeIdsClickable(document.getElementById('test2'));
+        makeIdsClickable(document.getElementById('test3'));
+        makeIdsClickable(document.getElementById('test4'));
+        
+        status.textContent = 'Status: Ready! Click any ID to test navigation (will log to console).';
+        
+        // Log navigation attempts for testing
+        const originalNavigate = navigateToNode;
+        window.navigateToNode = function(nodeId) {
+            console.log('Navigation requested to:', nodeId);
+            status.textContent = `Status: Clicked ${nodeId} (check console for details)`;
+            status.style.background = '#2a4a2a';
+            
+            setTimeout(() => {
+                status.style.background = '#333';
+            }, 2000);
+        };
+    </script>
+</body>
+</html>

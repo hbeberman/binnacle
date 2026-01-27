@@ -11,6 +11,7 @@
 
 import { getNode } from '../state.js';
 import { renderMarkdown } from '../utils/markdown.js';
+import { createClickableId, makeIdsClickable } from '../utils/clickable-ids.js';
 
 /**
  * Create the node detail modal HTML
@@ -400,7 +401,8 @@ export function showNodeDetailModal(nodeId) {
     typeEl.textContent = typeInfo.name;
     typeEl.style.background = typeInfo.color;
     
-    idEl.textContent = node.id;
+    idEl.textContent = '';
+    idEl.appendChild(createClickableId(node.id));
     
     // Update content based on node type
     const contentEl = document.getElementById('node-detail-modal-content');
@@ -419,6 +421,11 @@ export function showNodeDetailModal(nodeId) {
     }
     
     contentEl.innerHTML = contentHTML;
+    
+    // Make all binnacle IDs in the content clickable
+    contentEl.querySelectorAll('.edge-target').forEach(el => {
+        makeIdsClickable(el);
+    });
     
     // If it's a doc with content, render markdown
     if (node.type === 'doc' && node.content) {
