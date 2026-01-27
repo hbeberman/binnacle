@@ -348,6 +348,23 @@ export function getAgents() {
     return state.entities.agents;
 }
 
+/**
+ * Get all entities as a flat array
+ * @returns {Array} Combined array of all entities
+ */
+export function getEntities() {
+    return [
+        ...state.entities.tasks,
+        ...state.entities.bugs,
+        ...state.entities.ideas,
+        ...state.entities.tests,
+        ...state.entities.docs,
+        ...state.entities.milestones,
+        ...state.entities.queues,
+        ...state.entities.agents
+    ];
+}
+
 export function getEdges() {
     return state.edges;
 }
