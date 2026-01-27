@@ -9002,56 +9002,94 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
     let queued_bug_ids: std::collections::HashSet<_> =
         queued_bugs.iter().map(|b| b.core.id.as_str()).collect();
 
-    // Wrap tasks with queue membership status
+    // Wrap tasks with queue membership status and check for queued ancestors
     let mut task_items: Vec<ReadyTaskItem> = tasks
         .into_iter()
         .map(|task| {
             let queued = queued_task_ids.contains(task.core.id.as_str());
+            let queued_via = if queued {
+                None
+            } else {
+                find_queued_ancestors(&storage, &task.core.id).unwrap_or(None)
+            };
             ReadyTaskItem {
                 task,
                 queued,
-                queued_via: None,
+                queued_via,
             }
         })
         .collect();
 
-    // Sort: queued first, then by priority, then by creation date
+    // Sort: three-tier sorting (directly queued > inherited > not queued)
+    // Within tiers: by priority (lower = higher), then by creation date (older first)
     task_items.sort_by(|a, b| {
-        match (a.queued, b.queued) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => {
-                // Same queue status: sort by priority (lower = higher priority)
-                a.task.priority.cmp(&b.task.priority).then_with(|| {
-                    // Then by creation date (older first)
-                    a.task.core.created_at.cmp(&b.task.core.created_at)
-                })
-            }
-        }
+        let a_tier = if a.queued {
+            0 // Tier 1: directly queued
+        } else if a.queued_via.is_some() {
+            1 // Tier 2: inherited via ancestor
+        } else {
+            2 // Tier 3: not queued
+        };
+
+        let b_tier = if b.queued {
+            0
+        } else if b.queued_via.is_some() {
+            1
+        } else {
+            2
+        };
+
+        a_tier.cmp(&b_tier).then_with(|| {
+            a.task
+                .priority
+                .cmp(&b.task.priority)
+                .then_with(|| a.task.core.created_at.cmp(&b.task.core.created_at))
+        })
     });
 
-    // Wrap bugs with queue membership status
+    // Wrap bugs with queue membership status and check for queued ancestors
     let mut bug_items: Vec<ReadyBugItem> = bugs
         .into_iter()
         .map(|bug| {
             let queued = queued_bug_ids.contains(bug.core.id.as_str());
+            let queued_via = if queued {
+                None
+            } else {
+                find_queued_ancestors(&storage, &bug.core.id).unwrap_or(None)
+            };
             ReadyBugItem {
                 bug,
                 queued,
-                queued_via: None,
+                queued_via,
             }
         })
         .collect();
 
-    // Sort bugs: queued first, then by priority
-    bug_items.sort_by(|a, b| match (a.queued, b.queued) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a
-            .bug
-            .priority
-            .cmp(&b.bug.priority)
-            .then_with(|| a.bug.core.created_at.cmp(&b.bug.core.created_at)),
+    // Sort bugs: three-tier sorting (directly queued > inherited > not queued)
+    // Within tiers: by priority (lower = higher), then by creation date (older first)
+    bug_items.sort_by(|a, b| {
+        let a_tier = if a.queued {
+            0 // Tier 1: directly queued
+        } else if a.queued_via.is_some() {
+            1 // Tier 2: inherited via ancestor
+        } else {
+            2 // Tier 3: not queued
+        };
+
+        let b_tier = if b.queued {
+            0
+        } else if b.queued_via.is_some() {
+            1
+        } else {
+            2
+        };
+
+        a_tier.cmp(&b_tier).then_with(|| {
+            a.bug
+                .priority
+                .cmp(&b.bug.priority)
+                .then_with(|| a.bug.core.created_at.cmp(&b.bug.core.created_at))
+        })
     });
 
     let count = task_items.len();
