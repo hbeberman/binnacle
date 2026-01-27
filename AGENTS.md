@@ -177,24 +177,48 @@ thread 'test_name' panicked at ...
 
 ## Build and Test
 
-### IMPORTANT: System bn vs Development Build
+### ⚠️ CRITICAL: System bn vs Development Build
 
-This project has TWO different `bn` binaries you need to distinguish:
+**This project has TWO different `bn` binaries - confusing them will cause you to test the wrong code!**
 
-1. **System bn** (`~/.local/bin/bn`) - The installed version used to track tasks
-   - Use plain `bn` commands for task management: `bn orient`, `bn task list`, etc.
-   - This is what you use to manage YOUR work on this project
+#### 1. System bn (`~/.local/bin/bn`)
+The **installed version** used for task tracking and cluster communication:
+- ✅ Use for: `bn orient`, `bn ready`, `bn task update`, `bn goodbye`
+- ✅ This is how you manage YOUR work on this project
+- ❌ **DO NOT** test your code changes with this binary!
 
-2. **Development build** (`./target/debug/bn` or `./target/release/bn`) - What you're building/testing
-   - Use `cargo run --` to test the code you're developing
-   - Use `just test` or `cargo test` to run the test suite
-   - Use `just install` to install your changes to the system bn
+#### 2. Development build (`./target/debug/bn` or `./target/release/bn`)
+The **code you're actively developing** - what you're building/testing:
+- ✅ Use `cargo run --` to test your bn code changes
+- ✅ Use `cargo test` to run the test suite
+- ✅ Use `just install` to promote dev build → system bn (after testing!)
+- ❌ **DO NOT** use plain `bn` commands to test code changes
 
 **Quick reference:**
 
-- Task tracking: `bn orient`, `bn task list`, `bn ready` (uses system bn)
-- Testing code changes: `cargo run -- --help`, `cargo test` (uses dev build)
-- Install your changes: `just install` (copies dev build → system bn)
+| Purpose | Command | Which Binary |
+|---------|---------|--------------|
+| Task tracking | `bn orient`, `bn ready`, `bn task update` | System bn |
+| Testing changes | `cargo run -- --help`, `cargo run -- task list` | Development build |
+| Running tests | `cargo test`, `just test` | Development build |
+| Install changes | `just install` | Copies dev → system |
+
+**Example workflow:**
+```bash
+# 1. Make code changes to bn
+# 2. Test your changes with development build
+cargo run -- task list
+cargo run -- --help
+
+# 3. Run test suite
+cargo test --all-features
+
+# 4. If tests pass and you want to use your changes for task tracking
+just install
+
+# 5. Continue using system bn for task management
+bn task close bn-xxxx --reason "completed"
+```
 
 ### GUI Testing
 
