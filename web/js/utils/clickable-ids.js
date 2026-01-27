@@ -35,11 +35,15 @@ export function navigateToNode(nodeId) {
         state.set('ui.currentView', 'graph');
     }
     
-    // Pan to the node's position
+    // Pan to the node's position and lock focus
     const canvas = document.querySelector('#graph-canvas');
     panToNode(node.x, node.y, { 
         canvas,
-        duration: 500
+        duration: 500,
+        onComplete: () => {
+            // Set focused node after animation completes
+            state.set('ui.focusedNode', nodeId);
+        }
     });
     
     // Optionally, select the node to show its details
