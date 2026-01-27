@@ -24,6 +24,7 @@
     <link rel="stylesheet" href="/css/components/edge-info-panel.css">
     <link rel="stylesheet" href="/css/components/graph-controls.css">
     <link rel="stylesheet" href="/css/components/node-list.css">
+    <link rel="stylesheet" href="/css/components/node-detail-modal.css">
     
     <style>
         /* Additional layout styles for the full app */
@@ -220,6 +221,7 @@
         import { initializeAgentList } from './js/components/agent-list.js';
         import { createInfoPanel, initializeInfoPanel, showInfoPanel, updateInfoPanelContent } from './js/components/info-panel.js';
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
+        import { mountNodeDetailModal, showNodeDetailModal } from './js/components/node-detail-modal.js';
         import { createAvailableWorkPane } from './js/components/available-work-pane.js';
         import { createActiveTaskPane } from './js/components/active-task-pane.js';
         import { createRecentlyCompletedPane } from './js/components/recently-completed-pane.js';
@@ -270,6 +272,10 @@
                 updateInfoPanelContent(infoPanel, node, [], [], []);
                 showInfoPanel(infoPanel);
                 // TODO: Pan to the node in the graph
+            },
+            onInfoClick: (nodeId) => {
+                console.log('Info clicked for node:', nodeId);
+                showNodeDetailModal(nodeId);
             }
         });
         
@@ -298,6 +304,9 @@
         
         // Mount doc viewer overlay
         mountDocViewer(container);
+        
+        // Mount node detail modal
+        mountNodeDetailModal(container);
         
         // Create and mount available work pane
         const availableWorkPane = createAvailableWorkPane();

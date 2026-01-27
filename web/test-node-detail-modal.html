@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Node Detail Modal</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/themes/dark.css">
+    <link rel="stylesheet" href="/css/components/node-detail-modal.css">
+    <style>
+        body {
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        
+        .test-section {
+            background: var(--bg-secondary);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .test-section h2 {
+            margin-top: 0;
+            color: var(--text-primary);
+        }
+        
+        .test-buttons {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .test-btn {
+            padding: 0.5rem 1rem;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .test-btn:hover {
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Node Detail Modal Test</h1>
+        
+        <div class="test-section">
+            <h2>Test Modal with Different Node Types</h2>
+            <div class="test-buttons">
+                <button class="test-btn" id="test-task">Task Node</button>
+                <button class="test-btn" id="test-bug">Bug Node</button>
+                <button class="test-btn" id="test-milestone">Milestone Node</button>
+                <button class="test-btn" id="test-doc">Document Node</button>
+                <button class="test-btn" id="test-test">Test Node</button>
+                <button class="test-btn" id="test-idea">Idea Node</button>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Instructions</h2>
+            <ul>
+                <li>Click each button to test the modal with different node types</li>
+                <li>Verify that the modal displays correct information for each type</li>
+                <li>Check that markdown rendering works for document nodes</li>
+                <li>Test closing via X button, clicking outside, and Escape key</li>
+                <li>Check scrolling behavior with long content</li>
+            </ul>
+        </div>
+    </div>
+
+    <script type="module">
+        import { mountNodeDetailModal, showNodeDetailModal } from './js/components/node-detail-modal.js';
+        import * as state from './js/state.js';
+
+        // Mount the modal
+        const container = document.querySelector('.container');
+        mountNodeDetailModal(container);
+
+        // Mock nodes for testing
+        const mockNodes = {
+            'bn-task1': {
+                id: 'bn-task1',
+                type: 'task',
+                title: 'Implement user authentication',
+                short_name: 'auth impl',
+                description: 'Add JWT-based authentication to the API. This includes:\n- User registration\n- Login/logout\n- Token refresh\n- Password reset',
+                status: 'in_progress',
+                priority: 1,
+                tags: ['backend', 'security', 'api'],
+                assignee: 'agent-claude',
+                queued: true,
+                created_at: '2026-01-20T10:00:00Z',
+                updated_at: '2026-01-26T15:30:00Z',
+                edges: [
+                    {
+                        edge_type: 'depends_on',
+                        related_id: 'bn-task2',
+                        related_title: 'Setup database schema'
+                    },
+                    {
+                        edge_type: 'tested_by',
+                        related_id: 'bnt-0001',
+                        related_title: 'Auth integration tests'
+                    }
+                ]
+            },
+            'bn-bug1': {
+                id: 'bn-bug1',
+                type: 'bug',
+                title: 'Memory leak in graph rendering',
+                description: 'The graph component appears to leak memory when nodes are added/removed repeatedly. After 10-15 cycles, the browser tab becomes unresponsive.',
+                status: 'blocked',
+                priority: 0,
+                tags: ['frontend', 'performance', 'critical'],
+                created_at: '2026-01-25T09:15:00Z',
+                updated_at: '2026-01-26T18:45:00Z',
+                edges: [
+                    {
+                        edge_type: 'blocks',
+                        related_id: 'bn-task5',
+                        related_title: 'Deploy to production'
+                    }
+                ]
+            },
+            'bn-mile1': {
+                id: 'bn-mile1',
+                type: 'milestone',
+                title: 'Alpha Release v0.1.0',
+                short_name: 'v0.1.0',
+                description: 'First public alpha release with core features:\n- Task management\n- Graph visualization\n- Basic API\n- Documentation',
+                status: 'in_progress',
+                priority: 0,
+                created_at: '2026-01-15T00:00:00Z',
+                updated_at: '2026-01-26T20:00:00Z'
+            },
+            'bn-doc1': {
+                id: 'bn-doc1',
+                type: 'doc',
+                title: 'API Design Specification',
+                doc_type: 'prd',
+                version: '1.2',
+                content: `# API Design Specification
+
+## Overview
+
+This document outlines the REST API design for the binnacle project.
+
+## Endpoints
+
+### Tasks
+
+- \`GET /api/tasks\` - List all tasks
+- \`POST /api/tasks\` - Create a new task
+- \`GET /api/tasks/:id\` - Get task details
+- \`PATCH /api/tasks/:id\` - Update a task
+- \`DELETE /api/tasks/:id\` - Delete a task
+
+### Authentication
+
+All endpoints require a valid JWT token in the \`Authorization\` header:
+
+\`\`\`
+Authorization: Bearer <token>
+\`\`\`
+
+## Example Request
+
+\`\`\`json
+{
+  "title": "New Task",
+  "description": "Task description",
+  "priority": 2,
+  "status": "pending"
+}
+\`\`\`
+
+## Error Handling
+
+The API returns standard HTTP status codes:
+
+- **200** - Success
+- **400** - Bad request
+- **401** - Unauthorized
+- **404** - Not found
+- **500** - Server error
+`,
+                created_at: '2026-01-18T14:30:00Z',
+                updated_at: '2026-01-26T11:20:00Z'
+            },
+            'bnt-test1': {
+                id: 'bnt-test1',
+                type: 'test',
+                name: 'Auth integration tests',
+                description: 'Integration tests for authentication flow',
+                command: 'cargo test --test auth_integration',
+                working_dir: '.',
+                pattern: 'tests/auth_integration.rs',
+                linked_tasks: ['bn-task1', 'bn-task2'],
+                created_at: '2026-01-20T11:00:00Z'
+            },
+            'bn-idea1': {
+                id: 'bn-idea1',
+                type: 'idea',
+                title: 'Add collaborative editing features',
+                description: 'Allow multiple users to collaborate on tasks in real-time using WebSockets and operational transforms. This could include:\n- Live cursor positions\n- Real-time updates\n- Conflict resolution\n- Change history',
+                status: 'germinating',
+                tags: ['feature', 'collaboration', 'realtime'],
+                created_at: '2026-01-22T16:45:00Z',
+                updated_at: '2026-01-25T09:30:00Z'
+            }
+        };
+
+        // Mock getNode function
+        const originalGetNode = state.getNode;
+        state.getNode = function(nodeId) {
+            return mockNodes[nodeId] || originalGetNode(nodeId);
+        };
+
+        // Attach event handlers
+        document.getElementById('test-task').addEventListener('click', () => {
+            showNodeDetailModal('bn-task1');
+        });
+
+        document.getElementById('test-bug').addEventListener('click', () => {
+            showNodeDetailModal('bn-bug1');
+        });
+
+        document.getElementById('test-milestone').addEventListener('click', () => {
+            showNodeDetailModal('bn-mile1');
+        });
+
+        document.getElementById('test-doc').addEventListener('click', () => {
+            showNodeDetailModal('bn-doc1');
+        });
+
+        document.getElementById('test-test').addEventListener('click', () => {
+            showNodeDetailModal('bnt-test1');
+        });
+
+        document.getElementById('test-idea').addEventListener('click', () => {
+            showNodeDetailModal('bn-idea1');
+        });
+    </script>
+</body>
+</html>

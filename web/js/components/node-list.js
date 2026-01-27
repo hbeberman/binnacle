@@ -154,6 +154,15 @@ function renderNodeList(container, options = {}) {
             }
         });
     });
+    
+    container.querySelectorAll('.card-info-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const nodeId = e.currentTarget.getAttribute('data-node-id');
+            if (options.onInfoClick) {
+                options.onInfoClick(nodeId);
+            }
+        });
+    });
 }
 
 /**
@@ -194,9 +203,10 @@ function renderTaskBugCard(node, readyIds) {
         ${isBlocked ? `<div class="blocked-banner">🚫 Blocked</div>` : ''}
         <div class="card-header">
             <div class="card-title">${isBug ? '🐛 ' : '📋 '}${escapeHtml(node.title)}</div>
-            <button class="card-jump-btn" data-node-id="${node.id}" title="Jump to graph">
-                📍
-            </button>
+            <div class="card-actions">
+                <button class="card-info-btn" data-node-id="${node.id}" title="View details">ℹ️</button>
+                <button class="card-jump-btn" data-node-id="${node.id}" title="Jump to graph">📍</button>
+            </div>
         </div>
         ${node.description ? `<div class="card-description">${escapeHtml(node.description)}</div>` : ''}
         <div class="card-meta">
@@ -223,9 +233,10 @@ function renderIdeaCard(idea) {
         ${isClosed ? `<div class="closed-banner">✓ ${idea.status === 'promoted' ? 'Promoted' : 'Wilted'}</div>` : ''}
         <div class="card-header">
             <div class="card-title">💡 ${escapeHtml(idea.title)}</div>
-            <button class="card-jump-btn" data-node-id="${idea.id}" title="Jump to graph">
-                📍
-            </button>
+            <div class="card-actions">
+                <button class="card-info-btn" data-node-id="${idea.id}" title="View details">ℹ️</button>
+                <button class="card-jump-btn" data-node-id="${idea.id}" title="Jump to graph">📍</button>
+            </div>
         </div>
         ${idea.description ? `<div class="card-description">${escapeHtml(idea.description)}</div>` : ''}
         <div class="card-meta">
@@ -244,9 +255,10 @@ function renderTestCard(test) {
     <div class="node-card">
         <div class="card-header">
             <div class="card-title">🧪 ${escapeHtml(test.name)}</div>
-            <button class="card-jump-btn" data-node-id="${test.id}" title="Jump to graph">
-                📍
-            </button>
+            <div class="card-actions">
+                <button class="card-info-btn" data-node-id="${test.id}" title="View details">ℹ️</button>
+                <button class="card-jump-btn" data-node-id="${test.id}" title="Jump to graph">📍</button>
+            </div>
         </div>
         <div class="card-meta">
             <span class="badge badge-id">${test.id}</span>
@@ -267,9 +279,10 @@ function renderDocCard(doc) {
     <div class="node-card">
         <div class="card-header">
             <div class="card-title">${docTypeLabel} ${escapeHtml(doc.title)}</div>
-            <button class="card-jump-btn" data-node-id="${doc.id}" title="Jump to graph">
-                📍
-            </button>
+            <div class="card-actions">
+                <button class="card-info-btn" data-node-id="${doc.id}" title="View details">ℹ️</button>
+                <button class="card-jump-btn" data-node-id="${doc.id}" title="Jump to graph">📍</button>
+            </div>
         </div>
         <div class="card-meta">
             <span class="badge badge-id">${doc.id}</span>
@@ -288,9 +301,10 @@ function renderMilestoneCard(milestone) {
         ${isClosed ? `<div class="closed-banner">✓ ${milestone.status === 'done' ? 'Done' : 'Cancelled'}</div>` : ''}
         <div class="card-header">
             <div class="card-title">🎯 ${escapeHtml(milestone.title)}</div>
-            <button class="card-jump-btn" data-node-id="${milestone.id}" title="Jump to graph">
-                📍
-            </button>
+            <div class="card-actions">
+                <button class="card-info-btn" data-node-id="${milestone.id}" title="View details">ℹ️</button>
+                <button class="card-jump-btn" data-node-id="${milestone.id}" title="Jump to graph">📍</button>
+            </div>
         </div>
         ${milestone.description ? `<div class="card-description">${escapeHtml(milestone.description)}</div>` : ''}
         <div class="card-meta">

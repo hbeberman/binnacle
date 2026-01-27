@@ -67,6 +67,13 @@
     color: var(--text-primary);
 }
 
+.card-actions {
+    display: flex;
+    gap: 0.25rem;
+    flex-shrink: 0;
+}
+
+.card-info-btn,
 .card-jump-btn {
     background: var(--bg-tertiary);
     border: none;
@@ -76,6 +83,10 @@
     font-size: 1rem;
     color: var(--text-primary);
     transition: background 0.2s;
+}
+
+.card-info-btn:hover {
+    background: var(--accent-purple);
 }
 
 .card-jump-btn:hover {
