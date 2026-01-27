@@ -829,6 +829,7 @@
                     onStateChange: () => {
                         // Trigger graph update when data changes
                         console.log('State updated from server');
+                        graph.rebuildGraph();
                     }
                 });
             } else {
@@ -840,6 +841,7 @@
                     await connection.connect(detection.wsUrl, {
                         onStateChange: () => {
                             console.log('State updated from server');
+                            graph.rebuildGraph();
                         }
                     });
                 }
