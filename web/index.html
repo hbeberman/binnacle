@@ -466,6 +466,9 @@
         
         // Initialize connection
         async function initializeApp() {
+            // Load user preferences from storage
+            state.initFromStorage();
+            
             // Fetch version
             await fetchVersion();
             
