@@ -42,6 +42,7 @@ pub fn find_available_port(host: &str, start_port: u16) -> Option<u16> {
 
 use crate::models::{Edge, EdgeType, LogAnnotation, Queue, TaskStatus};
 use crate::storage::{Storage, generate_id};
+use chrono::Utc;
 
 /// Error response for readonly mode rejection
 fn readonly_error() -> (StatusCode, Json<serde_json::Value>) {
@@ -236,6 +237,29 @@ impl MessageHistory {
     }
 }
 
+/// Summarize agent session state
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct SummarizeSession {
+    /// Agent ID for this session
+    pub agent_id: String,
+    /// When the session was started
+    pub started_at: chrono::DateTime<Utc>,
+    /// Chat history (messages exchanged with the agent)
+    pub messages: Vec<SummarizeMessage>,
+}
+
+/// A message in the summarize chat session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SummarizeMessage {
+    /// Role: "user" or "assistant"
+    pub role: String,
+    /// Message content
+    pub content: String,
+    /// When the message was sent
+    pub timestamp: chrono::DateTime<Utc>,
+}
+
 /// Shared application state
 #[derive(Clone)]
 pub struct AppState {
@@ -255,6 +279,8 @@ pub struct AppState {
     pub version: StateVersion,
     /// Message history for catch-up synchronization
     pub message_history: MessageHistory,
+    /// Summarize agent session (max 1 concurrent)
+    pub summarize_session: Arc<Mutex<Option<SummarizeSession>>>,
 }
 
 /// Start the GUI web server
@@ -287,6 +313,7 @@ pub async fn start_server(
         readonly,
         version,
         message_history: message_history.clone(),
+        summarize_session: Arc::new(Mutex::new(None)),
     };
 
     // Start file watcher in background
@@ -366,6 +393,9 @@ pub async fn start_server(
         .route("/api/commits", get(get_git_commits))
         .route("/api/metrics/ws", get(get_ws_metrics))
         .route("/api/version", get(get_version))
+        .route("/api/summarize/start", post(summarize_start))
+        .route("/api/summarize/chat", post(summarize_chat))
+        .route("/api/summarize/action", post(summarize_action))
         .route("/ws", get(crate::gui::websocket::ws_handler))
         .with_state(state)
         .fallback_service(ServeDir::new(&web_dir));
@@ -1294,4 +1324,163 @@ async fn get_git_commits(
         "commits": commits,
         "count": count
     })))
+}
+
+/// Request body for starting a summarize session
+#[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
+struct SummarizeStartRequest {
+    /// Selection context from the frontend (entities, edges, metadata)
+    context: serde_json::Value,
+}
+
+/// Start a new summarize agent session (max 1 concurrent)
+async fn summarize_start(
+    State(state): State<AppState>,
+    Json(_req): Json<SummarizeStartRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
+    let mut session = state.summarize_session.lock().await;
+
+    // Check if there's already an active session
+    if session.is_some() {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": "A summarize session is already active. Only one session allowed at a time."
+            })),
+        ));
+    }
+
+    // Generate agent ID
+    let timestamp = Utc::now().timestamp_nanos_opt().unwrap_or(0).to_string();
+    let agent_id = generate_id("bn", &format!("summarize-{}", timestamp));
+
+    // Create new session
+    let new_session = SummarizeSession {
+        agent_id: agent_id.clone(),
+        started_at: Utc::now(),
+        messages: vec![],
+    };
+
+    *session = Some(new_session);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "agent_id": agent_id,
+        "message": "Summarize session started. Ready to analyze selection."
+    })))
+}
+
+/// Request body for chatting with summarize agent
+#[derive(Debug, serde::Deserialize)]
+struct SummarizeChatRequest {
+    /// User's message/question
+    message: String,
+}
+
+/// Chat with the active summarize agent
+async fn summarize_chat(
+    State(state): State<AppState>,
+    Json(req): Json<SummarizeChatRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let mut session = state.summarize_session.lock().await;
+
+    // Check if there's an active session
+    let sess = session.as_mut().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "No active summarize session. Call /api/summarize/start first."
+            })),
+        )
+    })?;
+
+    // Add user message to history
+    sess.messages.push(SummarizeMessage {
+        role: "user".to_string(),
+        content: req.message.clone(),
+        timestamp: Utc::now(),
+    });
+
+    // TODO: In a real implementation, this would communicate with an actual agent
+    // For now, return a placeholder response
+    let response = format!(
+        "I've analyzed your selection. You sent: '{}'. In a full implementation, I would provide insights, suggest relationships, or offer to create links between entities.",
+        req.message
+    );
+
+    // Add assistant response to history
+    sess.messages.push(SummarizeMessage {
+        role: "assistant".to_string(),
+        content: response.clone(),
+        timestamp: Utc::now(),
+    });
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "response": response,
+        "suggested_actions": []
+    })))
+}
+
+/// Request body for executing an action suggested by the summarize agent
+#[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
+struct SummarizeActionRequest {
+    /// Action type (e.g., "create_link", "export")
+    action_type: String,
+    /// Action parameters
+    params: serde_json::Value,
+}
+
+/// Execute an action suggested by the summarize agent
+async fn summarize_action(
+    State(state): State<AppState>,
+    Json(req): Json<SummarizeActionRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
+    let session = state.summarize_session.lock().await;
+
+    // Check if there's an active session
+    if session.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "No active summarize session. Call /api/summarize/start first."
+            })),
+        ));
+    }
+
+    // TODO: In a real implementation, this would execute actual actions
+    // For now, return a placeholder response
+    match req.action_type.as_str() {
+        "create_link" => {
+            // Extract source, target, link_type from params
+            // Call storage.add_edge() to create the link
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "message": "Link creation not yet implemented in this phase"
+            })))
+        }
+        "export" => {
+            // Generate export of selection context
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "message": "Export not yet implemented in this phase"
+            })))
+        }
+        _ => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Unknown action type: {}", req.action_type)
+            })),
+        )),
+    }
 }
