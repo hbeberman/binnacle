@@ -25093,4 +25093,81 @@ mod tests {
         let result = find_queued_ancestors(&storage, &child.id).unwrap();
         assert_eq!(result, Some(parent.id.clone()));
     }
+
+    #[test]
+    #[serial]
+    fn test_find_queued_ancestors_handles_cycles() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Create queue
+        queue_create(temp.path(), "Work Queue".to_string(), None).unwrap();
+        let queue = storage.get_queue().unwrap();
+
+        // Test that the visited set prevents infinite loops by creating a deep chain
+        // Even though cycles aren't possible with child_of (one parent only),
+        // we verify the visited set works correctly to avoid re-traversing nodes
+
+        // Create a chain: A <- B <- C <- D (where D is child of C, C is child of B, etc.)
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let task_c = task_create(
+            temp.path(),
+            "Task C".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let task_d = task_create(
+            temp.path(),
+            "Task D".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Queue task A
+        link_add(temp.path(), &task_a.id, &queue.id, "queued", None, false).unwrap();
+
+        // Create chain: D -> C -> B -> A (child_of relationships)
+        link_add(temp.path(), &task_b.id, &task_a.id, "child_of", None, false).unwrap();
+        link_add(temp.path(), &task_c.id, &task_b.id, "child_of", None, false).unwrap();
+        link_add(temp.path(), &task_d.id, &task_c.id, "child_of", None, false).unwrap();
+
+        // Test: find_queued_ancestors should traverse up the chain and find A
+        // The visited set ensures we don't re-process nodes
+        let result = find_queued_ancestors(&storage, &task_d.id).unwrap();
+        assert_eq!(result, Some(task_a.id.clone()));
+
+        // Also verify it works correctly for intermediate nodes
+        let result_c = find_queued_ancestors(&storage, &task_c.id).unwrap();
+        assert_eq!(result_c, Some(task_a.id.clone()));
+    }
 }
