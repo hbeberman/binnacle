@@ -89,7 +89,15 @@ test('Inline code', () => {
 test('Code block with language', () => {
     const markdown = '```javascript\nconst x = 1;\n```';
     const result = parseMarkdown(markdown);
-    assertEquals(result, '<pre><code class="language-javascript">const x = 1;</code></pre>');
+    // With highlight.js, the code should be syntax highlighted
+    // Check for the pre/code structure and language class
+    if (!result.includes('<pre><code class="language-javascript">')) {
+        throw new Error('Missing code block with language class');
+    }
+    // Check that highlighting is applied (should have hljs- classes)
+    if (!result.includes('hljs-')) {
+        throw new Error('Syntax highlighting not applied');
+    }
 });
 
 test('Code block without language', () => {
@@ -194,6 +202,10 @@ See [docs](https://example.com) for more.`;
     }
     if (!result.includes('<pre><code class="language-rust">')) {
         throw new Error('Missing code block in complex document');
+    }
+    // Check for syntax highlighting
+    if (!result.includes('hljs-')) {
+        throw new Error('Missing syntax highlighting in complex document');
     }
     if (!result.includes('<a href="https://example.com"')) {
         throw new Error('Missing link in complex document');
