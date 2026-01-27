@@ -1813,6 +1813,29 @@ mod tests {
     }
 
     #[test]
+    fn test_task_missing_title_field() {
+        // This test verifies that Task JSON without a title field can be parsed
+        // The title field has #[serde(default)] and should default to empty string
+        let json_without_title = r#"{
+            "id": "bn-test1",
+            "type": "task",
+            "priority": 2,
+            "status": "pending",
+            "created_at": "2026-01-27T08:00:00Z",
+            "updated_at": "2026-01-27T08:00:00Z"
+        }"#;
+
+        let task: Task = serde_json::from_str(json_without_title).unwrap();
+
+        // Verify the task parses correctly with empty title
+        assert_eq!(task.core.id, "bn-test1");
+        assert_eq!(task.core.entity_type, "task");
+        assert_eq!(task.core.title, ""); // Should be empty string, not error
+        assert_eq!(task.priority, 2);
+        assert_eq!(task.status, TaskStatus::Pending);
+    }
+
+    #[test]
     fn test_idea_backward_compatibility() {
         // This test verifies that pre-refactor Idea JSON (flat fields) parses correctly
         let pre_refactor_json = r#"{
