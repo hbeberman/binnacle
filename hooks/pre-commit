@@ -24,6 +24,32 @@ if ! cargo clippy --all-targets --all-features --quiet -- -D warnings 2>&1; then
     exit 1
 fi
 
+# Run JavaScript linting if any .js files are staged
+echo "  → Checking for staged JavaScript files..."
+staged_js_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.js' 2>/dev/null || true)
+
+if [ -n "$staged_js_files" ]; then
+    echo "  → Running JavaScript linting..."
+    
+    # Check if node_modules exists (ESLint installed)
+    if [ ! -d "node_modules" ]; then
+        echo ""
+        echo "❌ ESLint not installed!"
+        echo "   Run 'npm install' to install ESLint."
+        exit 1
+    fi
+    
+    # Run ESLint on staged files only
+    if ! npx eslint $staged_js_files 2>&1; then
+        echo ""
+        echo "❌ JavaScript linting failed!"
+        echo "   Fix the issues reported above before committing."
+        exit 1
+    fi
+else
+    echo "  ✓ No JavaScript files staged, skipping lint"
+fi
+
 # Check if AGENTS.md is in sync with embedded blurb
 # Uses cargo run to check against the code being committed, not the installed bn
 echo "  → Checking AGENTS.md sync..."

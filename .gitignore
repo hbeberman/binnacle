@@ -30,3 +30,7 @@ pkg/
 
 # Claude local settings
 .claude/
+
+# Node.js dependencies
+node_modules/
+package-lock.json

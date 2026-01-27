@@ -1,0 +1,12 @@
+{
+  "name": "binnacle",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Development dependencies for binnacle project",
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  },
+  "scripts": {
+    "lint:js": "eslint web/js/**/*.js"
+  }
+}
