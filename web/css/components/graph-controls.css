@@ -120,6 +120,7 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    order: 1; /* Position after spacer on the right */
 }
 
 /* Hide completed toggle */
@@ -573,6 +574,7 @@
 /* Agent dropdown styles */
 .agent-dropdown {
     position: relative;
+    order: 2; /* Position after zoom controls on the right */
 }
 
 .agent-dropdown-btn {
