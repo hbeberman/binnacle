@@ -123,9 +123,9 @@ const createDefaultState = () => ({
         physics: {
             damping: 0.88,
             gravityStrength: 0.01,
-            repulsionStrength: 15000,
+            repulsionStrength: 25000,
             springStrength: 0.1,
-            springRestingLength: 200
+            springRestingLength: 300
         },
         
         // Info panel state
