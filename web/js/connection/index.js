@@ -12,8 +12,7 @@
 // WebSocket connection
 export {
     WebSocketConnection,
-    ConnectionState,
-    createConnection
+    ConnectionState
 } from './websocket.js';
 
 // Live connection (high-level WebSocket + message handling)
@@ -65,3 +64,12 @@ export {
     checkVersionConflict,
     resetVersionTracking
 } from './version-conflict.js';
+
+// Unified connection architecture
+export {
+    Connection,
+    LiveConnection,
+    ArchiveConnection,
+    createConnection,
+    connectTo
+} from './unified-connection.js';
