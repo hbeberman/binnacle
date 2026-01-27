@@ -11,6 +11,7 @@
     z-index: 100;
     align-items: center;
     background: var(--overlay-bg, rgba(20, 20, 20, 0.95));
+    color: var(--text-primary);
     border-bottom: 1px solid var(--border-color);
     padding: 0.5rem 1rem;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
