@@ -45,24 +45,52 @@ export function drawDiamondPath(ctx, cx, cy, radius) {
 }
 
 /**
- * Draw a person silhouette path for agent nodes (circle head + semicircle body)
+ * Draw a robot icon path for agent nodes (rectangular head with antenna + rectangular body)
  * @param {CanvasRenderingContext2D} ctx - Canvas context
  * @param {number} cx - Center X coordinate
  * @param {number} cy - Center Y coordinate
  * @param {number} radius - Overall radius
  */
-export function drawPersonPath(ctx, cx, cy, radius) {
-    const headRadius = radius * 0.4;
-    const headY = cy - radius * 0.25;
-    const bodyY = cy + radius * 0.15;
-    const bodyRadius = radius * 0.7;
+export function drawRobotPath(ctx, cx, cy, radius) {
+    const headWidth = radius * 0.55;
+    const headHeight = radius * 0.5;
+    const headY = cy - radius * 0.35;
+    const bodyWidth = radius * 0.75;
+    const bodyHeight = radius * 0.6;
+    const bodyY = cy + radius * 0.25;
+    const antennaHeight = radius * 0.25;
+    const antennaWidth = radius * 0.08;
     
-    // Head (full circle)
-    ctx.arc(cx, headY, headRadius, 0, Math.PI * 2);
+    // Antenna (small rectangle on top of head)
+    ctx.rect(cx - antennaWidth / 2, headY - headHeight / 2 - antennaHeight, antennaWidth, antennaHeight);
     
-    // Body (semicircle below, flat side up)
-    ctx.moveTo(cx + bodyRadius, bodyY);
-    ctx.arc(cx, bodyY, bodyRadius, 0, Math.PI);
+    // Head (rounded rectangle)
+    const headCorner = radius * 0.15;
+    const headLeft = cx - headWidth / 2;
+    const headTop = headY - headHeight / 2;
+    ctx.moveTo(headLeft + headCorner, headTop);
+    ctx.lineTo(headLeft + headWidth - headCorner, headTop);
+    ctx.quadraticCurveTo(headLeft + headWidth, headTop, headLeft + headWidth, headTop + headCorner);
+    ctx.lineTo(headLeft + headWidth, headTop + headHeight - headCorner);
+    ctx.quadraticCurveTo(headLeft + headWidth, headTop + headHeight, headLeft + headWidth - headCorner, headTop + headHeight);
+    ctx.lineTo(headLeft + headCorner, headTop + headHeight);
+    ctx.quadraticCurveTo(headLeft, headTop + headHeight, headLeft, headTop + headHeight - headCorner);
+    ctx.lineTo(headLeft, headTop + headCorner);
+    ctx.quadraticCurveTo(headLeft, headTop, headLeft + headCorner, headTop);
+    
+    // Body (rounded rectangle)
+    const bodyCorner = radius * 0.12;
+    const bodyLeft = cx - bodyWidth / 2;
+    const bodyTop = bodyY - bodyHeight / 2;
+    ctx.moveTo(bodyLeft + bodyCorner, bodyTop);
+    ctx.lineTo(bodyLeft + bodyWidth - bodyCorner, bodyTop);
+    ctx.quadraticCurveTo(bodyLeft + bodyWidth, bodyTop, bodyLeft + bodyWidth, bodyTop + bodyCorner);
+    ctx.lineTo(bodyLeft + bodyWidth, bodyTop + bodyHeight - bodyCorner);
+    ctx.quadraticCurveTo(bodyLeft + bodyWidth, bodyTop + bodyHeight, bodyLeft + bodyWidth - bodyCorner, bodyTop + bodyHeight);
+    ctx.lineTo(bodyLeft + bodyCorner, bodyTop + bodyHeight);
+    ctx.quadraticCurveTo(bodyLeft, bodyTop + bodyHeight, bodyLeft, bodyTop + bodyHeight - bodyCorner);
+    ctx.lineTo(bodyLeft, bodyTop + bodyCorner);
+    ctx.quadraticCurveTo(bodyLeft, bodyTop, bodyLeft + bodyCorner, bodyTop);
 }
 
 /**
@@ -174,7 +202,7 @@ export function drawNodeShapePath(ctx, nodeType, cx, cy, radius) {
             drawHexagonPath(ctx, cx, cy, radius);
             break;
         case 'agent':
-            drawPersonPath(ctx, cx, cy, radius);
+            drawRobotPath(ctx, cx, cy, radius);
             break;
         case 'bug':
             drawSquarePath(ctx, cx, cy, radius);
