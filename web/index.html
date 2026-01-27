@@ -178,6 +178,7 @@
                 <!-- Available work and active task panes will be inserted here -->
                 <div id="available-work-container"></div>
                 <div id="active-task-container"></div>
+                <div id="recently-completed-container"></div>
             </div>
         </header>
         
@@ -221,6 +222,7 @@
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
         import { createAvailableWorkPane } from './js/components/available-work-pane.js';
         import { createActiveTaskPane } from './js/components/active-task-pane.js';
+        import { createRecentlyCompletedPane } from './js/components/recently-completed-pane.js';
         import { mountReadonlyIndicator } from './js/components/readonly-indicator.js';
         import { mountZoomControls } from './js/components/zoom-controls.js';
         import { mountGraphControls } from './js/components/graph-controls.js';
@@ -304,6 +306,10 @@
         // Create and mount active task pane
         const activeTaskPane = createActiveTaskPane();
         document.getElementById('active-task-container').appendChild(activeTaskPane);
+        
+        // Create and mount recently completed pane
+        const recentlyCompletedPane = createRecentlyCompletedPane();
+        document.getElementById('recently-completed-container').appendChild(recentlyCompletedPane);
         
         // Initialize graph
         graph.init(canvas, {
