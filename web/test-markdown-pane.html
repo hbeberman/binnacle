@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Pane Test</title>
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components/markdown-pane.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        .container {
+            position: relative;
+            height: 600px;
+            border: 2px solid #ccc;
+            background: #1a1a1a;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+        }
+        
+        button {
+            padding: 8px 16px;
+            margin-right: 8px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Markdown Pane Component Test</h1>
+    
+    <div class="controls">
+        <button id="btn-show">Show Markdown Pane</button>
+        <button id="btn-hide">Hide Markdown Pane</button>
+    </div>
+    
+    <div class="container" id="test-container">
+        <p style="padding: 20px; color: white;">Container for markdown pane</p>
+    </div>
+
+    <script type="module">
+        import { createMarkdownPane, showMarkdownPane, hideMarkdownPane, mountMarkdownPane } from './js/components/markdown-pane.js';
+        import { setState, getNode } from './js/state.js';
+        
+        // Mock node data
+        const mockDocNode = {
+            id: 'bn-test1',
+            type: 'doc',
+            title: 'Test Document',
+            content: `# Test Markdown Document
+
+This is a test document with **bold** and *italic* text.
+
+## Section 1
+
+- Item 1
+- Item 2
+- Item 3
+
+## Section 2
+
+Here's a link to another entity: bn-1234
+
+\`\`\`javascript
+console.log('Hello, world!');
+\`\`\`
+
+### Subsection
+
+More content here with a [link](https://example.com).
+`,
+            x: 100,
+            y: 100
+        };
+        
+        // Initialize state with mock data
+        setState({
+            nodes: [mockDocNode],
+            edges: [],
+            tasks: [],
+            bugs: [],
+            milestones: [],
+            docs: [mockDocNode],
+            agents: [],
+            ideas: [],
+            queue: null,
+            selectedNode: null,
+            currentView: 'graph'
+        });
+        
+        // Mount the markdown pane
+        mountMarkdownPane('#test-container');
+        
+        // Wire up test buttons
+        document.getElementById('btn-show').addEventListener('click', () => {
+            showMarkdownPane('bn-test1');
+        });
+        
+        document.getElementById('btn-hide').addEventListener('click', () => {
+            hideMarkdownPane();
+        });
+        
+        console.log('Markdown pane test loaded');
+        console.log('Mock node:', getNode('bn-test1'));
+    </script>
+</body>
+</html>
