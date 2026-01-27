@@ -166,7 +166,7 @@ fn test_task_list_human() {
         .args(["-H", "task", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("1 task(s)"))
+        .stdout(predicate::str::contains("1 task:"))
         .stdout(predicate::str::contains("Task 1"));
 }
 
@@ -847,7 +847,7 @@ fn test_ready_command_human_readable() {
         .args(["-H", "ready"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("ready task"));
+        .stdout(predicate::str::contains("task ready"));
 }
 
 #[test]

@@ -361,7 +361,7 @@ fn migrate_bugs_converts_tagged_tasks() {
         .args(["system", "migrate-bugs", "-H"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Migrated 2 task(s) to bugs"))
+        .stdout(predicate::str::contains("Migrated 2 tasks to bugs"))
         .stdout(predicate::str::contains("Bug task one"))
         .stdout(predicate::str::contains("Bug task two"));
 
@@ -391,7 +391,7 @@ fn migrate_bugs_dry_run_mode() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "Dry run: would migrate 1 task(s) to bugs",
+            "Dry run: would migrate 1 task to bugs",
         ))
         .stdout(predicate::str::contains("Bug to migrate"));
 

@@ -120,6 +120,16 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// Format a noun with natural pluralization based on count.
+/// Returns "1 task" or "2 tasks" instead of "1 task(s)" or "2 task(s)".
+fn pluralize(count: usize, singular: &str) -> String {
+    if count == 1 {
+        format!("{} {}", count, singular)
+    } else {
+        format!("{} {}s", count, singular)
+    }
+}
+
 /// Calculate the total size of a directory recursively.
 fn calculate_dir_size(path: &std::path::Path) -> u64 {
     let mut total = 0;
@@ -3583,7 +3593,7 @@ impl Output for TaskList {
         }
 
         let mut lines = Vec::new();
-        lines.push(format!("{} task(s):\n", self.count));
+        lines.push(format!("{}:\n", pluralize(self.count, "task")));
 
         for task in &self.tasks {
             let status_char = match task.status {
@@ -3771,11 +3781,11 @@ pub fn task_update(
             {
                 let existing_tasks = agent.tasks.join(", ");
                 return Err(Error::Other(format!(
-                    "Agent already has {} task(s) in progress: {}\n\n\
+                    "Agent already has {} in progress: {}\n\n\
                     Taking on multiple tasks may lead to context thrashing.\n\
                     Complete your current task first, or use --force to override.\n\n\
                     Hint: Run 'bn task close {}' when done, or 'bn task update {} --status in_progress --force'",
-                    agent.tasks.len(),
+                    pluralize(agent.tasks.len(), "task"),
                     existing_tasks,
                     agent.tasks.first().unwrap_or(&String::new()),
                     id
@@ -4337,7 +4347,7 @@ impl Output for BugList {
         }
 
         let mut lines = Vec::new();
-        lines.push(format!("{} bug(s):\n", self.count));
+        lines.push(format!("{}:\n", pluralize(self.count, "bug")));
 
         for bug in &self.bugs {
             let status_char = match bug.status {
@@ -4916,11 +4926,11 @@ pub fn bug_update(
             {
                 let existing_tasks = agent.tasks.join(", ");
                 return Err(Error::Other(format!(
-                    "Agent already has {} task(s) in progress: {}\n\n\
+                    "Agent already has {} in progress: {}\n\n\
                     Taking on multiple tasks may lead to context thrashing.\n\
                     Complete your current task first, or use --force to override.\n\n\
                     Hint: Run 'bn bug close {}' when done, or 'bn bug update {} --status in_progress --force'",
-                    agent.tasks.len(),
+                    pluralize(agent.tasks.len(), "task"),
                     existing_tasks,
                     agent.tasks.first().unwrap_or(&String::new()),
                     id
@@ -7375,7 +7385,10 @@ impl Output for StatusSummary {
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
 
-        lines.push(format!("Binnacle - {} total task(s)", self.tasks.len()));
+        lines.push(format!(
+            "Binnacle - {} total",
+            pluralize(self.tasks.len(), "task")
+        ));
 
         // Primary sections: Bugs, Blocked, Ready (in priority order)
         if self.open_bugs_count > 0 {
@@ -8672,7 +8685,28 @@ impl Output for ReadyTasks {
         // Show in-progress items first
         if !self.in_progress_bugs.is_empty() || !self.in_progress_tasks.is_empty() {
             let total = self.in_progress_count + self.in_progress_bug_count;
-            lines.push(format!("{} in progress:\n", total));
+            let msg = if self.in_progress_bug_count > 0 && self.in_progress_count > 0 {
+                // Both tasks and bugs
+                format!(
+                    "{} in progress ({}, {}):\n",
+                    total,
+                    pluralize(self.in_progress_count, "task"),
+                    pluralize(self.in_progress_bug_count, "bug")
+                )
+            } else if self.in_progress_bug_count > 0 {
+                // Only bugs
+                format!(
+                    "{} in progress:\n",
+                    pluralize(self.in_progress_bug_count, "bug")
+                )
+            } else {
+                // Only tasks
+                format!(
+                    "{} in progress:\n",
+                    pluralize(self.in_progress_count, "task")
+                )
+            };
+            lines.push(msg);
 
             // Show in-progress bugs
             for bug in &self.in_progress_bugs {
@@ -8714,7 +8748,7 @@ impl Output for ReadyTasks {
             let queued_bugs: Vec<_> = self.bugs.iter().filter(|b| b.queued).collect();
             let other_bugs: Vec<_> = self.bugs.iter().filter(|b| !b.queued).collect();
 
-            lines.push(format!("{} ready bug(s):\n", self.bug_count));
+            lines.push(format!("{} ready:\n", pluralize(self.bug_count, "bug")));
 
             // Show queued bugs first
             if !queued_bugs.is_empty() {
@@ -8775,7 +8809,7 @@ impl Output for ReadyTasks {
             let queued_tasks: Vec<_> = self.tasks.iter().filter(|t| t.queued).collect();
             let other_tasks: Vec<_> = self.tasks.iter().filter(|t| !t.queued).collect();
 
-            lines.push(format!("{} ready task(s):\n", self.count));
+            lines.push(format!("{} ready:\n", pluralize(self.count, "task")));
 
             // Show queued tasks first
             if !queued_tasks.is_empty() {
@@ -8969,7 +9003,7 @@ impl Output for BlockedTasks {
 
         // Show blocked bugs first
         if !self.bugs.is_empty() {
-            lines.push(format!("{} blocked bug(s):\n", self.bug_count));
+            lines.push(format!("{} blocked:\n", pluralize(self.bug_count, "bug")));
 
             for bb in &self.bugs {
                 let bug = &bb.bug;
@@ -8995,7 +9029,7 @@ impl Output for BlockedTasks {
 
         // Show blocked tasks
         if !self.tasks.is_empty() {
-            lines.push(format!("{} blocked task(s):\n", self.count));
+            lines.push(format!("{} blocked:\n", pluralize(self.count, "task")));
 
             for bt in &self.tasks {
                 let task = &bt.task;
@@ -13552,13 +13586,13 @@ impl Output for MigrateBugsResult {
         let mut lines = Vec::new();
         if self.dry_run {
             lines.push(format!(
-                "Dry run: would migrate {} task(s) to bugs:",
-                self.tasks_found
+                "Dry run: would migrate {} to bugs:",
+                pluralize(self.tasks_found, "task")
             ));
         } else {
             lines.push(format!(
-                "Migrated {} task(s) to bugs:",
-                self.tasks_migrated.len()
+                "Migrated {} to bugs:",
+                pluralize(self.tasks_migrated.len(), "task")
             ));
         }
 
@@ -22044,7 +22078,7 @@ mod tests {
         let list = bug_list(temp.path(), None, None, None, None, false).unwrap();
         let human = list.to_human();
 
-        assert!(human.contains("1 bug(s)"));
+        assert!(human.contains("1 bug:"));
         assert!(human.contains("P0"));
         assert!(human.contains("S:critical"));
         assert!(human.contains("Bug 1"));
