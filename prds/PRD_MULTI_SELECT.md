@@ -82,7 +82,7 @@ When multiple entities are selected, expose contextual actions:
 | **Link Together** | Create relationships between all selected entities |
 | **Add to Queue** | Queue all selected tasks/bugs |
 | **Remove from Queue** | Unqueue all selected |
-| **Set Priority** | Bulk-set priority (low/medium/high/critical) |
+| **Summarize** | Feed selection context to AI agent for interactive summary |
 | **Export** | Export selected entities to clipboard (markdown/JSON) |
 
 #### Task/Bug Specific
@@ -128,6 +128,77 @@ When exactly 2 entities are selected, show dedicated relationship panel:
 └────────────────────────────────────────────────────┘
 ```
 
+### Summarize Agent
+
+The **Summarize** action opens an interactive chat interface with an AI agent that has full context of the selected entities.
+
+**How it works:**
+1. User selects multiple entities (tasks, bugs, docs, ideas, etc.)
+2. Clicks "Summarize" in the batch actions panel
+3. A chat modal opens with a summary agent
+4. The agent has already ingested:
+   - Full content of all selected entities (titles, descriptions, statuses)
+   - Relationships between them
+   - Recent activity/history
+   - Related doc nodes if any
+5. Agent provides an initial summary, then user can ask follow-up questions
+
+**Example conversation:**
+```
+┌────────────────────────────────────────────────────────────────┐
+│  📊 Summarizing 5 entities                              [×]    │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  🤖 Agent:                                                     │
+│  You've selected 3 tasks and 2 bugs related to the            │
+│  authentication system:                                        │
+│                                                                │
+│  **Tasks:**                                                    │
+│  - bn-a1b2: Implement OAuth2 flow (in_progress)               │
+│  - bn-c3d4: Add refresh token handling (pending, blocked by ↑)│
+│  - bn-e5f6: Write auth integration tests (pending)            │
+│                                                                │
+│  **Bugs:**                                                     │
+│  - bn-g7h8: Token expires prematurely (open, high priority)   │
+│  - bn-i9j0: Login fails on Safari (open, medium priority)     │
+│                                                                │
+│  The token expiry bug (bn-g7h8) may be related to the OAuth2  │
+│  implementation. Want me to suggest a dependency link?         │
+│                                                                │
+├────────────────────────────────────────────────────────────────┤
+│  👤 You: What's the critical path here?                        │
+│                                                                │
+│  🤖 Agent:                                                     │
+│  The critical path is:                                         │
+│  1. bn-a1b2 (OAuth2 flow) - currently in progress              │
+│  2. bn-g7h8 (token expiry bug) - likely needs OAuth2 done     │
+│  3. bn-c3d4 (refresh tokens) - explicitly blocked by OAuth2   │
+│  4. bn-e5f6 (tests) - should come after implementation        │
+│                                                                │
+│  The Safari bug (bn-i9j0) appears independent and could be    │
+│  worked in parallel.                                           │
+│                                                                │
+├────────────────────────────────────────────────────────────────┤
+│  [____________________________________] [Send]                 │
+│                                                                │
+│  Quick actions: [Create suggested links] [Export summary]      │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Agent capabilities:**
+- Summarize the selection's purpose and current state
+- Identify patterns (common blockers, related work, gaps)
+- Suggest missing relationships or dependencies
+- Answer questions about the selected work
+- Help draft status updates or standup notes
+- Recommend prioritization based on dependencies
+- Spot potential issues (circular deps, orphaned work)
+
+**Integration with actions:**
+- Agent can suggest actions: "Create link between X and Y?"
+- User confirms → action executes directly from chat
+- Keeps conversation context while taking actions
+
 ### Use Cases Unlocked
 
 #### 1. Sprint Planning
@@ -150,6 +221,9 @@ Select relevant entities → Export as markdown → Paste into standup notes
 
 #### 7. Bulk Cleanup
 Select completed/stale items → Close all with shared reason → Fast housekeeping
+
+#### 8. Context Summarization
+Select related tasks/bugs/docs → "Summarize" → AI agent reads all context and starts interactive conversation about the selection
 
 ## Implementation
 

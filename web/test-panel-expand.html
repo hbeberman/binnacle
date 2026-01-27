@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Expand/Collapse Animation Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/info-panel.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: var(--bg-primary, #1a1a1a);
+            padding: 2rem;
+        }
+        
+        .content {
+            color: var(--text-primary, #e0e0e0);
+        }
+        
+        .test-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-top: 2rem;
+            max-width: 300px;
+        }
+        
+        .test-btn {
+            padding: 0.75rem 1.5rem;
+            background: var(--accent-blue);
+            border: none;
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        
+        .test-btn:hover {
+            background: var(--accent-light);
+        }
+        
+        .test-btn.secondary {
+            background: var(--bg-secondary);
+        }
+        
+        .test-btn.secondary:hover {
+            background: var(--bg-tertiary);
+        }
+        
+        .instructions {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-left: 4px solid var(--accent-blue);
+            border-radius: 4px;
+            max-width: 600px;
+        }
+        
+        .instructions h3 {
+            margin-top: 0;
+            color: var(--accent-light);
+        }
+        
+        .instructions ul {
+            margin: 0;
+            padding-left: 1.5rem;
+        }
+        
+        .instructions li {
+            margin: 0.5rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="container">
+        <div class="content">
+            <h1>Panel Expand/Collapse Animation Test</h1>
+            <p>Test the smooth panel expand/collapse animation functionality:</p>
+            
+            <div class="test-buttons">
+                <button class="test-btn" id="show-panel">Show Panel</button>
+                <button class="test-btn" id="expand-panel">Expand Panel</button>
+                <button class="test-btn" id="collapse-panel">Collapse Panel</button>
+                <button class="test-btn" id="toggle-panel">Toggle Expand/Collapse</button>
+                <button class="test-btn secondary" id="hide-panel">Hide Panel</button>
+            </div>
+            
+            <div class="instructions">
+                <h3>Expected Behavior:</h3>
+                <ul>
+                    <li><strong>Show Panel:</strong> Panel appears with fade-in (320px width)</li>
+                    <li><strong>Expand:</strong> Panel smoothly expands to 380px width and fills height (~250ms ease-out)</li>
+                    <li><strong>Collapse:</strong> Panel smoothly shrinks back to 320px width and original height</li>
+                    <li><strong>Toggle:</strong> Alternates between expanded and collapsed states</li>
+                    <li><strong>Hide:</strong> Panel fades out and collapses</li>
+                </ul>
+                <p><strong>Animation Requirements:</strong></p>
+                <ul>
+                    <li>Smooth width transition: 320px → 380px</li>
+                    <li>Smooth height transition: auto → full viewport height</li>
+                    <li>Duration: 250ms ease-out</li>
+                    <li>Content should fade in after expansion</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import {
+            createInfoPanel,
+            initializeInfoPanel,
+            showInfoPanel,
+            hideInfoPanel,
+            expandInfoPanel,
+            collapseInfoPanel,
+            toggleInfoPanelExpanded,
+            updateInfoPanelContent
+        } from './js/components/info-panel.js';
+        
+        const container = document.getElementById('container');
+        
+        // Create and append info panel
+        const panel = createInfoPanel();
+        container.appendChild(panel);
+        
+        // Initialize with callbacks
+        initializeInfoPanel(panel, {
+            onClose: () => {
+                console.log('Panel closed');
+                hideInfoPanel(panel);
+            },
+            onTabChange: (tabName) => console.log('Tab changed to:', tabName),
+        });
+        
+        // Sample data for the panel
+        const sampleTask = {
+            id: 'bn-test1',
+            type: 'task',
+            title: 'Test expand/collapse animation',
+            short_name: 'Panel animation',
+            description: 'This is a test task to demonstrate the smooth panel expand and collapse animation.\n\nThe panel should smoothly transition between compact and expanded states with a 250ms ease-out animation.',
+            status: 'in_progress',
+            priority: 1,
+            depends_on: [],
+            edges: [
+                { edge_type: 'related_to', direction: 'outbound', related_id: 'bn-test2' }
+            ]
+        };
+        
+        // Load content into panel
+        updateInfoPanelContent(panel, sampleTask);
+        
+        // Test buttons
+        document.getElementById('show-panel').addEventListener('click', () => {
+            console.log('Showing panel...');
+            updateInfoPanelContent(panel, sampleTask);
+            showInfoPanel(panel);
+        });
+        
+        document.getElementById('expand-panel').addEventListener('click', () => {
+            console.log('Expanding panel...');
+            expandInfoPanel(panel);
+        });
+        
+        document.getElementById('collapse-panel').addEventListener('click', () => {
+            console.log('Collapsing panel...');
+            collapseInfoPanel(panel);
+        });
+        
+        document.getElementById('toggle-panel').addEventListener('click', () => {
+            const expanded = toggleInfoPanelExpanded(panel);
+            console.log('Toggled panel. Expanded:', expanded);
+        });
+        
+        document.getElementById('hide-panel').addEventListener('click', () => {
+            console.log('Hiding panel...');
+            hideInfoPanel(panel);
+        });
+    </script>
+</body>
+</html>

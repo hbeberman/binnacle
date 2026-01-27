@@ -7,7 +7,7 @@
  * - Node-specific content in each tab
  */
 
-import { createClickableId, makeIdsClickable } from '../utils/clickable-ids.js';
+import { createClickableId } from '../utils/clickable-ids.js';
 
 const INFO_PANEL_ACTIVE_TAB_KEY = 'binnacle_info_panel_active_tab';
 
@@ -247,6 +247,41 @@ export function showInfoPanel(panel) {
  */
 export function hideInfoPanel(panel) {
     panel.classList.remove('visible');
+    panel.classList.remove('expanded');
+}
+
+/**
+ * Expand the info panel to full detail view
+ * @param {HTMLElement} panel - The info panel element
+ */
+export function expandInfoPanel(panel) {
+    if (!panel.classList.contains('visible')) {
+        showInfoPanel(panel);
+    }
+    panel.classList.add('expanded');
+}
+
+/**
+ * Collapse the info panel to compact view
+ * @param {HTMLElement} panel - The info panel element
+ */
+export function collapseInfoPanel(panel) {
+    panel.classList.remove('expanded');
+}
+
+/**
+ * Toggle the info panel between expanded and collapsed states
+ * @param {HTMLElement} panel - The info panel element
+ * @returns {boolean} True if expanded, false if collapsed
+ */
+export function toggleInfoPanelExpanded(panel) {
+    if (panel.classList.contains('expanded')) {
+        collapseInfoPanel(panel);
+        return false;
+    } else {
+        expandInfoPanel(panel);
+        return true;
+    }
 }
 
 /**
