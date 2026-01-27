@@ -12,7 +12,7 @@ import * as state from '../state.js';
 import { ConnectionStatus } from '../state.js';
 import { drawNodeShapePath } from './shapes.js';
 import { getNodeColor, getEdgeStyle, getCSSColors } from './colors.js';
-import { worldToScreen, screenToWorld, getZoom } from './transform.js';
+import { worldToScreen, screenToWorld, getZoom, panToNode, cancelPanAnimation } from './transform.js';
 import * as camera from './camera.js';
 
 // Animation constants
@@ -347,6 +347,75 @@ function applyPhysics() {
 }
 
 /**
+ * Update auto-follow camera behavior
+ * Pans the camera to follow active agents based on configuration
+ */
+function updateAutoFollow() {
+    const autoFollow = state.get('ui.autoFollow');
+    const userPaused = state.get('ui.userPaused');
+    
+    // Don't auto-follow if disabled or user has paused it
+    if (!autoFollow || userPaused) {
+        return;
+    }
+    
+    // Get auto-follow configuration
+    const config = state.get('ui.autoFollowConfig') || {
+        nodeTypes: { task: true, bug: true, idea: false, test: false, doc: false },
+        focusDelaySeconds: 10
+    };
+    
+    // Find agents to follow
+    const agents = visibleNodes.filter(node => node.type === 'agent');
+    
+    if (agents.length === 0) {
+        return;
+    }
+    
+    // Sort agents by status (active first, then idle, then stale) and recent updates
+    const statusOrder = { 'active': 0, 'idle': 1, 'stale': 2 };
+    const sortedAgents = [...agents].sort((a, b) => {
+        const aStatus = (a.status || 'unknown').toLowerCase();
+        const bStatus = (b.status || 'unknown').toLowerCase();
+        const orderA = statusOrder[aStatus] ?? 3;
+        const orderB = statusOrder[bStatus] ?? 3;
+        
+        if (orderA !== orderB) {
+            return orderA - orderB;
+        }
+        
+        // Secondary sort by updated_at (most recent first)
+        const aTime = new Date(a.updated_at || 0).getTime();
+        const bTime = new Date(b.updated_at || 0).getTime();
+        return bTime - aTime;
+    });
+    
+    // Get the top agent to follow (most active/recent)
+    const targetAgent = sortedAgents[0];
+    
+    if (!targetAgent) {
+        return;
+    }
+    
+    // Check if we're already following this agent
+    const currentFollowingId = state.get('ui.followingNodeId');
+    
+    if (currentFollowingId !== targetAgent.id) {
+        // New agent to follow
+        state.set('ui.followingNodeId', targetAgent.id);
+        console.log(`Auto-following agent: ${targetAgent.id}`);
+    }
+    
+    // Pan to the agent's position (with smooth animation)
+    if (canvas && targetAgent.x !== undefined && targetAgent.y !== undefined) {
+        panToNode(targetAgent.x, targetAgent.y, {
+            canvas: canvas,
+            duration: 1000 // Smooth 1-second pan
+        });
+    }
+}
+
+/**
  * Animation loop
  */
 function animate() {
@@ -364,6 +433,9 @@ function animate() {
             departingAgents.delete(agentId);
         }
     }
+    
+    // Auto-follow logic
+    updateAutoFollow();
     
     // Apply physics simulation
     applyPhysics();
