@@ -362,6 +362,7 @@ pub async fn start_server(
         )
         .route("/api/agents", get(get_agents))
         .route("/api/agents/:pid/kill", post(kill_agent))
+        .route("/api/agents/:id/terminate", post(terminate_agent))
         .route("/api/commits", get(get_git_commits))
         .route("/api/metrics/ws", get(get_ws_metrics))
         .route("/api/version", get(get_version))
@@ -676,6 +677,61 @@ async fn kill_agent(
     Ok(Json(serde_json::json!({
         "success": true,
         "message": format!("Terminated agent {} (PID: {})", agent.name, pid)
+    })))
+}
+
+/// Terminate an agent by ID
+async fn terminate_agent(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Check readonly mode
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
+    let mut storage = state.storage.lock().await;
+
+    // Look up agent by ID
+    let agent = storage.get_agent_by_id(&id).map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Agent not found"})),
+        )
+    })?;
+
+    let pid = agent.pid;
+    let agent_name = agent.name.clone();
+
+    // Send SIGTERM to the process
+    #[cfg(unix)]
+    {
+        use std::process::Command;
+        let _ = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+    }
+
+    // Remove the agent from the registry
+    let _ = storage.remove_agent(pid);
+
+    // Broadcast update to WebSocket clients
+    let version = state.version.increment();
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let update_msg = serde_json::json!({
+        "type": "entity_removed",
+        "entity_type": "agent",
+        "id": id,
+        "version": version,
+        "timestamp": timestamp
+    })
+    .to_string();
+    let _ = state.update_tx.send(update_msg.clone());
+    state.message_history.push(version, update_msg).await;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Terminated agent {} (PID: {})", agent_name, pid)
     })))
 }
 
