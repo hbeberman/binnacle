@@ -282,6 +282,7 @@
 .badge-id {
     font-family: monospace;
     background: var(--bg-tertiary);
+    text-transform: none;
 }
 
 .badge-priority-0 {
