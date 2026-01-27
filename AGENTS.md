@@ -237,6 +237,39 @@ When testing GUI changes, follow this workflow to avoid disrupting the user's se
 3. **Different port** - Use `BN_GUI_PORT=3031 just gui` for a separate instance on a different port
 4. **DON'T kill the user's GUI session** - If unsure whether the user has a GUI open, use `just install` instead of `just gui`
 
+## GUI Development Workflow
+
+When working on GUI features (frontend JavaScript/CSS changes):
+
+1. **Use `just dev-gui`** for development:
+   ```bash
+   just dev-gui
+   ```
+   - Runs in development mode (`--dev` flag)
+   - Serves assets directly from `web/` directory (no bundling)
+   - Edit JS/CSS files and refresh browser to see changes instantly
+   - Faster iteration than rebuilding the bundle
+
+2. **Test with bundled assets before committing**:
+   ```bash
+   # Build with bundle (production mode)
+   cargo build --features gui
+   
+   # Or use just install to test the production build
+   just install
+   bn gui serve
+   ```
+
+3. **Bundle is cached automatically**:
+   - `build.rs` hashes the `web/` directory
+   - Only rebuilds bundle when files change
+   - Saves time on repeated builds
+
+**Architecture:**
+- **Development mode** (`--dev`): Serves from filesystem, instant updates
+- **Production mode** (default): Serves embedded bundle compressed in binary
+- Bundle created by `scripts/bundle-web.sh` during `cargo build --features gui`
+
 ## Using the Work Queue
 
 This repo has a work queue for prioritizing tasks. Queued tasks appear first in `bn ready`, non-queued tasks appear in "OTHER".

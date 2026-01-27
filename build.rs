@@ -5,6 +5,9 @@
 //! - `BN_GIT_COMMIT`: Short git commit hash (or "unknown" if not in a git repo)
 //! - `BN_WEB_BUNDLE`: Path to embedded web bundle (when gui feature enabled)
 
+use std::collections::hash_map::DefaultHasher;
+use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::process::Command;
 
@@ -33,9 +36,24 @@ fn bundle_web_assets() {
     println!("cargo:rerun-if-changed=scripts/bundle-web.sh");
 
     let bundle_path = Path::new("target/web-bundle.tar.zst");
+    let hash_file = Path::new("target/web-bundle.hash");
 
-    // Run bundle script if bundle doesn't exist or is stale
-    if !bundle_path.exists() {
+    // Compute current hash of web/ directory
+    let current_hash = hash_directory("web").unwrap_or_else(|e| {
+        eprintln!("Warning: Failed to hash web/ directory: {}", e);
+        0
+    });
+
+    // Check if we need to rebuild
+    let needs_rebuild = !bundle_path.exists() || !hash_file.exists() || {
+        let cached_hash = fs::read_to_string(hash_file)
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        cached_hash != current_hash
+    };
+
+    if needs_rebuild {
         eprintln!("Building web bundle...");
         let status = Command::new("./scripts/bundle-web.sh")
             .status()
@@ -44,10 +62,61 @@ fn bundle_web_assets() {
         if !status.success() {
             panic!("Web bundle script failed");
         }
+
+        // Save hash for next build
+        if let Err(e) = fs::write(hash_file, current_hash.to_string()) {
+            eprintln!("Warning: Failed to save bundle hash: {}", e);
+        }
+    } else {
+        eprintln!("Web bundle up to date (cached)");
     }
 
     // Expose bundle path for include_bytes! in code
     println!("cargo:rustc-env=BN_WEB_BUNDLE={}", bundle_path.display());
+}
+
+/// Hash all files in a directory recursively
+#[cfg(feature = "gui")]
+fn hash_directory(path: impl AsRef<Path>) -> std::io::Result<u64> {
+    let mut hasher = DefaultHasher::new();
+    hash_directory_recursive(path.as_ref(), &mut hasher)?;
+    Ok(hasher.finish())
+}
+
+#[cfg(feature = "gui")]
+fn hash_directory_recursive(path: &Path, hasher: &mut DefaultHasher) -> std::io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    if path.is_file() {
+        // Hash file path and contents
+        path.to_string_lossy().hash(hasher);
+        let metadata = fs::metadata(path)?;
+        metadata.len().hash(hasher);
+        if let Ok(modified) = metadata.modified()
+            && let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH)
+        {
+            duration.as_secs().hash(hasher);
+        }
+    } else if path.is_dir() {
+        // Hash directory entries in sorted order for consistency
+        let mut entries: Vec<_> = fs::read_dir(path)?.collect::<Result<_, _>>()?;
+        entries.sort_by_key(|e| e.path());
+
+        for entry in entries {
+            let entry_path = entry.path();
+            // Skip test files and hidden files
+            if let Some(name) = entry_path.file_name().and_then(|n| n.to_str())
+                && (name.ends_with(".test.js") || name.starts_with('.'))
+            {
+                continue;
+            }
+            hash_directory_recursive(&entry_path, hasher)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn get_git_commit() -> Option<String> {
