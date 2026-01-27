@@ -68,6 +68,18 @@ impl std::fmt::Display for EntityType {
     }
 }
 
+/// Filter parameters for querying log entries.
+pub struct LogEntryFilters<'a> {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub before: Option<&'a str>,
+    pub after: Option<&'a str>,
+    pub entity_type: Option<&'a str>,
+    pub entity_id: Option<&'a str>,
+    pub actor: Option<&'a str>,
+    pub actor_type: Option<&'a str>,
+}
+
 /// Storage manager for a single repository.
 pub struct Storage {
     /// Root directory for this repository's data
@@ -3114,6 +3126,90 @@ impl Storage {
         entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
         Ok(entries)
+    }
+
+    /// Query log entries with comprehensive filtering and pagination.
+    ///
+    /// Supports filtering by entity_type, entity_id, actor, actor_type, time range,
+    /// with limit/offset pagination.
+    pub fn query_log_entries(
+        &self,
+        filters: LogEntryFilters,
+    ) -> Result<Vec<crate::commands::LogEntry>> {
+        // Get all log entries first
+        let mut entries = self.get_log_entries(None)?;
+
+        // Apply filters
+        if let Some(etype) = filters.entity_type {
+            entries.retain(|e| e.entity_type == etype);
+        }
+
+        if let Some(eid) = filters.entity_id {
+            entries.retain(|e| e.entity_id == eid);
+        }
+
+        if let Some(act) = filters.actor {
+            entries.retain(|e| e.actor.as_deref() == Some(act));
+        }
+
+        if let Some(atype) = filters.actor_type {
+            entries.retain(|e| e.actor_type.as_deref() == Some(atype));
+        }
+
+        // Time range filters
+        if let Some(before_str) = filters.before {
+            entries.retain(|e| e.timestamp.as_str() < before_str);
+        }
+
+        if let Some(after_str) = filters.after {
+            entries.retain(|e| e.timestamp.as_str() > after_str);
+        }
+
+        // Apply pagination
+        let offset_val = filters.offset.unwrap_or(0);
+        let limit_val = filters.limit.unwrap_or(100).min(1000);
+
+        let paginated: Vec<_> = entries
+            .into_iter()
+            .skip(offset_val)
+            .take(limit_val)
+            .collect();
+
+        Ok(paginated)
+    }
+
+    /// Count log entries with filters (for pagination metadata).
+    pub fn count_log_entries(&self, filters: LogEntryFilters) -> Result<usize> {
+        // Get all log entries first
+        let mut entries = self.get_log_entries(None)?;
+
+        // Apply filters
+        if let Some(etype) = filters.entity_type {
+            entries.retain(|e| e.entity_type == etype);
+        }
+
+        if let Some(eid) = filters.entity_id {
+            entries.retain(|e| e.entity_id == eid);
+        }
+
+        if let Some(act) = filters.actor {
+            entries.retain(|e| e.actor.as_deref() == Some(act));
+        }
+
+        if let Some(atype) = filters.actor_type {
+            entries.retain(|e| e.actor_type.as_deref() == Some(atype));
+        }
+
+        // Time range filters
+        if let Some(before_str) = filters.before {
+            entries.retain(|e| e.timestamp.as_str() < before_str);
+        }
+
+        if let Some(after_str) = filters.after {
+            entries.retain(|e| e.timestamp.as_str() > after_str);
+        }
+
+        Ok(entries.len())
     }
 
     /// Count total commit links.
