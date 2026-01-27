@@ -12,7 +12,7 @@ import * as state from '../state.js';
 import { ConnectionStatus } from '../state.js';
 import { drawNodeShapePath } from './shapes.js';
 import { getNodeColor, getEdgeStyle, getCSSColors } from './colors.js';
-import { worldToScreen, screenToWorld, getZoom, centerOn } from './transform.js';
+import { worldToScreen, screenToWorld, getZoom, centerOn, panToNode } from './transform.js';
 import * as camera from './camera.js';
 
 // Animation constants
@@ -456,16 +456,23 @@ function updateAutoFollow() {
     const isNewTarget = currentFollowingId !== targetNode.id;
     
     if (isNewTarget) {
-        // New node to follow
+        // New node to follow - use smooth animation to switch to it
         state.set('ui.followingNodeId', targetNode.id);
         console.log(`Auto-following ${targetNode.type}: ${targetNode.id}`);
-    }
-    
-    // Continuously center on the target node's position
-    if (canvas && targetNode.x !== undefined && targetNode.y !== undefined) {
-        // Use instant centering to continuously track node movement
-        // This ensures the camera stays locked on the node as it moves
-        centerOn(targetNode.x, targetNode.y);
+        
+        // Smooth animation when switching to a new target
+        if (canvas && targetNode.x !== undefined && targetNode.y !== undefined) {
+            panToNode(targetNode.x, targetNode.y, {
+                canvas: canvas,
+                duration: 800 // Smooth 0.8-second pan to new target
+            });
+        }
+    } else {
+        // Continuously center on the same target node's position
+        // Use instant centering to track node movement in real-time
+        if (canvas && targetNode.x !== undefined && targetNode.y !== undefined) {
+            centerOn(targetNode.x, targetNode.y);
+        }
     }
 }
 
