@@ -172,6 +172,34 @@
     font-style: italic;
 }
 
+.info-panel-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.tag-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+}
+
+.info-panel-assignee {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.info-panel-summary-content {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
 .info-panel-deps {
     list-style: none;
     padding: 0;
