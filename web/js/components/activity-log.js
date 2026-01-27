@@ -72,6 +72,11 @@ function renderOwnerBadge(user) {
     const icon = isAgent ? '🤖' : '👤';
     const className = isAgent ? 'owner-badge agent' : 'owner-badge user';
     
+    // Make agent IDs clickable
+    if (isAgent) {
+        return `<span class="${className} clickable-entity-id" data-entity-id="${escapeHtml(user)}" title="Click to view ${escapeHtml(user)}">${icon} ${escapeHtml(user)}</span>`;
+    }
+    
     return `<span class="${className}">${icon} ${escapeHtml(user)}</span>`;
 }
 
