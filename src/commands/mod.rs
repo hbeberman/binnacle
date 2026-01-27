@@ -8650,6 +8650,7 @@ pub struct ReadyTaskItem {
     #[serde(flatten)]
     pub task: Task,
     pub queued: bool,
+    pub queued_via: Option<String>,
 }
 
 /// A ready bug item with queue membership status.
@@ -8658,6 +8659,7 @@ pub struct ReadyBugItem {
     #[serde(flatten)]
     pub bug: Bug,
     pub queued: bool,
+    pub queued_via: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -9005,7 +9007,11 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
         .into_iter()
         .map(|task| {
             let queued = queued_task_ids.contains(task.core.id.as_str());
-            ReadyTaskItem { task, queued }
+            ReadyTaskItem {
+                task,
+                queued,
+                queued_via: None,
+            }
         })
         .collect();
 
@@ -9029,7 +9035,11 @@ pub fn ready(repo_path: &Path, bugs_only: bool, tasks_only: bool) -> Result<Read
         .into_iter()
         .map(|bug| {
             let queued = queued_bug_ids.contains(bug.core.id.as_str());
-            ReadyBugItem { bug, queued }
+            ReadyBugItem {
+                bug,
+                queued,
+                queued_via: None,
+            }
         })
         .collect();
 
