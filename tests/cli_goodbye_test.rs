@@ -13,12 +13,13 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 /// Get a Command for the bn binary, running in a temp directory.
-/// Clears BN_AGENT_ID to prevent interference from the outer environment
-/// (e.g., when tests are run inside an agent session).
+/// Clears BN_AGENT_ID and BN_CONTAINER_MODE to prevent interference from the outer environment
+/// (e.g., when tests are run inside an agent session or container).
 fn bn_in(dir: &TempDir) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(dir.path());
     cmd.env_remove("BN_AGENT_ID");
+    cmd.env_remove("BN_CONTAINER_MODE");
     cmd
 }
 
@@ -298,9 +299,9 @@ fn test_mcp_session_registers_and_deregisters_agent() {
     assert!(json["was_registered"].as_bool().unwrap());
     assert_eq!(json["agent_name"].as_str().unwrap(), "mcp-agent");
 
-    // MCP mode: should_terminate is false (bn doesn't manage MCP agent lifecycle),
-    // and terminated is false (bn didn't kill the process)
-    assert!(!json["should_terminate"].as_bool().unwrap());
+    // MCP mode: should_terminate is true (agent should self-terminate), but
+    // terminated is false (bn didn't kill the process; agent must self-terminate)
+    assert!(json["should_terminate"].as_bool().unwrap());
     assert!(!json["terminated"].as_bool().unwrap());
 }
 
