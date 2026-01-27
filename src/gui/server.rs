@@ -352,6 +352,7 @@ pub async fn start_server(
         .route("/api/docs/:id/history", get(get_doc_history))
         .route("/api/queue", get(get_queue))
         .route("/api/queue/toggle", post(toggle_queue_membership))
+        .route("/api/batch/close", post(batch_close))
         .route("/api/edges", get(get_edges))
         .route("/api/edges", post(add_edge))
         .route("/api/links/batch", post(batch_add_links))
@@ -1400,6 +1401,118 @@ async fn toggle_queue_membership(
             "message": format!("{} added to queue", request.node_id)
         })))
     }
+}
+
+/// Request body for batch closing entities
+#[derive(Deserialize)]
+struct BatchCloseRequest {
+    node_ids: Vec<String>,
+    reason: String,
+}
+
+/// Batch close multiple tasks and/or bugs
+async fn batch_close(
+    State(state): State<AppState>,
+    Json(request): Json<BatchCloseRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Check readonly mode
+    if state.readonly {
+        return Err(readonly_error());
+    }
+
+    let mut storage = state.storage.lock().await;
+    let mut closed = Vec::new();
+    let mut failed = Vec::new();
+    let mut skipped = Vec::new();
+
+    for node_id in &request.node_ids {
+        // Try to close as task
+        if let Ok(mut task) = storage.get_task(node_id) {
+            // Skip if already closed
+            if task.status == TaskStatus::Done || task.status == TaskStatus::Cancelled {
+                skipped.push(serde_json::json!({
+                    "id": node_id,
+                    "reason": "already closed"
+                }));
+                continue;
+            }
+
+            // Close the task
+            task.status = TaskStatus::Done;
+            task.closed_at = Some(Utc::now());
+            task.closed_reason = Some(request.reason.clone());
+            task.core.updated_at = Utc::now();
+
+            match storage.update_task(&task) {
+                Ok(_) => {
+                    closed.push(serde_json::json!({
+                        "id": node_id,
+                        "type": "task"
+                    }));
+                }
+                Err(e) => {
+                    failed.push(serde_json::json!({
+                        "id": node_id,
+                        "error": e.to_string()
+                    }));
+                }
+            }
+            continue;
+        }
+
+        // Try to close as bug
+        if let Ok(mut bug) = storage.get_bug(node_id) {
+            // Skip if already closed
+            if bug.status == TaskStatus::Done || bug.status == TaskStatus::Cancelled {
+                skipped.push(serde_json::json!({
+                    "id": node_id,
+                    "reason": "already closed"
+                }));
+                continue;
+            }
+
+            // Close the bug
+            bug.status = TaskStatus::Done;
+            bug.closed_at = Some(Utc::now());
+            bug.closed_reason = Some(request.reason.clone());
+            bug.core.updated_at = Utc::now();
+
+            match storage.update_bug(&bug) {
+                Ok(_) => {
+                    closed.push(serde_json::json!({
+                        "id": node_id,
+                        "type": "bug"
+                    }));
+                }
+                Err(e) => {
+                    failed.push(serde_json::json!({
+                        "id": node_id,
+                        "error": e.to_string()
+                    }));
+                }
+            }
+            continue;
+        }
+
+        // If we get here, the entity wasn't found or isn't closeable
+        failed.push(serde_json::json!({
+            "id": node_id,
+            "error": "entity not found or not closeable"
+        }));
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "closed": closed,
+        "failed": failed,
+        "skipped": skipped,
+        "summary": {
+            "total": request.node_ids.len(),
+            "closed_count": closed.len(),
+            "failed_count": failed.len(),
+            "skipped_count": skipped.len()
+        }
+    })))
 }
 
 /// Get WebSocket performance metrics
