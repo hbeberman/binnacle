@@ -878,6 +878,9 @@ function drawNode(node) {
     // Draw PRD label for PRD doc nodes
     drawPRDLabel(node, screenPos, radius);
     
+    // Draw IDEA label inside idea cloud nodes
+    drawIdeaLabel(node, screenPos, radius);
+    
     ctx.globalAlpha = 1.0;
 }
 
@@ -1098,6 +1101,32 @@ function drawPRDLabel(node, screenPos, radius) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(displayText, screenPos.x, pillY + pillHeight / 2);
+    
+    ctx.restore();
+}
+
+/**
+ * Draw IDEA label inside idea cloud nodes
+ */
+function drawIdeaLabel(node, screenPos, _radius) {
+    if (node.type !== 'idea') return;
+    
+    const zoom = getZoom();
+    const baseFontSize = 11 * Math.max(0.7, Math.min(1.3, zoom));
+    
+    const displayText = 'IDEA';
+    
+    ctx.save();
+    
+    // Draw text centered in the cloud
+    ctx.fillStyle = 'rgba(26, 35, 50, 0.5)';  // Semi-transparent dark text
+    ctx.font = `bold ${baseFontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // Position at top third of node to leave room for short_name below
+    const labelY = screenPos.y - 10 * zoom;
+    ctx.fillText(displayText, screenPos.x, labelY);
     
     ctx.restore();
 }
