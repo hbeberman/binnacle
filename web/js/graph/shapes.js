@@ -78,6 +78,19 @@ export function drawRobotPath(ctx, cx, cy, radius) {
     ctx.lineTo(headLeft, headTop + headCorner);
     ctx.quadraticCurveTo(headLeft, headTop, headLeft + headCorner, headTop);
     
+    // Eyes (two small circles on the head)
+    const eyeRadius = radius * 0.08;
+    const eyeY = headY - radius * 0.05;
+    const eyeSpacing = headWidth * 0.3;
+    
+    // Left eye
+    ctx.moveTo(cx - eyeSpacing + eyeRadius, eyeY);
+    ctx.arc(cx - eyeSpacing, eyeY, eyeRadius, 0, Math.PI * 2);
+    
+    // Right eye
+    ctx.moveTo(cx + eyeSpacing + eyeRadius, eyeY);
+    ctx.arc(cx + eyeSpacing, eyeY, eyeRadius, 0, Math.PI * 2);
+    
     // Body (rounded rectangle)
     const bodyCorner = radius * 0.12;
     const bodyLeft = cx - bodyWidth / 2;
