@@ -357,6 +357,7 @@ pub async fn start_server(
         .route("/api/edges", post(add_edge))
         .route("/api/links/batch", post(batch_add_links))
         .route("/api/log", get(get_log))
+        .route("/api/changes", get(get_changes))
         .route("/api/log/annotations", get(get_log_annotations))
         .route("/api/log/annotations", post(add_log_annotation))
         .route("/api/log/annotations/:id", get(get_log_annotation_by_id))
@@ -980,6 +981,112 @@ async fn get_log(
     Ok(Json(serde_json::json!({
         "log": log_entries.0,
         "total": log_entries.1,
+        "limit": params.limit.unwrap_or(100).min(1000),
+        "offset": params.offset.unwrap_or(0),
+    })))
+}
+
+// =============================================================================
+// Entity Changes Endpoint
+// =============================================================================
+
+/// Query parameters for entity changes endpoint.
+#[derive(Debug, Deserialize)]
+struct ChangesQueryParams {
+    /// Maximum entries to return (default: 100, max: 1000)
+    limit: Option<u32>,
+    /// Offset for pagination
+    offset: Option<u32>,
+    /// Only return entries before this timestamp (ISO 8601 or formatted string)
+    before: Option<String>,
+    /// Only return entries after this timestamp (ISO 8601 or formatted string)
+    after: Option<String>,
+    /// Filter by entity type (task, test, commit, etc.)
+    entity_type: Option<String>,
+    /// Filter by specific entity ID
+    entity_id: Option<String>,
+    /// Filter by actor (username or agent ID)
+    actor: Option<String>,
+    /// Filter by actor type (user or agent)
+    actor_type: Option<String>,
+}
+
+/// Get entity change log with pagination and filtering support.
+///
+/// Query parameters:
+/// - `limit`: Maximum entries to return (default: 100, max: 1000)
+/// - `offset`: Number of entries to skip
+/// - `before`: Only return entries before this timestamp
+/// - `after`: Only return entries after this timestamp
+/// - `entity_type`: Filter by entity type (task, test, commit, etc.)
+/// - `entity_id`: Filter by specific entity ID
+/// - `actor`: Filter by actor (username or agent ID)
+/// - `actor_type`: Filter by actor type (user or agent)
+async fn get_changes(
+    State(state): State<AppState>,
+    Query(params): Query<ChangesQueryParams>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+
+    // Build filter struct
+    use crate::storage::LogEntryFilters;
+    let filters = LogEntryFilters {
+        limit: params.limit.map(|l| l as usize),
+        offset: params.offset.map(|o| o as usize),
+        before: params.before.as_deref(),
+        after: params.after.as_deref(),
+        entity_type: params.entity_type.as_deref(),
+        entity_id: params.entity_id.as_deref(),
+        actor: params.actor.as_deref(),
+        actor_type: params.actor_type.as_deref(),
+    };
+
+    // Query entity changes from storage
+    let entries_result = storage.query_log_entries(filters);
+
+    if let Ok(entries) = entries_result {
+        // Build filter struct for count (need to recreate since filters was moved)
+        let count_filters = LogEntryFilters {
+            limit: None, // Don't need limit/offset for count
+            offset: None,
+            before: params.before.as_deref(),
+            after: params.after.as_deref(),
+            entity_type: params.entity_type.as_deref(),
+            entity_id: params.entity_id.as_deref(),
+            actor: params.actor.as_deref(),
+            actor_type: params.actor_type.as_deref(),
+        };
+
+        // Get total count for pagination info
+        let total = storage.count_log_entries(count_filters).unwrap_or(0);
+
+        let changes: Vec<serde_json::Value> = entries
+            .into_iter()
+            .map(|entry| {
+                serde_json::json!({
+                    "timestamp": entry.timestamp,
+                    "entity_type": entry.entity_type,
+                    "entity_id": entry.entity_id,
+                    "action": entry.action,
+                    "details": entry.details,
+                    "actor": entry.actor,
+                    "actor_type": entry.actor_type,
+                })
+            })
+            .collect();
+
+        return Ok(Json(serde_json::json!({
+            "changes": changes,
+            "total": total,
+            "limit": params.limit.unwrap_or(100).min(1000),
+            "offset": params.offset.unwrap_or(0),
+        })));
+    }
+
+    // Fallback: return empty result
+    Ok(Json(serde_json::json!({
+        "changes": [],
+        "total": 0,
         "limit": params.limit.unwrap_or(100).min(1000),
         "offset": params.offset.unwrap_or(0),
     })))
