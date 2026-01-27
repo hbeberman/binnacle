@@ -335,6 +335,9 @@
             onInfoClick: (nodeId) => {
                 console.log('Info clicked for node:', nodeId);
                 showNodeDetailModal(nodeId);
+            },
+            onDocRead: (docId) => {
+                showDocViewer(docId);
             }
         });
         

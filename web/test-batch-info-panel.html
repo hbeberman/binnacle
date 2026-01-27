@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch Info Panel Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/info-panel.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 2rem;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary, #1a1a1a);
+        }
+        
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            color: var(--text-primary, #e0e0e0);
+        }
+        
+        .test-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .test-btn {
+            padding: 0.75rem 1.5rem;
+            background: var(--accent-blue);
+            border: 1px solid var(--accent-light);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        
+        .test-btn:hover {
+            background: var(--accent-light);
+        }
+        
+        .info-section {
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+        
+        pre {
+            background: var(--bg-tertiary);
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Batch Info Panel Component Test</h1>
+        
+        <div class="info-section">
+            <h2>Test Scenarios</h2>
+            <p>Click the buttons below to test different batch selection scenarios:</p>
+        </div>
+        
+        <div class="test-buttons">
+            <button class="test-btn" id="btn-single">Show Single Task</button>
+            <button class="test-btn" id="btn-batch-2">Show 2 Tasks</button>
+            <button class="test-btn" id="btn-batch-mixed">Show Mixed Selection (3 tasks, 1 bug, 1 idea)</button>
+            <button class="test-btn" id="btn-batch-many">Show Many Items (10)</button>
+            <button class="test-btn" id="btn-hide">Hide Panel</button>
+        </div>
+        
+        <div class="info-section">
+            <h3>Event Log</h3>
+            <pre id="event-log">Waiting for events...</pre>
+        </div>
+    </div>
+
+    <script type="module">
+        import {
+            createInfoPanel,
+            initializeInfoPanel,
+            showInfoPanel,
+            hideInfoPanel,
+            updateInfoPanelContent
+        } from './js/components/info-panel.js';
+        
+        // Create and append info panel
+        const panel = createInfoPanel();
+        document.body.appendChild(panel);
+        
+        // Event log
+        const eventLog = document.getElementById('event-log');
+        function logEvent(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            eventLog.textContent = `[${timestamp}] ${message}\n` + eventLog.textContent;
+        }
+        
+        // Initialize with callbacks
+        initializeInfoPanel(panel, {
+            onClose: () => logEvent('Panel closed'),
+            onTabChange: (tabName) => logEvent(`Tab changed to: ${tabName}`),
+            onQueueToggle: (nodeId) => logEvent(`Queue toggle for: ${nodeId}`),
+            onDocOpen: () => logEvent('Doc open clicked'),
+            onViewFullLog: () => logEvent('View full log clicked'),
+            onRelationshipClick: (nodeId) => logEvent(`Relationship clicked: ${nodeId}`)
+        });
+        
+        // Listen for batch events
+        panel.addEventListener('batch-item-toggle', (e) => {
+            logEvent(`Batch item toggled: ${e.detail.nodeId} = ${e.detail.selected}`);
+        });
+        
+        panel.addEventListener('batch-action', (e) => {
+            logEvent(`Batch action: ${e.detail.action} on ${e.detail.nodeIds.length} items`);
+        });
+        
+        // Test data
+        const sampleTask1 = {
+            id: 'bn-a1b2',
+            type: 'task',
+            title: 'Implement authentication middleware',
+            short_name: 'Auth middleware',
+            description: 'Add JWT validation to all API endpoints.',
+            status: 'in_progress',
+            priority: 1,
+            queued: true
+        };
+        
+        const sampleTask2 = {
+            id: 'bn-c3d4',
+            type: 'task',
+            title: 'Add user registration endpoint',
+            short_name: 'User registration',
+            description: 'Create POST /api/register endpoint.',
+            status: 'pending',
+            priority: 2,
+            queued: false
+        };
+        
+        const sampleTask3 = {
+            id: 'bn-e5f6',
+            type: 'task',
+            title: 'Implement password reset flow',
+            short_name: 'Password reset',
+            description: 'Add email-based password reset.',
+            status: 'pending',
+            priority: 2,
+            queued: true
+        };
+        
+        const sampleBug = {
+            id: 'bn-b0b1',
+            type: 'bug',
+            title: 'Memory leak in graph renderer',
+            short_name: 'Graph memory leak',
+            description: 'Graph nodes not garbage collected.',
+            status: 'pending',
+            priority: 0
+        };
+        
+        const sampleIdea = {
+            id: 'bn-1de4',
+            type: 'idea',
+            title: 'Add keyboard shortcuts',
+            short_name: 'Keyboard shortcuts',
+            description: 'Vim-style navigation.',
+            status: 'pending',
+            priority: 3
+        };
+        
+        // Generate many items for stress test
+        function generateManyItems(count) {
+            const items = [];
+            for (let i = 0; i < count; i++) {
+                items.push({
+                    id: `bn-test${i}`,
+                    type: i % 3 === 0 ? 'task' : i % 3 === 1 ? 'bug' : 'idea',
+                    title: `Test item ${i}`,
+                    short_name: `Test ${i}`,
+                    status: 'pending',
+                    priority: i % 5
+                });
+            }
+            return items;
+        }
+        
+        // Button handlers
+        document.getElementById('btn-single').addEventListener('click', () => {
+            logEvent('Showing single task');
+            updateInfoPanelContent(panel, sampleTask1, []);
+        });
+        
+        document.getElementById('btn-batch-2').addEventListener('click', () => {
+            logEvent('Showing 2 tasks');
+            updateInfoPanelContent(panel, null, [sampleTask1, sampleTask2]);
+        });
+        
+        document.getElementById('btn-batch-mixed').addEventListener('click', () => {
+            logEvent('Showing mixed selection');
+            updateInfoPanelContent(panel, null, [
+                sampleTask1,
+                sampleTask2,
+                sampleTask3,
+                sampleBug,
+                sampleIdea
+            ]);
+        });
+        
+        document.getElementById('btn-batch-many').addEventListener('click', () => {
+            logEvent('Showing 10 items');
+            const items = generateManyItems(10);
+            updateInfoPanelContent(panel, null, items);
+        });
+        
+        document.getElementById('btn-hide').addEventListener('click', () => {
+            logEvent('Hiding panel');
+            hideInfoPanel(panel);
+        });
+        
+        // Start with single selection
+        logEvent('Test page loaded');
+        updateInfoPanelContent(panel, sampleTask1, []);
+    </script>
+</body>
+</html>

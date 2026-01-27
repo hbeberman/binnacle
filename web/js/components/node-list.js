@@ -12,6 +12,7 @@ import { makeIdsClickable } from '../utils/clickable-ids.js';
  * @param {string|HTMLElement} containerSelector - Container element or selector
  * @param {Object} options - Configuration options
  * @param {Function} options.onNodeClick - Callback when a node is clicked
+ * @param {Function} options.onDocRead - Callback when a doc's Read button is clicked (docId)
  */
 export function initializeNodeList(containerSelector, options = {}) {
     const container = typeof containerSelector === 'string'
@@ -199,6 +200,17 @@ function renderNodeList(container, options = {}) {
         });
     });
     
+    // Attach doc read button handlers
+    container.querySelectorAll('.card-read-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent triggering card click
+            const docId = e.currentTarget.getAttribute('data-doc-id');
+            if (docId && options.onDocRead) {
+                options.onDocRead(docId);
+            }
+        });
+    });
+    
     // Add double-click handler to cards
     container.querySelectorAll('.node-card').forEach(card => {
         card.addEventListener('dblclick', (_e) => {
@@ -342,6 +354,7 @@ function renderDocCard(doc) {
         <div class="card-header">
             <div class="card-title">${docTypeLabel} ${escapeHtml(doc.title)}</div>
             <div class="card-actions">
+                <button class="card-read-btn" data-doc-id="${doc.id}" title="Read document">📖</button>
                 <button class="card-jump-btn" data-node-id="${doc.id}" title="Jump to graph">🎯</button>
             </div>
         </div>

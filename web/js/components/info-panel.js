@@ -114,7 +114,7 @@ export function createInfoPanel() {
                 </div>
             </div>
             <div id="info-panel-doc-open-section" class="info-panel-doc-open-section" style="display: none;">
-                <span class="info-panel-doc-open-label">View Document</span>
+                <span class="info-panel-doc-open-label">📖 Read Document</span>
                 <button id="doc-open-btn" class="doc-open-btn" title="Open document viewer">Open</button>
             </div>
             <div id="info-panel-summary-section" class="info-panel-section" style="display: none;">
@@ -319,15 +319,175 @@ export function toggleInfoPanelExpanded(panel) {
 }
 
 /**
- * Update info panel content for a node
+ * Update info panel to show batch selection view
  * @param {HTMLElement} panel - The info panel element
- * @param {Object} node - Node data object
+ * @param {Array} selectedNodes - Array of selected node objects
  */
-export function updateInfoPanelContent(panel, node) {
+function updateBatchView(panel, selectedNodes) {
+    // Clear current node ID
+    panel.dataset.currentNodeId = '';
+    
+    // Count entities by type
+    const typeCounts = {};
+    selectedNodes.forEach(node => {
+        const type = node.type || 'unknown';
+        typeCounts[type] = (typeCounts[type] || 0) + 1;
+    });
+    
+    // Build summary string (e.g., "3 tasks, 1 bug, 2 ideas")
+    const summaryParts = Object.entries(typeCounts)
+        .map(([type, count]) => {
+            const plural = count > 1 ? 's' : '';
+            return `${count} ${type}${plural}`;
+        })
+        .sort()
+        .join(', ');
+    
+    // Update header
+    const titleEl = panel.querySelector('#info-panel-task-title');
+    titleEl.textContent = `Batch Selection (${selectedNodes.length} items)`;
+    
+    // Update ID section with summary
+    const idEl = panel.querySelector('#info-panel-id');
+    idEl.textContent = summaryParts;
+    
+    // Hide short name row
+    const shortNameRow = panel.querySelector('#info-panel-short-name-row');
+    shortNameRow.style.display = 'none';
+    
+    // Update meta
+    const metaEl = panel.querySelector('#info-panel-meta');
+    metaEl.textContent = `${selectedNodes.length} entities selected`;
+    
+    // Hide all detail sections
+    panel.querySelector('#info-panel-queue-section').style.display = 'none';
+    panel.querySelector('#info-panel-doc-open-section').style.display = 'none';
+    panel.querySelector('#info-panel-summary-section').style.display = 'none';
+    panel.querySelector('#info-panel-tags-section').style.display = 'none';
+    panel.querySelector('#info-panel-assignee-section').style.display = 'none';
+    panel.querySelector('#info-panel-deps-section').style.display = 'none';
+    panel.querySelector('#info-panel-relationships-section').style.display = 'none';
+    panel.querySelector('#info-panel-closed-section').style.display = 'none';
+    panel.querySelector('#info-panel-timestamps-section').style.display = 'none';
+    
+    // Show description section with entity list
+    const descSection = panel.querySelector('#info-panel-description-section');
+    descSection.style.display = 'block';
+    
+    const descEl = panel.querySelector('#info-panel-description');
+    descEl.innerHTML = '';
+    descEl.classList.remove('empty');
+    
+    // Create a container for the entity list
+    const listContainer = document.createElement('div');
+    listContainer.className = 'batch-entity-list';
+    
+    // Add each selected entity with a checkbox
+    selectedNodes.forEach(node => {
+        const item = document.createElement('div');
+        item.className = 'batch-entity-item';
+        item.dataset.nodeId = node.id;
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'batch-entity-checkbox';
+        checkbox.dataset.nodeId = node.id;
+        checkbox.addEventListener('change', (e) => {
+            // Dispatch custom event for parent to handle
+            panel.dispatchEvent(new CustomEvent('batch-item-toggle', {
+                detail: { nodeId: node.id, selected: e.target.checked }
+            }));
+        });
+        
+        const idSpan = createClickableId(node.id);
+        idSpan.className = 'batch-entity-id';
+        
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'batch-entity-title';
+        titleSpan.textContent = node.short_name || node.title || 'Untitled';
+        
+        const typeSpan = document.createElement('span');
+        typeSpan.className = 'batch-entity-type';
+        typeSpan.textContent = node.type || 'unknown';
+        
+        item.appendChild(checkbox);
+        item.appendChild(idSpan);
+        item.appendChild(titleSpan);
+        item.appendChild(typeSpan);
+        
+        listContainer.appendChild(item);
+    });
+    
+    descEl.appendChild(listContainer);
+    
+    // Add batch action buttons section
+    const batchActionsSection = document.createElement('div');
+    batchActionsSection.className = 'info-panel-section batch-actions-section';
+    batchActionsSection.innerHTML = `
+        <div class="info-panel-section-title">Batch Actions</div>
+        <div class="batch-actions-container">
+            <button class="batch-action-btn" data-action="close">Close Selected</button>
+            <button class="batch-action-btn" data-action="queue-add">Add to Queue</button>
+            <button class="batch-action-btn" data-action="queue-remove">Remove from Queue</button>
+            <button class="batch-action-btn" data-action="export">Export Selection</button>
+        </div>
+    `;
+    
+    // Add event listeners to batch action buttons
+    const actionButtons = batchActionsSection.querySelectorAll('.batch-action-btn');
+    actionButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const action = btn.dataset.action;
+            panel.dispatchEvent(new CustomEvent('batch-action', {
+                detail: { action, nodeIds: selectedNodes.map(n => n.id) }
+            }));
+        });
+    });
+    
+    // Insert batch actions after description section
+    descSection.parentNode.insertBefore(batchActionsSection, descSection.nextSibling);
+    
+    // Hide activity and commits tabs (not applicable for batch)
+    panel.querySelectorAll('.info-panel-tab').forEach(tab => {
+        if (tab.dataset.tab === 'activity' || tab.dataset.tab === 'commits') {
+            tab.style.display = 'none';
+        } else {
+            tab.style.display = 'block';
+        }
+    });
+    
+    // Show the panel
+    showInfoPanel(panel);
+}
+
+/**
+ * Update info panel content for a node or batch selection
+ * @param {HTMLElement} panel - The info panel element
+ * @param {Object} node - Node data object (for single selection)
+ * @param {Array} selectedNodes - Array of selected node objects (for multi-selection)
+ */
+export function updateInfoPanelContent(panel, node, selectedNodes = []) {
+    // If multiple nodes are selected, show batch view
+    if (selectedNodes && selectedNodes.length > 1) {
+        updateBatchView(panel, selectedNodes);
+        return;
+    }
+    
     if (!node) {
         hideInfoPanel(panel);
         return;
     }
+    
+    // Clean up any batch-specific elements from previous batch view
+    const existingBatchActions = panel.querySelector('.batch-actions-section');
+    if (existingBatchActions) {
+        existingBatchActions.remove();
+    }
+    
+    // Restore activity and commits tabs visibility
+    panel.querySelectorAll('.info-panel-tab').forEach(tab => {
+        tab.style.display = 'block';
+    });
     
     // Store current node ID in panel data attribute for callbacks
     panel.dataset.currentNodeId = node.id || '';

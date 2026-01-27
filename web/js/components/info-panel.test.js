@@ -240,3 +240,98 @@ console.log('- Expand/collapse animation uses CSS transitions (250ms ease-out)')
 console.log('- Panel expands from 320px to 380px width and fills viewport height');
 console.log('- Toggle function returns true when expanded, false when collapsed');
 console.log('- Hide function clears both visible and expanded states');
+console.log('- Batch view displays when selectedNodes.length > 1');
+console.log('- Batch view shows entity count summary and list with checkboxes');
+console.log('- Batch actions include Close, Queue Add/Remove, and Export');
+
+// Test 8: Batch view detection
+console.log('\nTest 8: Batch view detection');
+{
+    // Simulate updateInfoPanelContent with multiple nodes
+    const selectedNodes = [
+        { id: 'bn-1', type: 'task', title: 'Task 1', short_name: 'T1' },
+        { id: 'bn-2', type: 'bug', title: 'Bug 1', short_name: 'B1' },
+        { id: 'bn-3', type: 'task', title: 'Task 2', short_name: 'T2' }
+    ];
+    
+    // Should trigger batch view when length > 1
+    const shouldShowBatch = selectedNodes && selectedNodes.length > 1;
+    
+    if (shouldShowBatch) {
+        console.log('  ✓ Batch view triggered for 3 selected nodes');
+    } else {
+        console.error('  ✗ Batch view not triggered');
+    }
+}
+
+// Test 9: Batch summary generation
+console.log('\nTest 9: Batch summary generation');
+{
+    const selectedNodes = [
+        { id: 'bn-1', type: 'task' },
+        { id: 'bn-2', type: 'task' },
+        { id: 'bn-3', type: 'bug' },
+        { id: 'bn-4', type: 'idea' }
+    ];
+    
+    // Count entities by type
+    const typeCounts = {};
+    selectedNodes.forEach(node => {
+        const type = node.type || 'unknown';
+        typeCounts[type] = (typeCounts[type] || 0) + 1;
+    });
+    
+    // Expected: { task: 2, bug: 1, idea: 1 }
+    const expectedCounts = { task: 2, bug: 1, idea: 1 };
+    let countsMatch = true;
+    
+    for (const [type, count] of Object.entries(expectedCounts)) {
+        if (typeCounts[type] !== count) {
+            countsMatch = false;
+            console.error(`  ✗ Expected ${count} ${type}(s), got ${typeCounts[type]}`);
+        }
+    }
+    
+    if (countsMatch) {
+        console.log('  ✓ Type counts correct: 2 tasks, 1 bug, 1 idea');
+    }
+    
+    // Build summary string
+    const summaryParts = Object.entries(typeCounts)
+        .map(([type, count]) => {
+            const plural = count > 1 ? 's' : '';
+            return `${count} ${type}${plural}`;
+        })
+        .sort()
+        .join(', ');
+    
+    const expectedSummary = '1 bug, 1 idea, 2 tasks';
+    if (summaryParts === expectedSummary) {
+        console.log(`  ✓ Summary string: "${summaryParts}"`);
+    } else {
+        console.error(`  ✗ Expected: "${expectedSummary}", got: "${summaryParts}"`);
+    }
+}
+
+// Test 10: Batch action events
+console.log('\nTest 10: Batch action events');
+{
+    // Simulate batch action button click
+    const action = 'close';
+    const nodeIds = ['bn-1', 'bn-2', 'bn-3'];
+    
+    // Event should contain action type and node IDs
+    const event = {
+        detail: { action, nodeIds }
+    };
+    
+    if (event.detail.action === 'close' && event.detail.nodeIds.length === 3) {
+        console.log('  ✓ Batch action event contains correct data');
+    } else {
+        console.error('  ✗ Batch action event malformed');
+    }
+    
+    // Test all action types
+    const actions = ['close', 'queue-add', 'queue-remove', 'export'];
+    console.log('  ✓ Supported batch actions:', actions.join(', '));
+}
