@@ -844,3 +844,307 @@ fn test_add_milestone_to_queue() {
         .stdout(predicate::str::contains(&milestone_id))
         .stdout(predicate::str::contains("Release 1.0"));
 }
+
+// === Queue Inheritance Tests ===
+
+#[test]
+fn test_queue_milestone_children_inherit_priority() {
+    let temp = init_binnacle();
+
+    // Create queue
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    // Create milestone
+    let milestone_output = bn_in(&temp)
+        .args(["milestone", "create", "Release 1.0"])
+        .output()
+        .unwrap();
+    let milestone_id = extract_milestone_id(&milestone_output);
+
+    // Create child task
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Child Task"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Link task as child of milestone
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &milestone_id, "--type", "child_of"])
+        .assert()
+        .success();
+
+    // Queue the milestone (not the child task)
+    bn_in(&temp)
+        .args(["link", "add", &milestone_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Ready output should show child task with queued_via field
+    let output = bn_in(&temp).args(["ready"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Child task should have queued_via pointing to milestone
+    assert!(stdout.contains(&format!("\"queued_via\":\"{}\"", milestone_id)));
+    assert!(stdout.contains(&task_id));
+}
+
+#[test]
+fn test_queue_parent_task_subtasks_inherit() {
+    let temp = init_binnacle();
+
+    // Create queue
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    // Create parent task
+    let parent_output = bn_in(&temp)
+        .args(["task", "create", "Parent Task"])
+        .output()
+        .unwrap();
+    let parent_id = extract_task_id(&parent_output);
+
+    // Create child task
+    let child_output = bn_in(&temp)
+        .args(["task", "create", "Child Task"])
+        .output()
+        .unwrap();
+    let child_id = extract_task_id(&child_output);
+
+    // Link child to parent
+    bn_in(&temp)
+        .args(["link", "add", &child_id, &parent_id, "--type", "child_of"])
+        .assert()
+        .success();
+
+    // Queue the parent (not the child)
+    bn_in(&temp)
+        .args(["link", "add", &parent_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Ready output should show child with queued_via
+    let output = bn_in(&temp).args(["ready"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains(&format!("\"queued_via\":\"{}\"", parent_id)));
+    assert!(stdout.contains(&child_id));
+}
+
+#[test]
+fn test_directly_queued_before_inherited() {
+    let temp = init_binnacle();
+
+    // Create queue
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    // Create milestone
+    let milestone_output = bn_in(&temp)
+        .args(["milestone", "create", "Release 1.0"])
+        .output()
+        .unwrap();
+    let milestone_id = extract_milestone_id(&milestone_output);
+
+    // Create two tasks: one directly queued, one child of queued milestone
+    let direct_output = bn_in(&temp)
+        .args(["task", "create", "Directly Queued", "-p", "3"])
+        .output()
+        .unwrap();
+    let direct_id = extract_task_id(&direct_output);
+
+    let inherited_output = bn_in(&temp)
+        .args(["task", "create", "Inherited Priority", "-p", "0"])
+        .output()
+        .unwrap();
+    let inherited_id = extract_task_id(&inherited_output);
+
+    // Link inherited task to milestone
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &inherited_id,
+            &milestone_id,
+            "--type",
+            "child_of",
+        ])
+        .assert()
+        .success();
+
+    // Queue milestone and direct task
+    bn_in(&temp)
+        .args(["link", "add", &milestone_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["link", "add", &direct_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Directly queued task should come before inherited, despite lower priority
+    let output = bn_in(&temp).args(["ready"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let pos_direct = stdout.find(&direct_id).expect("direct task not found");
+    let pos_inherited = stdout
+        .find(&inherited_id)
+        .expect("inherited task not found");
+
+    assert!(
+        pos_direct < pos_inherited,
+        "Directly queued task should appear before inherited task"
+    );
+}
+
+#[test]
+fn test_ready_human_shows_via_for_inherited() {
+    let temp = init_binnacle();
+
+    // Create queue
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    // Create milestone
+    let milestone_output = bn_in(&temp)
+        .args(["milestone", "create", "Release 1.0"])
+        .output()
+        .unwrap();
+    let milestone_id = extract_milestone_id(&milestone_output);
+
+    // Create child task
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Child Task"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Link and queue
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &milestone_id, "--type", "child_of"])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["link", "add", &milestone_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Human-readable output should show [via bn-xxxx]
+    bn_in(&temp)
+        .args(["-H", "ready"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[INHERITED"))
+        .stdout(predicate::str::contains(format!("[via {}]", milestone_id)));
+}
+
+#[test]
+fn test_ready_human_shows_queued_for_direct() {
+    let temp = init_binnacle();
+
+    // Create queue
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    // Create and queue task
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Direct Task"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Human-readable output should show [queued]
+    bn_in(&temp)
+        .args(["-H", "ready"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[QUEUED]"))
+        .stdout(predicate::str::contains("[queued]"));
+}
+
+#[test]
+fn test_unqueue_ancestor_children_drop_to_other() {
+    let temp = init_binnacle();
+
+    // Create queue
+    let queue_output = bn_in(&temp)
+        .args(["queue", "create", "Sprint 1"])
+        .output()
+        .unwrap();
+    let queue_id = extract_queue_id(&queue_output);
+
+    // Create milestone
+    let milestone_output = bn_in(&temp)
+        .args(["milestone", "create", "Release 1.0"])
+        .output()
+        .unwrap();
+    let milestone_id = extract_milestone_id(&milestone_output);
+
+    // Create child task
+    let task_output = bn_in(&temp)
+        .args(["task", "create", "Child Task"])
+        .output()
+        .unwrap();
+    let task_id = extract_task_id(&task_output);
+
+    // Link and queue
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &milestone_id, "--type", "child_of"])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["link", "add", &milestone_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Verify child has queued_via
+    let output = bn_in(&temp).args(["ready"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(&format!("\"queued_via\":\"{}\"", milestone_id)));
+
+    // Unqueue the milestone
+    bn_in(&temp)
+        .args(["link", "rm", &milestone_id, &queue_id, "--type", "queued"])
+        .assert()
+        .success();
+
+    // Now child should have queued_via: null
+    let output = bn_in(&temp).args(["ready"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Find the child task in JSON and verify queued_via is null
+    assert!(
+        stdout.contains(&format!("\"id\":\"{}\"", task_id)),
+        "Child task should still be in ready"
+    );
+    // Check that the child task entry has queued_via: null
+    // This is a bit tricky to assert precisely, but we can check it doesn't have the milestone ID
+    assert!(
+        !stdout.contains(&format!("\"queued_via\":\"{}\"", milestone_id)),
+        "Child should no longer have queued_via after unqueue"
+    );
+}
