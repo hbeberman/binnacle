@@ -22,7 +22,8 @@ export {
     markAgentDeparting,
     highlightNode,
     clearHighlight,
-    animationTime
+    animationTime,
+    rebuildGraph
 } from './renderer.js';
 
 // Re-export coordinate transformations

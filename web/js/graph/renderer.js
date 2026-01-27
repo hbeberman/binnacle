@@ -236,6 +236,19 @@ function filterVisibleNodes() {
 }
 
 /**
+ * Rebuild graph from current state data
+ * Public API for manually triggering graph rebuild
+ */
+export function rebuildGraph() {
+    console.log(`[Graph] Manual rebuild triggered, nodes before: ${graphNodes.length}`);
+    buildGraphNodes();
+    buildGraphEdges();
+    filterVisibleNodes();
+    console.log(`[Graph] After manual rebuild: ${graphNodes.length} nodes, ${visibleNodes.length} visible`);
+    startAnimation();
+}
+
+/**
  * Handle entity changes
  */
 function onEntitiesChanged(newValue, oldValue, path) {
