@@ -29,6 +29,7 @@
     <link rel="stylesheet" href="/css/components/node-detail-pane.css">
     <link rel="stylesheet" href="/css/components/agent-cards.css">
     <link rel="stylesheet" href="/css/components/activity-log.css">
+    <link rel="stylesheet" href="/css/components/summarize-chat.css">
     
     <style>
         /* Additional layout styles for the full app */
@@ -264,6 +265,7 @@
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
         import { mountNodeDetailModal, showNodeDetailModal } from './js/components/node-detail-modal.js';
         import { mountNodeDetailPane, showNodeDetailPane } from './js/components/node-detail-pane.js';
+        import { mountSummarizeChatModal, showSummarizeChatModal } from './js/components/summarize-chat.js';
         import { createAvailableWorkPane } from './js/components/available-work-pane.js';
         import { createActiveTaskPane } from './js/components/active-task-pane.js';
         import { createRecentlyCompletedPane } from './js/components/recently-completed-pane.js';
@@ -395,11 +397,46 @@
             }
         });
         
+        // Handle batch actions from info panel
+        infoPanel.addEventListener('batch-action', (e) => {
+            const { action, nodeIds } = e.detail;
+            console.log('Batch action:', action, nodeIds);
+            
+            switch (action) {
+                case 'summarize':
+                    // Open summarize chat modal with selected nodes
+                    const readonly = state.get('connection.readonly') || false;
+                    showSummarizeChatModal(nodeIds, readonly);
+                    break;
+                case 'close':
+                    // TODO: Implement batch close
+                    console.log('Batch close not yet implemented');
+                    break;
+                case 'queue-add':
+                    // TODO: Implement batch queue add
+                    console.log('Batch queue add not yet implemented');
+                    break;
+                case 'queue-remove':
+                    // TODO: Implement batch queue remove
+                    console.log('Batch queue remove not yet implemented');
+                    break;
+                case 'export':
+                    // TODO: Implement batch export
+                    console.log('Batch export not yet implemented');
+                    break;
+                default:
+                    console.warn('Unknown batch action:', action);
+            }
+        });
+        
         // Mount doc viewer overlay
         mountDocViewer(container);
         
         // Mount node detail modal
         mountNodeDetailModal(container);
+        
+        // Mount summarize chat modal
+        mountSummarizeChatModal(container);
         
         // Mount node detail pane (side panel for double-click)
         const mainContent = document.querySelector('.main-content');

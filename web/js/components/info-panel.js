@@ -426,6 +426,7 @@ function updateBatchView(panel, selectedNodes) {
     batchActionsSection.innerHTML = `
         <div class="info-panel-section-title">Batch Actions</div>
         <div class="batch-actions-container">
+            <button class="batch-action-btn" data-action="summarize">📊 Summarize</button>
             <button class="batch-action-btn" data-action="close">Close Selected</button>
             <button class="batch-action-btn" data-action="queue-add">Add to Queue</button>
             <button class="batch-action-btn" data-action="queue-remove">Remove from Queue</button>
