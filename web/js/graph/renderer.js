@@ -116,6 +116,12 @@ export function resizeCanvas() {
 function buildGraphNodes() {
     const existingNodes = new Map(graphNodes.map(n => [n.id, n]));
     
+    // Debug: check if we're using the same state instance
+    if (typeof state._getStateObjectRef === 'function') {
+        const stateRef = state._getStateObjectRef();
+        console.log(`[Graph.buildGraphNodes] State object ID: ${stateRef && stateRef.entities ? 'valid' : 'INVALID'}`);
+    }
+    
     // Combine all entity types
     const tasks = state.get('entities.tasks') || [];
     const bugs = state.get('entities.bugs') || [];
