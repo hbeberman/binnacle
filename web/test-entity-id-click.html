@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Entity ID Click</title>
+    <link rel="stylesheet" href="css/themes/dark.css">
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/activity-log.css">
+    <link rel="stylesheet" href="css/components/node-detail-modal.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        #test-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            margin-bottom: 1rem;
+        }
+        
+        .test-section {
+            margin-bottom: 2rem;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+        
+        .status {
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div id="test-container">
+        <h1>Entity ID Click Test</h1>
+        
+        <div class="status" id="status">
+            Status: Initializing...
+        </div>
+        
+        <div class="test-section">
+            <h2>Test 1: Mock Log Entries with Entity IDs</h2>
+            <div id="log-container"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Instructions</h2>
+            <ol>
+                <li>Entity IDs (bn-xxxx) in log entries should be clickable</li>
+                <li>Clicking an entity ID should open the node detail modal</li>
+                <li>The modal should display node information</li>
+                <li>Close modal with X button or ESC key</li>
+            </ol>
+        </div>
+    </div>
+    
+    <!-- Modal container -->
+    <div id="modal-container"></div>
+    
+    <script type="module">
+        import { createActivityLog } from './js/components/activity-log.js';
+        import { mountNodeDetailModal, showNodeDetailModal } from './js/components/node-detail-modal.js';
+        import * as state from './js/state.js';
+        
+        const statusEl = document.getElementById('status');
+        
+        // Mock state data for testing
+        state.set('nodes', {
+            'bn-1234': {
+                id: 'bn-1234',
+                type: 'task',
+                title: 'Implement feature X',
+                short_name: 'Feature X',
+                description: 'A test task for demonstration',
+                status: 'in_progress',
+                priority: 1,
+                tags: ['frontend'],
+                created_at: '2026-01-27T00:00:00Z',
+                updated_at: '2026-01-27T05:00:00Z'
+            },
+            'bn-5678': {
+                id: 'bn-5678',
+                type: 'bug',
+                title: 'Fix critical bug',
+                short_name: 'Critical bug',
+                description: 'A test bug for demonstration',
+                status: 'done',
+                priority: 0,
+                tags: ['backend', 'urgent'],
+                created_at: '2026-01-26T00:00:00Z',
+                updated_at: '2026-01-27T03:00:00Z',
+                closed_at: '2026-01-27T03:00:00Z',
+                closed_reason: 'Fixed and tested'
+            },
+            'bnt-9999': {
+                id: 'bnt-9999',
+                type: 'test',
+                name: 'Unit tests',
+                command: 'cargo test',
+                working_dir: '.',
+                linked_tasks: ['bn-1234'],
+                created_at: '2026-01-27T00:00:00Z'
+            }
+        });
+        
+        // Mock getNode function
+        window.getNode = function(id) {
+            const nodes = state.get('nodes');
+            return nodes[id] || null;
+        };
+        
+        // Mount modal
+        mountNodeDetailModal(document.getElementById('modal-container'));
+        
+        // Create mock log entries HTML
+        const mockLogHTML = `
+            <div class="log-entry log-status-success">
+                <div class="log-entry-header">
+                    <span class="log-timestamp">2m ago</span>
+                    <span class="owner-badge agent">🤖 bn-ad8c</span>
+                    <span class="log-command">task update</span>
+                    <span class="log-exit-code">Exit: 0</span>
+                </div>
+                <div class="log-entry-details">
+                    <span class="log-args"><span class="clickable-entity-id" data-entity-id="bn-1234" title="Click to view bn-1234">bn-1234</span> --status in_progress</span>
+                </div>
+            </div>
+            
+            <div class="log-entry log-status-success">
+                <div class="log-entry-header">
+                    <span class="log-timestamp">5m ago</span>
+                    <span class="owner-badge user">👤 alice</span>
+                    <span class="log-command">bug close</span>
+                    <span class="log-exit-code">Exit: 0</span>
+                </div>
+                <div class="log-entry-details">
+                    <span class="log-args"><span class="clickable-entity-id" data-entity-id="bn-5678" title="Click to view bn-5678">bn-5678</span> --reason "Fixed and tested"</span>
+                </div>
+            </div>
+            
+            <div class="log-entry log-status-success">
+                <div class="log-entry-header">
+                    <span class="log-timestamp">10m ago</span>
+                    <span class="owner-badge user">👤 bob</span>
+                    <span class="log-command">test run</span>
+                    <span class="log-exit-code">Exit: 0</span>
+                </div>
+                <div class="log-entry-details">
+                    <span class="log-args"><span class="clickable-entity-id" data-entity-id="bnt-9999" title="Click to view bnt-9999">bnt-9999</span></span>
+                </div>
+            </div>
+        `;
+        
+        const logContainer = document.getElementById('log-container');
+        logContainer.innerHTML = mockLogHTML;
+        
+        // Add click handlers to entity IDs
+        logContainer.addEventListener('click', (e) => {
+            const clickableId = e.target.closest('.clickable-entity-id');
+            if (!clickableId) return;
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const entityId = clickableId.dataset.entityId;
+            if (entityId) {
+                statusEl.textContent = `Status: Clicked ${entityId}, opening modal...`;
+                showNodeDetailModal(entityId);
+            }
+        });
+        
+        statusEl.textContent = 'Status: Ready! Click any entity ID (bn-xxxx, bnt-xxxx) to test.';
+    </script>
+</body>
+</html>
