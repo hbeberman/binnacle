@@ -202,44 +202,6 @@
 }
 
 /* ==========================================================================
-   Search Box
-   ========================================================================== */
-
-.graph-search {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    z-index: 10;
-}
-
-.graph-search-input {
-    width: 200px;
-    padding: 8px 12px;
-    padding-left: 32px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 13px;
-    transition: all 0.2s ease;
-}
-
-.graph-search-input:focus {
-    width: 280px;
-    border-color: var(--accent-blue);
-    outline: none;
-}
-
-.graph-search-icon {
-    position: absolute;
-    left: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-secondary);
-    pointer-events: none;
-}
-
-/* ==========================================================================
    Empty State
    ========================================================================== */
 
@@ -427,19 +389,6 @@
     .filter-controls {
         top: 12px;
         left: 12px;
-    }
-
-    .graph-search {
-        top: 12px;
-        right: 12px;
-    }
-
-    .graph-search-input {
-        width: 150px;
-    }
-
-    .graph-search-input:focus {
-        width: 200px;
     }
 
     .graph-minimap {
