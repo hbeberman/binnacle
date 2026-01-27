@@ -86,7 +86,8 @@
                     name: `Worker Agent ${agentCounter}`,
                     purpose: `Currently working on task bn-${Math.random().toString(36).substr(2, 4)}. Processing complex data transformations and running validation tests.`,
                     status: 'active',
-                    started_at: new Date().toISOString()
+                    started_at: new Date().toISOString(),
+                    tasks: [`bn-${Math.random().toString(36).substr(2, 4)}`]
                 }
             };
             const agents = state.getAgents();
@@ -157,7 +158,8 @@
                     name: 'Primary Agent Worker',
                     purpose: 'Implementing new features for the GUI. Currently working on agent card redesign to show more detailed information.',
                     status: 'active',
-                    started_at: new Date().toISOString()
+                    started_at: new Date().toISOString(),
+                    tasks: ['bn-1234', 'bn-5678']
                 }
             },
             {
@@ -172,7 +174,8 @@
                     name: 'Backup Worker',
                     purpose: 'Waiting for work assignments from the task queue.',
                     status: 'idle',
-                    started_at: new Date(Date.now() - 3600000).toISOString()
+                    started_at: new Date(Date.now() - 3600000).toISOString(),
+                    tasks: []
                 }
             },
             {
@@ -187,7 +190,8 @@
                     name: 'Abandoned Process',
                     purpose: 'Process may have exited unexpectedly during database migration.',
                     status: 'stale',
-                    started_at: new Date(Date.now() - 7200000).toISOString()
+                    started_at: new Date(Date.now() - 7200000).toISOString(),
+                    tasks: ['bn-abcd']
                 }
             }
         ]);

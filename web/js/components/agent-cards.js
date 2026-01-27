@@ -9,6 +9,7 @@ import {
     getAgents,
     setSelectedNode
 } from '../state.js';
+import { createClickableId } from '../utils/clickable-ids.js';
 
 /**
  * Get status badge configuration for an agent
@@ -87,6 +88,50 @@ function formatElapsedTime(startTime) {
 }
 
 /**
+ * Create task links section for an agent card
+ * @param {Array<string>} tasks - Array of task IDs
+ * @returns {HTMLElement} Task section element
+ */
+function createTaskLinksSection(tasks) {
+    const section = document.createElement('div');
+    section.className = 'agent-card-tasks-section';
+    
+    if (!tasks || tasks.length === 0) {
+        section.innerHTML = `
+            <div class="agent-card-tasks-label">Working on</div>
+            <div class="agent-card-no-tasks">
+                <span class="agent-card-no-tasks-icon">🎯</span>
+                <span class="agent-card-no-tasks-text">No active task</span>
+            </div>
+        `;
+        return section;
+    }
+    
+    const label = document.createElement('div');
+    label.className = 'agent-card-tasks-label';
+    label.textContent = 'Working on';
+    section.appendChild(label);
+    
+    const taskList = document.createElement('div');
+    taskList.className = 'agent-card-tasks-list';
+    
+    for (const taskId of tasks) {
+        const taskItem = document.createElement('div');
+        taskItem.className = 'agent-card-task-item';
+        
+        // Create clickable task ID
+        const clickableId = createClickableId(taskId);
+        taskItem.appendChild(clickableId);
+        
+        taskList.appendChild(taskItem);
+    }
+    
+    section.appendChild(taskList);
+    
+    return section;
+}
+
+/**
  * Create an agent card element
  * @param {Object} agent - Agent entity
  * @returns {HTMLElement} Card element
@@ -105,6 +150,7 @@ function createAgentCard(agent) {
     const pid = agent.pid || agent._agent?.pid || 'N/A';
     const startedAt = agent._agent?.started_at || agent.started_at;
     const shortName = agent.short_name || '';
+    const tasks = agent._agent?.tasks || agent.tasks || [];
     
     card.innerHTML = `
         <div class="agent-card-header">
@@ -117,40 +163,52 @@ function createAgentCard(agent) {
                 <span>${badge.label}</span>
             </div>
         </div>
-        
-        <div class="agent-card-info-grid">
-            <div class="agent-card-info-item">
-                <div class="agent-card-info-label">Process ID</div>
-                <div class="agent-card-info-value">${escapeHtml(String(pid))}</div>
-            </div>
-            <div class="agent-card-info-item">
-                <div class="agent-card-info-label">Uptime</div>
-                <div class="agent-card-info-value">${formatElapsedTime(startedAt)}</div>
-            </div>
-            <div class="agent-card-info-item">
-                <div class="agent-card-info-label">Started At</div>
-                <div class="agent-card-info-value">${formatDateTime(startedAt)}</div>
-            </div>
-            ${shortName ? `
-            <div class="agent-card-info-item">
-                <div class="agent-card-info-label">Short Name</div>
-                <div class="agent-card-info-value">${escapeHtml(shortName)}</div>
-            </div>
-            ` : `
-            <div class="agent-card-info-item">
-                <div class="agent-card-info-label">Status</div>
-                <div class="agent-card-info-value">${badge.label}</div>
-            </div>
-            `}
+    `;
+    
+    // Add task links section
+    const taskSection = createTaskLinksSection(tasks);
+    card.appendChild(taskSection);
+    
+    // Add info grid
+    const infoGrid = document.createElement('div');
+    infoGrid.className = 'agent-card-info-grid';
+    infoGrid.innerHTML = `
+        <div class="agent-card-info-item">
+            <div class="agent-card-info-label">Process ID</div>
+            <div class="agent-card-info-value">${escapeHtml(String(pid))}</div>
         </div>
-        
-        ${purpose !== 'No purpose specified' ? `
-        <div class="agent-card-purpose">
+        <div class="agent-card-info-item">
+            <div class="agent-card-info-label">Uptime</div>
+            <div class="agent-card-info-value">${formatElapsedTime(startedAt)}</div>
+        </div>
+        <div class="agent-card-info-item">
+            <div class="agent-card-info-label">Started At</div>
+            <div class="agent-card-info-value">${formatDateTime(startedAt)}</div>
+        </div>
+        ${shortName ? `
+        <div class="agent-card-info-item">
+            <div class="agent-card-info-label">Short Name</div>
+            <div class="agent-card-info-value">${escapeHtml(shortName)}</div>
+        </div>
+        ` : `
+        <div class="agent-card-info-item">
+            <div class="agent-card-info-label">Status</div>
+            <div class="agent-card-info-value">${badge.label}</div>
+        </div>
+        `}
+    `;
+    card.appendChild(infoGrid);
+    
+    // Add purpose section if present
+    if (purpose !== 'No purpose specified') {
+        const purposeDiv = document.createElement('div');
+        purposeDiv.className = 'agent-card-purpose';
+        purposeDiv.innerHTML = `
             <div class="agent-card-purpose-label">Purpose</div>
             <div class="agent-card-purpose-text">${escapeHtml(purpose)}</div>
-        </div>
-        ` : ''}
-    `;
+        `;
+        card.appendChild(purposeDiv);
+    }
     
     // Click to select agent in graph
     card.addEventListener('click', () => {
