@@ -10,6 +10,7 @@
 
 import * as state from '../state.js';
 import { getEdgeStyle } from '../graph/colors.js';
+import { createClickableId } from '../utils/clickable-ids.js';
 
 /**
  * Format edge type name for display
@@ -167,11 +168,17 @@ export function updateEdgeInfoPanelContent(panel, edge) {
     const targetId = panel.querySelector('#edge-info-target-id');
     const targetTitle = panel.querySelector('#edge-info-target-title');
     
-    if (sourceId) sourceId.textContent = edge.from;
+    if (sourceId) {
+        sourceId.textContent = '';
+        sourceId.appendChild(createClickableId(edge.from));
+    }
     if (sourceTitle) {
         sourceTitle.textContent = sourceEntity?.title || sourceEntity?.name || 'Unknown';
     }
-    if (targetId) targetId.textContent = edge.to;
+    if (targetId) {
+        targetId.textContent = '';
+        targetId.appendChild(createClickableId(edge.to));
+    }
     if (targetTitle) {
         targetTitle.textContent = targetEntity?.title || targetEntity?.name || 'Unknown';
     }

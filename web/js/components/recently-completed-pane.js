@@ -14,6 +14,7 @@ import {
     getTasks,
     getBugs
 } from '../state.js';
+import { createClickableId } from '../utils/clickable-ids.js';
 
 /**
  * Default number of items to show
@@ -79,19 +80,8 @@ function createCompletedItem(item) {
     const row = document.createElement('div');
     row.className = `completed-item type-${item.type}`;
     
-    const idEl = document.createElement('span');
-    idEl.className = 'completed-item-id';
-    idEl.textContent = item.id;
-    idEl.title = 'Click to view item';
-    idEl.dataset.itemId = item.id;
-    
-    // Make ID clickable to select the node
-    idEl.addEventListener('click', () => {
-        // Import dynamically to avoid circular dependencies
-        import('../state.js').then(({ setSelectedNode }) => {
-            setSelectedNode(item.id);
-        });
-    });
+    const idEl = createClickableId(item.id);
+    idEl.className = 'completed-item-id clickable-id';
     
     const titleEl = document.createElement('span');
     titleEl.className = 'completed-item-title';

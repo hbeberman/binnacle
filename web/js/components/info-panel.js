@@ -7,6 +7,8 @@
  * - Node-specific content in each tab
  */
 
+import { createClickableId, makeIdsClickable } from '../utils/clickable-ids.js';
+
 const INFO_PANEL_ACTIVE_TAB_KEY = 'binnacle_info_panel_active_tab';
 
 /**
@@ -261,9 +263,10 @@ export function updateInfoPanelContent(panel, node) {
     // Store current node ID in panel data attribute for callbacks
     panel.dataset.currentNodeId = node.id || '';
     
-    // Update ID
+    // Update ID (make it clickable)
     const idEl = panel.querySelector('#info-panel-id');
-    idEl.textContent = node.id || '';
+    idEl.textContent = '';
+    idEl.appendChild(createClickableId(node.id || ''));
     
     // Update title
     const titleEl = panel.querySelector('#info-panel-task-title');
@@ -312,7 +315,12 @@ export function updateInfoPanelContent(panel, node) {
     const depsEl = panel.querySelector('#info-panel-deps');
     if (node.depends_on && node.depends_on.length > 0) {
         depsSection.style.display = 'block';
-        depsEl.innerHTML = node.depends_on.map(dep => `<li>${dep}</li>`).join('');
+        depsEl.innerHTML = '';
+        node.depends_on.forEach(dep => {
+            const li = document.createElement('li');
+            li.appendChild(createClickableId(dep));
+            depsEl.appendChild(li);
+        });
     } else {
         depsSection.style.display = 'none';
     }
@@ -322,29 +330,33 @@ export function updateInfoPanelContent(panel, node) {
     const relationshipsEl = panel.querySelector('#info-panel-relationships');
     if (node.edges && node.edges.length > 0) {
         relationshipsSection.style.display = 'block';
-        relationshipsEl.innerHTML = node.edges.map(edge => {
+        relationshipsEl.innerHTML = '';
+        node.edges.forEach(edge => {
+            const li = document.createElement('li');
+            li.className = 'relationship-item';
+            li.dataset.nodeId = edge.related_id;
+            
             const direction = edge.direction === 'outbound' ? '→' : '←';
             const edgeTypeFormatted = formatEdgeType(edge.edge_type);
-            return `<li class="relationship-item" data-node-id="${edge.related_id}">
-                <span class="relationship-direction">${direction}</span>
-                <span class="relationship-id">${edge.related_id}</span>
-                <span class="relationship-type">(${edgeTypeFormatted})</span>
-            </li>`;
-        }).join('');
-        
-        // Make relationship items clickable
-        relationshipsEl.querySelectorAll('.relationship-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const nodeId = item.dataset.nodeId;
-                if (nodeId) {
-                    // Trigger a custom event that can be handled by the main app
-                    const event = new CustomEvent('relationship-click', { 
-                        detail: { nodeId },
-                        bubbles: true 
-                    });
-                    panel.dispatchEvent(event);
-                }
-            });
+            
+            const dirSpan = document.createElement('span');
+            dirSpan.className = 'relationship-direction';
+            dirSpan.textContent = direction;
+            
+            const idSpan = createClickableId(edge.related_id);
+            idSpan.className = 'relationship-id clickable-id';
+            
+            const typeSpan = document.createElement('span');
+            typeSpan.className = 'relationship-type';
+            typeSpan.textContent = `(${edgeTypeFormatted})`;
+            
+            li.appendChild(dirSpan);
+            li.appendChild(document.createTextNode(' '));
+            li.appendChild(idSpan);
+            li.appendChild(document.createTextNode(' '));
+            li.appendChild(typeSpan);
+            
+            relationshipsEl.appendChild(li);
         });
     } else {
         relationshipsSection.style.display = 'none';

@@ -8,6 +8,7 @@
 
 import * as state from '../state.js';
 import { getEdgeStyle } from '../graph/colors.js';
+import { createClickableId } from '../utils/clickable-ids.js';
 
 // DOM element references
 let nodeTooltip = null;
@@ -80,7 +81,8 @@ export function showNodeTooltip(node, mouseX, mouseY) {
     const statusEl = nodeTooltip.querySelector('.graph-tooltip-status');
     
     titleEl.textContent = node.short_name || node.title || node.id;
-    idEl.textContent = node.id;
+    idEl.textContent = '';
+    idEl.appendChild(createClickableId(node.id));
     
     // Format status with type
     const type = node.type || 'task';
