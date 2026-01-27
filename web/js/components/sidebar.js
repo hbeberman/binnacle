@@ -63,24 +63,6 @@ export function createSidebar() {
                     <div class="agents-sidebar-list" id="agents-sidebar-list"></div>
                 </div>
             </div>
-            <!-- Node filters section -->
-            <div class="sidebar-section collapsible" data-section="nodes">
-                <div class="sidebar-section-title">Nodes <span class="sidebar-section-toggle">▼</span></div>
-                <div class="sidebar-section-content">
-                    <div class="sidebar-filter-group" id="sidebar-node-filters">
-                        <!-- Node type filter buttons will be populated dynamically -->
-                    </div>
-                </div>
-            </div>
-            <!-- Edge filters section -->
-            <div class="sidebar-section collapsible" data-section="edges">
-                <div class="sidebar-section-title">Edges <span class="sidebar-section-toggle">▼</span></div>
-                <div class="sidebar-section-content">
-                    <div class="sidebar-filter-group" id="sidebar-edge-filters">
-                        <!-- Edge type filter buttons will be populated dynamically -->
-                    </div>
-                </div>
-            </div>
         </div>
     `;
     
@@ -157,8 +139,7 @@ export function initializeSidebarSearch(onSearch) {
  * Initialize the sidebar component
  * @param {HTMLElement} container - Container element to append sidebar to
  * @param {Function} onSearch - Optional callback for search functionality
- * @param {Object} options - Optional configuration
- * @param {boolean} options.initializeFilters - Whether to initialize filter buttons (default: false)
+ * @param {Object} options - Optional configuration (no longer used for filters)
  * @returns {HTMLElement} The created sidebar element
  */
 export function initializeSidebar(container, onSearch = null, options = {}) {
@@ -171,17 +152,6 @@ export function initializeSidebar(container, onSearch = null, options = {}) {
     // Initialize search
     if (onSearch) {
         initializeSidebarSearch(onSearch);
-    }
-    
-    // Initialize filters if requested
-    if (options.initializeFilters) {
-        // Import and initialize filters dynamically
-        import('./filters.js').then(({ initializeNodeTypeFilters, initializeEdgeTypeFilters }) => {
-            initializeNodeTypeFilters();
-            initializeEdgeTypeFilters();
-        }).catch(err => {
-            console.error('Failed to load filter components:', err);
-        });
     }
     
     return sidebar;

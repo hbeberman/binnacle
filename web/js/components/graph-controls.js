@@ -19,6 +19,27 @@ export function createGraphControls() {
     controls.id = 'graph-controls';
     
     controls.innerHTML = `
+        <div class="filters-dropdown" style="position: relative;">
+            <button class="filters-dropdown-btn" id="filters-dropdown-btn" title="Show/hide filters">
+                <span class="filters-icon">⚙</span>
+                <span class="filters-label">Filters</span>
+            </button>
+            <div class="filters-dropdown-popover" id="filters-dropdown-popover">
+                <div class="config-popover-title">Visibility Filters</div>
+                <div class="config-section">
+                    <span class="config-section-label">Nodes</span>
+                    <div class="sidebar-filter-group" id="graph-node-filters">
+                        <!-- Node type filter buttons will be populated dynamically -->
+                    </div>
+                </div>
+                <div class="config-section">
+                    <span class="config-section-label">Edges</span>
+                    <div class="sidebar-filter-group" id="graph-edge-filters">
+                        <!-- Edge type filter buttons will be populated dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
         <input class="graph-search" id="graph-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" />
         <div class="hide-completed-toggle">
             <span class="hide-completed-label">Hide completed</span>
@@ -83,6 +104,35 @@ export function initializeGraphControls(controls, options = {}) {
         onHideCompletedToggle = null,
         onAutoFollowToggle = null
     } = options;
+    
+    // Initialize filters dropdown
+    const filtersBtn = controls.querySelector('#filters-dropdown-btn');
+    const filtersPopover = controls.querySelector('#filters-dropdown-popover');
+    
+    if (filtersBtn && filtersPopover) {
+        // Toggle popover visibility
+        filtersBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            filtersBtn.classList.toggle('active');
+            filtersPopover.classList.toggle('visible');
+        });
+        
+        // Close popover when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!filtersPopover.contains(e.target) && e.target !== filtersBtn) {
+                filtersBtn.classList.remove('active');
+                filtersPopover.classList.remove('visible');
+            }
+        });
+        
+        // Initialize node and edge filters inside the popover
+        import('./filters.js').then(({ initializeNodeTypeFilters, initializeEdgeTypeFilters }) => {
+            initializeNodeTypeFilters('graph-node-filters');
+            initializeEdgeTypeFilters('graph-edge-filters');
+        }).catch(err => {
+            console.error('Failed to load filter components:', err);
+        });
+    }
     
     // Initialize search input
     const searchInput = controls.querySelector('#graph-search');
