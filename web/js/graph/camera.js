@@ -8,12 +8,16 @@
  * - Reset view
  * - Hover detection for nodes and edges
  * - Touch support with long-press for multi-select
+ * - Keyboard shortcuts:
+ *   - Ctrl+A (Cmd+A on Mac): Select all visible nodes
+ *   - Escape: Clear selection and focused node
+ *   - WASD: Pan the camera
  */
 
 import * as state from '../state.js';
-import { toggleSelection, isSelected } from '../state.js';
+import { toggleSelection, isSelected, selectAll, clearSelection } from '../state.js';
 import { applyZoom, applyPan, resetViewport, screenToWorld, getZoom } from './transform.js';
-import { findNodeAtPosition, findEdgeAtPosition, setHoveredNode, setDraggedNode, moveNode } from './renderer.js';
+import { findNodeAtPosition, findEdgeAtPosition, setHoveredNode, setDraggedNode, moveNode, getVisibleNodes } from './renderer.js';
 import { addCanvasLongPress } from '../utils/touch-handler.js';
 
 // Mouse interaction state
@@ -469,7 +473,7 @@ function clearFocus() {
 }
 
 /**
- * Handle keyboard down - WASD panning and Escape to clear focus
+ * Handle keyboard down - WASD panning, Escape to clear, Ctrl+A to select all
  */
 function onKeyDown(e) {
     // Don't handle keyboard if user is typing in an input field
@@ -479,13 +483,47 @@ function onKeyDown(e) {
     
     const key = e.key.toLowerCase();
     
-    // Escape key clears focused node
+    // Ctrl+A or Cmd+A: Select all visible nodes
+    if ((e.ctrlKey || e.metaKey) && key === 'a') {
+        e.preventDefault();
+        const visibleNodes = getVisibleNodes();
+        selectAll(visibleNodes);
+        
+        // Show feedback toast
+        state.addToast({
+            type: 'info',
+            message: `Selected ${visibleNodes.length} visible node${visibleNodes.length !== 1 ? 's' : ''}`,
+            duration: 2000
+        });
+        
+        console.log(`[Keyboard] Selected all ${visibleNodes.length} visible nodes`);
+        return;
+    }
+    
+    // Escape key clears selection and focused node
     if (e.key === 'Escape') {
+        const selectedNodes = state.getSelectedNodes();
         const focusedNode = state.get('ui.focusedNode');
+        
+        // Clear selection if any nodes are selected
+        if (selectedNodes.length > 0) {
+            clearSelection();
+            console.log('[Keyboard] Selection cleared by Escape key');
+            
+            // Show feedback toast
+            state.addToast({
+                type: 'info',
+                message: 'Selection cleared',
+                duration: 2000
+            });
+        }
+        
+        // Clear focused node if set
         if (focusedNode) {
             state.set('ui.focusedNode', null);
-            console.log('Focus cleared by Escape key');
+            console.log('[Keyboard] Focus cleared by Escape key');
         }
+        
         return;
     }
     
