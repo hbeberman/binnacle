@@ -25,6 +25,13 @@ let isDragging = false;
 let dragStartX = 0;
 let dragStartY = 0;
 
+// Box selection state
+let isBoxSelecting = false;
+let boxSelectStartX = 0;
+let boxSelectStartY = 0;
+let boxSelectEndX = 0;
+let boxSelectEndY = 0;
+
 // Node dragging state
 let draggedNode = null;
 let lastDragX = 0;
@@ -166,11 +173,30 @@ function onMouseDown(e) {
             clearFocus();
         }
     } else {
-        // Start dragging the canvas (panning)
-        isDragging = true;
-        dragStartX = e.clientX;
-        dragStartY = e.clientY;
-        canvas.classList.add('dragging');
+        // Check if Shift is held for box selection
+        if (e.shiftKey) {
+            // Start box selection
+            isBoxSelecting = true;
+            boxSelectStartX = canvasX;
+            boxSelectStartY = canvasY;
+            boxSelectEndX = canvasX;
+            boxSelectEndY = canvasY;
+            canvas.classList.add('box-selecting');
+            
+            // Set box selection state for rendering
+            state.set('ui.boxSelection', {
+                x1: canvasX,
+                y1: canvasY,
+                x2: canvasX,
+                y2: canvasY
+            });
+        } else {
+            // Start dragging the canvas (panning)
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            canvas.classList.add('dragging');
+        }
         
         // Clear focus when clicking on empty space
         clearFocus();
@@ -185,7 +211,19 @@ function onMouseMove(e) {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     
-    if (draggedNode) {
+    if (isBoxSelecting) {
+        // Update box selection end position
+        boxSelectEndX = x;
+        boxSelectEndY = y;
+        
+        // Update box selection state for rendering
+        state.set('ui.boxSelection', {
+            x1: boxSelectStartX,
+            y1: boxSelectStartY,
+            x2: boxSelectEndX,
+            y2: boxSelectEndY
+        });
+    } else if (draggedNode) {
         // Dragging a node - move it to follow cursor
         const worldPos = screenToWorld(x, y, canvas);
         moveNode(draggedNode, worldPos.x, worldPos.y);
@@ -310,6 +348,49 @@ function onMouseUp(e) {
     // Handle both left (0) and middle (1) mouse buttons
     if (e.button !== 0 && e.button !== 1) return;
     
+    if (isBoxSelecting && e.button === 0) {
+        // Complete box selection - select all nodes within the box
+        const minX = Math.min(boxSelectStartX, boxSelectEndX);
+        const maxX = Math.max(boxSelectStartX, boxSelectEndX);
+        const minY = Math.min(boxSelectStartY, boxSelectEndY);
+        const maxY = Math.max(boxSelectStartY, boxSelectEndY);
+        
+        // Get all visible nodes
+        const visibleNodes = getVisibleNodes();
+        
+        // Convert screen coordinates to world coordinates for bounds checking
+        const topLeft = screenToWorld(minX, minY, canvas);
+        const bottomRight = screenToWorld(maxX, maxY, canvas);
+        
+        // Find nodes within the selection box
+        const selectedIds = [];
+        for (const node of visibleNodes) {
+            // Check if node center is within the box
+            if (node.x >= topLeft.x && node.x <= bottomRight.x &&
+                node.y >= topLeft.y && node.y <= bottomRight.y) {
+                selectedIds.push(node.id);
+            }
+        }
+        
+        // Update selection
+        if (selectedIds.length > 0) {
+            // Replace current selection with box selection
+            state.set('graph.selectedNodes', selectedIds);
+            
+            // Show feedback toast
+            state.addToast({
+                type: 'info',
+                message: `Selected ${selectedIds.length} node${selectedIds.length !== 1 ? 's' : ''}`,
+                duration: 2000
+            });
+        }
+        
+        // Clear box selection state
+        isBoxSelecting = false;
+        state.set('ui.boxSelection', null);
+        canvas.classList.remove('box-selecting');
+    }
+    
     if (draggedNode && e.button === 0) {
         // Apply momentum to the node based on drag velocity
         // Convert screen velocity to world velocity (accounting for zoom)
@@ -340,6 +421,13 @@ function onMouseUp(e) {
  * Handle mouse leave - stop dragging if mouse leaves canvas
  */
 function onMouseLeave() {
+    if (isBoxSelecting) {
+        // Cancel box selection
+        isBoxSelecting = false;
+        state.set('ui.boxSelection', null);
+        canvas.classList.remove('box-selecting');
+    }
+    
     if (draggedNode) {
         // Apply momentum even when mouse leaves (same as mouseup)
         const zoom = getZoom();
