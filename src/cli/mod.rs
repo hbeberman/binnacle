@@ -1153,6 +1153,17 @@ pub enum GuiCommands {
         #[arg(short = '9', long)]
         force: bool,
     },
+
+    /// Export static viewer bundle (for hosting on GitHub Pages, etc.)
+    Export {
+        /// Output directory (default: target/static-viewer/)
+        #[arg(long, short = 'o', default_value = "target/static-viewer")]
+        output: String,
+
+        /// Archive to embed (default: creates archive from current state)
+        #[arg(long)]
+        archive: Option<String>,
+    },
 }
 
 /// Link subcommands (relationship management)
