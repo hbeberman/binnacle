@@ -8750,7 +8750,16 @@ impl Output for ReadyTasks {
         // Show bugs first (higher priority typically)
         if !self.bugs.is_empty() {
             let queued_bugs: Vec<_> = self.bugs.iter().filter(|b| b.queued).collect();
-            let other_bugs: Vec<_> = self.bugs.iter().filter(|b| !b.queued).collect();
+            let inherited_bugs: Vec<_> = self
+                .bugs
+                .iter()
+                .filter(|b| !b.queued && b.queued_via.is_some())
+                .collect();
+            let other_bugs: Vec<_> = self
+                .bugs
+                .iter()
+                .filter(|b| !b.queued && b.queued_via.is_none())
+                .collect();
 
             lines.push(format!("{} ready:\n", pluralize(self.bug_count, "bug")));
 
@@ -8765,12 +8774,47 @@ impl Output for ReadyTasks {
                         format!(" [{}]", bug.core.tags.join(", "))
                     };
                     lines.push(format!(
-                        "    {} P{} {} ({}){}",
+                        "    {} P{} {} ({}){}  [queued]",
                         bug.core.id,
                         bug.priority,
                         bug.core.title,
                         format!("{:?}", bug.severity).to_lowercase(),
                         tags
+                    ));
+                }
+                if !inherited_bugs.is_empty() || !other_bugs.is_empty() {
+                    lines.push(String::new());
+                }
+            }
+
+            // Show inherited bugs
+            if !inherited_bugs.is_empty() {
+                if !queued_bugs.is_empty() {
+                    lines.push("  [INHERITED]".to_string());
+                } else {
+                    // If no directly queued bugs, show inherited at top level with label
+                    lines.push("  [INHERITED FROM QUEUED ANCESTORS]".to_string());
+                }
+                for item in &inherited_bugs {
+                    let bug = &item.bug;
+                    let tags = if bug.core.tags.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [{}]", bug.core.tags.join(", "))
+                    };
+                    let via = item
+                        .queued_via
+                        .as_ref()
+                        .map(|id| format!("  [via {}]", id))
+                        .unwrap_or_default();
+                    lines.push(format!(
+                        "    {} P{} {} ({}){}{}",
+                        bug.core.id,
+                        bug.priority,
+                        bug.core.title,
+                        format!("{:?}", bug.severity).to_lowercase(),
+                        tags,
+                        via
                     ));
                 }
                 if !other_bugs.is_empty() {
@@ -8780,7 +8824,7 @@ impl Output for ReadyTasks {
 
             // Show non-queued bugs
             if !other_bugs.is_empty() {
-                if !queued_bugs.is_empty() {
+                if !queued_bugs.is_empty() || !inherited_bugs.is_empty() {
                     lines.push("  [OTHER]".to_string());
                 }
                 for item in &other_bugs {
@@ -8790,7 +8834,11 @@ impl Output for ReadyTasks {
                     } else {
                         format!(" [{}]", bug.core.tags.join(", "))
                     };
-                    let indent = if queued_bugs.is_empty() { "  " } else { "    " };
+                    let indent = if queued_bugs.is_empty() && inherited_bugs.is_empty() {
+                        "  "
+                    } else {
+                        "    "
+                    };
                     lines.push(format!(
                         "{}{} P{} {} ({}){}",
                         indent,
@@ -8811,7 +8859,16 @@ impl Output for ReadyTasks {
         // Show tasks
         if !self.tasks.is_empty() {
             let queued_tasks: Vec<_> = self.tasks.iter().filter(|t| t.queued).collect();
-            let other_tasks: Vec<_> = self.tasks.iter().filter(|t| !t.queued).collect();
+            let inherited_tasks: Vec<_> = self
+                .tasks
+                .iter()
+                .filter(|t| !t.queued && t.queued_via.is_some())
+                .collect();
+            let other_tasks: Vec<_> = self
+                .tasks
+                .iter()
+                .filter(|t| !t.queued && t.queued_via.is_none())
+                .collect();
 
             lines.push(format!("{} ready:\n", pluralize(self.count, "task")));
 
@@ -8826,8 +8883,38 @@ impl Output for ReadyTasks {
                         format!(" [{}]", task.core.tags.join(", "))
                     };
                     lines.push(format!(
-                        "    {} P{} {}{}",
+                        "    {} P{} {}{}  [queued]",
                         task.core.id, task.priority, task.core.title, tags
+                    ));
+                }
+                if !inherited_tasks.is_empty() || !other_tasks.is_empty() {
+                    lines.push(String::new());
+                }
+            }
+
+            // Show inherited tasks
+            if !inherited_tasks.is_empty() {
+                if !queued_tasks.is_empty() {
+                    lines.push("  [INHERITED]".to_string());
+                } else {
+                    // If no directly queued tasks, show inherited at top level with label
+                    lines.push("  [INHERITED FROM QUEUED ANCESTORS]".to_string());
+                }
+                for item in &inherited_tasks {
+                    let task = &item.task;
+                    let tags = if task.core.tags.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [{}]", task.core.tags.join(", "))
+                    };
+                    let via = item
+                        .queued_via
+                        .as_ref()
+                        .map(|id| format!("  [via {}]", id))
+                        .unwrap_or_default();
+                    lines.push(format!(
+                        "    {} P{} {}{}{}",
+                        task.core.id, task.priority, task.core.title, tags, via
                     ));
                 }
                 if !other_tasks.is_empty() {
@@ -8837,7 +8924,7 @@ impl Output for ReadyTasks {
 
             // Show non-queued tasks
             if !other_tasks.is_empty() {
-                if !queued_tasks.is_empty() {
+                if !queued_tasks.is_empty() || !inherited_tasks.is_empty() {
                     lines.push("  [OTHER]".to_string());
                 }
                 for item in &other_tasks {
@@ -8847,7 +8934,7 @@ impl Output for ReadyTasks {
                     } else {
                         format!(" [{}]", task.core.tags.join(", "))
                     };
-                    let indent = if queued_tasks.is_empty() {
+                    let indent = if queued_tasks.is_empty() && inherited_tasks.is_empty() {
                         "  "
                     } else {
                         "    "
