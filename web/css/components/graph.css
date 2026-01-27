@@ -47,6 +47,10 @@
     cursor: grabbing;
 }
 
+#graph-canvas.box-selecting {
+    cursor: crosshair;
+}
+
 #graph-canvas.panning {
     cursor: grab;
 }

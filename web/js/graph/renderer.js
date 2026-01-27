@@ -74,6 +74,7 @@ export function init(canvasElement, callbacks = {}) {
     state.subscribe('ui.edgeTypeFilters', scheduleRender);
     state.subscribe('ui.selectedNode', onSelectionChanged);
     state.subscribe('ui.selectedNodes', onMultiSelectionChanged);
+    state.subscribe('ui.boxSelection', scheduleRender);
 }
 
 /**
@@ -641,6 +642,31 @@ function drawSelectionBadge(count) {
 }
 
 /**
+ * Draw box selection overlay
+ * @param {Object} box - Box selection coordinates {x1, y1, x2, y2}
+ */
+function drawBoxSelection(box) {
+    const { x1, y1, x2, y2 } = box;
+    
+    // Calculate rectangle bounds
+    const minX = Math.min(x1, x2);
+    const minY = Math.min(y1, y2);
+    const width = Math.abs(x2 - x1);
+    const height = Math.abs(y2 - y1);
+    
+    // Draw selection rectangle
+    ctx.strokeStyle = 'rgba(106, 155, 220, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]); // Dashed line
+    ctx.strokeRect(minX, minY, width, height);
+    ctx.setLineDash([]); // Reset to solid line
+    
+    // Fill with semi-transparent color
+    ctx.fillStyle = 'rgba(106, 155, 220, 0.15)';
+    ctx.fillRect(minX, minY, width, height);
+}
+
+/**
  * Main render function
  */
 function render() {
@@ -689,6 +715,12 @@ function render() {
     // Draw multi-selection badge if multiple nodes selected
     if (selectedNodes.length > 1) {
         drawSelectionBadge(selectedNodes.length);
+    }
+    
+    // Draw box selection overlay if active
+    const boxSelection = state.get('ui.boxSelection');
+    if (boxSelection) {
+        drawBoxSelection(boxSelection);
     }
 }
 
