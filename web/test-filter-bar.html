@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Filter Bar Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/activity-log.css">
+</head>
+<body>
+    <div style="padding: 20px;">
+        <h1>Activity Log Filter Bar Test</h1>
+        <div id="log-container" style="height: 600px; border: 1px solid #ccc;"></div>
+    </div>
+
+    <script type="module">
+        import { createActivityLog } from './js/components/activity-log.js';
+        
+        // Create and mount the activity log
+        const logContainer = document.getElementById('log-container');
+        const activityLog = createActivityLog();
+        logContainer.appendChild(activityLog);
+        
+        console.log('Activity log mounted with filter bar');
+    </script>
+</body>
+</html>

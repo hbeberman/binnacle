@@ -151,14 +151,32 @@ function renderLogEntry(entry) {
  * Fetch log entries from API
  * @param {number} limit - Maximum entries to fetch
  * @param {number} offset - Offset for pagination
+ * @param {Object} filters - Filter options
  * @returns {Promise<Object>} Log response with entries and total
  */
-async function fetchLogs(limit = 50, offset = 0) {
+async function fetchLogs(limit = 50, offset = 0, filters = {}) {
     try {
         const params = new URLSearchParams({
             limit: limit.toString(),
             offset: offset.toString()
         });
+        
+        // Add filter params if present
+        if (filters.view && filters.view !== 'all') {
+            params.set('view', filters.view);
+        }
+        if (filters.type && filters.type !== 'all') {
+            params.set('type', filters.type);
+        }
+        if (filters.timeRange && filters.timeRange !== 'all') {
+            params.set('time_range', filters.timeRange);
+        }
+        if (filters.owner && filters.owner !== 'all') {
+            params.set('owner', filters.owner);
+        }
+        if (filters.search) {
+            params.set('search', filters.search);
+        }
         
         const response = await fetch(`/api/log?${params}`);
         if (!response.ok) {
@@ -177,6 +195,37 @@ async function fetchLogs(limit = 50, offset = 0) {
 }
 
 /**
+ * Get current filters from the filter bar
+ * @param {HTMLElement} container - Container element
+ * @returns {Object} Current filter values
+ */
+function getCurrentFilters(container) {
+    const filterBar = container.querySelector('.log-filter-bar');
+    if (!filterBar) return {};
+    
+    return {
+        view: filterBar.querySelector('[name="view"]')?.value || 'all',
+        type: filterBar.querySelector('[name="type"]')?.value || 'all',
+        timeRange: filterBar.querySelector('[name="time-range"]')?.value || 'all',
+        owner: filterBar.querySelector('[name="owner"]')?.value || 'all',
+        search: filterBar.querySelector('[name="search"]')?.value || ''
+    };
+}
+
+/**
+ * Check if any filters are active
+ * @param {Object} filters - Filter object
+ * @returns {boolean} True if any filters are active
+ */
+function hasActiveFilters(filters) {
+    return filters.view !== 'all' || 
+           filters.type !== 'all' || 
+           filters.timeRange !== 'all' || 
+           filters.owner !== 'all' || 
+           filters.search !== '';
+}
+
+/**
  * Update the log display
  * @param {HTMLElement} container - Container element
  * @param {number} offset - Current pagination offset
@@ -188,13 +237,22 @@ async function updateLogDisplay(container, offset = 0) {
     const emptyEl = container.querySelector('.log-empty');
     const paginationEl = container.querySelector('.log-pagination');
     
+    // Get current filters
+    const filters = getCurrentFilters(container);
+    
+    // Update clear button state
+    const clearBtn = container.querySelector('.filter-clear-btn');
+    if (clearBtn) {
+        clearBtn.disabled = !hasActiveFilters(filters);
+    }
+    
     // Show loading state
     loadingEl.style.display = 'block';
     errorEl.style.display = 'none';
     emptyEl.style.display = 'none';
     entriesContainer.innerHTML = '';
     
-    const result = await fetchLogs(50, offset);
+    const result = await fetchLogs(50, offset, filters);
     
     loadingEl.style.display = 'none';
     
@@ -245,6 +303,60 @@ export function createActivityLog() {
             </div>
         </div>
         
+        <div class="log-filter-bar">
+            <div class="filter-group">
+                <label class="filter-label" for="filter-view">View:</label>
+                <select class="filter-select" name="view" id="filter-view">
+                    <option value="all">All</option>
+                    <option value="entity">Entity Changes</option>
+                    <option value="action">Action Logs</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label class="filter-label" for="filter-type">Type:</label>
+                <select class="filter-select" name="type" id="filter-type">
+                    <option value="all">All Types</option>
+                    <option value="task">Task</option>
+                    <option value="bug">Bug</option>
+                    <option value="idea">Idea</option>
+                    <option value="milestone">Milestone</option>
+                    <option value="queue">Queue</option>
+                    <option value="doc">Doc</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label class="filter-label" for="filter-time">Time:</label>
+                <select class="filter-select" name="time-range" id="filter-time">
+                    <option value="all">All Time</option>
+                    <option value="1h">Last Hour</option>
+                    <option value="24h">Last 24 Hours</option>
+                    <option value="7d">Last 7 Days</option>
+                    <option value="30d">Last 30 Days</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label class="filter-label" for="filter-owner">Owner:</label>
+                <select class="filter-select" name="owner" id="filter-owner">
+                    <option value="all">All Owners</option>
+                    <option value="users">Users Only</option>
+                    <option value="agents">Agents Only</option>
+                </select>
+            </div>
+            
+            <input 
+                type="text" 
+                class="filter-search" 
+                name="search" 
+                placeholder="🔍 Search logs..." 
+                autocomplete="off"
+            />
+            
+            <button class="filter-clear-btn" disabled>Clear Filters</button>
+        </div>
+        
         <div class="log-loading">Loading logs...</div>
         <div class="log-error" style="display: none; color: var(--error-color); padding: 1rem;"></div>
         <div class="log-empty" style="display: none; padding: 1rem; color: var(--text-secondary);">
@@ -263,6 +375,36 @@ export function createActivityLog() {
     container.querySelector('.btn-refresh').addEventListener('click', () => {
         const offset = parseInt(container.dataset.currentOffset || '0', 10);
         updateLogDisplay(container, offset);
+    });
+    
+    // Filter change handlers
+    const filterBar = container.querySelector('.log-filter-bar');
+    filterBar.addEventListener('change', () => {
+        // Reset to first page when filters change
+        updateLogDisplay(container, 0);
+    });
+    
+    // Search input handler (debounced)
+    let searchTimeout;
+    const searchInput = container.querySelector('[name="search"]');
+    searchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            updateLogDisplay(container, 0);
+        }, 300); // 300ms debounce
+    });
+    
+    // Clear filters button handler
+    container.querySelector('.filter-clear-btn').addEventListener('click', () => {
+        // Reset all filters to default
+        container.querySelector('[name="view"]').value = 'all';
+        container.querySelector('[name="type"]').value = 'all';
+        container.querySelector('[name="time-range"]').value = 'all';
+        container.querySelector('[name="owner"]').value = 'all';
+        container.querySelector('[name="search"]').value = '';
+        
+        // Reload with cleared filters
+        updateLogDisplay(container, 0);
     });
     
     // Pagination handlers
