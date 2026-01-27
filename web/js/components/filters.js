@@ -69,12 +69,13 @@ export function initializeNodeTypeFilters(containerId = 'sidebar-node-filters') 
     
     allBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        const current = State.get('ui.nodeTypeFilters');
         const allActive = Object.keys(NODE_TYPES).every(type => 
-            currentFilters[type] !== false
+            current[type] !== false
         );
         const newState = !allActive;
         
-        const newFilters = { ...currentFilters };
+        const newFilters = { ...current };
         for (const type of Object.keys(NODE_TYPES)) {
             newFilters[type] = newState;
         }
@@ -197,12 +198,13 @@ export function initializeEdgeTypeFilters(containerId = 'sidebar-edge-filters') 
     
     allBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        const current = State.get('ui.edgeTypeFilters');
         const allActive = Object.keys(EDGE_TYPES).every(type => 
-            currentFilters[type] !== false
+            current[type] !== false
         );
         const newState = !allActive;
         
-        const newFilters = { ...currentFilters };
+        const newFilters = { ...current };
         for (const type of Object.keys(EDGE_TYPES)) {
             newFilters[type] = newState;
         }
