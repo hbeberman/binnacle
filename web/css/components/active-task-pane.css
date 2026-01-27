@@ -1,7 +1,7 @@
 /**
  * Active Task Pane Component Styles
  * 
- * Displays the currently in_progress task with timer
+ * Displays active tasks being worked on by agents (using working_on edges)
  */
 
 .active-task-pane {
@@ -15,6 +15,7 @@
     align-items: center;
     justify-content: center;
     min-width: 180px;
+    max-width: 280px;
 }
 
 .active-task-pane-header {
@@ -27,6 +28,7 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 0.5rem;
+    width: 100%;
 }
 
 .active-task-placeholder {
@@ -35,6 +37,30 @@
     opacity: 0.6;
     font-style: italic;
     padding: 0.5rem 0;
+}
+
+.active-task-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.active-task-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+
+.active-task-agent {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+    font-weight: 600;
 }
 
 .active-task-id {
@@ -49,7 +75,7 @@
 }
 
 .active-task-id:hover {
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     color: var(--accent-light);
 }
 
@@ -65,7 +91,7 @@
 }
 
 .active-task-timer {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     font-weight: 700;
     color: var(--warning);
     margin-top: 0.5rem;

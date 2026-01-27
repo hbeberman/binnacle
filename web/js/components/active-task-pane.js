@@ -14,6 +14,9 @@ import {
     getTasks,
     getBugs,
     getMode,
+    getEdges,
+    getAgents,
+    getNode,
     ConnectionMode
 } from '../state.js';
 
@@ -55,16 +58,43 @@ function calculateElapsed(updatedAt) {
 }
 
 /**
- * Find the active (in_progress) task or bug
- * @returns {Object|null} The in_progress task/bug, or null if none
+ * Find active tasks being worked on by agents
+ * Uses working_on edges to determine which tasks are actively being worked on.
+ * Returns an array of {agent, task} pairs.
+ * @returns {Array} Array of {agent, task} objects, or empty array if none
  */
-function findActiveTask() {
-    const tasks = getTasks() || [];
-    const bugs = getBugs() || [];
-    // Find first in_progress task or bug (should only be one per agent session)
-    const activeTask = tasks.find(t => t.status === 'in_progress');
-    if (activeTask) return activeTask;
-    return bugs.find(b => b.status === 'in_progress') || null;
+function findActiveTasks() {
+    const edges = getEdges() || [];
+    const agents = getAgents() || [];
+    
+    // Find all working_on edges
+    const workingOnEdges = edges.filter(e => e.edge_type === 'working_on');
+    
+    // Map each edge to {agent, task} pair
+    const activePairs = workingOnEdges.map(edge => {
+        const agent = agents.find(a => a.id === edge.source);
+        const task = getNode(edge.target);  // Can be task or bug
+        
+        if (agent && task) {
+            return { agent, task };
+        }
+        return null;
+    }).filter(pair => pair !== null);
+    
+    // If no working_on edges found, fall back to in_progress tasks
+    if (activePairs.length === 0) {
+        const tasks = getTasks() || [];
+        const bugs = getBugs() || [];
+        const inProgressTasks = [
+            ...tasks.filter(t => t.status === 'in_progress'),
+            ...bugs.filter(b => b.status === 'in_progress')
+        ];
+        
+        // Return tasks without agent info (for backwards compatibility)
+        return inProgressTasks.map(task => ({ agent: null, task }));
+    }
+    
+    return activePairs;
 }
 
 /**
@@ -72,51 +102,79 @@ function findActiveTask() {
  * @param {HTMLElement} pane - The pane element
  */
 function updatePane(pane) {
-    const activeTask = findActiveTask();
+    const activePairs = findActiveTasks();
     
-    if (!activeTask) {
-        // No active task - show placeholder
+    if (activePairs.length === 0) {
+        // No active tasks - show placeholder
         pane.classList.remove('has-task');
         pane.classList.add('no-task');
         pane.innerHTML = `
             <div class="active-task-pane-header">
-                <span>Active Task</span>
+                <span>Active Tasks</span>
             </div>
-            <div class="active-task-placeholder">No task in progress</div>
+            <div class="active-task-placeholder">No tasks in progress</div>
         `;
         return;
     }
     
-    // Active task found - show details
+    // Active tasks found - show list
     pane.classList.remove('no-task');
     pane.classList.add('has-task');
     
-    const elapsed = calculateElapsed(activeTask.updated_at);
-    const durationText = formatDuration(elapsed);
-    
-    pane.innerHTML = `
+    let html = `
         <div class="active-task-pane-header">
-            <span>Active Task</span>
+            <span>Active Tasks (${activePairs.length})</span>
         </div>
-        <div class="active-task-id" data-task-id="${activeTask.id}" title="Click to view task">
-            ${activeTask.id}
-        </div>
-        <div class="active-task-title" title="${activeTask.title}">
-            ${activeTask.short_name || activeTask.title}
-        </div>
-        <div class="active-task-timer" data-start="${activeTask.updated_at}">
-            ${durationText}
-        </div>
+        <div class="active-task-list">
     `;
     
-    // Make task ID clickable to select the node
-    const idElement = pane.querySelector('.active-task-id');
-    idElement.addEventListener('click', () => {
-        // Import dynamically to avoid circular dependencies
-        import('../state.js').then(({ setSelectedNode }) => {
-            setSelectedNode(activeTask.id);
+    for (const { agent, task } of activePairs) {
+        const elapsed = calculateElapsed(task.updated_at);
+        const durationText = formatDuration(elapsed);
+        const agentName = agent ? (agent.title || agent.id) : 'Unknown';
+        const agentDisplay = agent ? `<div class="active-task-agent">${escapeHtml(agentName)}</div>` : '';
+        
+        html += `
+            <div class="active-task-item">
+                ${agentDisplay}
+                <div class="active-task-id" data-task-id="${task.id}" title="Click to view task">
+                    ${task.id}
+                </div>
+                <div class="active-task-title" title="${task.title}">
+                    ${escapeHtml(task.short_name || task.title)}
+                </div>
+                <div class="active-task-timer" data-start="${task.updated_at}">
+                    ${durationText}
+                </div>
+            </div>
+        `;
+    }
+    
+    html += `</div>`;
+    pane.innerHTML = html;
+    
+    // Make task IDs clickable to select the node
+    const idElements = pane.querySelectorAll('.active-task-id');
+    idElements.forEach(el => {
+        el.addEventListener('click', () => {
+            const taskId = el.getAttribute('data-task-id');
+            // Import dynamically to avoid circular dependencies
+            import('../state.js').then(({ setSelectedNode }) => {
+                setSelectedNode(taskId);
+            });
         });
     });
+}
+
+/**
+ * Simple HTML escaping
+ * @param {string} str - String to escape
+ * @returns {string} Escaped string
+ */
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 /**
@@ -132,19 +190,23 @@ function startTimer(pane) {
         return null;
     }
     
-    // Update timer every second
+    // Update timers every second
     const intervalId = setInterval(() => {
-        const timerEl = pane.querySelector('.active-task-timer');
-        const startTime = timerEl?.getAttribute('data-start');
+        const timerEls = pane.querySelectorAll('.active-task-timer');
         
-        if (!timerEl || !startTime) {
-            // Task disappeared - stop timer
+        if (timerEls.length === 0) {
+            // No tasks - stop timer
             clearInterval(intervalId);
             return;
         }
         
-        const elapsed = calculateElapsed(startTime);
-        timerEl.textContent = formatDuration(elapsed);
+        timerEls.forEach(timerEl => {
+            const startTime = timerEl.getAttribute('data-start');
+            if (startTime) {
+                const elapsed = calculateElapsed(startTime);
+                timerEl.textContent = formatDuration(elapsed);
+            }
+        });
     }, 1000);
     
     return intervalId;
@@ -172,9 +234,11 @@ export function createActiveTaskPane() {
         timerId = startTimer(pane);
     };
     
-    // Subscribe to state changes that affect active task
+    // Subscribe to state changes that affect active tasks
     subscribe('entities.tasks', update);
     subscribe('entities.bugs', update);
+    subscribe('entities.agents', update);  // Agent info changes
+    subscribe('edges', update);            // working_on edges added/removed
     subscribe('mode', update);
     
     // Initialize with current state
