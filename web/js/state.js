@@ -140,7 +140,11 @@ const createDefaultState = () => ({
             gravityStrength: 0.002,  // Reduced from 0.01 to allow nodes to float more naturally
             repulsionStrength: 25000,
             springStrength: 0.1,
-            springRestingLength: 300
+            springRestingLength: 300,
+            // Edge-type-specific resting lengths (overrides default)
+            edgeRestingLengths: {
+                working_on: 150  // 50% of default (300) for agent-to-task edges
+            }
         },
         
         // Info panel state
