@@ -9605,10 +9605,27 @@ pub fn graph_lineage(
     })
 }
 
-/// Placeholder result for bn peers command.
+/// A peer entity (sibling or cousin).
+#[derive(Serialize)]
+pub struct Peer {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub entity_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub depth: usize,
+    pub shared_parent: String,
+}
+
+/// Result for bn peers command.
 #[derive(Serialize)]
 pub struct PeersResult {
-    pub message: String,
+    pub source: String,
+    pub peers: Vec<Peer>,
+    pub max_depth: usize,
 }
 
 impl Output for PeersResult {
@@ -9617,21 +9634,193 @@ impl Output for PeersResult {
     }
 
     fn to_human(&self) -> String {
-        self.message.clone()
+        let mut lines = vec![format!(
+            "Peers for {} (depth {})",
+            self.source, self.max_depth
+        )];
+        lines.push(String::new());
+
+        if self.peers.is_empty() {
+            lines.push("No peers found".to_string());
+        } else {
+            let mut by_depth: std::collections::BTreeMap<usize, Vec<&Peer>> =
+                std::collections::BTreeMap::new();
+            for peer in &self.peers {
+                by_depth.entry(peer.depth).or_default().push(peer);
+            }
+
+            for (depth, peers) in by_depth {
+                let relation = if depth == 1 { "Siblings" } else { "Cousins" };
+                lines.push(format!("{} (depth {}):", relation, depth));
+                for peer in peers {
+                    let status_str = peer
+                        .status
+                        .as_deref()
+                        .map(|s| format!("/{}", s))
+                        .unwrap_or_default();
+                    lines.push(format!(
+                        "  {} [{}{}] {} (via {})",
+                        peer.id, peer.entity_type, status_str, peer.title, peer.shared_parent
+                    ));
+                    if let Some(ref desc) = peer.description
+                        && !desc.is_empty()
+                    {
+                        lines.push(format!("    {}", desc));
+                    }
+                }
+                lines.push(String::new());
+            }
+        }
+
+        lines.join("\n")
     }
 }
 
-/// Placeholder for bn peers command (to be implemented).
+/// Find sibling and cousin tasks through shared parents.
 pub fn graph_peers(
-    _repo_path: &Path,
-    _id: &str,
-    _depth: usize,
-    _include_closed: bool,
-    _verbose: bool,
+    repo_path: &Path,
+    id: &str,
+    depth: usize,
+    include_closed: bool,
+    verbose: bool,
 ) -> Result<PeersResult> {
-    Err(Error::InvalidInput(
-        "bn peers command not yet implemented".to_string(),
-    ))
+    let storage = Storage::open(repo_path)?;
+    let mut peers = Vec::new();
+
+    // Start with the source entity's parents at depth 1
+    let mut current_depth = 1;
+    let mut visited_parents = std::collections::HashSet::new();
+    let mut parents_to_explore = Vec::new();
+
+    // Find immediate parents via child_of edges
+    let child_edges = storage.list_edges(Some(EdgeType::ChildOf), Some(id), None)?;
+    for edge in child_edges {
+        parents_to_explore.push((edge.target.clone(), current_depth));
+        visited_parents.insert(edge.target.clone());
+    }
+
+    while !parents_to_explore.is_empty() && current_depth <= depth {
+        let mut next_parents = Vec::new();
+
+        for (parent_id, parent_depth) in parents_to_explore {
+            // Find all children of this parent (siblings or cousins)
+            let sibling_edges =
+                storage.list_edges(Some(EdgeType::ChildOf), None, Some(&parent_id))?;
+
+            for edge in sibling_edges {
+                // Skip the source entity itself
+                if edge.source == id {
+                    continue;
+                }
+
+                // Skip if already seen as a peer
+                if peers.iter().any(|p: &Peer| p.id == edge.source) {
+                    continue;
+                }
+
+                // Get entity details
+                let entity_type = storage.get_entity_type(&edge.source)?;
+                let (title, status, description) = match entity_type {
+                    EntityType::Task => {
+                        let task = storage.get_task(&edge.source)?;
+                        if !include_closed && task.status == TaskStatus::Done {
+                            continue;
+                        }
+                        let status_str = serde_json::to_value(&task.status)
+                            .ok()
+                            .and_then(|v| v.as_str().map(String::from))
+                            .unwrap_or_else(|| format!("{:?}", task.status));
+                        (
+                            task.core.title,
+                            Some(status_str),
+                            if verbose { task.core.description } else { None },
+                        )
+                    }
+                    EntityType::Bug => {
+                        let bug = storage.get_bug(&edge.source)?;
+                        if !include_closed && bug.status == TaskStatus::Done {
+                            continue;
+                        }
+                        let status_str = serde_json::to_value(&bug.status)
+                            .ok()
+                            .and_then(|v| v.as_str().map(String::from))
+                            .unwrap_or_else(|| format!("{:?}", bug.status));
+                        (
+                            bug.core.title,
+                            Some(status_str),
+                            if verbose { bug.core.description } else { None },
+                        )
+                    }
+                    EntityType::Milestone => {
+                        let milestone = storage.get_milestone(&edge.source)?;
+                        if !include_closed && milestone.status == TaskStatus::Done {
+                            continue;
+                        }
+                        let status_str = serde_json::to_value(&milestone.status)
+                            .ok()
+                            .and_then(|v| v.as_str().map(String::from))
+                            .unwrap_or_else(|| format!("{:?}", milestone.status));
+                        (
+                            milestone.core.title,
+                            Some(status_str),
+                            if verbose {
+                                milestone.core.description
+                            } else {
+                                None
+                            },
+                        )
+                    }
+                    EntityType::Idea => {
+                        let idea = storage.get_idea(&edge.source)?;
+                        let status_str = serde_json::to_value(&idea.status)
+                            .ok()
+                            .and_then(|v| v.as_str().map(String::from))
+                            .unwrap_or_else(|| format!("{:?}", idea.status));
+                        (
+                            idea.core.title,
+                            Some(status_str),
+                            if verbose { idea.core.description } else { None },
+                        )
+                    }
+                    _ => {
+                        // Skip unsupported types
+                        continue;
+                    }
+                };
+
+                peers.push(Peer {
+                    id: edge.source.clone(),
+                    entity_type: entity_type.to_string(),
+                    status,
+                    title,
+                    description,
+                    depth: parent_depth,
+                    shared_parent: parent_id.clone(),
+                });
+            }
+
+            // If we haven't reached max depth, collect grandparents for next iteration
+            if parent_depth < depth {
+                let grandparent_edges =
+                    storage.list_edges(Some(EdgeType::ChildOf), Some(&parent_id), None)?;
+                for edge in grandparent_edges {
+                    if !visited_parents.contains(&edge.target) {
+                        next_parents.push((edge.target.clone(), parent_depth + 1));
+                        visited_parents.insert(edge.target.clone());
+                    }
+                }
+            }
+        }
+
+        parents_to_explore = next_parents;
+        current_depth += 1;
+    }
+
+    Ok(PeersResult {
+        source: id.to_string(),
+        peers,
+        max_depth: depth,
+    })
 }
 
 /// Placeholder result for bn descendants command.
