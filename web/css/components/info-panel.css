@@ -54,6 +54,55 @@
     border-bottom: 1px solid var(--border-color);
 }
 
+.info-panel-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.info-panel-expand-btn,
+.info-panel-collapse-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    line-height: 1;
+    transition: color 0.2s ease, background 0.2s ease;
+    border-radius: 4px;
+}
+
+.info-panel-expand-btn:hover,
+.info-panel-collapse-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+/* Show expand button only in compact mode */
+.info-panel.compact .info-panel-expand-btn {
+    display: block;
+}
+
+.info-panel.compact .info-panel-collapse-btn {
+    display: none;
+}
+
+/* Show collapse button only in expanded mode */
+.info-panel.expanded .info-panel-expand-btn {
+    display: none;
+}
+
+.info-panel.expanded .info-panel-collapse-btn {
+    display: block;
+}
+
+/* Hide both buttons when panel is not in compact or expanded mode */
+.info-panel:not(.compact):not(.expanded) .info-panel-expand-btn,
+.info-panel:not(.compact):not(.expanded) .info-panel-collapse-btn {
+    display: none;
+}
+
 .info-panel-title {
     font-size: 0.9rem;
     font-weight: 600;
