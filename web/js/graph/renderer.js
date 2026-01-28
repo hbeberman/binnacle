@@ -20,6 +20,25 @@ const AGENT_DEPARTURE_FADE_MS = 5000;
 const STABLE_THRESHOLD = 0.01;
 const STABLE_FRAMES_REQUIRED = 60;
 const NEW_BADGE_DURATION_MS = 10000; // NEW badge fades after 10 seconds
+const NEW_BADGE_FADE_IN_MS = 300; // NEW badge fade-in duration
+const NEW_BADGE_FADE_OUT_MS = 2000; // NEW badge fade-out duration
+
+// Easing functions for smooth animations
+/**
+ * Ease-in quadratic - starts slow, accelerates
+ * Good for fade-out effects
+ */
+function easeInQuad(t) {
+    return t * t;
+}
+
+/**
+ * Ease-out quadratic - starts fast, decelerates
+ * Good for fade-in effects
+ */
+function easeOutQuad(t) {
+    return t * (2 - t);
+}
 
 // Renderer state
 let canvas = null;
@@ -1446,13 +1465,15 @@ function drawAgentLabel(node, screenPos, radius) {
     const textWidth = ctx.measureText(displayText).width;
     const pillWidth = textWidth + pillPadding * 4;
     
-    // Calculate fade opacity for goodbye
+    // Calculate fade opacity for goodbye with easing
     let fadeAlpha = 1.0;
     if (agent.goodbye_at) {
         const goodbyeTime = new Date(agent.goodbye_at).getTime();
         const elapsed = Date.now() - goodbyeTime;
         const fadeDuration = 5000;
-        fadeAlpha = Math.max(0, 1 - (elapsed / fadeDuration));
+        const progress = Math.min(elapsed / fadeDuration, 1.0);
+        // Use easeInQuad for smooth acceleration into fade
+        fadeAlpha = Math.max(0, 1 - easeInQuad(progress));
     }
     
     ctx.save();
@@ -1757,12 +1778,21 @@ function drawNewBadge(node, screenPos, radius) {
     const now = performance.now();
     const elapsed = now - badgeTime;
     
-    // Calculate fade opacity (fades in last 2 seconds)
+    // Calculate fade opacity with smooth fade-in and fade-out
     let opacity = 1.0;
-    const fadeStart = NEW_BADGE_DURATION_MS - 2000; // Start fading at 8 seconds
-    if (elapsed > fadeStart) {
-        const fadeProgress = (elapsed - fadeStart) / 2000; // 0 to 1
-        opacity = 1.0 - fadeProgress;
+    
+    // Fade-in animation (first 300ms)
+    if (elapsed < NEW_BADGE_FADE_IN_MS) {
+        const fadeInProgress = elapsed / NEW_BADGE_FADE_IN_MS;
+        opacity = easeOutQuad(fadeInProgress); // Smooth fade-in
+    }
+    // Fade-out animation (last 2 seconds)
+    else {
+        const fadeStart = NEW_BADGE_DURATION_MS - NEW_BADGE_FADE_OUT_MS;
+        if (elapsed > fadeStart) {
+            const fadeProgress = (elapsed - fadeStart) / NEW_BADGE_FADE_OUT_MS;
+            opacity = 1.0 - easeInQuad(fadeProgress); // Smooth fade-out
+        }
     }
     
     if (opacity <= 0) {
