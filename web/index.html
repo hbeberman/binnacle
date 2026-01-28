@@ -269,7 +269,7 @@
         import * as graph from './js/graph/index.js';
         import * as connection from './js/connection/index.js';
         import { initializeAgentCards } from './js/components/agent-cards.js';
-        import { createInfoPanel, initializeInfoPanel, showInfoPanel, updateInfoPanelContent } from './js/components/info-panel.js';
+        import { createInfoPanel, initializeInfoPanel, showInfoPanel, hideInfoPanel, updateInfoPanelContent } from './js/components/info-panel.js';
         import { createLinkBuilder, initializeLinkBuilder, updateLinkBuilderContent } from './js/components/link-builder.js';
         import { mountGraphOverlayPanel, initializeGraphOverlayPanel } from './js/components/graph-overlay-panel.js';
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
@@ -595,6 +595,10 @@
                 } else {
                     showNodeDetailPane(node.id);
                 }
+            },
+            onEscape: () => {
+                // Hide info panel when Escape is pressed
+                hideInfoPanel(infoPanel);
             }
         });
         

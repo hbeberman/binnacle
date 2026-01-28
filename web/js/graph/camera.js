@@ -49,6 +49,7 @@ let onNodeHover = null;
 let onEdgeHover = null;
 let onHoverEnd = null;
 let onNodeDoubleClick = null;
+let onEscape = null;
 
 // Canvas reference
 let canvas = null;
@@ -66,6 +67,7 @@ const PAN_SPEED = 5; // pixels per frame
  * @param {Function} callbacks.onEdgeHover - Called when hovering over an edge: (edge, mouseX, mouseY)
  * @param {Function} callbacks.onHoverEnd - Called when hover ends: ()
  * @param {Function} callbacks.onNodeDoubleClick - Called when double-clicking a node: (node)
+ * @param {Function} callbacks.onEscape - Called when Escape key is pressed: ()
  */
 export function init(canvasElement, callbacks = {}) {
     canvas = canvasElement;
@@ -75,6 +77,7 @@ export function init(canvasElement, callbacks = {}) {
     onEdgeHover = callbacks.onEdgeHover || null;
     onHoverEnd = callbacks.onHoverEnd || null;
     onNodeDoubleClick = callbacks.onNodeDoubleClick || null;
+    onEscape = callbacks.onEscape || null;
     
     // Mouse events for pan and hover
     canvas.addEventListener('mousedown', onMouseDown);
@@ -610,6 +613,11 @@ function onKeyDown(e) {
         if (focusedNode) {
             state.set('ui.focusedNode', null);
             console.log('[Keyboard] Focus cleared by Escape key');
+        }
+        
+        // Call onEscape callback to allow hiding info panel
+        if (onEscape) {
+            onEscape();
         }
         
         return;
