@@ -1282,8 +1282,8 @@ function drawPRDLabel(node, screenPos, radius) {
  * Draw node type capsule label above nodes (except PRD which has its own)
  */
 function drawNodeTypeCapsule(node, screenPos, radius) {
-    // Skip PRD docs (they have their own label), agents, and tests
-    if (node.type === 'agent' || node.type === 'test') return;
+    // Skip PRD docs (they have their own label) and tests
+    if (node.type === 'test') return;
     if (node.type === 'doc' && node.doc_type === 'prd') return;
     
     // Define capsule text and color for each node type
@@ -1291,6 +1291,10 @@ function drawNodeTypeCapsule(node, screenPos, radius) {
     let backgroundColor = '';
     
     switch (node.type) {
+        case 'agent':
+            displayText = 'Agent Worker';
+            backgroundColor = 'rgba(0, 212, 255, 0.95)'; // Cyan
+            break;
         case 'idea':
             displayText = 'Idea';
             backgroundColor = 'rgba(255, 255, 255, 0.95)'; // White for ideas
