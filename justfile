@@ -268,11 +268,11 @@ gui-check:
     # Check if lightpanda is installed
     if ! command -v lightpanda &> /dev/null; then
         echo "❌ lightpanda not found!"
-        echo "Install lightpanda v0.2.0 from: https://github.com/lightpanda-io/lightpanda/releases"
+        echo "Install lightpanda v0.2.1 from: https://github.com/lightpanda-io/browser/releases"
         echo ""
         echo "Quick install (Linux x86_64):"
-        echo "  curl -L https://github.com/lightpanda-io/lightpanda/releases/download/v0.2.0/lightpanda-v0.2.0-x86_64-unknown-linux-gnu.tar.gz | tar xz"
-        echo "  sudo mv lightpanda /usr/local/bin/"
+        echo "  curl -L -o lightpanda https://github.com/lightpanda-io/browser/releases/download/v0.2.1/lightpanda-x86_64-linux"
+        echo "  chmod +x lightpanda && sudo mv lightpanda /usr/local/bin/"
         exit 1
     fi
     ./scripts/gui-check.sh

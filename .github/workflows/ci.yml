@@ -152,7 +152,7 @@ jobs:
         if: steps.changes.outputs.gui_changed == 'true'
         run: |
           curl -L -o /tmp/lightpanda \
-            https://github.com/lightpanda-io/browser/releases/download/v0.2.0/lightpanda-x86_64-linux
+            https://github.com/lightpanda-io/browser/releases/download/v0.2.1/lightpanda-x86_64-linux
           sudo mv /tmp/lightpanda /usr/local/bin/lightpanda
           sudo chmod +x /usr/local/bin/lightpanda
 
