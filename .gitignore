@@ -34,3 +34,11 @@ pkg/
 # Node.js dependencies
 node_modules/
 package-lock.json
+
+# Playwright test artifacts
+playwright-report/
+test-results/
+
+# Test/development files
+web/test-*.html
+web/tests/
