@@ -1687,6 +1687,27 @@ pub enum SystemCommands {
 
     /// Display build metadata (timestamp, commit hash)
     BuildInfo,
+
+    /// Manage GitHub Copilot CLI binaries
+    Copilot {
+        #[command(subcommand)]
+        command: CopilotCommands,
+    },
+}
+
+/// Copilot management subcommands
+#[derive(Subcommand, Debug)]
+pub enum CopilotCommands {
+    /// Download and install a specific Copilot CLI version
+    Install {
+        /// Version to install (e.g., v0.0.396). Use --upstream for binnacle-preferred version.
+        #[arg(conflicts_with = "upstream")]
+        version: Option<String>,
+
+        /// Install the binnacle-preferred version (from COPILOT_VERSION file)
+        #[arg(long)]
+        upstream: bool,
+    },
 }
 
 /// Hooks management subcommands

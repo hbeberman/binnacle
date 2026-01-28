@@ -1793,6 +1793,165 @@ pub fn hooks_uninstall(repo_path: &Path) -> Result<HooksUninstallResult> {
     })
 }
 
+// === Copilot Management ===
+
+#[derive(Debug, Serialize)]
+pub struct CopilotInstallResult {
+    pub version: String,
+    pub path: String,
+    pub already_installed: bool,
+}
+
+impl Output for CopilotInstallResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.already_installed {
+            format!(
+                "Copilot {} already installed at {}",
+                self.version, self.path
+            )
+        } else {
+            format!("Installed Copilot {} to {}", self.version, self.path)
+        }
+    }
+}
+
+/// Install a specific version of GitHub Copilot CLI.
+/// If version is None and upstream is true, use the embedded COPILOT_VERSION.
+pub fn copilot_install(version: Option<String>, upstream: bool) -> Result<CopilotInstallResult> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    // Determine version to install
+    let version_to_install = if upstream {
+        crate::cli::copilot_version().to_string()
+    } else if let Some(v) = version {
+        v
+    } else {
+        return Err(Error::InvalidInput(
+            "Must specify either a version or --upstream flag".to_string(),
+        ));
+    };
+
+    // Ensure version starts with 'v'
+    let version_normalized = if version_to_install.starts_with('v') {
+        version_to_install
+    } else {
+        format!("v{}", version_to_install)
+    };
+
+    // Cache directory: ~/.local/share/binnacle/utils/copilot/<version>/
+    let cache_dir = dirs::data_local_dir()
+        .ok_or_else(|| Error::Other("Could not determine local data directory".to_string()))?
+        .join("binnacle")
+        .join("utils")
+        .join("copilot")
+        .join(&version_normalized);
+
+    let binary_path = cache_dir.join("copilot");
+
+    // Check if already installed
+    if binary_path.exists() {
+        return Ok(CopilotInstallResult {
+            version: version_normalized,
+            path: binary_path.to_string_lossy().to_string(),
+            already_installed: true,
+        });
+    }
+
+    // Create cache directory
+    fs::create_dir_all(&cache_dir).map_err(|e| {
+        Error::Other(format!(
+            "Failed to create cache directory {}: {}",
+            cache_dir.display(),
+            e
+        ))
+    })?;
+
+    // Download URL pattern:
+    // https://github.com/github/gh-copilot/releases/download/v0.0.396/linux-amd64
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    let platform = match (os, arch) {
+        ("linux", "x86_64") => "linux-amd64",
+        ("linux", "aarch64") => "linux-arm64",
+        ("macos", "x86_64") => "darwin-amd64",
+        ("macos", "aarch64") => "darwin-arm64",
+        ("windows", "x86_64") => "windows-amd64.exe",
+        _ => {
+            return Err(Error::InvalidInput(format!(
+                "Unsupported platform: {}-{}",
+                os, arch
+            )));
+        }
+    };
+
+    let download_url = format!(
+        "https://github.com/github/gh-copilot/releases/download/{}/{}",
+        version_normalized, platform
+    );
+
+    eprintln!(
+        "Downloading Copilot {} from {}",
+        version_normalized, download_url
+    );
+
+    // Download using curl (available in environment)
+    let temp_file = cache_dir.join("copilot.tmp");
+    let curl_status = Command::new("curl")
+        .args([
+            "-L",
+            "-o",
+            temp_file.to_str().unwrap(),
+            "--fail",
+            "--show-error",
+            "--silent",
+            &download_url,
+        ])
+        .status()
+        .map_err(|e| Error::Other(format!("Failed to run curl: {}", e)))?;
+
+    if !curl_status.success() {
+        // Clean up temp file
+        let _ = fs::remove_file(&temp_file);
+        return Err(Error::Other(format!(
+            "Failed to download Copilot {} from {}. Check that the version exists.",
+            version_normalized, download_url
+        )));
+    }
+
+    // Move to final location
+    fs::rename(&temp_file, &binary_path).map_err(|e| {
+        Error::Other(format!(
+            "Failed to move binary to {}: {}",
+            binary_path.display(),
+            e
+        ))
+    })?;
+
+    // Make executable (Unix only)
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(&binary_path)
+            .map_err(|e| Error::Other(format!("Failed to get binary metadata: {}", e)))?
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&binary_path, perms)
+            .map_err(|e| Error::Other(format!("Failed to set executable permissions: {}", e)))?;
+    }
+
+    eprintln!("Successfully installed to {}", binary_path.display());
+
+    Ok(CopilotInstallResult {
+        version: version_normalized,
+        path: binary_path.to_string_lossy().to_string(),
+        already_installed: false,
+    })
+}
+
 // === Orient Command ===
 
 #[derive(Debug, Serialize)]
