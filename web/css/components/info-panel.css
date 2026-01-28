@@ -30,12 +30,13 @@
     transition: opacity 0.2s ease, visibility 0.2s ease, width 0.25s ease-out, height 0.25s ease-in, max-height 0.25s ease-in;
 }
 
-/* Expanded state - fills height below menu bar */
+/* Expanded state - fills height within graph subpane bounds */
 .info-panel.expanded {
-    height: calc(100% - 76px);
-    max-height: calc(100% - 76px);
+    /* Calculate max height: 100% - bottom offset (16px) - top margin (16px) */
+    /* This ensures the panel stays within the graph-view container bounds */
+    max-height: calc(100% - 32px);
     /* Expand transition: 300ms ease-out */
-    transition: opacity 0.2s ease, visibility 0.2s ease, width 0.25s ease-out, height 0.3s ease-out, max-height 0.3s ease-out;
+    transition: opacity 0.2s ease, visibility 0.2s ease, width 0.25s ease-out, max-height 0.3s ease-out;
 }
 
 /* Content fade-in after expansion */
