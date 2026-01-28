@@ -1,8 +1,10 @@
-//! Cloudflared tunnel manager for creating public URLs
+//! Devtunnel manager for creating public URLs
 //!
-//! This module provides `TunnelManager` for spawning and managing cloudflared
-//! quick tunnels. When started, cloudflared creates a temporary public URL
-//! that proxies traffic to the local GUI server.
+//! This module provides `TunnelManager` for spawning and managing Azure Dev Tunnels.
+//! When started, devtunnel creates a temporary public URL that proxies traffic
+//! to the local GUI server.
+//!
+//! Requires: `devtunnel user login` (one-time authentication before first use)
 
 use regex::Regex;
 use std::io::{self, BufRead, BufReader};
@@ -11,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Timeout for waiting for cloudflared to produce a public URL
+/// Timeout for waiting for devtunnel to produce a public URL
 const URL_TIMEOUT_SECS: u64 = 30;
 
 /// Grace period before sending SIGKILL after SIGTERM
@@ -20,13 +22,15 @@ const SHUTDOWN_GRACE_SECS: u64 = 5;
 /// Error type for tunnel operations
 #[derive(Debug)]
 pub enum TunnelError {
-    /// cloudflared binary not found in PATH
-    CloudflaredNotFound,
-    /// Failed to spawn cloudflared process
+    /// devtunnel binary not found in PATH
+    DevtunnelNotFound,
+    /// User not authenticated (needs `devtunnel user login`)
+    NotAuthenticated,
+    /// Failed to spawn devtunnel process
     SpawnFailed(io::Error),
     /// Timed out waiting for public URL
     UrlTimeout,
-    /// cloudflared process exited unexpectedly
+    /// devtunnel process exited unexpectedly
     ProcessExited(Option<i32>),
     /// Internal error
     Internal(String),
@@ -35,21 +39,24 @@ pub enum TunnelError {
 impl std::fmt::Display for TunnelError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TunnelError::CloudflaredNotFound => {
+            TunnelError::DevtunnelNotFound => {
                 write!(
                     f,
-                    "cloudflared not found in PATH. Install it with: \
-                     brew install cloudflared (macOS) or see https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/"
+                    "devtunnel not found in PATH. Install it with: \
+                     just install-devtunnel"
                 )
             }
-            TunnelError::SpawnFailed(e) => write!(f, "Failed to spawn cloudflared: {}", e),
+            TunnelError::NotAuthenticated => {
+                write!(f, "devtunnel not authenticated. Run: devtunnel user login")
+            }
+            TunnelError::SpawnFailed(e) => write!(f, "Failed to spawn devtunnel: {}", e),
             TunnelError::UrlTimeout => write!(
                 f,
-                "Timed out waiting for cloudflared to provide public URL ({}s)",
+                "Timed out waiting for devtunnel to provide public URL ({}s)",
                 URL_TIMEOUT_SECS
             ),
             TunnelError::ProcessExited(code) => {
-                write!(f, "cloudflared exited unexpectedly with code: {:?}", code)
+                write!(f, "devtunnel exited unexpectedly with code: {:?}", code)
             }
             TunnelError::Internal(msg) => write!(f, "Internal tunnel error: {}", msg),
         }
@@ -58,10 +65,12 @@ impl std::fmt::Display for TunnelError {
 
 impl std::error::Error for TunnelError {}
 
-/// Manages a cloudflared tunnel process
+/// Manages a devtunnel process
 ///
 /// The tunnel provides a public URL that proxies to a local port.
-/// Uses cloudflared's "quick tunnel" feature which requires no configuration.
+/// Uses Azure Dev Tunnels with anonymous access enabled.
+///
+/// Requires one-time authentication: `devtunnel user login`
 #[derive(Debug)]
 pub struct TunnelManager {
     /// The child process handle (if running)
@@ -73,13 +82,28 @@ pub struct TunnelManager {
 }
 
 impl TunnelManager {
-    /// Check if cloudflared is available in PATH
+    /// Check if devtunnel is available in PATH
     ///
     /// # Returns
-    /// `true` if cloudflared is found and executable, `false` otherwise
-    pub fn check_cloudflared() -> bool {
-        Command::new("cloudflared")
+    /// `true` if devtunnel is found and executable, `false` otherwise
+    pub fn check_devtunnel() -> bool {
+        Command::new("devtunnel")
             .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    /// Check if devtunnel is authenticated
+    ///
+    /// # Returns
+    /// `true` if user is logged in, `false` otherwise
+    pub fn check_authenticated() -> bool {
+        // `devtunnel user show` returns exit code 0 if logged in
+        Command::new("devtunnel")
+            .args(["user", "show"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -89,7 +113,7 @@ impl TunnelManager {
 
     /// Start a tunnel to the given local port
     ///
-    /// Spawns cloudflared and waits for it to provide a public URL.
+    /// Spawns devtunnel and waits for it to provide a public URL.
     /// The tunnel proxies traffic from the public URL to `http://localhost:<port>`.
     ///
     /// # Arguments
@@ -99,21 +123,27 @@ impl TunnelManager {
     /// A `TunnelManager` instance on success, or a `TunnelError` on failure
     ///
     /// # Errors
-    /// - `CloudflaredNotFound` if cloudflared is not in PATH
+    /// - `DevtunnelNotFound` if devtunnel is not in PATH
+    /// - `NotAuthenticated` if user hasn't run `devtunnel user login`
     /// - `SpawnFailed` if the process cannot be started
     /// - `UrlTimeout` if no URL is provided within the timeout
-    /// - `ProcessExited` if cloudflared exits unexpectedly
+    /// - `ProcessExited` if devtunnel exits unexpectedly
     pub fn start(port: u16) -> Result<Self, TunnelError> {
-        if !Self::check_cloudflared() {
-            return Err(TunnelError::CloudflaredNotFound);
+        if !Self::check_devtunnel() {
+            return Err(TunnelError::DevtunnelNotFound);
         }
 
-        let local_url = format!("http://localhost:{}", port);
+        if !Self::check_authenticated() {
+            return Err(TunnelError::NotAuthenticated);
+        }
 
-        // Spawn cloudflared with stderr piped for URL extraction
-        let mut child = Command::new("cloudflared")
-            .args(["tunnel", "--url", &local_url])
-            .stdout(Stdio::null())
+        let port_str = port.to_string();
+
+        // Spawn devtunnel with stdout piped for URL extraction
+        // --allow-anonymous enables access without Microsoft account
+        let mut child = Command::new("devtunnel")
+            .args(["host", "--port-numbers", &port_str, "--allow-anonymous"])
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(TunnelError::SpawnFailed)?;
@@ -121,21 +151,22 @@ impl TunnelManager {
         let public_url = Arc::new(Mutex::new(None));
         let url_clone = Arc::clone(&public_url);
 
-        // Take stderr before moving child
-        let stderr = child
-            .stderr
+        // Take stdout before moving child (devtunnel outputs URL to stdout)
+        let stdout = child
+            .stdout
             .take()
-            .ok_or_else(|| TunnelError::Internal("Failed to capture stderr".to_string()))?;
+            .ok_or_else(|| TunnelError::Internal("Failed to capture stdout".to_string()))?;
 
-        // Spawn thread to read stderr and extract URL
+        // Spawn thread to read stdout and extract URL
+        // devtunnel outputs: "Connect via browser: https://<id>-<port>.use.devtunnels.ms"
         let url_regex =
-            Regex::new(r"https://[a-z0-9-]+\.trycloudflare\.com").expect("Invalid regex");
+            Regex::new(r"https://[a-z0-9-]+\.use\.devtunnels\.ms").expect("Invalid regex");
 
         thread::spawn(move || {
-            let reader = BufReader::new(stderr);
+            let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
-                // Log stderr for debugging (could add tracing later)
-                eprintln!("[cloudflared] {}", line);
+                // Log stdout for debugging
+                eprintln!("[devtunnel] {}", line);
 
                 if let Some(captures) = url_regex.find(&line) {
                     let mut url = url_clone.lock().unwrap();
@@ -285,10 +316,15 @@ mod tests {
 
     #[test]
     fn test_tunnel_error_display() {
-        let err = TunnelError::CloudflaredNotFound;
+        let err = TunnelError::DevtunnelNotFound;
         let msg = format!("{}", err);
-        assert!(msg.contains("cloudflared not found"));
-        assert!(msg.contains("brew install"));
+        assert!(msg.contains("devtunnel not found"));
+        assert!(msg.contains("just install-devtunnel"));
+
+        let err = TunnelError::NotAuthenticated;
+        let msg = format!("{}", err);
+        assert!(msg.contains("not authenticated"));
+        assert!(msg.contains("devtunnel user login"));
 
         let err = TunnelError::UrlTimeout;
         let msg = format!("{}", err);
@@ -310,10 +346,10 @@ mod tests {
     }
 
     #[test]
-    fn test_check_cloudflared_returns_bool() {
+    fn test_check_devtunnel_returns_bool() {
         // Just verify it returns a bool without panicking
-        // The actual result depends on whether cloudflared is installed
-        let _result: bool = TunnelManager::check_cloudflared();
+        // The actual result depends on whether devtunnel is installed
+        let _result: bool = TunnelManager::check_devtunnel();
     }
 
     #[test]
@@ -325,25 +361,26 @@ mod tests {
 
     #[test]
     fn test_url_regex_pattern() {
-        let regex = Regex::new(r"https://[a-z0-9-]+\.trycloudflare\.com").unwrap();
+        let regex = Regex::new(r"https://[a-z0-9-]+\.use\.devtunnels\.ms").unwrap();
 
-        // Should match valid cloudflare URLs
-        assert!(regex.is_match("https://random-words-here.trycloudflare.com"));
-        assert!(regex.is_match("https://abc-123.trycloudflare.com"));
-        assert!(regex.is_match("https://a.trycloudflare.com"));
+        // Should match valid devtunnels URLs
+        assert!(regex.is_match("https://7gs626gx-9999.use.devtunnels.ms"));
+        assert!(regex.is_match("https://abc-123.use.devtunnels.ms"));
+        assert!(regex.is_match("https://a.use.devtunnels.ms"));
 
         // Should not match invalid URLs
-        assert!(!regex.is_match("http://random.trycloudflare.com")); // http not https
+        assert!(!regex.is_match("http://random.use.devtunnels.ms")); // http not https
         assert!(!regex.is_match("https://random.example.com")); // wrong domain
-        assert!(!regex.is_match("random.trycloudflare.com")); // missing https
+        assert!(!regex.is_match("random.use.devtunnels.ms")); // missing https
+        assert!(!regex.is_match("https://random.trycloudflare.com")); // old cloudflare domain
     }
 
     #[test]
     fn test_tunnel_manager_port() {
-        // We can't easily test start() without cloudflared installed,
+        // We can't easily test start() without devtunnel installed,
         // but we can at least verify the struct is properly defined
         let url = Arc::new(Mutex::new(Some(
-            "https://test.trycloudflare.com".to_string(),
+            "https://test-3030.use.devtunnels.ms".to_string(),
         )));
 
         // Manually construct for testing (not public API)
@@ -356,7 +393,7 @@ mod tests {
         assert_eq!(manager.port(), 3030);
         assert_eq!(
             manager.public_url(),
-            Some("https://test.trycloudflare.com".to_string())
+            Some("https://test-3030.use.devtunnels.ms".to_string())
         );
     }
 

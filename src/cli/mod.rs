@@ -334,7 +334,7 @@ For detailed instructions, see: container/README.md
         #[arg(long, global = true)]
         dev: bool,
 
-        /// Create a public URL via cloudflared tunnel
+        /// Create a public URL via devtunnel
         /// Used when no subcommand is given (starts server)
         #[arg(long, env = "BN_GUI_TUNNEL", global = true)]
         tunnel: bool,
@@ -1141,7 +1141,7 @@ pub enum GuiCommands {
         #[arg(long)]
         dev: bool,
 
-        /// Create a public URL via cloudflared tunnel
+        /// Create a public URL via devtunnel
         #[arg(long, env = "BN_GUI_TUNNEL")]
         tunnel: bool,
     },

@@ -1354,14 +1354,18 @@ fn run_gui(
         }
     }
 
-    // Tunnel mode: check cloudflared availability
-    if tunnel && !TunnelManager::check_cloudflared() {
-        return Err(binnacle::Error::Other(
-            "cloudflared not found in PATH. Install it with: \
-             brew install cloudflared (macOS) or see \
-             https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/"
-                .to_string(),
-        ));
+    // Tunnel mode: check devtunnel availability and authentication
+    if tunnel {
+        if !TunnelManager::check_devtunnel() {
+            return Err(binnacle::Error::Other(
+                "devtunnel not found in PATH. Install it with: just install-devtunnel".to_string(),
+            ));
+        }
+        if !TunnelManager::check_authenticated() {
+            return Err(binnacle::Error::Other(
+                "devtunnel not authenticated. Run: devtunnel user login".to_string(),
+            ));
+        }
     }
 
     // Determine port: use specified port, or for tunnel mode use default (no auto-port)
@@ -1395,7 +1399,7 @@ fn run_gui(
 
     // Start tunnel if enabled
     let _tunnel_manager = if tunnel {
-        println!("Starting cloudflared tunnel...");
+        println!("Starting devtunnel...");
         let manager = TunnelManager::start(actual_port)
             .map_err(|e| binnacle::Error::Other(format!("Failed to start tunnel: {}", e)))?;
 
