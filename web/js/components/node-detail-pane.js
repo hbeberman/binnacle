@@ -234,7 +234,7 @@ function getNodeTypeInfo(type) {
  * Show the node detail pane for a specific node
  * @param {string} nodeId - The node ID
  */
-export function showNodeDetailPane(nodeId) {
+export async function showNodeDetailPane(nodeId) {
     const pane = document.getElementById('node-detail-pane');
     if (!pane) {
         console.error('Node detail pane not found in DOM');
@@ -267,16 +267,35 @@ export function showNodeDetailPane(nodeId) {
         makeIdsClickable(el);
     });
     
-    // If it's a doc with content, render markdown
-    if (node.type === 'doc' && node.content) {
+    // Show pane immediately
+    pane.classList.remove('hidden');
+    
+    // If it's a doc, fetch full content
+    if (node.type === 'doc') {
         const markdownEl = document.getElementById('detail-pane-markdown');
         if (markdownEl) {
-            renderMarkdown(markdownEl, node.content);
+            try {
+                // Show loading state
+                markdownEl.innerHTML = '<div class="detail-pane-loading">Loading document...</div>';
+                
+                const response = await fetch(`/api/docs/${nodeId}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch document: ${response.status}`);
+                }
+                const data = await response.json();
+                const fullDoc = data.doc;
+                
+                if (fullDoc.content) {
+                    renderMarkdown(markdownEl, fullDoc.content);
+                } else {
+                    markdownEl.innerHTML = '<p class="detail-pane-empty">This document has no content yet.</p>';
+                }
+            } catch (error) {
+                console.error('Error loading document:', error);
+                markdownEl.innerHTML = '<p class="detail-pane-empty">Error loading document. Please try again.</p>';
+            }
         }
     }
-    
-    // Show pane
-    pane.classList.remove('hidden');
 }
 
 /**
