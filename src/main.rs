@@ -1186,6 +1186,7 @@ fn run_command(
             host,
             readonly,
             dev,
+            tunnel,
             archive,
         }) => match command {
             Some(GuiCommands::Serve {
@@ -1194,11 +1195,13 @@ fn run_command(
                 replace,
                 readonly: sub_readonly,
                 dev: sub_dev,
+                tunnel: sub_tunnel,
             }) => {
                 let actual_port = sub_port.or(port);
                 let actual_host = &sub_host;
                 let actual_readonly = sub_readonly || readonly;
                 let actual_dev = sub_dev || dev;
+                let actual_tunnel = sub_tunnel || tunnel;
                 if replace {
                     replace_gui(
                         repo_path,
@@ -1208,6 +1211,7 @@ fn run_command(
                         archive.as_deref(),
                         human,
                         actual_dev,
+                        actual_tunnel,
                     )?;
                 } else {
                     run_gui(
@@ -1217,6 +1221,7 @@ fn run_command(
                         actual_readonly,
                         archive.as_deref(),
                         actual_dev,
+                        actual_tunnel,
                     )?;
                 }
             }
@@ -1234,7 +1239,15 @@ fn run_command(
             }
             None => {
                 // Default: start server (same as `bn gui serve`)
-                run_gui(repo_path, port, &host, readonly, archive.as_deref(), dev)?;
+                run_gui(
+                    repo_path,
+                    port,
+                    &host,
+                    readonly,
+                    archive.as_deref(),
+                    dev,
+                    tunnel,
+                )?;
             }
         },
         None => {
@@ -1277,6 +1290,7 @@ fn run_gui(
     readonly: bool,
     archive_path: Option<&str>,
     dev: bool,
+    _tunnel: bool,
 ) -> Result<(), binnacle::Error> {
     use binnacle::commands::system_store_import;
     use binnacle::gui::{DEFAULT_PORT, GuiPidFile, GuiPidInfo, ProcessStatus, find_available_port};
@@ -1384,6 +1398,7 @@ fn run_gui(
 
 /// Stop any running GUI server and start a new one
 #[cfg(feature = "gui")]
+#[allow(clippy::too_many_arguments)]
 fn replace_gui(
     repo_path: &Path,
     port: Option<u16>,
@@ -1392,6 +1407,7 @@ fn replace_gui(
     archive_path: Option<&str>,
     human: bool,
     dev: bool,
+    tunnel: bool,
 ) -> Result<(), binnacle::Error> {
     use binnacle::gui::{GuiPidFile, ProcessStatus};
     use binnacle::storage::{Storage, get_storage_dir};
@@ -1468,7 +1484,7 @@ fn replace_gui(
     }
 
     // Now delegate to run_gui which handles archive logic
-    run_gui(repo_path, port, host, readonly, archive_path, dev)
+    run_gui(repo_path, port, host, readonly, archive_path, dev, tunnel)
 }
 
 /// Show the status of the GUI server
@@ -2837,6 +2853,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             host,
             readonly,
             dev,
+            tunnel,
             archive,
         }) => {
             let subcommand = match command {
@@ -2846,8 +2863,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     replace,
                     readonly: sub_readonly,
                     dev: sub_dev,
+                    tunnel: sub_tunnel,
                 }) => {
-                    serde_json::json!({ "subcommand": "serve", "port": sub_port.or(*port), "host": sub_host, "replace": replace, "readonly": *sub_readonly || *readonly, "dev": *sub_dev || *dev, "archive": archive })
+                    serde_json::json!({ "subcommand": "serve", "port": sub_port.or(*port), "host": sub_host, "replace": replace, "readonly": *sub_readonly || *readonly, "dev": *sub_dev || *dev, "tunnel": *sub_tunnel || *tunnel, "archive": archive })
                 }
                 Some(GuiCommands::Status) => serde_json::json!({ "subcommand": "status" }),
                 Some(GuiCommands::Stop { force }) => {
@@ -2860,7 +2878,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     serde_json::json!({ "subcommand": "export", "output": output, "archive": archive })
                 }
                 None => {
-                    serde_json::json!({ "subcommand": null, "port": port, "host": host, "readonly": readonly, "dev": dev, "archive": archive })
+                    serde_json::json!({ "subcommand": null, "port": port, "host": host, "readonly": readonly, "dev": dev, "tunnel": tunnel, "archive": archive })
                 }
             };
             ("gui".to_string(), subcommand)
