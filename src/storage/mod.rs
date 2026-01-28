@@ -2656,6 +2656,7 @@ impl Storage {
 
     /// Check if an entity (task or bug) is in a "done" state.
     /// Uses SQLite cache for fast lookups instead of scanning JSONL files.
+    /// Ideas are treated as always "done" since they're conceptual and don't block work.
     pub fn is_entity_done(&self, id: &str) -> bool {
         // Try tasks table first
         let task_done: std::result::Result<bool, _> = self.conn.query_row(
@@ -2675,6 +2676,11 @@ impl Storage {
         );
         if let Ok(done) = bug_done {
             return done;
+        }
+
+        // Check if it's an idea - ideas don't block tasks
+        if self.get_idea(id).is_ok() {
+            return true;
         }
 
         false
@@ -5705,6 +5711,40 @@ mod tests {
         let blocked_ids: Vec<&str> = blocked.iter().map(|t| t.core.id.as_str()).collect();
         assert!(blocked_ids.contains(&"bn-bbbb"));
         assert!(blocked_ids.contains(&"bn-cccc"));
+    }
+
+    #[test]
+    fn test_ideas_do_not_block_tasks() {
+        use crate::models::Idea;
+
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Create an idea
+        let idea = Idea::new("bn-idea1".to_string(), "Test Idea".to_string());
+        storage.add_idea(&idea).unwrap();
+
+        // Create a task that depends on the idea
+        let task = Task::new("bn-task1".to_string(), "Task A".to_string());
+        storage.create_task(&task).unwrap();
+
+        // Add edge dependency from task to idea
+        let mut edge = crate::models::Edge::new(
+            "bne-test1".to_string(),
+            "bn-task1".to_string(),
+            "bn-idea1".to_string(),
+            crate::models::EdgeType::DependsOn,
+        );
+        edge.reason = Some("Task depends on idea".to_string());
+        storage.add_edge(&edge).unwrap();
+
+        // Task should be ready because ideas are treated as "done"
+        let ready = storage.get_ready_tasks().unwrap();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].core.id, "bn-task1");
+
+        // Task should NOT be blocked
+        let blocked = storage.get_blocked_tasks().unwrap();
+        assert!(blocked.is_empty());
     }
 
     // === Test Node Tests ===
