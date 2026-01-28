@@ -1,5 +1,18 @@
 /* Graph Controls Component */
 
+/* Screen reader only - visually hidden but accessible */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
 .graph-controls {
     position: absolute;
     top: 0;
@@ -148,8 +161,13 @@
     border: 1px solid var(--border-color);
     cursor: pointer;
     position: relative;
-    transition: background 0.2s ease, border-color 0.2s ease;
     padding: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .hide-completed-switch {
+        transition: background 0.2s ease, border-color 0.2s ease;
+    }
 }
 
 .hide-completed-switch::after {
@@ -161,7 +179,12 @@
     height: 14px;
     border-radius: 50%;
     background: white;
-    transition: transform 0.2s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .hide-completed-switch::after {
+        transition: transform 0.2s ease;
+    }
 }
 
 .hide-completed-switch.active {
@@ -194,8 +217,13 @@
     border: 1px solid var(--border-color);
     cursor: pointer;
     position: relative;
-    transition: background 0.2s ease, border-color 0.2s ease;
     padding: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .auto-follow-switch {
+        transition: background 0.2s ease, border-color 0.2s ease;
+    }
 }
 
 .auto-follow-switch::after {
@@ -207,7 +235,12 @@
     height: 14px;
     border-radius: 50%;
     background: white;
-    transition: transform 0.2s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .auto-follow-switch::after {
+        transition: transform 0.2s ease;
+    }
 }
 
 .auto-follow-switch.active {
@@ -233,7 +266,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .auto-follow-config-btn {
+        transition: all 0.2s ease;
+    }
 }
 
 .auto-follow-config-btn:hover {
@@ -264,7 +302,17 @@
 
 .auto-follow-config-popover.visible {
     display: block;
-    animation: fadeIn 0.15s ease;
+}
+
+/* Animations only if user has not requested reduced motion */
+@media (prefers-reduced-motion: no-preference) {
+    .auto-follow-config-popover.visible {
+        animation: fadeIn 0.15s ease;
+    }
+    
+    .filters-dropdown-popover.visible {
+        animation: fadeIn 0.15s ease;
+    }
 }
 
 @keyframes fadeIn {
@@ -335,8 +383,13 @@
     border: 1px solid var(--border-color);
     cursor: pointer;
     position: relative;
-    transition: background 0.2s ease, border-color 0.2s ease;
     padding: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .config-toggle {
+        transition: background 0.2s ease, border-color 0.2s ease;
+    }
 }
 
 .config-toggle::after {
@@ -348,7 +401,12 @@
     height: 12px;
     border-radius: 50%;
     background: var(--text-secondary);
-    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .config-toggle::after {
+        transition: transform 0.2s ease, background 0.2s ease;
+    }
 }
 
 .config-toggle.active {
@@ -697,8 +755,13 @@
     border: 1px solid var(--border-color);
     cursor: pointer;
     position: relative;
-    transition: background 0.2s ease, border-color 0.2s ease;
     padding: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .follow-events-switch {
+        transition: background 0.2s ease, border-color 0.2s ease;
+    }
 }
 
 .follow-events-switch::after {
@@ -710,7 +773,12 @@
     height: 14px;
     border-radius: 50%;
     background: white;
-    transition: transform 0.2s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .follow-events-switch::after {
+        transition: transform 0.2s ease;
+    }
 }
 
 .follow-events-switch.active {
@@ -736,7 +804,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .follow-events-config-btn {
+        transition: all 0.2s ease;
+    }
 }
 
 .follow-events-config-btn:hover {
@@ -767,5 +840,10 @@
 
 .follow-events-config-popover.visible {
     display: block;
-    animation: fadeIn 0.15s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .follow-events-config-popover.visible {
+        animation: fadeIn 0.15s ease;
+    }
 }

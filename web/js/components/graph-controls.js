@@ -12,6 +12,40 @@
 import * as State from '../state.js';
 
 /**
+ * Announce a message to screen readers
+ * @param {string} message - The message to announce
+ * @param {string} priority - 'polite' or 'assertive'
+ */
+function announceToScreenReader(message, priority = 'polite') {
+    const announcement = document.createElement('div');
+    announcement.setAttribute('role', 'status');
+    announcement.setAttribute('aria-live', priority);
+    announcement.setAttribute('aria-atomic', 'true');
+    announcement.className = 'sr-only';
+    announcement.textContent = message;
+    document.body.appendChild(announcement);
+    
+    // Remove after announcement
+    setTimeout(() => {
+        document.body.removeChild(announcement);
+    }, 1000);
+}
+
+/**
+ * Add keyboard support to a button (Enter and Space)
+ * @param {HTMLElement} button - The button element
+ * @param {Function} callback - Function to call on activation
+ */
+function addKeyboardSupport(button, callback) {
+    button.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            callback(e);
+        }
+    });
+}
+
+/**
  * Create graph controls HTML structure
  * @returns {HTMLElement} Graph controls container
  */
@@ -21,13 +55,13 @@ export function createGraphControls() {
     controls.id = 'graph-controls';
     
     controls.innerHTML = `
-        <input class="graph-search" id="graph-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" />
+        <input class="graph-search" id="graph-search" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" aria-label="Search nodes" />
         <div class="filters-dropdown" style="position: relative;">
-            <button class="filters-dropdown-btn" id="filters-dropdown-btn" title="Show/hide filters">
+            <button class="filters-dropdown-btn" id="filters-dropdown-btn" title="Show/hide filters" aria-expanded="false" aria-haspopup="true" aria-label="Show or hide visibility filters">
                 <span class="filters-icon">⚙</span>
                 <span class="filters-label">Filters</span>
             </button>
-            <div class="filters-dropdown-popover" id="filters-dropdown-popover">
+            <div class="filters-dropdown-popover" id="filters-dropdown-popover" role="menu" aria-label="Visibility filters">
                 <div class="config-popover-title">Visibility Filters</div>
                 <div class="config-section">
                     <span class="config-section-label">Nodes</span>
@@ -44,74 +78,74 @@ export function createGraphControls() {
             </div>
         </div>
         <div class="hide-completed-toggle">
-            <span class="hide-completed-label">Hide completed</span>
-            <button class="hide-completed-switch" id="hide-completed-switch" title="Hide completed nodes (except in active chains)"></button>
+            <span class="hide-completed-label" id="hide-completed-label">Hide completed</span>
+            <button class="hide-completed-switch" id="hide-completed-switch" title="Hide completed nodes (except in active chains)" role="switch" aria-checked="false" aria-labelledby="hide-completed-label"></button>
         </div>
         <div class="auto-follow-toggle" style="position: relative;">
-            <span class="auto-follow-label">Follow Agents</span>
-            <button class="auto-follow-switch" id="auto-follow-switch" title="Toggle follow agents mode"></button>
-            <button class="auto-follow-config-btn" id="auto-follow-config-btn" title="Configure auto-follow settings">⚙</button>
-            <div class="auto-follow-config-popover" id="auto-follow-config-popover">
+            <span class="auto-follow-label" id="auto-follow-label">Follow Agents</span>
+            <button class="auto-follow-switch" id="auto-follow-switch" title="Toggle follow agents mode" role="switch" aria-checked="false" aria-labelledby="auto-follow-label"></button>
+            <button class="auto-follow-config-btn" id="auto-follow-config-btn" title="Configure auto-follow settings" aria-expanded="false" aria-haspopup="true" aria-label="Configure auto-follow settings">⚙</button>
+            <div class="auto-follow-config-popover" id="auto-follow-config-popover" role="menu" aria-label="Auto-follow settings">
                 <div class="config-popover-title">Auto-Follow Settings</div>
                 <div class="config-section">
                     <span class="config-section-label">Auto-follow for new:</span>
                     <div class="config-node-types">
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">📋</span> Tasks</span>
-                            <button class="config-toggle active" id="config-follow-tasks" data-type="task"></button>
+                            <span class="config-node-type-label" id="config-follow-tasks-label"><span class="config-node-type-icon" aria-hidden="true">📋</span> Tasks</span>
+                            <button class="config-toggle active" id="config-follow-tasks" data-type="task" role="switch" aria-checked="true" aria-labelledby="config-follow-tasks-label"></button>
                         </div>
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">🐛</span> Bugs</span>
-                            <button class="config-toggle active" id="config-follow-bugs" data-type="bug"></button>
+                            <span class="config-node-type-label" id="config-follow-bugs-label"><span class="config-node-type-icon" aria-hidden="true">🐛</span> Bugs</span>
+                            <button class="config-toggle active" id="config-follow-bugs" data-type="bug" role="switch" aria-checked="true" aria-labelledby="config-follow-bugs-label"></button>
                         </div>
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">💡</span> Ideas</span>
-                            <button class="config-toggle" id="config-follow-ideas" data-type="idea"></button>
+                            <span class="config-node-type-label" id="config-follow-ideas-label"><span class="config-node-type-icon" aria-hidden="true">💡</span> Ideas</span>
+                            <button class="config-toggle" id="config-follow-ideas" data-type="idea" role="switch" aria-checked="false" aria-labelledby="config-follow-ideas-label"></button>
                         </div>
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">🧪</span> Tests</span>
-                            <button class="config-toggle" id="config-follow-tests" data-type="test"></button>
+                            <span class="config-node-type-label" id="config-follow-tests-label"><span class="config-node-type-icon" aria-hidden="true">🧪</span> Tests</span>
+                            <button class="config-toggle" id="config-follow-tests" data-type="test" role="switch" aria-checked="false" aria-labelledby="config-follow-tests-label"></button>
                         </div>
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">📄</span> Docs</span>
-                            <button class="config-toggle" id="config-follow-docs" data-type="doc"></button>
+                            <span class="config-node-type-label" id="config-follow-docs-label"><span class="config-node-type-icon" aria-hidden="true">📄</span> Docs</span>
+                            <button class="config-toggle" id="config-follow-docs" data-type="doc" role="switch" aria-checked="false" aria-labelledby="config-follow-docs-label"></button>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
         <div class="follow-events-toggle" style="position: relative;">
-            <span class="follow-events-label">Follow Events</span>
-            <button class="follow-events-switch" id="follow-events-switch" title="Toggle follow events mode"></button>
-            <button class="follow-events-config-btn" id="follow-events-config-btn" title="Configure follow events settings">⚙</button>
-            <div class="follow-events-config-popover" id="follow-events-config-popover">
+            <span class="follow-events-label" id="follow-events-label">Follow Events</span>
+            <button class="follow-events-switch" id="follow-events-switch" title="Toggle follow events mode" role="switch" aria-checked="false" aria-labelledby="follow-events-label"></button>
+            <button class="follow-events-config-btn" id="follow-events-config-btn" title="Configure follow events settings" aria-expanded="false" aria-haspopup="true" aria-label="Configure follow events settings">⚙</button>
+            <div class="follow-events-config-popover" id="follow-events-config-popover" role="menu" aria-label="Follow events settings">
                 <div class="config-popover-title">Follow Events Settings</div>
                 <div class="config-section">
                     <span class="config-section-label">Follow new:</span>
                     <div class="config-node-types">
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">📋</span> Tasks</span>
-                            <button class="config-toggle active" id="config-events-tasks" data-type="task"></button>
+                            <span class="config-node-type-label" id="config-events-tasks-label"><span class="config-node-type-icon" aria-hidden="true">📋</span> Tasks</span>
+                            <button class="config-toggle active" id="config-events-tasks" data-type="task" role="switch" aria-checked="true" aria-labelledby="config-events-tasks-label"></button>
                         </div>
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">🐛</span> Bugs</span>
-                            <button class="config-toggle active" id="config-events-bugs" data-type="bug"></button>
+                            <span class="config-node-type-label" id="config-events-bugs-label"><span class="config-node-type-icon" aria-hidden="true">🐛</span> Bugs</span>
+                            <button class="config-toggle active" id="config-events-bugs" data-type="bug" role="switch" aria-checked="true" aria-labelledby="config-events-bugs-label"></button>
                         </div>
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">💡</span> Ideas</span>
-                            <button class="config-toggle active" id="config-events-ideas" data-type="idea"></button>
+                            <span class="config-node-type-label" id="config-events-ideas-label"><span class="config-node-type-icon" aria-hidden="true">💡</span> Ideas</span>
+                            <button class="config-toggle active" id="config-events-ideas" data-type="idea" role="switch" aria-checked="true" aria-labelledby="config-events-ideas-label"></button>
                         </div>
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">🧪</span> Tests</span>
-                            <button class="config-toggle active" id="config-events-tests" data-type="test"></button>
+                            <span class="config-node-type-label" id="config-events-tests-label"><span class="config-node-type-icon" aria-hidden="true">🧪</span> Tests</span>
+                            <button class="config-toggle active" id="config-events-tests" data-type="test" role="switch" aria-checked="true" aria-labelledby="config-events-tests-label"></button>
                         </div>
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">📄</span> Docs</span>
-                            <button class="config-toggle active" id="config-events-docs" data-type="doc"></button>
+                            <span class="config-node-type-label" id="config-events-docs-label"><span class="config-node-type-icon" aria-hidden="true">📄</span> Docs</span>
+                            <button class="config-toggle active" id="config-events-docs" data-type="doc" role="switch" aria-checked="true" aria-labelledby="config-events-docs-label"></button>
                         </div>
                         <div class="config-node-type-row">
-                            <span class="config-node-type-label"><span class="config-node-type-icon">🎯</span> Milestones</span>
-                            <button class="config-toggle active" id="config-events-milestones" data-type="milestone"></button>
+                            <span class="config-node-type-label" id="config-events-milestones-label"><span class="config-node-type-icon" aria-hidden="true">🎯</span> Milestones</span>
+                            <button class="config-toggle active" id="config-events-milestones" data-type="milestone" role="switch" aria-checked="true" aria-labelledby="config-events-milestones-label"></button>
                         </div>
                     </div>
                 </div>
@@ -168,17 +202,39 @@ export function initializeGraphControls(controls, options = {}) {
     
     if (filtersBtn && filtersPopover) {
         // Toggle popover visibility
-        filtersBtn.addEventListener('click', (e) => {
+        const toggleFilters = (e) => {
             e.stopPropagation();
-            filtersBtn.classList.toggle('active');
+            const isExpanded = filtersBtn.classList.toggle('active');
             filtersPopover.classList.toggle('visible');
-        });
+            filtersBtn.setAttribute('aria-expanded', isExpanded);
+            
+            if (isExpanded) {
+                announceToScreenReader('Filters menu opened');
+            } else {
+                announceToScreenReader('Filters menu closed');
+            }
+        };
+        
+        filtersBtn.addEventListener('click', toggleFilters);
+        addKeyboardSupport(filtersBtn, toggleFilters);
         
         // Close popover when clicking outside
         document.addEventListener('click', (e) => {
             if (!filtersPopover.contains(e.target) && e.target !== filtersBtn) {
                 filtersBtn.classList.remove('active');
                 filtersPopover.classList.remove('visible');
+                filtersBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+        
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && filtersPopover.classList.contains('visible')) {
+                filtersBtn.classList.remove('active');
+                filtersPopover.classList.remove('visible');
+                filtersBtn.setAttribute('aria-expanded', 'false');
+                filtersBtn.focus();
+                announceToScreenReader('Filters menu closed');
             }
         });
         
@@ -220,15 +276,23 @@ export function initializeGraphControls(controls, options = {}) {
         // Load initial state
         const hideCompleted = State.get('ui.hideCompleted') !== false; // Default true
         hideCompletedSwitch.classList.toggle('active', hideCompleted);
+        hideCompletedSwitch.setAttribute('aria-checked', hideCompleted);
         
-        hideCompletedSwitch.addEventListener('click', () => {
+        const toggleHideCompleted = () => {
             const newState = !hideCompletedSwitch.classList.contains('active');
             hideCompletedSwitch.classList.toggle('active', newState);
+            hideCompletedSwitch.setAttribute('aria-checked', newState);
             State.set('ui.hideCompleted', newState);
+            
+            announceToScreenReader(`Hide completed nodes ${newState ? 'enabled' : 'disabled'}`);
+            
             if (onHideCompletedToggle) {
                 onHideCompletedToggle(newState);
             }
-        });
+        };
+        
+        hideCompletedSwitch.addEventListener('click', toggleHideCompleted);
+        addKeyboardSupport(hideCompletedSwitch, toggleHideCompleted);
     }
     
     // Initialize follow agents toggle switch
@@ -241,19 +305,23 @@ export function initializeGraphControls(controls, options = {}) {
         // Toggle is active when following agents
         const isFollowingAgents = followType === 'agent';
         autoFollowSwitch.classList.toggle('active', isFollowingAgents);
+        autoFollowSwitch.setAttribute('aria-checked', isFollowingAgents);
         
         // Set initial state
         State.set('ui.followTypeFilter', isFollowingAgents ? 'agent' : 'none');
         State.set('ui.autoFollow', isFollowingAgents);
         
-        autoFollowSwitch.addEventListener('click', () => {
+        const toggleAutoFollow = () => {
             const newState = !autoFollowSwitch.classList.contains('active');
             autoFollowSwitch.classList.toggle('active', newState);
+            autoFollowSwitch.setAttribute('aria-checked', newState);
             
             // Set follow type: 'agent' when on, 'none' when off
             const newType = newState ? 'agent' : 'none';
             State.set('ui.followTypeFilter', newType);
             State.set('ui.autoFollow', newState);
+            
+            announceToScreenReader(`Follow agents mode ${newState ? 'enabled' : 'disabled'}`);
             
             // Trigger the auto-follow callback with the new state
             if (onAutoFollowToggle) {
@@ -264,7 +332,10 @@ export function initializeGraphControls(controls, options = {}) {
             if (options.onFollowTypeChange) {
                 options.onFollowTypeChange(newType);
             }
-        });
+        };
+        
+        autoFollowSwitch.addEventListener('click', toggleAutoFollow);
+        addKeyboardSupport(autoFollowSwitch, toggleAutoFollow);
     }
     
     // Initialize auto-follow config button
@@ -296,6 +367,7 @@ export function initializeGraphControls(controls, options = {}) {
                 const toggle = configPopover.querySelector(`#config-follow-${type}s`);
                 if (toggle) {
                     toggle.classList.toggle('active', enabled);
+                    toggle.setAttribute('aria-checked', enabled);
                 }
             });
         };
@@ -303,17 +375,39 @@ export function initializeGraphControls(controls, options = {}) {
         updateConfigToggles();
         
         // Toggle popover visibility
-        configBtn.addEventListener('click', (e) => {
+        const toggleConfigPopover = (e) => {
             e.stopPropagation();
-            configBtn.classList.toggle('active');
+            const isExpanded = configBtn.classList.toggle('active');
             configPopover.classList.toggle('visible');
-        });
+            configBtn.setAttribute('aria-expanded', isExpanded);
+            
+            if (isExpanded) {
+                announceToScreenReader('Auto-follow settings menu opened');
+            } else {
+                announceToScreenReader('Auto-follow settings menu closed');
+            }
+        };
+        
+        configBtn.addEventListener('click', toggleConfigPopover);
+        addKeyboardSupport(configBtn, toggleConfigPopover);
         
         // Close popover when clicking outside
         document.addEventListener('click', (e) => {
             if (!configPopover.contains(e.target) && e.target !== configBtn) {
                 configBtn.classList.remove('active');
                 configPopover.classList.remove('visible');
+                configBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+        
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && configPopover.classList.contains('visible')) {
+                configBtn.classList.remove('active');
+                configPopover.classList.remove('visible');
+                configBtn.setAttribute('aria-expanded', 'false');
+                configBtn.focus();
+                announceToScreenReader('Auto-follow settings menu closed');
             }
         });
         
@@ -328,9 +422,20 @@ export function initializeGraphControls(controls, options = {}) {
                         config.nodeTypes[type] = !config.nodeTypes[type];
                         State.set('ui.autoFollowConfig', config);
                         toggle.classList.toggle('active', config.nodeTypes[type]);
+                        toggle.setAttribute('aria-checked', config.nodeTypes[type]);
+                        
+                        const typeName = type.charAt(0).toUpperCase() + type.slice(1);
+                        announceToScreenReader(`Auto-follow for ${typeName}s ${config.nodeTypes[type] ? 'enabled' : 'disabled'}`);
                     }
                 }
             }
+        });
+        
+        // Add keyboard support to config toggles
+        configPopover.querySelectorAll('.config-toggle').forEach(toggle => {
+            addKeyboardSupport(toggle, () => {
+                toggle.click();
+            });
         });
     }
     
@@ -340,17 +445,24 @@ export function initializeGraphControls(controls, options = {}) {
         // Load initial state (default to disabled)
         const followEvents = State.get('ui.followEvents') || false;
         followEventsSwitch.classList.toggle('active', followEvents);
+        followEventsSwitch.setAttribute('aria-checked', followEvents);
         
-        followEventsSwitch.addEventListener('click', () => {
+        const toggleFollowEvents = () => {
             const newState = !followEventsSwitch.classList.contains('active');
             followEventsSwitch.classList.toggle('active', newState);
+            followEventsSwitch.setAttribute('aria-checked', newState);
             State.set('ui.followEvents', newState);
+            
+            announceToScreenReader(`Follow events mode ${newState ? 'enabled' : 'disabled'}`);
             
             // Trigger callback if provided
             if (options.onFollowEventsToggle) {
                 options.onFollowEventsToggle(newState);
             }
-        });
+        };
+        
+        followEventsSwitch.addEventListener('click', toggleFollowEvents);
+        addKeyboardSupport(followEventsSwitch, toggleFollowEvents);
     }
     
     // Initialize follow events config button
@@ -383,6 +495,7 @@ export function initializeGraphControls(controls, options = {}) {
                 const toggle = eventsConfigPopover.querySelector(`#config-events-${type}s`);
                 if (toggle) {
                     toggle.classList.toggle('active', enabled);
+                    toggle.setAttribute('aria-checked', enabled);
                 }
             });
         };
@@ -390,17 +503,39 @@ export function initializeGraphControls(controls, options = {}) {
         updateEventsConfigToggles();
         
         // Toggle popover visibility
-        eventsConfigBtn.addEventListener('click', (e) => {
+        const toggleEventsConfigPopover = (e) => {
             e.stopPropagation();
-            eventsConfigBtn.classList.toggle('active');
+            const isExpanded = eventsConfigBtn.classList.toggle('active');
             eventsConfigPopover.classList.toggle('visible');
-        });
+            eventsConfigBtn.setAttribute('aria-expanded', isExpanded);
+            
+            if (isExpanded) {
+                announceToScreenReader('Follow events settings menu opened');
+            } else {
+                announceToScreenReader('Follow events settings menu closed');
+            }
+        };
+        
+        eventsConfigBtn.addEventListener('click', toggleEventsConfigPopover);
+        addKeyboardSupport(eventsConfigBtn, toggleEventsConfigPopover);
         
         // Close popover when clicking outside
         document.addEventListener('click', (e) => {
             if (!eventsConfigPopover.contains(e.target) && e.target !== eventsConfigBtn) {
                 eventsConfigBtn.classList.remove('active');
                 eventsConfigPopover.classList.remove('visible');
+                eventsConfigBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+        
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && eventsConfigPopover.classList.contains('visible')) {
+                eventsConfigBtn.classList.remove('active');
+                eventsConfigPopover.classList.remove('visible');
+                eventsConfigBtn.setAttribute('aria-expanded', 'false');
+                eventsConfigBtn.focus();
+                announceToScreenReader('Follow events settings menu closed');
             }
         });
         
@@ -415,9 +550,20 @@ export function initializeGraphControls(controls, options = {}) {
                         config.nodeTypes[type] = !config.nodeTypes[type];
                         State.set('ui.followEventsConfig', config);
                         toggle.classList.toggle('active', config.nodeTypes[type]);
+                        toggle.setAttribute('aria-checked', config.nodeTypes[type]);
+                        
+                        const typeName = type.charAt(0).toUpperCase() + type.slice(1);
+                        announceToScreenReader(`Follow events for ${typeName}s ${config.nodeTypes[type] ? 'enabled' : 'disabled'}`);
                     }
                 }
             }
+        });
+        
+        // Add keyboard support to config toggles
+        eventsConfigPopover.querySelectorAll('.config-toggle').forEach(toggle => {
+            addKeyboardSupport(toggle, () => {
+                toggle.click();
+            });
         });
     }
     
