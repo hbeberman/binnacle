@@ -173,7 +173,7 @@ cargo install --path . --features gui
 bn gui                           # Start on default port (3030)
 bn gui -p 8080                   # Start on custom port
 bn gui --readonly                # Start in read-only mode
-bn gui --tunnel                  # Create public URL via cloudflared (read-only)
+bn gui --tunnel                  # Create public URL via devtunnel (read-only)
 bn gui --archive data.bng        # Load a .bng archive file (read-only snapshot)
 ```
 
@@ -218,19 +218,21 @@ Development mode (`--dev` flag):
 - `BN_GUI_READONLY`: Start in read-only mode
 - `BN_GUI_TUNNEL`: Enable tunnel mode (see below)
 
-### Public URL via Cloudflared Tunnel
+### Public URL via Dev Tunnels
 
-Share your GUI publicly without port forwarding using cloudflared quick tunnels:
+Share your GUI publicly without port forwarding using Microsoft Dev Tunnels:
 
 ```bash
 bn gui --tunnel              # Start with a public URL
 ```
 
-This spawns a `cloudflared` process that creates a temporary public URL (e.g., `https://random-words.trycloudflare.com`) proxying to your local GUI.
+This spawns a `devtunnel` process that creates a temporary public URL (e.g., `https://abc123-3030.use.devtunnels.ms`) proxying to your local GUI.
 
 **Requirements:**
-- Install cloudflared: `just install-cloudflared` (or `brew install cloudflared` on macOS)
-- No Cloudflare account needed (uses "quick tunnel" feature)
+1. Install devtunnel: `just install-devtunnel`
+2. Authenticate (one-time): `devtunnel user login`
+
+The authentication step is required before first use and supports GitHub, Microsoft, or Azure AD accounts.
 
 **Security:**
 - Tunnel mode **automatically enables read-only mode** to prevent remote modifications
