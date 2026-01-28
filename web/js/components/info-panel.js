@@ -236,6 +236,18 @@ export function initializeInfoPanel(panel, options = {}) {
         });
     }
     
+    // Escape key handler: collapse if expanded, hide if compact
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && panel.classList.contains('visible')) {
+            if (panel.classList.contains('expanded')) {
+                collapseInfoPanel(panel);
+            } else {
+                hideInfoPanel(panel);
+                onClose();
+            }
+        }
+    });
+    
     // Tab switching
     const tabs = panel.querySelectorAll('.info-panel-tab');
     tabs.forEach(tab => {

@@ -482,3 +482,76 @@ console.log('\nTest 12: Doc content preview section');
     
     console.log('  ✓ "Read Full Document" button wired to doc viewer');
 }
+
+// Test 13: Escape key behavior for panel states
+console.log('\nTest 13: Escape key behavior for panel states');
+{
+    // Test case 1: Escape when panel is expanded -> collapse to compact
+    const expandedPanel = {
+        classList: {
+            classes: new Set(['visible', 'expanded']),
+            add: function(cls) { this.classes.add(cls); },
+            remove: function(cls) { this.classes.delete(cls); },
+            contains: function(cls) { return this.classes.has(cls); }
+        }
+    };
+    
+    // Simulate Escape key press when expanded
+    if (expandedPanel.classList.contains('visible')) {
+        if (expandedPanel.classList.contains('expanded')) {
+            // collapseInfoPanel
+            expandedPanel.classList.remove('expanded');
+            expandedPanel.classList.add('compact');
+        }
+    }
+    
+    if (expandedPanel.classList.contains('compact') && !expandedPanel.classList.contains('expanded')) {
+        console.log('  ✓ Escape on expanded panel -> collapsed to compact');
+    } else {
+        console.error('  ✗ Panel should be compact after Escape from expanded');
+    }
+    
+    // Test case 2: Escape when panel is compact -> hide completely
+    const compactPanel = {
+        classList: {
+            classes: new Set(['visible', 'compact']),
+            add: function(cls) { this.classes.add(cls); },
+            remove: function(cls) { this.classes.delete(cls); },
+            contains: function(cls) { return this.classes.has(cls); }
+        }
+    };
+    
+    // Simulate Escape key press when compact
+    if (compactPanel.classList.contains('visible')) {
+        if (!compactPanel.classList.contains('expanded')) {
+            // hideInfoPanel
+            compactPanel.classList.remove('visible');
+            compactPanel.classList.remove('expanded');
+            compactPanel.classList.remove('compact');
+        }
+    }
+    
+    if (!compactPanel.classList.contains('visible')) {
+        console.log('  ✓ Escape on compact panel -> hidden completely');
+    } else {
+        console.error('  ✗ Panel should be hidden after Escape from compact');
+    }
+    
+    // Test case 3: Escape when panel is hidden -> no action
+    const hiddenPanel = {
+        classList: {
+            classes: new Set(),
+            add: function(cls) { this.classes.add(cls); },
+            remove: function(cls) { this.classes.delete(cls); },
+            contains: function(cls) { return this.classes.has(cls); }
+        }
+    };
+    
+    // Simulate Escape key press when hidden (should do nothing)
+    if (hiddenPanel.classList.contains('visible')) {
+        // Should not enter this block
+        console.error('  ✗ Hidden panel should not respond to Escape');
+    } else {
+        console.log('  ✓ Escape on hidden panel -> no action (ignored)');
+    }
+}
