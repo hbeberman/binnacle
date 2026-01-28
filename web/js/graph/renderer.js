@@ -477,7 +477,10 @@ function applyPhysics() {
         // Spring force: pulls nodes toward resting length
         // - If compressed (distance < resting): pushes apart
         // - If extended (distance > resting): pulls together
-        const deviation = distance - physics.springRestingLength;
+        // Use edge-type-specific resting length if defined, otherwise use default
+        const edgeRestingLengths = physics.edgeRestingLengths || {};
+        const restingLength = edgeRestingLengths[edge.edge_type] ?? physics.springRestingLength;
+        const deviation = distance - restingLength;
         const force = physics.springStrength * deviation;
         const fx = (dx / distance) * force;
         const fy = (dy / distance) * force;
