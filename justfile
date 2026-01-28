@@ -261,8 +261,21 @@ bundle-web:
     ./scripts/bundle-web.sh
 
 # Validate web portal with lightpanda (check for JS errors)
+# Checks for lightpanda binary and validates GUI loads without console errors
 gui-check:
-    ./scripts/validate-web.sh
+    #!/usr/bin/env bash
+    set -e
+    # Check if lightpanda is installed
+    if ! command -v lightpanda &> /dev/null; then
+        echo "❌ lightpanda not found!"
+        echo "Install lightpanda v0.2.0 from: https://github.com/lightpanda-io/lightpanda/releases"
+        echo ""
+        echo "Quick install (Linux x86_64):"
+        echo "  curl -L https://github.com/lightpanda-io/lightpanda/releases/download/v0.2.0/lightpanda-v0.2.0-x86_64-unknown-linux-gnu.tar.gz | tar xz"
+        echo "  sudo mv lightpanda /usr/local/bin/"
+        exit 1
+    fi
+    ./scripts/gui-check.sh
 
 # Build the container image (builds release binary first)
 container tag="binnacle-worker:latest":
