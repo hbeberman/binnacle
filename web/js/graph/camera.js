@@ -40,6 +40,14 @@ let lastDragTime = 0;
 let dragVelocityX = 0;
 let dragVelocityY = 0;
 
+// Click detection state
+let clickedNodeOnMouseDown = null;
+let mouseDownX = 0;
+let mouseDownY = 0;
+let singleClickTimer = null;
+const CLICK_DISTANCE_THRESHOLD = 5; // pixels - max movement to count as click
+const DOUBLE_CLICK_DELAY = 300; // ms - delay before single-click callback fires
+
 // Hover state
 let currentHoveredNode = null;
 let currentHoveredEdge = null;
@@ -48,7 +56,9 @@ let currentHoveredEdge = null;
 let onNodeHover = null;
 let onEdgeHover = null;
 let onHoverEnd = null;
+let onNodeClick = null;
 let onNodeDoubleClick = null;
+let onCanvasClick = null;
 let onEscape = null;
 
 // Canvas reference
@@ -66,7 +76,9 @@ const PAN_SPEED = 5; // pixels per frame
  * @param {Function} callbacks.onNodeHover - Called when hovering over a node: (node, mouseX, mouseY)
  * @param {Function} callbacks.onEdgeHover - Called when hovering over an edge: (edge, mouseX, mouseY)
  * @param {Function} callbacks.onHoverEnd - Called when hover ends: ()
+ * @param {Function} callbacks.onNodeClick - Called when single-clicking a node: (node)
  * @param {Function} callbacks.onNodeDoubleClick - Called when double-clicking a node: (node)
+ * @param {Function} callbacks.onCanvasClick - Called when clicking on empty space: ()
  * @param {Function} callbacks.onEscape - Called when Escape key is pressed: ()
  */
 export function init(canvasElement, callbacks = {}) {
@@ -76,7 +88,9 @@ export function init(canvasElement, callbacks = {}) {
     onNodeHover = callbacks.onNodeHover || null;
     onEdgeHover = callbacks.onEdgeHover || null;
     onHoverEnd = callbacks.onHoverEnd || null;
+    onNodeClick = callbacks.onNodeClick || null;
     onNodeDoubleClick = callbacks.onNodeDoubleClick || null;
+    onCanvasClick = callbacks.onCanvasClick || null;
     onEscape = callbacks.onEscape || null;
     
     // Mouse events for pan and hover
@@ -137,10 +151,17 @@ function onMouseDown(e) {
     const canvasX = e.clientX - rect.left;
     const canvasY = e.clientY - rect.top;
     
+    // Track mouse down position for click detection
+    mouseDownX = canvasX;
+    mouseDownY = canvasY;
+    
     // Check if we're clicking on a node
     const clickedNode = findNodeAtPosition(canvasX, canvasY);
     
     if (clickedNode) {
+        // Track node for click detection
+        clickedNodeOnMouseDown = clickedNode;
+        
         // Handle selection based on modifier keys
         const isCtrlOrCmd = e.ctrlKey || e.metaKey;
         const isShift = e.shiftKey;
@@ -176,6 +197,9 @@ function onMouseDown(e) {
             clearFocus();
         }
     } else {
+        // No node clicked
+        clickedNodeOnMouseDown = null;
+        
         // Check if Shift is held for box selection
         if (e.shiftKey) {
             // Start box selection
@@ -394,6 +418,50 @@ function onMouseUp(e) {
         canvas.classList.remove('box-selecting');
     }
     
+    // Check for node click (not drag)
+    if (e.button === 0 && clickedNodeOnMouseDown && onNodeClick) {
+        const rect = canvas.getBoundingClientRect();
+        const canvasX = e.clientX - rect.left;
+        const canvasY = e.clientY - rect.top;
+        
+        // Calculate distance moved since mousedown
+        const dx = canvasX - mouseDownX;
+        const dy = canvasY - mouseDownY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Only trigger click if mouse didn't move much (not a drag) and no modifiers
+        if (distance < CLICK_DISTANCE_THRESHOLD && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            const nodeToClick = clickedNodeOnMouseDown;
+            
+            // Cancel any pending single-click timer (for double-click detection)
+            if (singleClickTimer) {
+                clearTimeout(singleClickTimer);
+                singleClickTimer = null;
+            }
+            
+            // Delay single-click callback to allow double-click to take precedence
+            singleClickTimer = setTimeout(() => {
+                singleClickTimer = null;
+                onNodeClick(nodeToClick);
+            }, DOUBLE_CLICK_DELAY);
+        }
+    } else if (e.button === 0 && !clickedNodeOnMouseDown && !isBoxSelecting && onCanvasClick) {
+        // Check for canvas click (empty space, not box selection)
+        const rect = canvas.getBoundingClientRect();
+        const canvasX = e.clientX - rect.left;
+        const canvasY = e.clientY - rect.top;
+        
+        // Calculate distance moved since mousedown
+        const dx = canvasX - mouseDownX;
+        const dy = canvasY - mouseDownY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Only trigger canvas click if mouse didn't move much (not a drag/pan)
+        if (distance < CLICK_DISTANCE_THRESHOLD) {
+            onCanvasClick();
+        }
+    }
+    
     if (draggedNode && e.button === 0) {
         // Apply momentum to the node based on drag velocity
         // Convert screen velocity to world velocity (accounting for zoom)
@@ -418,6 +486,9 @@ function onMouseUp(e) {
         isDragging = false;
         canvas.classList.remove('dragging');
     }
+    
+    // Reset click tracking
+    clickedNodeOnMouseDown = null;
 }
 
 /**
@@ -470,6 +541,12 @@ function onMouseLeave() {
  */
 function onDoubleClick(e) {
     if (!onNodeDoubleClick) return;
+    
+    // Cancel single-click timer (double-click takes precedence)
+    if (singleClickTimer) {
+        clearTimeout(singleClickTimer);
+        singleClickTimer = null;
+    }
     
     // Get canvas-relative coordinates
     const rect = canvas.getBoundingClientRect();
