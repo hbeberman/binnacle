@@ -33,7 +33,6 @@ pkg/
 
 # Node.js dependencies
 node_modules/
-package-lock.json
 
 # Playwright test artifacts
 playwright-report/
