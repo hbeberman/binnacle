@@ -133,7 +133,7 @@ export function createInfoPanel() {
                 <div class="info-panel-section-title">Description</div>
                 <div id="info-panel-description" class="info-panel-description"></div>
             </div>
-            <div id="info-panel-doc-content-section" class="info-panel-section" style="display: none;">
+            <div id="info-panel-doc-content-section" class="info-panel-section info-panel-content-fade" style="display: none;">
                 <div class="info-panel-section-title">Content Preview</div>
                 <div id="info-panel-doc-content" class="info-panel-doc-content"></div>
                 <button id="info-panel-doc-read-btn" class="info-panel-doc-read-btn">📖 Read Full Document</button>

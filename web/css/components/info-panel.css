@@ -42,12 +42,18 @@
 /* Content fade-in after expansion */
 .info-panel-content-fade {
     opacity: 0;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.15s ease;
 }
 
 .info-panel.expanded .info-panel-content-fade {
     opacity: 1;
-    transition-delay: 0.15s;
+    transition: opacity 0.15s ease 0.15s;
+}
+
+/* On collapse, fade out immediately (no delay) */
+.info-panel.compact .info-panel-content-fade {
+    opacity: 0;
+    transition: opacity 0.15s ease;
 }
 
 .info-panel-header {
