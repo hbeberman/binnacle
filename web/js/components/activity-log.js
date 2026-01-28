@@ -7,6 +7,7 @@
 
 import { subscribe } from '../state.js';
 import { showNodeDetailModal } from './node-detail-modal.js';
+import { setupEntityLinkHover } from './tooltip.js';
 
 /**
  * Simple HTML escaping
@@ -488,6 +489,12 @@ export function createActivityLog() {
             showNodeDetailModal(entityId);
         }
     });
+    
+    // Setup entity link tooltips
+    const logEntriesContainer = container.querySelector('.log-entries');
+    if (logEntriesContainer) {
+        setupEntityLinkHover(logEntriesContainer);
+    }
     
     return container;
 }

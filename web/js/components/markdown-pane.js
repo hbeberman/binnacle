@@ -11,6 +11,7 @@
 import { getNode, setSelectedNode, setCurrentView } from '../state.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import { panToNode, highlightNode, clearHighlight } from '../graph/index.js';
+import { setupEntityLinkHover } from './tooltip.js';
 
 /**
  * Create the markdown pane HTML
@@ -160,6 +161,9 @@ function initMarkdownPane() {
             
             clearHighlight();
         });
+        
+        // Setup entity link tooltips
+        setupEntityLinkHover(contentEl);
     }
 }
 

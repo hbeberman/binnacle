@@ -13,6 +13,7 @@ import { createClickableId } from '../utils/clickable-ids.js';
 // DOM element references
 let nodeTooltip = null;
 let edgeTooltip = null;
+let entityTooltip = null;
 let container = null;
 
 // Edge type display names
@@ -58,6 +59,20 @@ export function init(containerElement) {
         <div class="edge-tooltip-reason"></div>
     `;
     container.appendChild(edgeTooltip);
+    
+    // Create entity link tooltip
+    entityTooltip = document.createElement('div');
+    entityTooltip.className = 'graph-tooltip entity-tooltip';
+    entityTooltip.innerHTML = `
+        <div class="entity-tooltip-header">
+            <span class="entity-tooltip-icon"></span>
+            <span class="entity-tooltip-id"></span>
+        </div>
+        <div class="entity-tooltip-title"></div>
+        <div class="entity-tooltip-status"></div>
+        <div class="entity-tooltip-description"></div>
+    `;
+    container.appendChild(entityTooltip);
 }
 
 /**
@@ -71,9 +86,6 @@ export function showNodeTooltip(node, mouseX, mouseY) {
     
     // Hide edge tooltip when showing node tooltip
     hideEdgeTooltip();
-    
-    // Get entity data from state for full info
-    const entity = findEntity(node.id);
     
     // Update content
     const titleEl = nodeTooltip.querySelector('.graph-tooltip-title');
@@ -228,4 +240,117 @@ export function updatePosition(type, mouseX, mouseY) {
     if (tooltip && tooltip.classList.contains('visible')) {
         positionTooltip(tooltip, mouseX, mouseY);
     }
+}
+
+/**
+ * Show tooltip for an entity link (from markdown, info panels, etc.)
+ * @param {string} entityId - Entity ID to show tooltip for
+ * @param {number} mouseX - Mouse X position (screen coordinates)
+ * @param {number} mouseY - Mouse Y position (screen coordinates)
+ */
+export function showEntityTooltip(entityId, mouseX, mouseY) {
+    if (!entityTooltip || !entityId) return;
+    
+    // Find entity in state
+    const entity = findEntity(entityId);
+    if (!entity) {
+        console.warn(`Entity ${entityId} not found in state`);
+        return;
+    }
+    
+    // Hide other tooltips
+    hideNodeTooltip();
+    hideEdgeTooltip();
+    
+    // Get DOM elements
+    const iconEl = entityTooltip.querySelector('.entity-tooltip-icon');
+    const idEl = entityTooltip.querySelector('.entity-tooltip-id');
+    const titleEl = entityTooltip.querySelector('.entity-tooltip-title');
+    const statusEl = entityTooltip.querySelector('.entity-tooltip-status');
+    const descEl = entityTooltip.querySelector('.entity-tooltip-description');
+    
+    // Set type icon
+    const typeIcons = {
+        task: '📋',
+        bug: '🐛',
+        idea: '💡',
+        test: '🧪',
+        doc: '📄',
+        milestone: '🎯',
+        queue: '📥',
+        agent: '🤖'
+    };
+    iconEl.textContent = typeIcons[entity.type] || '📌';
+    
+    // Set ID
+    idEl.textContent = entity.id;
+    
+    // Set title
+    const title = entity.short_name || entity.title || entity.name || entity.id;
+    titleEl.textContent = title;
+    
+    // Set status badge
+    const status = entity.status || 'unknown';
+    statusEl.textContent = `${entity.type} • ${status}`;
+    statusEl.className = `entity-tooltip-status status-${status}`;
+    
+    // Set description (truncate to ~50 chars)
+    if (entity.description) {
+        const maxLen = 50;
+        const desc = entity.description.length > maxLen 
+            ? entity.description.substring(0, maxLen) + '...'
+            : entity.description;
+        descEl.textContent = desc;
+        descEl.style.display = 'block';
+    } else {
+        descEl.style.display = 'none';
+    }
+    
+    // Position and show
+    positionTooltip(entityTooltip, mouseX, mouseY);
+    entityTooltip.classList.add('visible');
+}
+
+/**
+ * Hide entity tooltip
+ */
+export function hideEntityTooltip() {
+    if (entityTooltip) {
+        entityTooltip.classList.remove('visible');
+    }
+}
+
+/**
+ * Setup entity link hover listeners
+ * Call this after DOM content with entity links is rendered
+ * @param {HTMLElement} container - Container element with entity links
+ */
+export function setupEntityLinkHover(container) {
+    if (!container) return;
+    
+    // Add event delegation for entity links
+    container.addEventListener('mouseover', (e) => {
+        const entityLink = e.target.closest('.clickable-entity-id');
+        if (!entityLink) return;
+        
+        const entityId = entityLink.dataset.entityId;
+        if (entityId) {
+            showEntityTooltip(entityId, e.clientX, e.clientY);
+        }
+    });
+    
+    container.addEventListener('mouseout', (e) => {
+        const entityLink = e.target.closest('.clickable-entity-id');
+        if (!entityLink) return;
+        
+        hideEntityTooltip();
+    });
+    
+    container.addEventListener('mousemove', (e) => {
+        const entityLink = e.target.closest('.clickable-entity-id');
+        if (!entityLink || !entityTooltip?.classList.contains('visible')) return;
+        
+        // Update tooltip position as mouse moves
+        positionTooltip(entityTooltip, e.clientX, e.clientY);
+    });
 }
