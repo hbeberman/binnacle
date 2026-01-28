@@ -187,6 +187,8 @@ The **installed version** used for task tracking and cluster communication:
 - ✅ This is how you manage YOUR work on this project
 - ❌ **DO NOT** test your code changes with this binary!
 
+**PATH Note**: If `which bn` shows a different path (e.g., `/usr/local/sbin/bn`), you may be running an outdated version. Verify with `bn --version`. The `agent.sh` script automatically prioritizes `~/.local/bin/bn`.
+
 #### 2. Development build (`./target/debug/bn` or `./target/release/bn`)
 The **code you're actively developing** - what you're building/testing:
 - ✅ Use `cargo run --` to test your bn code changes
