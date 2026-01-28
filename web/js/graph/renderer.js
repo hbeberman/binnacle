@@ -590,15 +590,11 @@ function updateAutoFollow() {
     } else {
         // Sort nodes to find the best one to follow
         const sortedNodes = [...candidateNodes].sort((a, b) => {
-            // For agents, prioritize by status
+            // For agents, prioritize by started_at (most recent first)
             if (a.type === 'agent' && b.type === 'agent') {
-                const statusOrder = { 'active': 0, 'idle': 1, 'stale': 2 };
-                const orderA = statusOrder[(a.status || 'unknown').toLowerCase()] ?? 3;
-                const orderB = statusOrder[(b.status || 'unknown').toLowerCase()] ?? 3;
-                
-                if (orderA !== orderB) {
-                    return orderA - orderB;
-                }
+                const aTime = new Date(a.started_at || 0).getTime();
+                const bTime = new Date(b.started_at || 0).getTime();
+                return bTime - aTime; // Most recent first
             }
             
             // For tasks/bugs, prioritize in_progress status
