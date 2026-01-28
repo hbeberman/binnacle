@@ -9826,7 +9826,24 @@ pub fn graph_peers(
 /// Placeholder result for bn descendants command.
 #[derive(Serialize)]
 pub struct DescendantsResult {
-    pub message: String,
+    pub source: String,
+    pub descendants: Vec<Descendant>,
+    pub max_depth: usize,
+    pub unexplored_count: usize,
+}
+
+#[derive(Serialize)]
+pub struct Descendant {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub entity_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub depth: usize,
+    pub edge_type: String,
 }
 
 impl Output for DescendantsResult {
@@ -9835,22 +9852,226 @@ impl Output for DescendantsResult {
     }
 
     fn to_human(&self) -> String {
-        self.message.clone()
+        let mut lines = vec![format!(
+            "Descendants of {} (max depth {})",
+            self.source, self.max_depth
+        )];
+        lines.push(String::new());
+
+        if self.descendants.is_empty() {
+            lines.push("No descendants found".to_string());
+        } else {
+            for desc in &self.descendants {
+                let indent = "  ".repeat(desc.depth);
+                let status_str = desc
+                    .status
+                    .as_ref()
+                    .map(|s| format!(" [{}]", s))
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "{}{} {} ({}){}",
+                    indent, desc.id, desc.title, desc.edge_type, status_str
+                ));
+                if let Some(desc_text) = &desc.description {
+                    lines.push(format!("{}  {}", indent, desc_text));
+                }
+            }
+        }
+
+        if self.unexplored_count > 0 {
+            lines.push(String::new());
+            lines.push(format!(
+                "({} descendants not shown - use --depth or --all to explore further)",
+                self.unexplored_count
+            ));
+        }
+
+        lines.join("\n")
     }
 }
 
-/// Placeholder for bn descendants command (to be implemented).
+/// Walk downward from a node to explore its subtree.
+/// Follows child_of edges in reverse and documents edges.
 pub fn graph_descendants(
-    _repo_path: &Path,
-    _id: &str,
-    _depth: usize,
-    _all: bool,
-    _include_closed: bool,
-    _verbose: bool,
+    repo_path: &Path,
+    id: &str,
+    depth: usize,
+    all: bool,
+    include_closed: bool,
+    verbose: bool,
 ) -> Result<DescendantsResult> {
-    Err(Error::InvalidInput(
-        "bn descendants command not yet implemented".to_string(),
-    ))
+    let storage = Storage::open(repo_path)?;
+    let mut descendants = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+    let mut to_explore = Vec::new();
+    let mut unexplored_count = 0;
+
+    // Start with the source entity
+    to_explore.push((id.to_string(), 0usize));
+    visited.insert(id.to_string());
+
+    let max_depth = if all { usize::MAX } else { depth };
+
+    while let Some((current_id, current_depth)) = to_explore.pop() {
+        // If we've reached max depth, count children as unexplored
+        if current_depth >= max_depth {
+            // Find children via reversed child_of edges (where target is current_id)
+            let child_edges =
+                storage.list_edges(Some(EdgeType::ChildOf), None, Some(&current_id))?;
+            unexplored_count += child_edges.len();
+
+            // Find documents edges
+            let doc_edges =
+                storage.list_edges(Some(EdgeType::Documents), Some(&current_id), None)?;
+            unexplored_count += doc_edges.len();
+            continue;
+        }
+
+        // Find children via reversed child_of edges (where target is current_id)
+        let child_edges = storage.list_edges(Some(EdgeType::ChildOf), None, Some(&current_id))?;
+        for edge in child_edges {
+            if visited.contains(&edge.source) {
+                continue;
+            }
+            visited.insert(edge.source.clone());
+
+            // Get entity details
+            let entity_type = storage.get_entity_type(&edge.source)?;
+            let (title, status, description) = match entity_type {
+                EntityType::Task => {
+                    let task = storage.get_task(&edge.source)?;
+                    if !include_closed && task.status == TaskStatus::Done {
+                        continue;
+                    }
+                    let status_str = serde_json::to_value(&task.status)
+                        .ok()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_else(|| format!("{:?}", task.status));
+                    (
+                        task.core.title,
+                        Some(status_str),
+                        if verbose { task.core.description } else { None },
+                    )
+                }
+                EntityType::Bug => {
+                    let bug = storage.get_bug(&edge.source)?;
+                    if !include_closed && bug.status == TaskStatus::Done {
+                        continue;
+                    }
+                    let status_str = serde_json::to_value(&bug.status)
+                        .ok()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_else(|| format!("{:?}", bug.status));
+                    (
+                        bug.core.title,
+                        Some(status_str),
+                        if verbose { bug.core.description } else { None },
+                    )
+                }
+                EntityType::Milestone => {
+                    let milestone = storage.get_milestone(&edge.source)?;
+                    if !include_closed && milestone.status == TaskStatus::Done {
+                        continue;
+                    }
+                    let status_str = serde_json::to_value(&milestone.status)
+                        .ok()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_else(|| format!("{:?}", milestone.status));
+                    (
+                        milestone.core.title,
+                        Some(status_str),
+                        if verbose {
+                            milestone.core.description
+                        } else {
+                            None
+                        },
+                    )
+                }
+                EntityType::Idea => {
+                    let idea = storage.get_idea(&edge.source)?;
+                    let status_str = serde_json::to_value(&idea.status)
+                        .ok()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_else(|| format!("{:?}", idea.status));
+                    (
+                        idea.core.title,
+                        Some(status_str),
+                        if verbose { idea.core.description } else { None },
+                    )
+                }
+                _ => {
+                    // Skip unsupported types
+                    continue;
+                }
+            };
+
+            let new_depth = current_depth + 1;
+            descendants.push(Descendant {
+                id: edge.source.clone(),
+                entity_type: entity_type.to_string(),
+                status,
+                title,
+                description,
+                depth: new_depth,
+                edge_type: "child_of".to_string(),
+            });
+
+            // Add to exploration queue
+            to_explore.push((edge.source.clone(), new_depth));
+        }
+
+        // Find documents edges (where source is current_id)
+        let doc_edges = storage.list_edges(Some(EdgeType::Documents), Some(&current_id), None)?;
+        for edge in doc_edges {
+            if visited.contains(&edge.target) {
+                continue;
+            }
+            visited.insert(edge.target.clone());
+
+            // Documents edges should point to Doc entities
+            let entity_type = storage.get_entity_type(&edge.target)?;
+            let (title, status, description) = match entity_type {
+                EntityType::Doc => {
+                    let doc = storage.get_doc(&edge.target)?;
+                    let content = if verbose {
+                        doc.get_content().ok()
+                    } else {
+                        None
+                    };
+                    (
+                        doc.core.title,
+                        None, // Docs don't have status
+                        content,
+                    )
+                }
+                _ => {
+                    // Skip if not a doc (shouldn't happen, but be defensive)
+                    continue;
+                }
+            };
+
+            let new_depth = current_depth + 1;
+            descendants.push(Descendant {
+                id: edge.target.clone(),
+                entity_type: entity_type.to_string(),
+                status,
+                title,
+                description,
+                depth: new_depth,
+                edge_type: "documents".to_string(),
+            });
+
+            // Add to exploration queue
+            to_explore.push((edge.target.clone(), new_depth));
+        }
+    }
+
+    Ok(DescendantsResult {
+        source: id.to_string(),
+        descendants,
+        max_depth: depth,
+        unexplored_count,
+    })
 }
 
 // === Search Commands ===
