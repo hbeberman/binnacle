@@ -355,8 +355,13 @@ export function createActivityLog() {
         <div class="activity-log-header">
             <h3>Command History</h3>
             <div class="activity-log-controls">
+                <button class="btn-pause" title="Pause live updates">⏸️ Pause</button>
                 <button class="btn-refresh" title="Refresh log">🔄 Refresh</button>
             </div>
+        </div>
+        
+        <div class="new-entry-indicator" style="display: none; padding: 0.5rem 1rem; background: var(--accent-color); color: white; text-align: center; cursor: pointer; font-weight: 500;">
+            0 new entries
         </div>
         
         <div class="log-filter-bar">
@@ -440,6 +445,20 @@ export function createActivityLog() {
         updateLogDisplay(container, 0);
     });
     
+    // New entry indicator click handler
+    const indicator = container.querySelector('.new-entry-indicator');
+    if (indicator) {
+        indicator.addEventListener('click', () => {
+            // Resume and scroll to top
+            const pauseBtn = container.querySelector('.btn-pause');
+            if (container.dataset.paused === 'true' && pauseBtn) {
+                pauseBtn.click(); // Trigger resume
+            }
+            // Scroll to top
+            container.querySelector('.log-entries')?.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+    }
+    
     // Filter change handlers
     const filterBar = container.querySelector('.log-filter-bar');
     filterBar.addEventListener('change', () => {
@@ -517,11 +536,39 @@ export function mountActivityLog(target) {
     const log = createActivityLog();
     targetEl.appendChild(log);
     
+    // Track pause state and buffered entries
+    log.dataset.paused = 'false';
+    log.dataset.bufferedCount = '0';
+    const bufferedEntries = [];
+    
     // Subscribe to log state changes for real-time updates
-    subscribe('log', () => {
-        // When log state changes (e.g., from WebSocket sync), refresh from top
-        // New entries appear at top, so resetting makes sense
-        updateLogDisplay(log, 0);
+    subscribe('log', (logEntries) => {
+        const isPaused = log.dataset.paused === 'true';
+        
+        if (isPaused) {
+            // When paused, buffer new entries
+            if (Array.isArray(logEntries) && logEntries.length > 0) {
+                // Get count of new entries since last check
+                const currentCount = parseInt(log.dataset.totalEntries || '0', 10);
+                const newCount = logEntries.length;
+                const addedCount = Math.max(0, newCount - currentCount);
+                
+                if (addedCount > 0) {
+                    // Add new entries to buffer
+                    const newEntries = logEntries.slice(0, addedCount);
+                    bufferedEntries.unshift(...newEntries);
+                    
+                    // Update buffered count
+                    log.dataset.bufferedCount = bufferedEntries.length.toString();
+                    
+                    // Update new entry indicator
+                    updateNewEntryIndicator(log, bufferedEntries.length);
+                }
+            }
+        } else {
+            // When not paused, refresh display immediately
+            updateLogDisplay(log, 0);
+        }
     });
     
     // Subscribe to view changes to refresh when switching to log view
@@ -532,5 +579,48 @@ export function mountActivityLog(target) {
         }
     });
     
+    // Setup pause/resume button handler
+    const pauseBtn = log.querySelector('.btn-pause');
+    if (pauseBtn) {
+        pauseBtn.addEventListener('click', () => {
+            const isPaused = log.dataset.paused === 'true';
+            
+            if (isPaused) {
+                // Resume: prepend buffered entries and refresh
+                log.dataset.paused = 'false';
+                pauseBtn.textContent = '⏸️ Pause';
+                pauseBtn.title = 'Pause live updates';
+                
+                // Clear buffered entries and refresh
+                bufferedEntries.length = 0;
+                log.dataset.bufferedCount = '0';
+                updateNewEntryIndicator(log, 0);
+                updateLogDisplay(log, 0);
+            } else {
+                // Pause: stop live updates
+                log.dataset.paused = 'true';
+                pauseBtn.textContent = '▶️ Resume';
+                pauseBtn.title = 'Resume live updates';
+            }
+        });
+    }
+    
     return log;
+}
+
+/**
+ * Update the new entry indicator
+ * @param {HTMLElement} container - Container element
+ * @param {number} count - Number of buffered entries
+ */
+function updateNewEntryIndicator(container, count) {
+    const indicator = container.querySelector('.new-entry-indicator');
+    if (!indicator) return;
+    
+    if (count > 0) {
+        indicator.style.display = 'block';
+        indicator.textContent = `${count} new ${count === 1 ? 'entry' : 'entries'}`;
+    } else {
+        indicator.style.display = 'none';
+    }
 }

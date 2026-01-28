@@ -207,6 +207,50 @@ registerHandler('reload', async (message) => {
     }
 });
 
+/**
+ * Handle 'log_entry' message - real-time log streaming
+ * 
+ * Expected message format:
+ * {
+ *   type: 'log_entry',
+ *   entry: {
+ *     timestamp: string,
+ *     entity_type: string,
+ *     entity_id: string,
+ *     action: 'created' | 'updated' | 'closed' | 'reopened',
+ *     details: string | null,
+ *     actor: string | null,
+ *     actor_type: 'user' | 'agent' | null
+ *   },
+ *   version: number
+ * }
+ */
+registerHandler('log_entry', (message) => {
+    const { entry, version } = message;
+    
+    if (!entry) {
+        console.warn('log_entry message missing entry payload');
+        return;
+    }
+    
+    // Check for version conflicts
+    if (version !== undefined) {
+        checkVersionConflict(version);
+        state.set('sync.version', version);
+    }
+    
+    // Get current log entries
+    const currentLog = state.get('log') || [];
+    
+    // Prepend new entry (newest first)
+    const updatedLog = [entry, ...currentLog];
+    
+    // Update state (this will trigger subscribers)
+    state.set('log', updatedLog);
+    
+    console.debug('Added log entry:', entry);
+});
+
 // ============================================
 // Helper functions
 // ============================================
