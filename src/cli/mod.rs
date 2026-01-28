@@ -1639,6 +1639,10 @@ pub enum SystemCommands {
         #[arg(long)]
         write_mcp_all: bool,
 
+        /// Install GitHub Copilot CLI with binnacle-preferred version
+        #[arg(long)]
+        install_copilot: bool,
+
         /// Skip interactive prompts (use flags to control what gets written)
         #[arg(long, short = 'y')]
         yes: bool,
