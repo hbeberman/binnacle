@@ -6,8 +6,8 @@ use binnacle::cli::GuiCommands;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
     DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands, LinkCommands,
-    LogCommands, McpCommands, MilestoneCommands, QueueCommands, SearchCommands, StoreCommands,
-    SystemCommands, TaskCommands, TestCommands,
+    LogCommands, McpCommands, MilestoneCommands, MissionCommands, QueueCommands, SearchCommands,
+    StoreCommands, SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -662,6 +662,86 @@ fn run_command(
             }
             MilestoneCommands::Progress { id } => {
                 let result = commands::milestone_progress(repo_path, &id)?;
+                output(&result, human);
+            }
+        },
+
+        Some(Commands::Mission { command }) => match command {
+            MissionCommands::Create {
+                title,
+                short_name,
+                priority,
+                tag,
+                assignee,
+                description,
+                due_date,
+            } => {
+                let result = commands::mission_create(
+                    repo_path,
+                    title,
+                    short_name,
+                    description,
+                    priority,
+                    tag,
+                    assignee,
+                    due_date,
+                )?;
+                output(&result, human);
+            }
+            MissionCommands::List {
+                status,
+                priority,
+                tag,
+            } => {
+                let result =
+                    commands::mission_list(repo_path, status.as_deref(), priority, tag.as_deref())?;
+                output(&result, human);
+            }
+            MissionCommands::Show { id } => {
+                let result = commands::mission_show(repo_path, &id)?;
+                output(&result, human);
+            }
+            MissionCommands::Update {
+                id,
+                title,
+                short_name,
+                description,
+                priority,
+                status,
+                add_tag,
+                remove_tag,
+                assignee,
+                due_date,
+            } => {
+                let result = commands::mission_update(
+                    repo_path,
+                    &id,
+                    title,
+                    short_name,
+                    description,
+                    priority,
+                    status.as_deref(),
+                    add_tag,
+                    remove_tag,
+                    assignee,
+                    due_date,
+                )?;
+                output(&result, human);
+            }
+            MissionCommands::Close { id, reason, force } => {
+                let result = commands::mission_close(repo_path, &id, reason, force)?;
+                output(&result, human);
+            }
+            MissionCommands::Reopen { id } => {
+                let result = commands::mission_reopen(repo_path, &id)?;
+                output(&result, human);
+            }
+            MissionCommands::Delete { id } => {
+                let result = commands::mission_delete(repo_path, &id)?;
+                output(&result, human);
+            }
+            MissionCommands::Progress { id } => {
+                let result = commands::mission_progress(repo_path, &id)?;
                 output(&result, human);
             }
         },
@@ -2409,6 +2489,90 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             ),
             MilestoneCommands::Progress { id } => (
                 "milestone progress".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+        },
+
+        Some(Commands::Mission { command }) => match command {
+            MissionCommands::Create {
+                title,
+                short_name,
+                priority,
+                tag,
+                assignee,
+                description,
+                due_date,
+            } => (
+                "mission create".to_string(),
+                serde_json::json!({
+                    "title": title,
+                    "short_name": short_name,
+                    "priority": priority,
+                    "tag": tag,
+                    "assignee": assignee,
+                    "description": description,
+                    "due_date": due_date,
+                }),
+            ),
+            MissionCommands::List {
+                status,
+                priority,
+                tag,
+            } => (
+                "mission list".to_string(),
+                serde_json::json!({
+                    "status": status,
+                    "priority": priority,
+                    "tag": tag,
+                }),
+            ),
+            MissionCommands::Show { id } => {
+                ("mission show".to_string(), serde_json::json!({ "id": id }))
+            }
+            MissionCommands::Update {
+                id,
+                title,
+                short_name,
+                description,
+                priority,
+                status,
+                add_tag,
+                remove_tag,
+                assignee,
+                due_date,
+            } => (
+                "mission update".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "title": title,
+                    "short_name": short_name,
+                    "description": description,
+                    "priority": priority,
+                    "status": status,
+                    "add_tag": add_tag,
+                    "remove_tag": remove_tag,
+                    "assignee": assignee,
+                    "due_date": due_date,
+                }),
+            ),
+            MissionCommands::Close { id, reason, force } => (
+                "mission close".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "reason": reason,
+                    "force": force,
+                }),
+            ),
+            MissionCommands::Reopen { id } => (
+                "mission reopen".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+            MissionCommands::Delete { id } => (
+                "mission delete".to_string(),
+                serde_json::json!({ "id": id }),
+            ),
+            MissionCommands::Progress { id } => (
+                "mission progress".to_string(),
                 serde_json::json!({ "id": id }),
             ),
         },

@@ -925,6 +925,112 @@ impl MilestoneProgress {
     }
 }
 
+// =============================================================================
+// Mission
+// =============================================================================
+
+/// A mission is a high-level organizational unit that groups related milestones.
+/// Missions sit above milestones in the hierarchy: Mission → Milestone → Task/Bug.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Mission {
+    /// Common entity fields (id, type, title, short_name, description, tags, timestamps)
+    #[serde(flatten)]
+    pub core: EntityCore,
+
+    /// Priority level (0-4, lower is higher priority)
+    #[serde(default)]
+    pub priority: u8,
+
+    /// Current status
+    #[serde(default)]
+    pub status: TaskStatus,
+
+    /// Target completion date
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due_date: Option<DateTime<Utc>>,
+
+    /// Assigned user or agent
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignee: Option<String>,
+
+    /// Closure timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_at: Option<DateTime<Utc>>,
+
+    /// Reason for closing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_reason: Option<String>,
+}
+
+impl Mission {
+    /// Create a new mission with the given ID and title.
+    pub fn new(id: String, title: String) -> Self {
+        Self {
+            core: EntityCore::new("mission", id, title),
+            priority: 2,
+            status: TaskStatus::default(),
+            due_date: None,
+            assignee: None,
+            closed_at: None,
+            closed_reason: None,
+        }
+    }
+}
+
+impl Entity for Mission {
+    fn id(&self) -> &str {
+        self.core.id()
+    }
+    fn entity_type(&self) -> &str {
+        self.core.entity_type()
+    }
+    fn title(&self) -> &str {
+        self.core.title()
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.core.short_name()
+    }
+    fn description(&self) -> Option<&str> {
+        self.core.description()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.core.created_at()
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.core.updated_at()
+    }
+    fn tags(&self) -> &[String] {
+        self.core.tags()
+    }
+}
+
+/// Progress statistics for a mission.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissionProgress {
+    /// Total number of child milestones
+    pub total: usize,
+    /// Number of completed milestones
+    pub completed: usize,
+    /// Completion percentage (0-100)
+    pub percentage: f64,
+}
+
+impl MissionProgress {
+    /// Create new progress stats.
+    pub fn new(total: usize, completed: usize) -> Self {
+        let percentage = if total > 0 {
+            (completed as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+        Self {
+            total,
+            completed,
+            percentage,
+        }
+    }
+}
+
 /// A test node linked to tasks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestNode {

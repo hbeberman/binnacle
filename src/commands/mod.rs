@@ -10,7 +10,7 @@
 
 use crate::models::{
     Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Editor, Idea,
-    IdeaStatus, Milestone, Queue, SessionState, Task, TaskStatus, TestNode, TestResult,
+    IdeaStatus, Milestone, Mission, Queue, SessionState, Task, TaskStatus, TestNode, TestResult,
     complexity::analyze_complexity, graph::UnionFind, prompts,
 };
 use crate::storage::{EntityType, Storage, find_git_root, generate_id, parse_status};
@@ -6586,6 +6586,7 @@ pub fn doc_delete(repo_path: &Path, id: &str) -> Result<DocDeleted> {
 // === Milestone Commands ===
 
 use crate::models::MilestoneProgress;
+use crate::models::MissionProgress;
 
 #[derive(Serialize)]
 pub struct MilestoneCreated {
@@ -7061,6 +7062,452 @@ pub fn milestone_progress(repo_path: &Path, id: &str) -> Result<MilestoneProgres
     // Verify milestone exists
     storage.get_milestone(id)?;
     storage.get_milestone_progress(id)
+}
+
+// === Mission Commands ===
+
+#[derive(Serialize)]
+pub struct MissionCreated {
+    pub id: String,
+    pub title: String,
+}
+
+impl Output for MissionCreated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Created mission {} \"{}\"", self.id, self.title)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn mission_create(
+    repo_path: &Path,
+    title: String,
+    short_name: Option<String>,
+    description: Option<String>,
+    priority: Option<u8>,
+    tags: Vec<String>,
+    assignee: Option<String>,
+    due_date: Option<String>,
+) -> Result<MissionCreated> {
+    let mut storage = Storage::open(repo_path)?;
+
+    if let Some(p) = priority
+        && p > 4
+    {
+        return Err(Error::Other("Priority must be 0-4".to_string()));
+    }
+
+    let id = storage.generate_unique_id("bn", &title);
+    let mut mission = Mission::new(id.clone(), title.clone());
+    mission.core.short_name = normalize_short_name(short_name);
+    mission.core.description = description;
+    mission.priority = priority.unwrap_or(2);
+    mission.core.tags = tags;
+    mission.assignee = assignee;
+    mission.due_date = due_date
+        .map(|d| chrono::DateTime::parse_from_rfc3339(&d))
+        .transpose()
+        .map_err(|e| {
+            Error::Other(format!(
+                "Invalid due_date format: {}. Use ISO 8601 format.",
+                e
+            ))
+        })?
+        .map(|d| d.with_timezone(&chrono::Utc));
+
+    storage.add_mission(&mission)?;
+
+    Ok(MissionCreated { id, title })
+}
+
+impl Output for Mission {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("{} {}", self.core.id, self.core.title));
+        if let Some(ref sn) = self.core.short_name {
+            lines.push(format!("  Short Name: {}", sn));
+        }
+        lines.push(format!(
+            "  Status: {:?}  Priority: {}",
+            self.status, self.priority
+        ));
+        if let Some(ref desc) = self.core.description {
+            lines.push(format!("  Description: {}", desc));
+        }
+        if let Some(due) = self.due_date {
+            lines.push(format!("  Due date: {}", due.format("%Y-%m-%d")));
+        }
+        if !self.core.tags.is_empty() {
+            lines.push(format!("  Tags: {}", self.core.tags.join(", ")));
+        }
+        if let Some(ref assignee) = self.assignee {
+            lines.push(format!("  Assignee: {}", assignee));
+        }
+        lines.push(format!(
+            "  Created: {}",
+            self.core.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.push(format!(
+            "  Updated: {}",
+            self.core.updated_at.format("%Y-%m-%d %H:%M")
+        ));
+        if let Some(closed) = self.closed_at {
+            lines.push(format!("  Closed: {}", closed.format("%Y-%m-%d %H:%M")));
+            if let Some(ref reason) = self.closed_reason {
+                lines.push(format!("  Reason: {}", reason));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct MissionList {
+    pub missions: Vec<Mission>,
+    pub count: usize,
+}
+
+impl Output for MissionList {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.missions.is_empty() {
+            return "No missions found.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("{} mission(s):\n", self.count));
+
+        for mission in &self.missions {
+            let status_char = match mission.status {
+                TaskStatus::Pending => " ",
+                TaskStatus::InProgress => ">",
+                TaskStatus::Done => "x",
+                TaskStatus::Blocked => "!",
+                TaskStatus::Cancelled => "-",
+                TaskStatus::Reopened => "?",
+                TaskStatus::Partial => "~",
+            };
+            let tags = if mission.core.tags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", mission.core.tags.join(", "))
+            };
+            let due = mission
+                .due_date
+                .map(|d| format!(" due:{}", d.format("%Y-%m-%d")))
+                .unwrap_or_default();
+            lines.push(format!(
+                "[{}] {} P{} {}{}{}",
+                status_char, mission.core.id, mission.priority, mission.core.title, tags, due
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+pub fn mission_list(
+    repo_path: &Path,
+    status: Option<&str>,
+    priority: Option<u8>,
+    tag: Option<&str>,
+) -> Result<MissionList> {
+    let storage = Storage::open(repo_path)?;
+    let missions = storage.list_missions(status, priority, tag)?;
+    let count = missions.len();
+    Ok(MissionList { missions, count })
+}
+
+#[derive(Serialize)]
+pub struct MissionShowResult {
+    pub mission: Mission,
+    pub progress: MissionProgress,
+    pub edges: Vec<Edge>,
+}
+
+impl Output for MissionShowResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = vec![self.mission.to_human()];
+
+        // Add progress info
+        lines.push(format!(
+            "  Progress: {}/{} ({:.1}%)",
+            self.progress.completed, self.progress.total, self.progress.percentage
+        ));
+
+        // Add edge info
+        if !self.edges.is_empty() {
+            lines.push("  Relationships:".to_string());
+            for edge in &self.edges {
+                let direction = if edge.source == self.mission.core.id {
+                    format!("{} → {}", edge.edge_type, edge.target)
+                } else {
+                    format!("{} ← {}", edge.edge_type, edge.source)
+                };
+                lines.push(format!("    {}", direction));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+pub fn mission_show(repo_path: &Path, id: &str) -> Result<MissionShowResult> {
+    let storage = Storage::open(repo_path)?;
+    let mission = storage.get_mission(id)?;
+    let progress = storage.get_mission_progress(id)?;
+
+    let hydrated_edges = storage.get_edges_for_entity(id)?;
+    let edges: Vec<Edge> = hydrated_edges.into_iter().map(|he| he.edge).collect();
+
+    Ok(MissionShowResult {
+        mission,
+        progress,
+        edges,
+    })
+}
+
+#[derive(Serialize)]
+pub struct MissionUpdated {
+    pub id: String,
+    pub updated_fields: Vec<String>,
+}
+
+impl Output for MissionUpdated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "Updated mission {}: {}",
+            self.id,
+            self.updated_fields.join(", ")
+        )
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn mission_update(
+    repo_path: &Path,
+    id: &str,
+    title: Option<String>,
+    short_name: Option<String>,
+    description: Option<String>,
+    priority: Option<u8>,
+    status: Option<&str>,
+    add_tags: Vec<String>,
+    remove_tags: Vec<String>,
+    assignee: Option<String>,
+    due_date: Option<String>,
+) -> Result<MissionUpdated> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut mission = storage.get_mission(id)?;
+    let mut updated_fields = Vec::new();
+
+    if let Some(t) = title {
+        mission.core.title = t;
+        updated_fields.push("title".to_string());
+    }
+
+    if let Some(new_short_name) = process_short_name_update(short_name) {
+        mission.core.short_name = new_short_name;
+        updated_fields.push("short_name".to_string());
+    }
+
+    if let Some(d) = description {
+        mission.core.description = Some(d);
+        updated_fields.push("description".to_string());
+    }
+
+    if let Some(p) = priority {
+        if p > 4 {
+            return Err(Error::Other("Priority must be 0-4".to_string()));
+        }
+        mission.priority = p;
+        updated_fields.push("priority".to_string());
+    }
+
+    if let Some(s) = status {
+        mission.status = parse_status(s)?;
+        updated_fields.push("status".to_string());
+    }
+
+    for tag in add_tags {
+        if !mission.core.tags.contains(&tag) {
+            mission.core.tags.push(tag.clone());
+            updated_fields.push(format!("added tag: {}", tag));
+        }
+    }
+
+    for tag in remove_tags {
+        if let Some(pos) = mission.core.tags.iter().position(|t| t == &tag) {
+            mission.core.tags.remove(pos);
+            updated_fields.push(format!("removed tag: {}", tag));
+        }
+    }
+
+    if let Some(a) = assignee {
+        mission.assignee = Some(a);
+        updated_fields.push("assignee".to_string());
+    }
+
+    if let Some(d) = due_date {
+        mission.due_date = Some(
+            chrono::DateTime::parse_from_rfc3339(&d)
+                .map_err(|e| {
+                    Error::Other(format!(
+                        "Invalid due_date format: {}. Use ISO 8601 format.",
+                        e
+                    ))
+                })?
+                .with_timezone(&chrono::Utc),
+        );
+        updated_fields.push("due_date".to_string());
+    }
+
+    mission.core.updated_at = chrono::Utc::now();
+    storage.update_mission(&mission)?;
+
+    Ok(MissionUpdated {
+        id: id.to_string(),
+        updated_fields,
+    })
+}
+
+#[derive(Serialize)]
+pub struct MissionClosed {
+    pub id: String,
+}
+
+impl Output for MissionClosed {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Closed mission {}", self.id)
+    }
+}
+
+pub fn mission_close(
+    repo_path: &Path,
+    id: &str,
+    reason: Option<String>,
+    force: bool,
+) -> Result<MissionClosed> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut mission = storage.get_mission(id)?;
+
+    // Check for incomplete children if not forcing
+    if !force {
+        let progress = storage.get_mission_progress(id)?;
+        if progress.completed < progress.total {
+            return Err(Error::Other(format!(
+                "Mission has {} incomplete milestones. Use --force to close anyway.",
+                progress.total - progress.completed
+            )));
+        }
+    }
+
+    mission.status = TaskStatus::Done;
+    mission.closed_at = Some(chrono::Utc::now());
+    mission.closed_reason = reason;
+    mission.core.updated_at = chrono::Utc::now();
+
+    storage.update_mission(&mission)?;
+
+    Ok(MissionClosed { id: id.to_string() })
+}
+
+#[derive(Serialize)]
+pub struct MissionReopened {
+    pub id: String,
+}
+
+impl Output for MissionReopened {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Reopened mission {}", self.id)
+    }
+}
+
+pub fn mission_reopen(repo_path: &Path, id: &str) -> Result<MissionReopened> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut mission = storage.get_mission(id)?;
+
+    if mission.status != TaskStatus::Done && mission.status != TaskStatus::Cancelled {
+        return Err(Error::Other(
+            "Mission is not closed. Only closed missions can be reopened.".to_string(),
+        ));
+    }
+
+    mission.status = TaskStatus::Reopened;
+    mission.closed_at = None;
+    mission.closed_reason = None;
+    mission.core.updated_at = chrono::Utc::now();
+
+    storage.update_mission(&mission)?;
+
+    Ok(MissionReopened { id: id.to_string() })
+}
+
+#[derive(Serialize)]
+pub struct MissionDeleted {
+    pub id: String,
+}
+
+impl Output for MissionDeleted {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Deleted mission {}", self.id)
+    }
+}
+
+pub fn mission_delete(repo_path: &Path, id: &str) -> Result<MissionDeleted> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.delete_mission(id)?;
+    Ok(MissionDeleted { id: id.to_string() })
+}
+
+impl Output for MissionProgress {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!(
+            "{}/{} completed ({:.1}%)",
+            self.completed, self.total, self.percentage
+        )
+    }
+}
+
+pub fn mission_progress(repo_path: &Path, id: &str) -> Result<MissionProgress> {
+    let storage = Storage::open(repo_path)?;
+    storage.get_mission(id)?;
+    storage.get_mission_progress(id)
 }
 
 // === Queue Commands ===
