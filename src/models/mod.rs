@@ -593,8 +593,8 @@ pub struct Doc {
     pub supersedes: Option<String>,
 }
 
-/// Maximum compressed+encoded content size (5KB)
-pub const DOC_CONTENT_MAX_SIZE: usize = 5 * 1024;
+/// Maximum compressed+encoded content size (7.5KB)
+pub const DOC_CONTENT_MAX_SIZE: usize = 7680;
 
 impl Doc {
     /// Create a new doc with the given ID and title.
