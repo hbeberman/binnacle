@@ -106,6 +106,15 @@ const createDefaultState = () => ({
         },
         eventQueue: [],  // Queue of events to process sequentially (array of {entityType, entityId, timestamp})
         
+        // Event linger state (5-second pause on new events)
+        eventLinger: {
+            active: false,          // Is a linger in progress?
+            entityId: null,         // Which entity we're lingering on
+            startTime: null,        // When linger started (timestamp)
+            savedPosition: null,    // Where to return {panX, panY, zoom}
+            savedFollowTarget: null // Which agent we were following (if any)
+        },
+        
         // Filters
         nodeTypeFilters: {
             task: true,
