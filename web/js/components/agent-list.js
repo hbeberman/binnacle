@@ -8,8 +8,7 @@
 import { 
     subscribe, 
     getAgents,
-    setSelectedNode,
-    get
+    setSelectedNode
 } from '../state.js';
 
 /**

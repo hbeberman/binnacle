@@ -139,10 +139,9 @@ export function initializeSidebarSearch(onSearch) {
  * Initialize the sidebar component
  * @param {HTMLElement} container - Container element to append sidebar to
  * @param {Function} onSearch - Optional callback for search functionality
- * @param {Object} options - Optional configuration (no longer used for filters)
  * @returns {HTMLElement} The created sidebar element
  */
-export function initializeSidebar(container, onSearch = null, options = {}) {
+export function initializeSidebar(container, onSearch = null) {
     const sidebar = createSidebar();
     container.appendChild(sidebar);
     

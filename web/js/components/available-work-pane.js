@@ -11,7 +11,6 @@
 import { 
     subscribe, 
     getReady,
-    getTasks,
     getBugs
 } from '../state.js';
 

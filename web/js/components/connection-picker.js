@@ -10,8 +10,6 @@
  */
 
 import { 
-    ConnectionMode, 
-    setMode, 
     loadFromStorage, 
     saveToStorage,
     addToast

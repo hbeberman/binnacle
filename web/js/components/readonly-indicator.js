@@ -174,7 +174,7 @@ export function mountReadonlyIndicator(headerTarget) {
     };
     
     // Subscribe to state changes
-    subscribe('readonly', (readonly) => {
+    subscribe('readonly', () => {
         controller.update();
     });
     
