@@ -288,6 +288,9 @@ impl McpServer {
             "binnacle-orient" => self.tool_orient(args),
             "binnacle-goodbye" => self.tool_goodbye(args),
             "bn_run" => self.tool_bn_run(args),
+            "bn_lineage" => self.tool_lineage(args),
+            "bn_peers" => self.tool_peers(args),
+            "bn_descendants" => self.tool_descendants(args),
             "binnacle-debug" => self.tool_debug(args),
             _ => Err(format!("Unknown tool: {}", name)),
         }
@@ -538,6 +541,197 @@ impl McpServer {
         }
     }
 
+    fn tool_lineage(&self, args: &Value) -> Result<String, String> {
+        let cwd = self
+            .cwd
+            .as_ref()
+            .ok_or("Working directory not set. Call binnacle-set_agent first.")?;
+
+        let id = args
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing 'id' argument")?;
+
+        let mut cmd_args = vec!["graph".to_string(), "lineage".to_string(), id.to_string()];
+
+        if let Some(depth) = args.get("depth").and_then(|v| v.as_i64()) {
+            cmd_args.push("--depth".to_string());
+            cmd_args.push(depth.to_string());
+        }
+
+        if args
+            .get("verbose")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            cmd_args.push("--verbose".to_string());
+        }
+
+        self.execute_bn_command(cwd, &cmd_args)
+    }
+
+    fn tool_peers(&self, args: &Value) -> Result<String, String> {
+        let cwd = self
+            .cwd
+            .as_ref()
+            .ok_or("Working directory not set. Call binnacle-set_agent first.")?;
+
+        let id = args
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing 'id' argument")?;
+
+        let mut cmd_args = vec!["graph".to_string(), "peers".to_string(), id.to_string()];
+
+        if let Some(depth) = args.get("depth").and_then(|v| v.as_i64()) {
+            cmd_args.push("--depth".to_string());
+            cmd_args.push(depth.to_string());
+        }
+
+        if args
+            .get("include_closed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            cmd_args.push("--include-closed".to_string());
+        }
+
+        if args
+            .get("verbose")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            cmd_args.push("--verbose".to_string());
+        }
+
+        self.execute_bn_command(cwd, &cmd_args)
+    }
+
+    fn tool_descendants(&self, args: &Value) -> Result<String, String> {
+        let cwd = self
+            .cwd
+            .as_ref()
+            .ok_or("Working directory not set. Call binnacle-set_agent first.")?;
+
+        let id = args
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing 'id' argument")?;
+
+        let mut cmd_args = vec![
+            "graph".to_string(),
+            "descendants".to_string(),
+            id.to_string(),
+        ];
+
+        if let Some(depth) = args.get("depth").and_then(|v| v.as_i64()) {
+            cmd_args.push("--depth".to_string());
+            cmd_args.push(depth.to_string());
+        }
+
+        if args.get("all").and_then(|v| v.as_bool()).unwrap_or(false) {
+            cmd_args.push("--all".to_string());
+        }
+
+        if args
+            .get("include_closed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            cmd_args.push("--include-closed".to_string());
+        }
+
+        if args
+            .get("verbose")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            cmd_args.push("--verbose".to_string());
+        }
+
+        self.execute_bn_command(cwd, &cmd_args)
+    }
+
+    fn execute_bn_command(&self, cwd: &PathBuf, cmd_args: &[String]) -> Result<String, String> {
+        let mut cmd = Command::new(&self.bn_path);
+        cmd.args(cmd_args)
+            .current_dir(cwd)
+            .env("BN_MCP_SESSION", &self.session_id)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        // Pass through binnacle-specific env vars
+        for var in [
+            "BN_DATA_DIR",
+            "BN_CONTAINER_MODE",
+            "BN_STORAGE_HASH",
+            "BN_AGENT_ID",
+            "BN_AGENT_SESSION",
+            "BN_AGENT_NAME",
+            "BN_AGENT_TYPE",
+        ] {
+            if let Ok(val) = std::env::var(var) {
+                cmd.env(var, val);
+            }
+        }
+
+        let mut child = cmd.spawn().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                format!("bn binary not found at '{}'", self.bn_path.display())
+            } else {
+                format!("Failed to execute command: {}", e)
+            }
+        })?;
+
+        // Wait with configurable timeout (default 30s)
+        let timeout_secs = std::env::var("BN_MCP_TIMEOUT")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(30);
+        let timeout = Duration::from_secs(timeout_secs);
+        match child.wait_timeout(timeout) {
+            Ok(Some(status)) => {
+                let stdout = child
+                    .stdout
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        String::from_utf8_lossy(&buf).to_string()
+                    })
+                    .unwrap_or_default();
+                let stderr = child
+                    .stderr
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        String::from_utf8_lossy(&buf).to_string()
+                    })
+                    .unwrap_or_default();
+
+                Ok(json!({
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "exit_code": status.code().unwrap_or(-1)
+                })
+                .to_string())
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Ok(json!({
+                    "stdout": "",
+                    "stderr": format!("Command timed out after {} seconds", timeout.as_secs()),
+                    "exit_code": 124,
+                    "timed_out": true
+                })
+                .to_string())
+            }
+            Err(e) => Err(format!("Failed to wait for command: {}", e)),
+        }
+    }
+
     fn tool_debug(&self, _args: &Value) -> Result<String, String> {
         // Collect binnacle-specific env vars
         let bn_vars: Vec<(String, String)> = std::env::vars()
@@ -658,6 +852,84 @@ fn get_tool_definitions() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "bn_lineage".to_string(),
+            description: "Walk ancestry chain from a task up to its PRD document".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Entity ID to find lineage for"
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Maximum hops (default: 10)"
+                    },
+                    "verbose": {
+                        "type": "boolean",
+                        "description": "Include descriptions"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_peers".to_string(),
+            description: "Find sibling and cousin tasks through shared parents".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Entity ID to find peers for"
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "1=siblings, 2=siblings+cousins (default: 1)"
+                    },
+                    "include_closed": {
+                        "type": "boolean",
+                        "description": "Include closed tasks"
+                    },
+                    "verbose": {
+                        "type": "boolean",
+                        "description": "Include descriptions"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "bn_descendants".to_string(),
+            description: "Explore subtree below a node".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Entity ID to explore"
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Max depth (default: 3)"
+                    },
+                    "all": {
+                        "type": "boolean",
+                        "description": "Show all descendants"
+                    },
+                    "include_closed": {
+                        "type": "boolean",
+                        "description": "Include closed tasks"
+                    },
+                    "verbose": {
+                        "type": "boolean",
+                        "description": "Include descriptions"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
             name: "binnacle-debug".to_string(),
             description: "Debug tool: dumps MCP server state and environment variables. Use this to diagnose storage/path issues.".to_string(),
             input_schema: json!({
@@ -753,11 +1025,14 @@ mod tests {
     #[test]
     fn test_tool_definitions() {
         let tools = get_tool_definitions();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 8);
         assert!(tools.iter().any(|t| t.name == "binnacle-set_agent"));
         assert!(tools.iter().any(|t| t.name == "binnacle-orient"));
         assert!(tools.iter().any(|t| t.name == "binnacle-goodbye"));
         assert!(tools.iter().any(|t| t.name == "bn_run"));
+        assert!(tools.iter().any(|t| t.name == "bn_lineage"));
+        assert!(tools.iter().any(|t| t.name == "bn_peers"));
+        assert!(tools.iter().any(|t| t.name == "bn_descendants"));
         assert!(tools.iter().any(|t| t.name == "binnacle-debug"));
     }
 
@@ -962,7 +1237,7 @@ mod tests {
         let response = server.handle_request(&request);
         assert!(response.result.is_some());
         let tools = &response.result.unwrap()["tools"];
-        assert_eq!(tools.as_array().unwrap().len(), 5);
+        assert_eq!(tools.as_array().unwrap().len(), 8);
     }
 
     #[test]
