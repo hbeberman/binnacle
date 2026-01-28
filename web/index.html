@@ -287,6 +287,7 @@
         import * as State from './js/state.js';
         const state = State; // Lowercase alias for convenience
         import * as graph from './js/graph/index.js';
+        import * as eventProcessor from './js/graph/event-processor.js';
         import * as connection from './js/connection/index.js';
         import { initializeAgentCards } from './js/components/agent-cards.js';
         import { createInfoPanel, initializeInfoPanel, showInfoPanel, hideInfoPanel, updateInfoPanelContent, expandInfoPanel, collapseInfoPanel } from './js/components/info-panel.js';
@@ -666,6 +667,9 @@
                 hideInfoPanel(infoPanel);
             }
         });
+        
+        // Initialize event processor (for Follow Events linger behavior)
+        eventProcessor.init();
         
         // View switching
         const navButtons = document.querySelectorAll('.nav-btn');
