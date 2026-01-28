@@ -24,8 +24,8 @@ pub use orphan_branch::OrphanBranchBackend;
 
 use crate::models::{
     Agent, AgentStatus, Bug, CommitLink, Doc, DocType, Edge, EdgeDirection, EdgeType, HydratedEdge,
-    Idea, IdeaStatus, LogAnnotation, Milestone, MilestoneProgress, Queue, Task, TaskStatus,
-    TestNode, TestResult,
+    Idea, IdeaStatus, LogAnnotation, Milestone, MilestoneProgress, Mission, MissionProgress, Queue,
+    Task, TaskStatus, TestNode, TestResult,
 };
 use crate::{Error, Result};
 use chrono::Utc;
@@ -138,6 +138,7 @@ impl Storage {
             "ideas.jsonl",
             "docs.jsonl",
             "milestones.jsonl",
+            "missions.jsonl",
             "queues.jsonl",
             "edges.jsonl",
             "commits.jsonl",
@@ -278,6 +279,32 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_milestones_status ON milestones(status);
             CREATE INDEX IF NOT EXISTS idx_milestones_priority ON milestones(priority);
             CREATE INDEX IF NOT EXISTS idx_milestone_tags_tag ON milestone_tags(tag);
+
+            -- Mission tables
+            CREATE TABLE IF NOT EXISTS missions (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority INTEGER NOT NULL DEFAULT 2,
+                status TEXT NOT NULL DEFAULT 'pending',
+                due_date TEXT,
+                assignee TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                closed_at TEXT,
+                closed_reason TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS mission_tags (
+                mission_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (mission_id, tag),
+                FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_missions_status ON missions(status);
+            CREATE INDEX IF NOT EXISTS idx_missions_priority ON missions(priority);
+            CREATE INDEX IF NOT EXISTS idx_mission_tags_tag ON mission_tags(tag);
 
             -- Idea tables
             CREATE TABLE IF NOT EXISTS ideas (
@@ -892,6 +919,25 @@ impl Storage {
                     && milestone.core.entity_type == "milestone"
                 {
                     self.cache_milestone(&milestone)?;
+                }
+            }
+        }
+
+        // Re-read missions from missions.jsonl
+        let missions_path = self.root.join("missions.jsonl");
+        if missions_path.exists() {
+            let file = File::open(&missions_path)?;
+            let reader = BufReader::new(file);
+
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(mission) = serde_json::from_str::<Mission>(&line)
+                    && mission.core.entity_type == "mission"
+                {
+                    self.cache_mission(&mission)?;
                 }
             }
         }
@@ -2048,6 +2094,22 @@ impl Storage {
         Ok(())
     }
 
+    /// Add a new mission.
+    pub fn add_mission(&mut self, mission: &Mission) -> Result<()> {
+        let missions_path = self.root.join("missions.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&missions_path)?;
+
+        let json = serde_json::to_string(mission)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_mission(mission)?;
+
+        Ok(())
+    }
+
     /// Get a milestone by ID.
     pub fn get_milestone(&self, id: &str) -> Result<Milestone> {
         let milestones_path = self.root.join("milestones.jsonl");
@@ -2209,6 +2271,169 @@ impl Storage {
             self.conn.execute(
                 "INSERT INTO milestone_tags (milestone_id, tag) VALUES (?1, ?2)",
                 params![milestone.core.id, tag],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    // === Mission Operations ===
+
+    /// Get a mission by ID.
+    pub fn get_mission(&self, id: &str) -> Result<Mission> {
+        let missions_path = self.root.join("missions.jsonl");
+        if !missions_path.exists() {
+            return Err(Error::NotFound(format!("Mission not found: {}", id)));
+        }
+
+        let file = File::open(&missions_path)?;
+        let reader = BufReader::new(file);
+
+        let mut latest: Option<Mission> = None;
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(mission) = serde_json::from_str::<Mission>(&line)
+                && mission.core.id == id
+            {
+                latest = Some(mission);
+            }
+        }
+
+        latest.ok_or_else(|| Error::NotFound(format!("Mission not found: {}", id)))
+    }
+
+    /// List all missions, optionally filtered.
+    pub fn list_missions(
+        &self,
+        status: Option<&str>,
+        priority: Option<u8>,
+        tag: Option<&str>,
+    ) -> Result<Vec<Mission>> {
+        let mut sql = String::from(
+            "SELECT DISTINCT m.id FROM missions m
+             LEFT JOIN mission_tags mt ON m.id = mt.mission_id
+             WHERE 1=1",
+        );
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(s) = status {
+            sql.push_str(" AND m.status = ?");
+            params_vec.push(Box::new(s.to_string()));
+        }
+        if let Some(p) = priority {
+            sql.push_str(" AND m.priority = ?");
+            params_vec.push(Box::new(p));
+        }
+        if let Some(t) = tag {
+            sql.push_str(" AND mt.tag = ?");
+            params_vec.push(Box::new(t.to_string()));
+        }
+
+        sql.push_str(" ORDER BY m.priority ASC, m.created_at DESC");
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids: Vec<String> = stmt
+            .query_map(params_refs.as_slice(), |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut missions = Vec::new();
+        for id in ids {
+            if let Ok(mission) = self.get_mission(&id) {
+                missions.push(mission);
+            }
+        }
+
+        Ok(missions)
+    }
+
+    /// Update a mission.
+    pub fn update_mission(&mut self, mission: &Mission) -> Result<()> {
+        self.get_mission(&mission.core.id)?;
+
+        let missions_path = self.root.join("missions.jsonl");
+        let mut file = OpenOptions::new().append(true).open(&missions_path)?;
+
+        let json = serde_json::to_string(mission)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_mission(mission)?;
+
+        Ok(())
+    }
+
+    /// Delete a mission by ID.
+    pub fn delete_mission(&mut self, id: &str) -> Result<()> {
+        self.get_mission(id)?;
+
+        self.conn
+            .execute("DELETE FROM missions WHERE id = ?", [id])?;
+        self.conn
+            .execute("DELETE FROM mission_tags WHERE mission_id = ?", [id])?;
+
+        Ok(())
+    }
+
+    /// Get progress statistics for a mission.
+    /// Child items (milestones) are identified by child_of edges pointing to this mission.
+    pub fn get_mission_progress(&self, mission_id: &str) -> Result<MissionProgress> {
+        // Get all children (milestones) via child_of edges pointing to this mission
+        let edges = self.list_edges(Some(EdgeType::ChildOf), None, Some(mission_id))?;
+        let child_ids: Vec<&str> = edges.iter().map(|e| e.source.as_str()).collect();
+
+        let mut total = 0;
+        let mut completed = 0;
+
+        for child_id in &child_ids {
+            // Try milestone
+            if let Ok(milestone) = self.get_milestone(child_id) {
+                total += 1;
+                if matches!(milestone.status, TaskStatus::Done) {
+                    completed += 1;
+                }
+            }
+        }
+
+        Ok(MissionProgress::new(total, completed))
+    }
+
+    fn cache_mission(&self, mission: &Mission) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT OR REPLACE INTO missions
+            (id, title, description, priority, status, due_date, assignee,
+             created_at, updated_at, closed_at, closed_reason)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "#,
+            params![
+                mission.core.id,
+                mission.core.title,
+                mission.core.description,
+                mission.priority,
+                serde_json::to_string(&mission.status)?.trim_matches('"'),
+                mission.due_date.map(|t| t.to_rfc3339()),
+                mission.assignee,
+                mission.core.created_at.to_rfc3339(),
+                mission.core.updated_at.to_rfc3339(),
+                mission.closed_at.map(|t| t.to_rfc3339()),
+                mission.closed_reason,
+            ],
+        )?;
+
+        self.conn.execute(
+            "DELETE FROM mission_tags WHERE mission_id = ?1",
+            [&mission.core.id],
+        )?;
+        for tag in &mission.core.tags {
+            self.conn.execute(
+                "INSERT INTO mission_tags (mission_id, tag) VALUES (?1, ?2)",
+                params![mission.core.id, tag],
             )?;
         }
 

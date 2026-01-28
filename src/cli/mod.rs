@@ -139,6 +139,12 @@ pub enum Commands {
         command: MilestoneCommands,
     },
 
+    /// Mission management commands (high-level organizational units above milestones)
+    Mission {
+        #[command(subcommand)]
+        command: MissionCommands,
+    },
+
     /// Queue management commands (work prioritization)
     Queue {
         #[command(subcommand)]
@@ -1078,6 +1084,135 @@ pub enum MilestoneCommands {
     /// Show progress for a milestone
     Progress {
         /// Milestone ID
+        id: String,
+    },
+}
+
+/// Mission subcommands
+#[derive(Debug, Subcommand)]
+pub enum MissionCommands {
+    /// Create a new mission
+    Create {
+        /// Mission title
+        title: String,
+
+        /// Short display name (shown in GUI instead of ID)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
+        /// Priority (0-4, lower is higher priority)
+        #[arg(short, long)]
+        priority: Option<u8>,
+
+        /// Tags for the mission
+        #[arg(short, long)]
+        tag: Vec<String>,
+
+        /// Assignee
+        #[arg(short, long)]
+        assignee: Option<String>,
+
+        /// Mission description
+        #[arg(short, long, visible_alias = "desc")]
+        description: Option<String>,
+
+        /// Target due date (ISO 8601 format, e.g., 2026-02-01T00:00:00Z)
+        #[arg(long)]
+        due_date: Option<String>,
+    },
+
+    /// List missions
+    List {
+        /// Filter by status
+        #[arg(long)]
+        status: Option<String>,
+
+        /// Filter by priority
+        #[arg(long)]
+        priority: Option<u8>,
+
+        /// Filter by tag
+        #[arg(long)]
+        tag: Option<String>,
+    },
+
+    /// Show mission details with progress
+    Show {
+        /// Mission ID (e.g., bn-xxxx with type mission)
+        id: String,
+    },
+
+    /// Update a mission (status: pending, in_progress, partial, blocked)
+    Update {
+        /// Mission ID
+        id: String,
+
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+
+        /// New short display name for GUI (recommended: 1-2 words, ~12 chars max)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
+        /// New description
+        #[arg(long, visible_alias = "desc")]
+        description: Option<String>,
+
+        /// New priority
+        #[arg(long)]
+        priority: Option<u8>,
+
+        /// New status (pending, in_progress, partial, blocked)
+        #[arg(long)]
+        status: Option<String>,
+
+        /// Add a tag
+        #[arg(long)]
+        add_tag: Vec<String>,
+
+        /// Remove a tag
+        #[arg(long)]
+        remove_tag: Vec<String>,
+
+        /// New assignee
+        #[arg(long)]
+        assignee: Option<String>,
+
+        /// New due date (ISO 8601 format, e.g., 2026-02-01T00:00:00Z)
+        #[arg(long)]
+        due_date: Option<String>,
+    },
+
+    /// Close a mission (marks as done)
+    Close {
+        /// Mission ID
+        id: String,
+
+        /// Reason for closing (describe what was accomplished)
+        #[arg(long)]
+        reason: Option<String>,
+
+        /// Force close even with incomplete children (use with caution)
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Reopen a closed mission
+    Reopen {
+        /// Mission ID
+        id: String,
+    },
+
+    /// Delete a mission
+    Delete {
+        /// Mission ID
+        id: String,
+    },
+
+    /// Show progress for a mission
+    Progress {
+        /// Mission ID
         id: String,
     },
 }
