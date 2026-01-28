@@ -114,6 +114,67 @@ export function resizeCanvas() {
 }
 
 /**
+ * Get initial position for a new node
+ * Places it near connected nodes if edges exist, or near viewport center
+ * @param {string} nodeId - ID of the new node
+ * @param {Map} existingNodes - Map of existing nodes by ID
+ * @returns {Object} { x, y } position in world coordinates
+ */
+function getInitialPositionForNewNode(nodeId, existingNodes) {
+    // Get all edges from state
+    const edges = state.get('edges') || [];
+    
+    // Find edges connected to this new node
+    const connectedEdges = edges.filter(e => e.source === nodeId || e.target === nodeId);
+    
+    if (connectedEdges.length > 0) {
+        // Place near connected nodes (average position with some randomness)
+        let sumX = 0;
+        let sumY = 0;
+        let count = 0;
+        
+        for (const edge of connectedEdges) {
+            const connectedId = edge.source === nodeId ? edge.target : edge.source;
+            const connectedNode = existingNodes.get(connectedId);
+            
+            if (connectedNode) {
+                sumX += connectedNode.x;
+                sumY += connectedNode.y;
+                count++;
+            }
+        }
+        
+        if (count > 0) {
+            // Average position with random offset to avoid exact overlap
+            const avgX = sumX / count;
+            const avgY = sumY / count;
+            const offsetAngle = Math.random() * 2 * Math.PI;
+            const offsetRadius = 80 + Math.random() * 40; // 80-120 units away
+            
+            return {
+                x: avgX + Math.cos(offsetAngle) * offsetRadius,
+                y: avgY + Math.sin(offsetAngle) * offsetRadius
+            };
+        }
+    }
+    
+    // No connected nodes or no existing connections found
+    // Place at a random position near the viewport center
+    const viewport = state.get('ui.viewport');
+    const centerX = -viewport.panX / viewport.zoom;
+    const centerY = -viewport.panY / viewport.zoom;
+    
+    // Add some randomness to avoid stacking
+    const randomAngle = Math.random() * 2 * Math.PI;
+    const randomRadius = Math.random() * 150; // Within 150 units of center
+    
+    return {
+        x: centerX + Math.cos(randomAngle) * randomRadius,
+        y: centerY + Math.sin(randomAngle) * randomRadius
+    };
+}
+
+/**
  * Build graph nodes from entities
  */
 function buildGraphNodes() {
@@ -148,7 +209,7 @@ function buildGraphNodes() {
         ...agents
     ];
     
-    graphNodes = allEntities.map((entity, index) => {
+    graphNodes = allEntities.map((entity) => {
         const existing = existingNodes.get(entity.id);
         
         // For agent nodes, store the agent data in _agent for label rendering
@@ -176,10 +237,8 @@ function buildGraphNodes() {
                 vy: 0
             };
         } else {
-            // New node - place in circular layout
-            const totalNodes = allEntities.length;
-            const angle = (index / totalNodes) * 2 * Math.PI;
-            const radius = 300;  // Initial radius in world units
+            // New node - place it near connected nodes if any, else near viewport center
+            const { x: initialX, y: initialY } = getInitialPositionForNewNode(entity.id, existingNodes);
             
             return {
                 id: entity.id,
@@ -192,8 +251,8 @@ function buildGraphNodes() {
                 doc_type: entity.doc_type,
                 _departing: entity._departing,
                 _agent: agentData,
-                x: Math.cos(angle) * radius,
-                y: Math.sin(angle) * radius,
+                x: initialX,
+                y: initialY,
                 vx: 0,
                 vy: 0,
                 radius: 30  // Node radius in world units
