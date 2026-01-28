@@ -199,6 +199,7 @@ fi
 # Common copilot flags for all agent types
 COPILOT_FLAGS=(
     --allow-all-urls  # Allow network requests without prompting
+    --no-auto-update  # Prevent automatic updates during execution (version locked to v0.0.396)
 )
 
 if [[ "$LOOP_MODE" == "true" ]]; then
