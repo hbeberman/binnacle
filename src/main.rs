@@ -1113,11 +1113,13 @@ fn run_command(
                     "version": binnacle::cli::package_version(),
                     "commit": binnacle::cli::git_commit(),
                     "built": binnacle::cli::build_timestamp(),
+                    "copilot_version": binnacle::cli::copilot_version(),
                 });
                 if human {
                     println!("Version: {}", binnacle::cli::package_version());
                     println!("Commit:  {}", binnacle::cli::git_commit());
                     println!("Built:   {}", binnacle::cli::build_timestamp());
+                    println!("Copilot: {}", binnacle::cli::copilot_version());
                 } else {
                     println!("{}", result);
                 }

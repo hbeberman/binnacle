@@ -8,6 +8,9 @@ const BUILD_TIMESTAMP: &str = env!("BN_BUILD_TIMESTAMP");
 /// Git commit hash injected by build.rs
 const GIT_COMMIT: &str = env!("BN_GIT_COMMIT");
 
+/// Copilot version injected by build.rs
+const COPILOT_VERSION: &str = env!("BN_COPILOT_VERSION");
+
 /// Get build timestamp (public accessor for build metadata)
 pub fn build_timestamp() -> &'static str {
     BUILD_TIMESTAMP
@@ -16,6 +19,11 @@ pub fn build_timestamp() -> &'static str {
 /// Get git commit hash (public accessor for build metadata)
 pub fn git_commit() -> &'static str {
     GIT_COMMIT
+}
+
+/// Get Copilot version (public accessor for build metadata)
+pub fn copilot_version() -> &'static str {
+    COPILOT_VERSION
 }
 
 /// Get package version
