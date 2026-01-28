@@ -204,8 +204,9 @@ export function initializeGraphControls(controls, options = {}) {
     // Initialize follow type selector with implicit auto-follow
     const followTypeSelector = controls.querySelector('#follow-type-selector');
     if (followTypeSelector) {
-        // Load initial state
-        const followType = State.get('ui.followTypeFilter') || 'none';
+        // Load initial state (default to 'agent' to match "follow agents" requirement)
+        const storedFollowType = State.get('ui.followTypeFilter');
+        const followType = storedFollowType !== null && storedFollowType !== undefined ? storedFollowType : 'agent';
         followTypeSelector.value = followType;
         
         // Set initial auto-follow state based on selection
