@@ -160,7 +160,7 @@ if [ -n "$staged_web_files" ]; then
         echo "   Web assets (web/ or src/gui/) were modified but cannot be validated."
         echo ""
         echo "   To validate your changes:"
-        echo "     1. Install lightpanda: https://github.com/lightpanda-io/lightpanda/releases"
+        echo "     1. Install lightpanda: https://github.com/lightpanda-io/browser/releases"
         echo "     2. Run: just gui-check"
         echo ""
         echo "   Skipping validation for now, but CI may fail."

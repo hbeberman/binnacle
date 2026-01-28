@@ -44,7 +44,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
 
 # Install Lightpanda headless browser for GUI validation
 RUN curl -L -o /usr/local/bin/lightpanda \
-    https://github.com/lightpanda-io/browser/releases/download/v0.2.0/lightpanda-x86_64-linux && \
+    https://github.com/lightpanda-io/browser/releases/download/v0.2.1/lightpanda-x86_64-linux && \
     chmod +x /usr/local/bin/lightpanda
 
 # Disable Lightpanda telemetry (belt-and-suspenders with inline env at invocation)
