@@ -51,6 +51,9 @@ let highlightedNodeId = null;
 const HIGHLIGHT_ANIMATION_DURATION = 2000; // ms - longer than selection for visibility
 let highlightStartTime = null;
 
+// Agent status tracking (for detecting when agents acquire work)
+const previousAgentStatuses = new Map(); // agentId -> previous status
+
 /**
  * Initialize the graph renderer with a canvas element
  * @param {HTMLCanvasElement} canvasElement - The canvas to render to
@@ -151,6 +154,11 @@ function buildGraphNodes() {
         // For agent nodes, store the agent data in _agent for label rendering
         const agentData = entity.type === 'agent' ? entity : entity._agent;
         
+        // Initialize agent status tracking for new agents
+        if (entity.type === 'agent' && !previousAgentStatuses.has(entity.id)) {
+            previousAgentStatuses.set(entity.id, (entity.status || 'unknown').toLowerCase());
+        }
+        
         if (existing) {
             // Preserve position, update data
             return {
@@ -192,6 +200,14 @@ function buildGraphNodes() {
             };
         }
     });
+    
+    // Clean up status tracking for removed agents
+    const currentAgentIds = new Set(agents.map(a => a.id));
+    for (const agentId of previousAgentStatuses.keys()) {
+        if (!currentAgentIds.has(agentId)) {
+            previousAgentStatuses.delete(agentId);
+        }
+    }
 }
 
 /**
@@ -474,37 +490,62 @@ function updateAutoFollow() {
         return;
     }
     
-    // Sort nodes to find the best one to follow
-    const sortedNodes = [...candidateNodes].sort((a, b) => {
-        // For agents, prioritize by status
-        if (a.type === 'agent' && b.type === 'agent') {
-            const statusOrder = { 'active': 0, 'idle': 1, 'stale': 2 };
-            const orderA = statusOrder[(a.status || 'unknown').toLowerCase()] ?? 3;
-            const orderB = statusOrder[(b.status || 'unknown').toLowerCase()] ?? 3;
+    // When following agents, check for newly active agents (just acquired work)
+    let newlyActiveAgent = null;
+    if (followTypeFilter === 'agent' || followTypeFilter === '') {
+        const agents = candidateNodes.filter(node => node.type === 'agent');
+        for (const agent of agents) {
+            const previousStatus = previousAgentStatuses.get(agent.id);
+            const currentStatus = (agent.status || 'unknown').toLowerCase();
             
-            if (orderA !== orderB) {
-                return orderA - orderB;
+            // Detect transition to active status (agent just acquired work)
+            if (currentStatus === 'active' && previousStatus && previousStatus !== 'active') {
+                newlyActiveAgent = agent;
+                console.log(`Agent ${agent.id} just became active - snapping to it`);
+                break;
             }
-        }
-        
-        // For tasks/bugs, prioritize in_progress status
-        if ((a.type === 'task' || a.type === 'bug') && (b.type === 'task' || b.type === 'bug')) {
-            const aInProgress = a.status === 'in_progress' ? 0 : 1;
-            const bInProgress = b.status === 'in_progress' ? 0 : 1;
             
-            if (aInProgress !== bInProgress) {
-                return aInProgress - bInProgress;
-            }
+            // Update status tracking
+            previousAgentStatuses.set(agent.id, currentStatus);
         }
-        
-        // Secondary sort by updated_at (most recent first)
-        const aTime = new Date(a.updated_at || 0).getTime();
-        const bTime = new Date(b.updated_at || 0).getTime();
-        return bTime - aTime;
-    });
+    }
     
-    // Get the top node to follow
-    const targetNode = sortedNodes[0];
+    // Determine target node: newly active agent takes priority
+    let targetNode;
+    if (newlyActiveAgent) {
+        targetNode = newlyActiveAgent;
+    } else {
+        // Sort nodes to find the best one to follow
+        const sortedNodes = [...candidateNodes].sort((a, b) => {
+            // For agents, prioritize by status
+            if (a.type === 'agent' && b.type === 'agent') {
+                const statusOrder = { 'active': 0, 'idle': 1, 'stale': 2 };
+                const orderA = statusOrder[(a.status || 'unknown').toLowerCase()] ?? 3;
+                const orderB = statusOrder[(b.status || 'unknown').toLowerCase()] ?? 3;
+                
+                if (orderA !== orderB) {
+                    return orderA - orderB;
+                }
+            }
+            
+            // For tasks/bugs, prioritize in_progress status
+            if ((a.type === 'task' || a.type === 'bug') && (b.type === 'task' || b.type === 'bug')) {
+                const aInProgress = a.status === 'in_progress' ? 0 : 1;
+                const bInProgress = b.status === 'in_progress' ? 0 : 1;
+                
+                if (aInProgress !== bInProgress) {
+                    return aInProgress - bInProgress;
+                }
+            }
+            
+            // Secondary sort by updated_at (most recent first)
+            const aTime = new Date(a.updated_at || 0).getTime();
+            const bTime = new Date(b.updated_at || 0).getTime();
+            return bTime - aTime;
+        });
+        
+        targetNode = sortedNodes[0];
+    }
     
     if (!targetNode) {
         return;
