@@ -681,13 +681,25 @@ export function updateInfoPanelContent(panel, node, selectedNodes = []) {
             const idSpan = createClickableId(edge.related_id);
             idSpan.className = 'relationship-id clickable-id';
             
+            // Override the default click behavior to dispatch relationship-click event
+            // Remove the default click listener and add our custom one
+            const newIdSpan = idSpan.cloneNode(true); // Clone to remove listeners
+            newIdSpan.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // Dispatch custom event for relationship clicks
+                panel.dispatchEvent(new CustomEvent('relationship-click', {
+                    detail: { nodeId: edge.related_id }
+                }));
+            });
+            
             const typeSpan = document.createElement('span');
             typeSpan.className = 'relationship-type';
             typeSpan.textContent = `(${edgeTypeFormatted})`;
             
             li.appendChild(dirSpan);
             li.appendChild(document.createTextNode(' '));
-            li.appendChild(idSpan);
+            li.appendChild(newIdSpan);
             li.appendChild(document.createTextNode(' '));
             li.appendChild(typeSpan);
             

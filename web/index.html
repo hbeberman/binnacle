@@ -269,7 +269,7 @@
         import * as graph from './js/graph/index.js';
         import * as connection from './js/connection/index.js';
         import { initializeAgentCards } from './js/components/agent-cards.js';
-        import { createInfoPanel, initializeInfoPanel, showInfoPanel, hideInfoPanel, updateInfoPanelContent } from './js/components/info-panel.js';
+        import { createInfoPanel, initializeInfoPanel, showInfoPanel, hideInfoPanel, updateInfoPanelContent, expandInfoPanel, collapseInfoPanel } from './js/components/info-panel.js';
         import { createLinkBuilder, initializeLinkBuilder, updateLinkBuilderContent } from './js/components/link-builder.js';
         import { mountGraphOverlayPanel, initializeGraphOverlayPanel } from './js/components/graph-overlay-panel.js';
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
@@ -409,6 +409,41 @@
             onViewFullLog: () => {
                 // Switch to log view
                 switchView('log');
+            },
+            onRelationshipClick: (nodeId) => {
+                console.log('Relationship clicked:', nodeId);
+                
+                // Find the node in the graph
+                const graphNodes = graph.getNodes();
+                const node = graphNodes.find(n => n.id === nodeId);
+                
+                if (!node) {
+                    console.warn(`Node ${nodeId} not found in graph`);
+                    return;
+                }
+                
+                // Check if panel is currently expanded
+                const isExpanded = infoPanel.classList.contains('expanded');
+                
+                // Pan to the node
+                graph.panToNode(node.x, node.y, {
+                    canvas: document.querySelector('#graph-canvas'),
+                    duration: 500,
+                    onComplete: () => {
+                        // Update info panel with the new node
+                        updateInfoPanelContent(infoPanel, node);
+                        
+                        // Restore the panel state (expanded or compact)
+                        if (isExpanded) {
+                            expandInfoPanel(infoPanel);
+                        } else {
+                            collapseInfoPanel(infoPanel);
+                        }
+                        
+                        // Ensure panel is visible
+                        showInfoPanel(infoPanel);
+                    }
+                });
             }
         });
         
