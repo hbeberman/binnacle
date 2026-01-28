@@ -23,63 +23,69 @@ install: (build "release" "gui")
     mv ~/.local/bin/bn.tmp ~/.local/bin/bn
     @echo "Installed bn to ~/.local/bin/bn (with GUI feature)"
 
-# Install cloudflared for tunnel support
-# macOS: uses Homebrew; Linux: downloads binary to ~/.local/bin
-install-cloudflared:
+# Install devtunnel CLI for tunnel support
+# macOS/Linux: downloads binary to ~/.local/bin
+# After install, run: devtunnel user login
+install-devtunnel:
     #!/usr/bin/env bash
     set -e
     
     # Check if already installed
-    if command -v cloudflared &>/dev/null; then
-        echo "cloudflared is already installed: $(command -v cloudflared)"
-        cloudflared --version
+    if command -v devtunnel &>/dev/null; then
+        echo "devtunnel is already installed: $(command -v devtunnel)"
+        devtunnel --version
+        echo ""
+        echo "Note: Run 'devtunnel user login' if you haven't authenticated yet."
         exit 0
     fi
     
     OS="$(uname -s)"
     ARCH="$(uname -m)"
     
+    # Map OS/arch to devtunnel download URL
     case "$OS" in
         Darwin)
-            if command -v brew &>/dev/null; then
-                echo "Installing cloudflared via Homebrew..."
-                brew install cloudflared
-            else
-                echo "Error: Homebrew not found. Install Homebrew first or download cloudflared manually."
-                echo "See: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
-                exit 1
-            fi
-            ;;
-        Linux)
-            echo "Installing cloudflared to ~/.local/bin..."
-            mkdir -p ~/.local/bin
-            
-            # Map architecture to cloudflared naming
             case "$ARCH" in
-                x86_64)  CF_ARCH="amd64" ;;
-                aarch64) CF_ARCH="arm64" ;;
-                armv7l)  CF_ARCH="arm" ;;
+                x86_64)  PLATFORM="osx-x64" ;;
+                arm64)   PLATFORM="osx-arm64" ;;
                 *)
-                    echo "Error: Unsupported architecture: $ARCH"
+                    echo "Error: Unsupported macOS architecture: $ARCH"
                     exit 1
                     ;;
             esac
-            
-            URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$CF_ARCH"
-            echo "Downloading from: $URL"
-            curl -L -o ~/.local/bin/cloudflared "$URL"
-            chmod +x ~/.local/bin/cloudflared
-            echo "Installed cloudflared to ~/.local/bin/cloudflared"
-            ~/.local/bin/cloudflared --version
+            ;;
+        Linux)
+            case "$ARCH" in
+                x86_64)  PLATFORM="linux-x64" ;;
+                aarch64) PLATFORM="linux-arm64" ;;
+                *)
+                    echo "Error: Unsupported Linux architecture: $ARCH"
+                    exit 1
+                    ;;
+            esac
             ;;
         *)
             echo "Error: Unsupported OS: $OS"
-            echo "See: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+            echo "See: https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started"
             exit 1
             ;;
     esac
     
-    echo "✓ cloudflared installed successfully"
+    echo "Installing devtunnel to ~/.local/bin..."
+    mkdir -p ~/.local/bin
+    
+    URL="https://aka.ms/TunnelsCliDownload/$PLATFORM"
+    echo "Downloading from: $URL"
+    curl -L -o ~/.local/bin/devtunnel "$URL"
+    chmod +x ~/.local/bin/devtunnel
+    echo "Installed devtunnel to ~/.local/bin/devtunnel"
+    ~/.local/bin/devtunnel --version
+    
+    echo ""
+    echo "✓ devtunnel installed successfully"
+    echo ""
+    echo "IMPORTANT: Run 'devtunnel user login' to authenticate before using tunnels."
+    echo "You can log in with GitHub, Microsoft, or Azure AD account."
 
 # Run GUI in development mode (serves from filesystem, auto-reloads on changes)
 dev-gui:
