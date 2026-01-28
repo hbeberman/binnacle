@@ -418,6 +418,7 @@ function createAgentCard(agent) {
     const startedAt = agent._agent?.started_at || agent.started_at;
     const shortName = agent.short_name || '';
     const tasks = agent._agent?.tasks || agent.tasks || [];
+    const containerId = agent.container_id || agent._agent?.container_id || null;
     
     card.innerHTML = `
         <div class="agent-card-header">
@@ -458,7 +459,12 @@ function createAgentCard(agent) {
             <div class="agent-card-info-label">Started At</div>
             <div class="agent-card-info-value">${formatDateTime(startedAt)}</div>
         </div>
-        ${shortName ? `
+        ${containerId ? `
+        <div class="agent-card-info-item">
+            <div class="agent-card-info-label">Container ID</div>
+            <div class="agent-card-info-value" title="${escapeHtml(containerId)}">${escapeHtml(containerId.substring(0, 12))}</div>
+        </div>
+        ` : shortName ? `
         <div class="agent-card-info-item">
             <div class="agent-card-info-label">Short Name</div>
             <div class="agent-card-info-value">${escapeHtml(shortName)}</div>
