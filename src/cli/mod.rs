@@ -1581,6 +1581,60 @@ pub enum LogCommands {
 pub enum GraphCommands {
     /// Analyze task graph for disconnected components
     Components,
+
+    /// Walk ancestry chain from a task up to its PRD document
+    Lineage {
+        /// Entity ID to find lineage for
+        id: String,
+
+        /// Maximum hops to traverse (default: 10)
+        #[arg(long, default_value = "10")]
+        depth: usize,
+
+        /// Include descriptions in output
+        #[arg(long)]
+        verbose: bool,
+    },
+
+    /// Find sibling and cousin tasks through shared parents
+    Peers {
+        /// Entity ID to find peers for
+        id: String,
+
+        /// Peer depth: 1=siblings only, 2=siblings+cousins (default: 1)
+        #[arg(long, default_value = "1")]
+        depth: usize,
+
+        /// Include closed/done tasks
+        #[arg(long)]
+        include_closed: bool,
+
+        /// Include descriptions in output
+        #[arg(long)]
+        verbose: bool,
+    },
+
+    /// Explore subtree below a node
+    Descendants {
+        /// Entity ID to explore
+        id: String,
+
+        /// Maximum depth to explore (default: 3)
+        #[arg(long, default_value = "3")]
+        depth: usize,
+
+        /// Show all descendants regardless of depth
+        #[arg(long)]
+        all: bool,
+
+        /// Include closed/done tasks
+        #[arg(long)]
+        include_closed: bool,
+
+        /// Include descriptions in output
+        #[arg(long)]
+        verbose: bool,
+    },
 }
 
 /// Search subcommands
