@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entity Link Hover Highlight Test</title>
+    
+    <!-- Base styles -->
+    <link rel="stylesheet" href="css/themes/dark.css">
+    <link rel="stylesheet" href="css/components/activity-log.css">
+    <link rel="stylesheet" href="css/components/markdown-pane.css">
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 2rem;
+            margin: 0;
+        }
+        
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            gap: 2rem;
+        }
+        
+        .markdown-panel {
+            flex: 1;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+        }
+        
+        .graph-panel {
+            flex: 1;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            min-height: 400px;
+        }
+        
+        h1 {
+            color: var(--accent-blue);
+            margin-top: 0;
+        }
+        
+        .info {
+            background: var(--bg-tertiary);
+            border-left: 3px solid var(--accent-blue);
+            padding: 0.75rem 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        
+        #highlight-log {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-top: 1rem;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+        
+        .log-entry {
+            padding: 0.25rem 0;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        
+        .log-highlight {
+            color: var(--accent-green);
+        }
+        
+        .log-clear {
+            color: var(--text-secondary);
+        }
+        
+        .markdown-content {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <div class="markdown-panel">
+            <h1>📝 Markdown Content</h1>
+            <p class="info">
+                ℹ️ Hover over entity IDs (highlighted links) to trigger graph highlighting.
+                Watch the log below to see highlight/clear events.
+            </p>
+            
+            <div id="markdown-content" class="markdown-content">
+                <!-- Markdown will be rendered here -->
+            </div>
+        </div>
+        
+        <div class="graph-panel">
+            <h1>📊 Graph Simulation</h1>
+            <p class="info">
+                This panel simulates the graph. When you hover over entity links,
+                highlightNode() and clearHighlight() are called.
+            </p>
+            
+            <div id="highlight-log">
+                <div class="log-entry log-clear">Ready - hover over entity links to test</div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module">
+        import { renderMarkdown } from './js/utils/markdown.js';
+        
+        // Mock graph functions for testing
+        let highlightLog = [];
+        
+        window.highlightNode = function(nodeId) {
+            const logEntry = `highlightNode("${nodeId}") called`;
+            highlightLog.push({ type: 'highlight', message: logEntry, time: new Date().toLocaleTimeString() });
+            updateLog();
+            console.log(`✨ ${logEntry}`);
+        };
+        
+        window.clearHighlight = function() {
+            const logEntry = `clearHighlight() called`;
+            highlightLog.push({ type: 'clear', message: logEntry, time: new Date().toLocaleTimeString() });
+            updateLog();
+            console.log(`🧹 ${logEntry}`);
+        };
+        
+        function updateLog() {
+            const logEl = document.getElementById('highlight-log');
+            logEl.innerHTML = highlightLog.slice(-10).reverse().map(entry => {
+                const className = entry.type === 'highlight' ? 'log-highlight' : 'log-clear';
+                return `<div class="log-entry ${className}">[${entry.time}] ${entry.message}</div>`;
+            }).join('');
+        }
+        
+        // Sample markdown with entity IDs
+        const markdown = `
+# Project Tasks
+
+## Current Sprint
+
+Working on task **bn-1a1a** which depends on:
+- Task bn-0ade (graph highlight API)
+- Task bn-0ef8 (entity ID linkification)
+
+## Testing
+
+Test coverage tracked in bnt-5678.
+
+## Documentation
+
+See document bn-cafe for architecture overview.
+
+## Queue
+
+Tasks in queue bnq-e8b7 are high priority.
+
+## Example
+
+When you hover over any of the entity IDs above (like bn-1a1a or bnt-5678),
+the \`highlightNode()\` function should be called with that entity ID.
+
+When you move your mouse away, \`clearHighlight()\` should be called.
+        `;
+        
+        // Render markdown
+        const contentEl = document.getElementById('markdown-content');
+        renderMarkdown(contentEl, markdown);
+        
+        // Add hover event listeners (simulating markdown-pane.js behavior)
+        contentEl.addEventListener('mouseover', (e) => {
+            const clickableId = e.target.closest('.clickable-entity-id');
+            if (!clickableId) return;
+            
+            const entityId = clickableId.dataset.entityId;
+            if (entityId) {
+                window.highlightNode(entityId);
+            }
+        });
+        
+        contentEl.addEventListener('mouseout', (e) => {
+            const clickableId = e.target.closest('.clickable-entity-id');
+            if (!clickableId) return;
+            
+            window.clearHighlight();
+        });
+        
+        console.log('✅ Entity link hover test page loaded');
+        console.log('Hover over entity IDs to test highlight functionality');
+    </script>
+</body>
+</html>
