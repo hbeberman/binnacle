@@ -354,7 +354,9 @@ fn init_with_options(
 
     // Install commit-msg hook if requested
     let hook_installed = if install_hook {
-        install_commit_msg_hook(repo_path)?
+        let commit_msg_installed = install_commit_msg_hook(repo_path)?;
+        let post_commit_installed = install_post_commit_hook(repo_path)?;
+        commit_msg_installed || post_commit_installed
     } else {
         false
     };

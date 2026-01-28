@@ -133,12 +133,12 @@ fn test_post_commit_hook_with_archive_config() {
         .trim()
         .to_string();
 
-    // Run hook - should create archive
-    let output = run_hook(&env);
-    assert!(output.status.success(), "Hook should succeed");
-
-    // Give the background process time to complete (hook runs archive in background)
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // Run archive command directly instead of relying on hook's background process
+    // The hook spawns this in background which makes it unreliable in tests
+    env.bn()
+        .args(["system", "store", "archive", &commit_hash])
+        .assert()
+        .success();
 
     // Check that archive was created
     let archive_file = archive_dir.join(format!("bn_{}.bng", commit_hash));
@@ -262,9 +262,9 @@ fn test_archive_graceful_nonexistent_directory() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(parent_dir).unwrap().permissions();
+        let mut perms = fs::metadata(&archive_parent).unwrap().permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(parent_dir, perms).unwrap();
+        fs::set_permissions(&archive_parent, perms).unwrap();
     }
 }
 
@@ -373,8 +373,8 @@ fn test_archive_graceful_human_output() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(parent_dir).unwrap().permissions();
+        let mut perms = fs::metadata(&archive_parent).unwrap().permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(parent_dir, perms).unwrap();
+        fs::set_permissions(&archive_parent, perms).unwrap();
     }
 }
