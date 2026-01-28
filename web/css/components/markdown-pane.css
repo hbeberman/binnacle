@@ -1,0 +1,324 @@
+/* Markdown Pane Component
+ * Fixed-width side panel for displaying markdown content
+ */
+
+/* ==========================================================================
+   Pane Container (pinned to right side)
+   ========================================================================== */
+
+.markdown-pane {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 450px;
+    background: var(--bg-secondary);
+    border-left: 2px solid var(--border-color);
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    z-index: 1001;
+    animation: slideInRight 0.3s ease;
+}
+
+.markdown-pane.hidden {
+    display: none;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.markdown-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    flex-shrink: 0;
+}
+
+.markdown-pane-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.markdown-pane-close {
+    font-size: 1.5rem;
+    color: var(--text-secondary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    margin-left: 0.5rem;
+}
+
+.markdown-pane-close:hover {
+    background: var(--accent-red, var(--danger));
+    color: white;
+}
+
+/* ==========================================================================
+   Content Area (scrollable)
+   ========================================================================== */
+
+.markdown-pane-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+}
+
+.markdown-pane-loading {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+.markdown-pane-placeholder {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.markdown-pane-note {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-left: 3px solid var(--accent-blue);
+    border-radius: 4px;
+    font-style: italic;
+}
+
+/* ==========================================================================
+   Markdown Content Styling
+   ========================================================================== */
+
+/* Typography */
+.markdown-pane-content h1,
+.markdown-pane-content h2,
+.markdown-pane-content h3,
+.markdown-pane-content h4,
+.markdown-pane-content h5,
+.markdown-pane-content h6 {
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    line-height: 1.3;
+}
+
+.markdown-pane-content h1 { font-size: 1.75rem; margin-top: 0; }
+.markdown-pane-content h2 { font-size: 1.5rem; }
+.markdown-pane-content h3 { font-size: 1.25rem; }
+.markdown-pane-content h4 { font-size: 1.125rem; }
+.markdown-pane-content h5 { font-size: 1rem; }
+.markdown-pane-content h6 { font-size: 0.95rem; color: var(--text-secondary); }
+
+.markdown-pane-content p {
+    margin: 0.75rem 0;
+    line-height: 1.6;
+    color: var(--text-primary);
+}
+
+/* Lists */
+.markdown-pane-content ul,
+.markdown-pane-content ol {
+    margin: 0.75rem 0;
+    padding-left: 1.5rem;
+    line-height: 1.6;
+}
+
+.markdown-pane-content li {
+    margin: 0.25rem 0;
+    color: var(--text-primary);
+}
+
+/* Code blocks - inline */
+.markdown-pane-content code {
+    background: var(--bg-tertiary);
+    color: var(--accent-blue);
+    padding: 0.125rem 0.375rem;
+    border-radius: 3px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.9em;
+}
+
+/* Code blocks - pre (with highlight.js) */
+.markdown-pane-content pre {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+}
+
+.markdown-pane-content pre code {
+    background: none;
+    color: var(--text-primary);
+    padding: 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+/* Highlight.js theme integration - use dark theme colors */
+.markdown-pane-content .hljs {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.markdown-pane-content .hljs-keyword,
+.markdown-pane-content .hljs-selector-tag,
+.markdown-pane-content .hljs-literal {
+    color: #c678dd;
+}
+
+.markdown-pane-content .hljs-string,
+.markdown-pane-content .hljs-title {
+    color: #98c379;
+}
+
+.markdown-pane-content .hljs-number,
+.markdown-pane-content .hljs-attr {
+    color: #d19a66;
+}
+
+.markdown-pane-content .hljs-comment {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+/* Tables */
+.markdown-pane-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.markdown-pane-content thead {
+    background: var(--bg-tertiary);
+}
+
+.markdown-pane-content th {
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.markdown-pane-content td {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.markdown-pane-content tr:last-child td {
+    border-bottom: none;
+}
+
+.markdown-pane-content tbody tr:hover {
+    background: var(--bg-tertiary);
+}
+
+/* Links */
+.markdown-pane-content a {
+    color: var(--accent-blue);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s ease;
+}
+
+.markdown-pane-content a:hover {
+    border-bottom-color: var(--accent-blue);
+}
+
+/* Inline formatting */
+.markdown-pane-content strong {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.markdown-pane-content em {
+    font-style: italic;
+}
+
+.markdown-pane-content blockquote {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    border-left: 3px solid var(--accent-blue);
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+.markdown-pane-content blockquote p {
+    margin: 0;
+}
+
+.markdown-pane-content hr {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 1.5rem 0;
+}
+
+/* ==========================================================================
+   Scrollbar Styling
+   ========================================================================== */
+
+.markdown-pane-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.markdown-pane-content::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+}
+
+.markdown-pane-content::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+.markdown-pane-content::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Responsive Design
+   ========================================================================== */
+
+@media (max-width: 768px) {
+    .markdown-pane {
+        width: 100%;
+        border-left: none;
+    }
+}
