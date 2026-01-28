@@ -23,6 +23,64 @@ install: (build "release" "gui")
     mv ~/.local/bin/bn.tmp ~/.local/bin/bn
     @echo "Installed bn to ~/.local/bin/bn (with GUI feature)"
 
+# Install cloudflared for tunnel support
+# macOS: uses Homebrew; Linux: downloads binary to ~/.local/bin
+install-cloudflared:
+    #!/usr/bin/env bash
+    set -e
+    
+    # Check if already installed
+    if command -v cloudflared &>/dev/null; then
+        echo "cloudflared is already installed: $(command -v cloudflared)"
+        cloudflared --version
+        exit 0
+    fi
+    
+    OS="$(uname -s)"
+    ARCH="$(uname -m)"
+    
+    case "$OS" in
+        Darwin)
+            if command -v brew &>/dev/null; then
+                echo "Installing cloudflared via Homebrew..."
+                brew install cloudflared
+            else
+                echo "Error: Homebrew not found. Install Homebrew first or download cloudflared manually."
+                echo "See: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+                exit 1
+            fi
+            ;;
+        Linux)
+            echo "Installing cloudflared to ~/.local/bin..."
+            mkdir -p ~/.local/bin
+            
+            # Map architecture to cloudflared naming
+            case "$ARCH" in
+                x86_64)  CF_ARCH="amd64" ;;
+                aarch64) CF_ARCH="arm64" ;;
+                armv7l)  CF_ARCH="arm" ;;
+                *)
+                    echo "Error: Unsupported architecture: $ARCH"
+                    exit 1
+                    ;;
+            esac
+            
+            URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$CF_ARCH"
+            echo "Downloading from: $URL"
+            curl -L -o ~/.local/bin/cloudflared "$URL"
+            chmod +x ~/.local/bin/cloudflared
+            echo "Installed cloudflared to ~/.local/bin/cloudflared"
+            ~/.local/bin/cloudflared --version
+            ;;
+        *)
+            echo "Error: Unsupported OS: $OS"
+            echo "See: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+            exit 1
+            ;;
+    esac
+    
+    echo "✓ cloudflared installed successfully"
+
 # Run GUI in development mode (serves from filesystem, auto-reloads on changes)
 dev-gui:
     @echo "Starting GUI in development mode..."
