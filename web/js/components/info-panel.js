@@ -121,6 +121,10 @@ export function createInfoPanel() {
                 <span class="info-panel-doc-open-label">📖 Read Document</span>
                 <button id="doc-open-btn" class="doc-open-btn" title="Open document viewer">Open</button>
             </div>
+            <div id="info-panel-working-agent-section" class="info-panel-working-agent-section" style="display: none;">
+                <span class="info-panel-working-agent-label">🤖 Agent:</span>
+                <span id="info-panel-working-agent-id" class="info-panel-working-agent-id"></span>
+            </div>
             <div id="info-panel-summary-section" class="info-panel-section" style="display: none;">
                 <div class="info-panel-section-title">Summary</div>
                 <div id="info-panel-summary-content" class="info-panel-summary-content"></div>
@@ -756,6 +760,26 @@ export function updateInfoPanelContent(panel, node, selectedNodes = []) {
         docSection.dataset.docId = node.id;
     } else {
         docSection.style.display = 'none';
+    }
+    
+    // Update working agent section (task/bug only)
+    const workingAgentSection = panel.querySelector('#info-panel-working-agent-section');
+    if (node.type === 'task' || node.type === 'bug') {
+        // Find working_on edge (inbound, where this task is the target)
+        const workingOnEdge = node.edges && node.edges.find(e => 
+            e.edge_type === 'working_on' && e.direction === 'inbound'
+        );
+        
+        if (workingOnEdge) {
+            workingAgentSection.style.display = 'flex';
+            const agentIdEl = panel.querySelector('#info-panel-working-agent-id');
+            agentIdEl.textContent = '';
+            agentIdEl.appendChild(createClickableId(workingOnEdge.related_id));
+        } else {
+            workingAgentSection.style.display = 'none';
+        }
+    } else {
+        workingAgentSection.style.display = 'none';
     }
     
     // Show panel
