@@ -86,32 +86,32 @@ function updateIndicator(indicator, status, mode) {
     switch (status) {
         case ConnectionStatus.CONNECTED:
             indicator.classList.add('connected');
-            dot.textContent = '🟢';
+            dot.textContent = '';
             text.textContent = 'Connected';
             indicator.title = 'WebSocket connected';
             break;
         case ConnectionStatus.CONNECTING:
             indicator.classList.add('connecting');
-            dot.textContent = '⏳';
+            dot.textContent = '';
             text.textContent = 'Connecting...';
             indicator.title = 'Establishing connection';
             break;
         case ConnectionStatus.RECONNECTING:
             indicator.classList.add('reconnecting');
-            dot.textContent = '⏳';
+            dot.textContent = '';
             text.textContent = 'Reconnecting...';
             indicator.title = 'Attempting to reconnect';
             break;
         case ConnectionStatus.ERROR:
             indicator.classList.add('error');
-            dot.textContent = '🔴';
+            dot.textContent = '';
             text.textContent = 'Error';
             indicator.title = 'Connection error';
             break;
         case ConnectionStatus.DISCONNECTED:
         default:
             indicator.classList.add('disconnected');
-            dot.textContent = '🔴';
+            dot.textContent = '';
             text.textContent = 'Disconnected';
             indicator.title = 'Not connected';
             break;
