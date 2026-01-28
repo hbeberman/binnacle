@@ -890,6 +890,7 @@
             const currentView = state.get('ui.currentView');
             const followingNodeId = state.get('ui.followingNodeId');
             const followTypeFilter = state.get('ui.followTypeFilter');
+            const pinnedAgentId = state.get('ui.pinnedAgentId');
             
             // Show badge only when:
             // 1. Follow Agents is ON (autoFollow is true)
@@ -905,14 +906,18 @@
                 const agents = state.get('entities.agents') || [];
                 const agent = agents.find(a => a.id === followingNodeId);
                 
+                // Check if this agent is pinned
+                const isPinned = pinnedAgentId === followingNodeId;
+                const pinIndicator = isPinned ? ' 📌' : '';
+                
                 if (agent) {
                     const agentName = agent._agent?.purpose || agent._agent?.name || agent.id;
-                    followBadge.textContent = `Following ${agentName}`;
+                    followBadge.textContent = `Following ${agentName}${pinIndicator}`;
                     followBadge.title = `Click to pan to ${agentName}`;
                     followBadge.classList.add('visible');
                 } else {
                     // Agent not found, just show ID
-                    followBadge.textContent = `Following ${followingNodeId}`;
+                    followBadge.textContent = `Following ${followingNodeId}${pinIndicator}`;
                     followBadge.title = `Click to pan to ${followingNodeId}`;
                     followBadge.classList.add('visible');
                 }
