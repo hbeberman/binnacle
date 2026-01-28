@@ -598,11 +598,12 @@
             },
             onNodeDoubleClick: (node) => {
                 console.log('Node double-clicked:', node);
-                // Show doc viewer modal for doc nodes, detail pane for others
+                // Show doc viewer modal for doc nodes, info panel expanded for others
                 if (node.type === 'doc') {
                     showDocViewer(node.id);
                 } else {
-                    showNodeDetailPane(node.id);
+                    updateInfoPanelContent(infoPanel, node, [], [], []);
+                    expandInfoPanel(infoPanel);
                 }
             },
             onEscape: () => {
