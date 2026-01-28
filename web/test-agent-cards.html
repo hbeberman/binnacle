@@ -57,6 +57,7 @@
             <button id="add-active">Add Active Agent</button>
             <button id="add-idle">Add Idle Agent</button>
             <button id="add-stale">Add Stale Agent</button>
+            <button id="add-terminating">Add Terminating Agent</button>
             <button id="add-stuck">Add Stuck Agent</button>
             <button id="clear-agents">Clear All Agents</button>
         </div>
@@ -140,6 +141,31 @@
                     health: {
                         is_stuck: false,
                         idle_minutes: 120,
+                        stuck_task_ids: []
+                    }
+                }
+            };
+            const agents = state.getAgents();
+            state.setEntities('agents', [...agents, agent]);
+        });
+        
+        document.getElementById('add-terminating').addEventListener('click', () => {
+            const agent = {
+                id: `bn-${Math.random().toString(36).substr(2, 4)}`,
+                title: `Terminating Agent ${++agentCounter}`,
+                short_name: `agent-${agentCounter}`,
+                type: 'agent',
+                status: 'terminating',
+                pid: 1000 + agentCounter,
+                started_at: new Date(Date.now() - 3600000).toISOString(),
+                _agent: {
+                    name: `Terminating Agent ${agentCounter}`,
+                    purpose: `Agent is being terminated. Process will exit shortly.`,
+                    status: 'terminating',
+                    started_at: new Date(Date.now() - 3600000).toISOString(),
+                    health: {
+                        is_stuck: false,
+                        idle_minutes: 30,
                         stuck_task_ids: []
                     }
                 }

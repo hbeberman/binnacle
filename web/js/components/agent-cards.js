@@ -14,11 +14,10 @@ import {
 import { createClickableId } from '../utils/clickable-ids.js';
 import { showNodeDetailModal } from './node-detail-modal.js';
 import { panToNode } from '../graph/index.js';
-import { sendMessage } from '../connection/index.js';
 
 /**
  * Get status badge configuration for an agent
- * @param {string} status - Agent status (active, idle, stale)
+ * @param {string} status - Agent status (active, idle, stale, terminating)
  * @returns {Object} Badge config { emoji, className, label }
  */
 function getStatusBadge(status) {
@@ -31,6 +30,8 @@ function getStatusBadge(status) {
             return { emoji: '🟡', className: 'status-idle', label: 'Idle' };
         case 'stale':
             return { emoji: '🔴', className: 'status-stale', label: 'Stale' };
+        case 'terminating':
+            return { emoji: '🟠', className: 'status-terminating', label: 'Terminating' };
         default:
             return { emoji: '⚪', className: 'status-unknown', label: 'Unknown' };
     }
@@ -187,16 +188,59 @@ async function terminateAgent(agentId) {
     const confirmed = confirm(`Terminate agent ${agentId}?\n\nThis will send a termination signal to the agent process.`);
     if (!confirmed) return;
     
+    // Optimistically update the agent status to "terminating"
+    const agents = getAgents();
+    const agentIndex = agents.findIndex(a => a.id === agentId);
+    if (agentIndex !== -1) {
+        const updatedAgent = { ...agents[agentIndex], status: 'terminating' };
+        const updatedAgents = [...agents];
+        updatedAgents[agentIndex] = updatedAgent;
+        setState('entities.agents', updatedAgents);
+    }
+    
     try {
-        // Send terminate message via WebSocket
-        await sendMessage({
-            type: 'terminate_agent',
-            agent_id: agentId
+        // Call REST API to terminate the agent
+        const response = await fetch(`/api/agents/${agentId}/terminate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
         });
+        
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+            throw new Error(error.error || `HTTP ${response.status}`);
+        }
+        
         console.log('Termination signal sent for agent:', agentId);
+        
+        // Show success toast
+        addToast({
+            type: 'success',
+            message: `Agent ${agentId} terminated`,
+            duration: 3000
+        });
+        
+        // The agent will be removed from state when the backend broadcasts 'entity_removed'
     } catch (err) {
         console.error('Failed to terminate agent:', err);
-        alert(`Failed to terminate agent: ${err.message}`);
+        
+        // Revert optimistic update on error
+        const agents = getAgents();
+        const agentIndex = agents.findIndex(a => a.id === agentId);
+        if (agentIndex !== -1) {
+            const revertedAgent = { ...agents[agentIndex], status: 'stale' };
+            const revertedAgents = [...agents];
+            revertedAgents[agentIndex] = revertedAgent;
+            setState('entities.agents', revertedAgents);
+        }
+        
+        // Show error toast
+        addToast({
+            type: 'error',
+            message: `Failed to terminate agent: ${err.message}`,
+            duration: 5000
+        });
     }
 }
 
@@ -235,17 +279,22 @@ function createActionButtonsFooter(agent) {
     const footer = document.createElement('div');
     footer.className = 'agent-card-footer';
     
-    const isStale = (agent.status || '').toLowerCase() === 'stale';
+    const statusLower = (agent.status || '').toLowerCase();
+    const isStale = statusLower === 'stale';
+    const isTerminating = statusLower === 'terminating';
     
-    // Terminate button (only for stale agents)
-    if (isStale) {
+    // Terminate button (only for stale agents, disabled if already terminating)
+    if (isStale || isTerminating) {
         const terminateBtn = document.createElement('button');
         terminateBtn.className = 'agent-card-action-btn agent-card-terminate-btn';
-        terminateBtn.innerHTML = '🛑 Terminate';
-        terminateBtn.title = 'Terminate this agent';
+        terminateBtn.innerHTML = isTerminating ? '⏳ Terminating...' : '🛑 Terminate';
+        terminateBtn.title = isTerminating ? 'Agent is being terminated' : 'Terminate this agent';
+        terminateBtn.disabled = isTerminating;
         terminateBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            terminateAgent(agent.id);
+            if (!isTerminating) {
+                terminateAgent(agent.id);
+            }
         });
         footer.appendChild(terminateBtn);
     }
@@ -475,13 +524,13 @@ function updateAgentCards(container) {
         return;
     }
     
-    // Sort agents: active first, then idle, then stale
-    const statusOrder = { 'active': 0, 'idle': 1, 'stale': 2, 'unknown': 3 };
+    // Sort agents: active first, then idle, then stale, then terminating
+    const statusOrder = { 'active': 0, 'idle': 1, 'stale': 2, 'terminating': 3, 'unknown': 4 };
     const sortedAgents = [...agents].sort((a, b) => {
         const aStatus = (a.status || 'unknown').toLowerCase();
         const bStatus = (b.status || 'unknown').toLowerCase();
-        const orderA = statusOrder[aStatus] ?? 3;
-        const orderB = statusOrder[bStatus] ?? 3;
+        const orderA = statusOrder[aStatus] ?? 4;
+        const orderB = statusOrder[bStatus] ?? 4;
         
         if (orderA !== orderB) {
             return orderA - orderB;

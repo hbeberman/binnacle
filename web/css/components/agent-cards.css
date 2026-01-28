@@ -85,6 +85,12 @@
     border: 1px solid #ef4444;
 }
 
+.agent-card-status-badge.status-terminating {
+    background: rgba(249, 115, 22, 0.2);
+    color: #f97316;
+    border: 1px solid #f97316;
+}
+
 .agent-card-status-badge.status-unknown {
     background: rgba(156, 163, 175, 0.2);
     color: #9ca3af;
@@ -264,6 +270,21 @@
     border-color: #ef4444;
     background: rgba(239, 68, 68, 0.25);
     color: #ef4444;
+}
+
+.agent-card-terminate-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.agent-card-terminate-btn:disabled:hover {
+    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+    transform: none;
+    box-shadow: none;
 }
 
 .agent-card-view-btn:hover {
