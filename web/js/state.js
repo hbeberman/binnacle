@@ -89,6 +89,7 @@ const createDefaultState = () => ({
         autoFollow: true,
         followTargetId: 'auto',
         followingNodeId: null,
+        pinnedAgentId: null,  // ID of manually pinned agent (takes priority over auto-follow)
         agentGoodbyeActive: null,  // ID of agent in goodbye state (if any)
         goodbyeStartTime: null,  // Timestamp when goodbye state started (for 3s linger)
         userPaused: false,  // Set to true when user manually pans/zooms

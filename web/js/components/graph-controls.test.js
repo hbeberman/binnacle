@@ -125,5 +125,41 @@ describe('Graph Controls', () => {
                 expect(State.get('ui.autoFollow')).toBe(true);
             }, 100);
         });
+        
+        test('clicking agent item sets pinnedAgentId', () => {
+            // Create and mount controls
+            const controls = createGraphControls();
+            container.appendChild(controls);
+            initializeGraphControls(controls);
+            
+            // Mock agent data
+            const mockAgent = {
+                id: 'bn-agent-pinned',
+                type: 'agent',
+                status: 'active',
+                title: 'Pinned Agent',
+                _agent: {
+                    name: 'Pinned Agent',
+                    purpose: 'Testing pin functionality'
+                }
+            };
+            
+            // Set agents in state to trigger list update
+            State.set('entities.agents', [mockAgent]);
+            
+            // Wait for async updates
+            setTimeout(() => {
+                const agentItem = controls.querySelector('.agent-item');
+                expect(agentItem).toBeTruthy();
+                
+                // Click the agent item
+                agentItem.click();
+                
+                // Verify pinnedAgentId was set
+                expect(State.get('ui.pinnedAgentId')).toBe('bn-agent-pinned');
+                expect(State.get('ui.autoFollow')).toBe(true);
+                expect(State.get('ui.followTypeFilter')).toBe('agent');
+            }, 100);
+        });
     });
 });
