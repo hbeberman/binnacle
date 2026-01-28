@@ -122,6 +122,26 @@ podman build -t binnacle-worker:latest -f container/Containerfile .
 rm container/bn
 ```
 
+**Copilot CLI Version Pinning:**
+
+The container image includes a pre-installed, pinned version of the GitHub Copilot CLI to ensure consistent agent behavior:
+
+- During `bn container build`, the image runs `bn system copilot install --upstream`
+- This installs the binnacle-preferred Copilot version (embedded in the `bn` binary at build time)
+- The pinned binary is stored at `BN_DATA_DIR/utils/copilot/<version>/copilot`
+- At runtime, `entrypoint.sh` finds and uses this pinned binary with `--no-auto-update` flag
+- This prevents unexpected behavior from automatic Copilot updates during container execution
+
+To verify the installed version:
+```bash
+# Check what version will be installed
+bn system copilot version
+
+# Or inspect a running container
+ctr -n binnacle task exec -t <container-id> sh
+find /usr/local/share/binnacle/utils/copilot -name copilot
+```
+
 ### Run a Container
 
 ```bash
