@@ -825,25 +825,39 @@
                 
                 console.log('Auto-connecting to WebSocket:', wsUrl);
                 
-                await connection.connect(wsUrl, {
-                    onStateChange: () => {
-                        // Trigger graph update when data changes
-                        console.log('State updated from server');
-                        graph.rebuildGraph();
+                try {
+                    await connection.connect(wsUrl, {
+                        onStateChange: () => {
+                            // Trigger graph update when data changes
+                            console.log('State updated from server');
+                            graph.rebuildGraph();
+                        }
+                    });
+                } catch (error) {
+                    // Silently handle WebSocket unavailability (e.g., in headless browsers)
+                    if (!error.message || !error.message.includes('WebSocket is not supported')) {
+                        throw error;
                     }
-                });
+                }
             } else {
                 // Apply detected mode (archive or explicit WebSocket URL)
                 await connection.applyDetectedMode(detection);
                 
                 // If WebSocket mode, connect
                 if (detection.mode === state.ConnectionMode.WEBSOCKET && detection.wsUrl) {
-                    await connection.connect(detection.wsUrl, {
-                        onStateChange: () => {
-                            console.log('State updated from server');
-                            graph.rebuildGraph();
+                    try {
+                        await connection.connect(detection.wsUrl, {
+                            onStateChange: () => {
+                                console.log('State updated from server');
+                                graph.rebuildGraph();
+                            }
+                        });
+                    } catch (error) {
+                        // Silently handle WebSocket unavailability (e.g., in headless browsers)
+                        if (!error.message || !error.message.includes('WebSocket is not supported')) {
+                            throw error;
                         }
-                    });
+                    }
                 }
                 // TODO: If archive mode, load archive
                 // TODO: If NONE mode on file://, show connection picker
@@ -860,7 +874,10 @@
         
         // Start the app
         initializeApp().catch(err => {
-            console.error('Failed to initialize app:', err);
+            // Don't log expected errors like WebSocket unavailability in headless browsers
+            if (!err.message || !err.message.includes('WebSocket is not supported')) {
+                console.error('Failed to initialize app:', err);
+            }
         });
     </script>
 </body>

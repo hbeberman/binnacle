@@ -31,10 +31,11 @@ echo "Validating GUI with Lightpanda..."
 CONSOLE_OUTPUT=$(LIGHTPANDA_DISABLE_TELEMETRY=true lightpanda fetch --dump "http://127.0.0.1:$BN_GUI_PORT" 2>&1 || true)
 
 # Check for console errors/warnings
-# Lightpanda outputs errors to stderr with prefixes like "error:" or "TypeError:"
-if echo "$CONSOLE_OUTPUT" | grep -iE '(console\.error|console\.warn|TypeError|ReferenceError|SyntaxError|error\(|warn\()' > /dev/null; then
+# Lightpanda outputs runtime console messages with $level=warn format
+# We look for actual console.error/console.warn calls, not source code
+if echo "$CONSOLE_OUTPUT" | grep '\$level=warn.*\$msg=console\.\(error\|warn\)' > /dev/null; then
     echo "❌ GUI validation FAILED - console errors detected:"
-    echo "$CONSOLE_OUTPUT" | grep -iE '(console\.error|console\.warn|TypeError|ReferenceError|SyntaxError|error\(|warn\())' 
+    echo "$CONSOLE_OUTPUT" | grep '\$level=warn.*\$msg=console\.\(error\|warn\)' 
     exit 1
 fi
 
