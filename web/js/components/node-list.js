@@ -354,7 +354,7 @@ function renderDocCard(doc) {
         <div class="card-header">
             <div class="card-title">${docTypeLabel} ${escapeHtml(doc.title)}</div>
             <div class="card-actions">
-                <button class="card-read-btn" data-doc-id="${doc.id}" title="Read document">📖</button>
+                <button class="card-read-btn" data-doc-id="${doc.id}" title="Open document viewer">View</button>
                 <button class="card-jump-btn" data-node-id="${doc.id}" title="Jump to graph">🎯</button>
             </div>
         </div>
