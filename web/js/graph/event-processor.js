@@ -55,6 +55,7 @@ function processEvent(event) {
     console.log(`[EventProcessor] Processing event: ${event.entityType} ${event.entityId}`);
     
     processingEvent = true;
+    state.set('ui.eventPanActive', true);
     
     // Get the node to pan to
     const node = state.getNode(event.entityId);
@@ -192,6 +193,7 @@ function finishProcessingEvent() {
     
     // Mark as no longer processing
     processingEvent = false;
+    state.set('ui.eventPanActive', false);
     
     console.log(`[EventProcessor] Event processing complete. ${updatedQueue.length} events remaining in queue`);
     
