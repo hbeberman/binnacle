@@ -132,19 +132,29 @@ impl Service<Request<Body>> for EmbeddedAssetService {
                 .body(Body::from(content.clone()))
                 .unwrap()
         } else {
-            // Try index.html as fallback for client-side routing
-            if let Some(content) = assets.get("index.html") {
-                Response::builder()
-                    .status(StatusCode::OK)
-                    .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-                    .body(Body::from(content.clone()))
-                    .unwrap()
-            } else {
-                Response::builder()
-                    .status(StatusCode::NOT_FOUND)
-                    .body(Body::from("404 Not Found"))
-                    .unwrap()
+            // Only use index.html fallback for client-side routing, not for actual file requests
+            // File requests have extensions or are in asset directories
+            let is_file_request = path.contains('.')
+                || path.starts_with("js/")
+                || path.starts_with("css/")
+                || path.starts_with("assets/");
+
+            if !is_file_request {
+                // Try index.html as fallback for client-side routing
+                if let Some(content) = assets.get("index.html") {
+                    return std::future::ready(Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+                        .body(Body::from(content.clone()))
+                        .unwrap()));
+                }
             }
+
+            // File not found - return 404
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("404 Not Found"))
+                .unwrap()
         };
 
         std::future::ready(Ok(response))
