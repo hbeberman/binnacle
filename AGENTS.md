@@ -250,7 +250,15 @@ When working on GUI features (frontend JavaScript/CSS changes):
    - Edit JS/CSS files and refresh browser to see changes instantly
    - Faster iteration than rebuilding the bundle
 
-2. **Test with bundled assets before committing**:
+2. **Validate before committing**:
+   ```bash
+   just gui-check
+   ```
+   - Validates GUI loads without console errors using Lightpanda headless browser
+   - CI will fail PRs that introduce console errors or warnings
+   - Always run this before committing GUI changes
+
+3. **Test with bundled assets before committing**:
    ```bash
    # Build with bundle (production mode)
    cargo build --features gui
@@ -260,7 +268,7 @@ When working on GUI features (frontend JavaScript/CSS changes):
    bn gui serve
    ```
 
-3. **Bundle is cached automatically**:
+4. **Bundle is cached automatically**:
    - `build.rs` hashes the `web/` directory
    - Only rebuilds bundle when files change
    - Saves time on repeated builds
@@ -269,6 +277,11 @@ When working on GUI features (frontend JavaScript/CSS changes):
 - **Development mode** (`--dev`): Serves from filesystem, instant updates
 - **Production mode** (default): Serves embedded bundle compressed in binary
 - Bundle created by `scripts/bundle-web.sh` during `cargo build --features gui`
+
+**Note**: If you need to run Lightpanda manually, always disable telemetry:
+```bash
+LIGHTPANDA_DISABLE_TELEMETRY=true lightpanda <command>
+```
 
 ## Using the Work Queue
 
