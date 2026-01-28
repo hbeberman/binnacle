@@ -75,7 +75,8 @@ function findActiveTasks() {
         const agent = agents.find(a => a.id === edge.source);
         const task = getNode(edge.target);  // Can be task or bug
         
-        if (agent && task) {
+        // Only include tasks that are actually in progress (not done/cancelled)
+        if (agent && task && (task.status === 'pending' || task.status === 'in_progress')) {
             return { agent, task };
         }
         return null;
