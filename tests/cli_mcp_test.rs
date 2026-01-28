@@ -96,8 +96,8 @@ fn test_mcp_manifest_has_five_tools() {
     let tools = manifest["tools"].as_array().unwrap();
     assert_eq!(
         tools.len(),
-        5,
-        "Should have exactly 5 tools: binnacle-set_agent, binnacle-orient, binnacle-goodbye, bn_run, binnacle-debug"
+        8,
+        "Should have exactly 8 tools: binnacle-set_agent, binnacle-orient, binnacle-goodbye, bn_run, bn_lineage, bn_peers, bn_descendants, binnacle-debug"
     );
 }
 
