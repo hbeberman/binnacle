@@ -23,6 +23,30 @@ mod gui_enabled {
         cmd
     }
 
+    /// Helper to get storage dir with the same environment as bn_isolated().
+    /// This ensures the test creates files where the isolated command will look for them.
+    fn get_storage_dir_isolated(repo_path: &std::path::Path) -> std::path::PathBuf {
+        // Temporarily clear BN_DATA_DIR to match bn_isolated() environment
+        let original = std::env::var("BN_DATA_DIR").ok();
+        // SAFETY: This is a test helper, single-threaded test execution
+        unsafe {
+            std::env::remove_var("BN_DATA_DIR");
+            std::env::remove_var("BN_CONTAINER_MODE");
+        }
+
+        let result = binnacle::storage::get_storage_dir(repo_path).unwrap();
+
+        // Restore original environment
+        // SAFETY: This is a test helper, single-threaded test execution
+        if let Some(val) = original {
+            unsafe {
+                std::env::set_var("BN_DATA_DIR", val);
+            }
+        }
+
+        result
+    }
+
     #[test]
     fn test_gui_help() {
         let mut cmd = bn_isolated();
@@ -201,7 +225,7 @@ mod gui_enabled {
 
         // Create a stale PID file manually (PID that doesn't exist)
         // First we need to find the storage directory
-        let storage_dir = binnacle::storage::get_storage_dir(temp.path()).unwrap();
+        let storage_dir = get_storage_dir_isolated(temp.path());
         let pid_file_path = storage_dir.join("gui.pid");
         std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
@@ -231,7 +255,7 @@ mod gui_enabled {
         cmd.assert().success();
 
         // Create a stale PID file manually
-        let storage_dir = binnacle::storage::get_storage_dir(temp.path()).unwrap();
+        let storage_dir = get_storage_dir_isolated(temp.path());
         let pid_file_path = storage_dir.join("gui.pid");
         std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
@@ -262,7 +286,7 @@ mod gui_enabled {
         cmd.assert().success();
 
         // Create a stale PID file manually
-        let storage_dir = binnacle::storage::get_storage_dir(temp.path()).unwrap();
+        let storage_dir = get_storage_dir_isolated(temp.path());
         let pid_file_path = storage_dir.join("gui.pid");
         std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
@@ -391,7 +415,7 @@ mod gui_enabled {
         cmd.assert().success();
 
         // Create a stale PID file manually
-        let storage_dir = binnacle::storage::get_storage_dir(temp.path()).unwrap();
+        let storage_dir = get_storage_dir_isolated(temp.path());
         let pid_file_path = storage_dir.join("gui.pid");
         std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
@@ -479,7 +503,7 @@ mod gui_enabled {
         cmd.assert().success();
 
         // Create a stale PID file manually
-        let storage_dir = binnacle::storage::get_storage_dir(temp.path()).unwrap();
+        let storage_dir = get_storage_dir_isolated(temp.path());
         let pid_file_path = storage_dir.join("gui.pid");
         std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
@@ -534,7 +558,7 @@ mod gui_enabled {
         cmd.assert().success();
 
         // Create a stale PID file manually
-        let storage_dir = binnacle::storage::get_storage_dir(temp.path()).unwrap();
+        let storage_dir = get_storage_dir_isolated(temp.path());
         let pid_file_path = storage_dir.join("gui.pid");
         std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
@@ -562,7 +586,7 @@ mod gui_enabled {
         cmd.assert().success();
 
         // Create a stale PID file manually
-        let storage_dir = binnacle::storage::get_storage_dir(temp.path()).unwrap();
+        let storage_dir = get_storage_dir_isolated(temp.path());
         let pid_file_path = storage_dir.join("gui.pid");
         std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
