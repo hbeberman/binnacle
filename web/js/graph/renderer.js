@@ -58,7 +58,9 @@ const previousAgentStatuses = new Map(); // agentId -> previous status
  * Initialize the graph renderer with a canvas element
  * @param {HTMLCanvasElement} canvasElement - The canvas to render to
  * @param {Object} callbacks - Optional callback functions
+ * @param {Function} callbacks.onNodeClick - Called when single-clicking a node
  * @param {Function} callbacks.onNodeDoubleClick - Called when double-clicking a node
+ * @param {Function} callbacks.onCanvasClick - Called when clicking on empty space
  */
 export function init(canvasElement, callbacks = {}) {
     canvas = canvasElement;
@@ -69,7 +71,9 @@ export function init(canvasElement, callbacks = {}) {
     
     // Initialize camera controls (panning, zooming, node dragging, hover)
     camera.init(canvasElement, {
-        onNodeDoubleClick: callbacks.onNodeDoubleClick || null
+        onNodeClick: callbacks.onNodeClick || null,
+        onNodeDoubleClick: callbacks.onNodeDoubleClick || null,
+        onCanvasClick: callbacks.onCanvasClick || null
     });
     
     // Subscribe to state changes that require re-render

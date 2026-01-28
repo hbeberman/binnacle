@@ -576,9 +576,14 @@
         graph.init(canvas, {
             onNodeClick: (node) => {
                 console.log('Node clicked:', node);
-                // Show info panel for the clicked node
+                // Show info panel for the clicked node in compact mode
                 updateInfoPanelContent(infoPanel, node, [], [], []);
                 showInfoPanel(infoPanel);
+            },
+            onCanvasClick: () => {
+                console.log('Canvas clicked (empty space)');
+                // Hide info panel when clicking on empty space
+                hideInfoPanel(infoPanel);
             },
             onNodeHover: (node) => {
                 if (node) {
