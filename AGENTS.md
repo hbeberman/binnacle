@@ -257,6 +257,10 @@ When working on GUI features (frontend JavaScript/CSS changes):
    - Validates GUI loads without console errors using Lightpanda headless browser
    - CI will fail PRs that introduce console errors or warnings
    - Always run this before committing GUI changes
+   - **Note**: If you need to run Lightpanda manually (not via just gui-check), always disable telemetry:
+     ```bash
+     LIGHTPANDA_DISABLE_TELEMETRY=true lightpanda <command>
+     ```
 
 3. **Test with bundled assets before committing**:
    ```bash
@@ -277,11 +281,6 @@ When working on GUI features (frontend JavaScript/CSS changes):
 - **Development mode** (`--dev`): Serves from filesystem, instant updates
 - **Production mode** (default): Serves embedded bundle compressed in binary
 - Bundle created by `scripts/bundle-web.sh` during `cargo build --features gui`
-
-**Note**: If you need to run Lightpanda manually, always disable telemetry:
-```bash
-LIGHTPANDA_DISABLE_TELEMETRY=true lightpanda <command>
-```
 
 ## Using the Work Queue
 
