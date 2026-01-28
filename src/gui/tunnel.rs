@@ -158,9 +158,10 @@ impl TunnelManager {
             .ok_or_else(|| TunnelError::Internal("Failed to capture stdout".to_string()))?;
 
         // Spawn thread to read stdout and extract URL
-        // devtunnel outputs: "Connect via browser: https://<id>-<port>.use.devtunnels.ms"
+        // devtunnel outputs: "Connect via browser: https://<id>-<port>.<region>.devtunnels.ms"
+        // Region codes include: use, usw2, eus, etc.
         let url_regex =
-            Regex::new(r"https://[a-z0-9-]+\.use\.devtunnels\.ms").expect("Invalid regex");
+            Regex::new(r"https://[a-z0-9-]+\.[a-z0-9]+\.devtunnels\.ms").expect("Invalid regex");
 
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
@@ -361,11 +362,12 @@ mod tests {
 
     #[test]
     fn test_url_regex_pattern() {
-        let regex = Regex::new(r"https://[a-z0-9-]+\.use\.devtunnels\.ms").unwrap();
+        let regex = Regex::new(r"https://[a-z0-9-]+\.[a-z0-9]+\.devtunnels\.ms").unwrap();
 
-        // Should match valid devtunnels URLs
+        // Should match valid devtunnels URLs (various region codes)
         assert!(regex.is_match("https://7gs626gx-9999.use.devtunnels.ms"));
-        assert!(regex.is_match("https://abc-123.use.devtunnels.ms"));
+        assert!(regex.is_match("https://1kzpxxln-3030.usw2.devtunnels.ms"));
+        assert!(regex.is_match("https://abc-123.eus.devtunnels.ms"));
         assert!(regex.is_match("https://a.use.devtunnels.ms"));
 
         // Should not match invalid URLs
