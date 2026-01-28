@@ -59,6 +59,15 @@ export class WebSocketConnection {
                 return;
             }
 
+            // Check if WebSocket is available
+            if (typeof WebSocket === 'undefined') {
+                const error = new Error('WebSocket is not supported in this environment');
+                this.state = ConnectionState.ERROR;
+                this._handleError(error);
+                reject(error);
+                return;
+            }
+
             this.url = url;
             this.state = ConnectionState.CONNECTING;
 

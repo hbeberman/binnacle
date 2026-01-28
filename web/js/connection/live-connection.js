@@ -8,7 +8,7 @@
  * - State synchronization between server and client
  */
 
-import { WebSocketConnection, ConnectionState, createConnection } from './websocket.js';
+import { WebSocketConnection, ConnectionState } from './websocket.js';
 import { handleMessage, setReloadCallback } from './message-handlers.js';
 import * as state from '../state.js';
 import { ConnectionMode, ConnectionStatus } from '../state.js';
@@ -77,7 +77,11 @@ export async function connect(wsUrl, options = {}) {
             }
         },
         onError: (error) => {
-            console.error('WebSocket error:', error);
+            // Only log error if it's not a WebSocket unavailability issue
+            // (Lightpanda headless browser doesn't support WebSocket)
+            if (!error.message || !error.message.includes('WebSocket is not supported')) {
+                console.error('WebSocket error:', error);
+            }
             state.setConnectionStatus(ConnectionStatus.ERROR);
             if (options.onError) {
                 options.onError(error);
@@ -258,7 +262,6 @@ async function fetchAllData(baseUrl, onStateChange) {
     
     // Fetch all data in parallel
     const [
-        configData,
         tasksData,
         bugsData,
         ideasData,
@@ -271,7 +274,6 @@ async function fetchAllData(baseUrl, onStateChange) {
         agentsData,
         queueData
     ] = await Promise.all([
-        fetchJson(`${baseUrl}/api/config`),
         fetchJson(`${baseUrl}/api/tasks`),
         fetchJson(`${baseUrl}/api/bugs`),
         fetchJson(`${baseUrl}/api/ideas`),
