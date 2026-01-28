@@ -630,10 +630,43 @@ function updateAutoFollow() {
                 return; // Don't process normal follow logic during linger
             }
         } else {
-            // Linger period expired - clear goodbye state
+            // Linger period expired - transition to next agent
+            console.log(`Goodbye linger period expired for ${goodbyeAgentId}`);
+            
+            // Find next agent to follow (by priority, excluding the goodbye agent)
+            const remainingAgents = candidateNodes.filter(n => 
+                n.type === 'agent' && n.id !== goodbyeAgentId
+            );
+            
+            if (remainingAgents.length > 0) {
+                // Sort agents by started_at (most recent first)
+                const sortedAgents = [...remainingAgents].sort((a, b) => {
+                    const aTime = new Date(a.started_at || 0).getTime();
+                    const bTime = new Date(b.started_at || 0).getTime();
+                    return bTime - aTime;
+                });
+                
+                const nextAgent = sortedAgents[0];
+                console.log(`Smoothly transitioning from ${goodbyeAgentId} to ${nextAgent.id}`);
+                
+                // Update following state
+                state.set('ui.followingNodeId', nextAgent.id);
+                
+                // Smooth pan to next agent
+                if (canvas && nextAgent.x !== undefined && nextAgent.y !== undefined) {
+                    panToNode(nextAgent.x, nextAgent.y, {
+                        canvas: canvas,
+                        duration: 800 // Smooth 0.8-second transition
+                    });
+                }
+            } else {
+                console.log(`No remaining agents - camera stays at current position`);
+            }
+            
+            // Clear goodbye state
             state.set('ui.agentGoodbyeActive', null);
             state.set('ui.goodbyeStartTime', null);
-            console.log(`Goodbye linger period expired for ${goodbyeAgentId}`);
+            return; // Exit after handling goodbye transition
         }
     }
     
