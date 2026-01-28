@@ -1795,6 +1795,22 @@ pub fn hooks_uninstall(repo_path: &Path) -> Result<HooksUninstallResult> {
 
 // === Copilot Management ===
 
+/// Get the data directory for copilot utilities.
+/// Respects BN_DATA_DIR environment variable for test isolation.
+fn get_copilot_data_dir() -> Result<PathBuf> {
+    let base_dir = if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
+        // In test mode, BN_DATA_DIR is set to the test directory
+        PathBuf::from(override_dir)
+    } else {
+        // In normal mode, use ~/.local/share/binnacle
+        dirs::data_local_dir()
+            .ok_or_else(|| Error::Other("Could not determine local data directory".to_string()))?
+            .join("binnacle")
+    };
+
+    Ok(base_dir.join("utils").join("copilot"))
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CopilotPathResult {
     pub version: String,
@@ -1844,6 +1860,48 @@ impl Output for CopilotInstallResult {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CopilotVersionInfo {
+    pub version: String,
+    pub path: String,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CopilotVersionResult {
+    pub active_version: String,
+    pub active_source: String, // "config" or "binnacle-preferred"
+    pub installed_versions: Vec<CopilotVersionInfo>,
+}
+
+impl Output for CopilotVersionResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "Active: {} ({})",
+            self.active_version, self.active_source
+        ));
+        lines.push(String::new());
+
+        if self.installed_versions.is_empty() {
+            lines.push("No versions installed.".to_string());
+            lines.push("Run 'bn system copilot install --upstream' to install the binnacle-preferred version.".to_string());
+        } else {
+            lines.push("Installed versions:".to_string());
+            for info in &self.installed_versions {
+                let indicator = if info.is_active { " *" } else { "  " };
+                lines.push(format!("{} {} ({})", indicator, info.version, info.path));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
 /// Get the path to the active Copilot CLI binary.
 /// Checks config.kdl for a specified version, otherwise uses the binnacle-preferred version.
 pub fn copilot_path(repo_path: &Path) -> Result<CopilotPathResult> {
@@ -1866,13 +1924,9 @@ pub fn copilot_path(repo_path: &Path) -> Result<CopilotPathResult> {
         format!("v{}", version)
     };
 
-    // Construct expected path: ~/.local/share/binnacle/utils/copilot/<version>/copilot
-    let cache_dir = dirs::data_local_dir()
-        .ok_or_else(|| Error::Other("Could not determine local data directory".to_string()))?
-        .join("binnacle")
-        .join("utils")
-        .join("copilot")
-        .join(&version_normalized);
+    // Construct expected path
+    let copilot_base_dir = get_copilot_data_dir()?;
+    let cache_dir = copilot_base_dir.join(&version_normalized);
 
     let binary_path = cache_dir.join("copilot");
     let exists = binary_path.exists();
@@ -1921,13 +1975,9 @@ pub fn copilot_install(version: Option<String>, upstream: bool) -> Result<Copilo
         format!("v{}", version_to_install)
     };
 
-    // Cache directory: ~/.local/share/binnacle/utils/copilot/<version>/
-    let cache_dir = dirs::data_local_dir()
-        .ok_or_else(|| Error::Other("Could not determine local data directory".to_string()))?
-        .join("binnacle")
-        .join("utils")
-        .join("copilot")
-        .join(&version_normalized);
+    // Cache directory
+    let copilot_base_dir = get_copilot_data_dir()?;
+    let cache_dir = copilot_base_dir.join(&version_normalized);
 
     let binary_path = cache_dir.join("copilot");
 
@@ -2027,6 +2077,65 @@ pub fn copilot_install(version: Option<String>, upstream: bool) -> Result<Copilo
         version: version_normalized,
         path: binary_path.to_string_lossy().to_string(),
         already_installed: false,
+    })
+}
+
+/// List all installed Copilot CLI versions with active indicator.
+pub fn copilot_version_list(repo_path: &Path) -> Result<CopilotVersionResult> {
+    use std::fs;
+
+    // Get the active version and source
+    let active_info = copilot_path(repo_path)?;
+    let active_version = active_info.version.clone();
+    let active_source = active_info.source.clone();
+
+    // Base copilot directory
+    let copilot_base_dir = get_copilot_data_dir()?;
+
+    let mut installed_versions = Vec::new();
+
+    // Check if the base directory exists
+    if copilot_base_dir.exists() && copilot_base_dir.is_dir() {
+        // Read all subdirectories (each should be a version like v0.0.396)
+        let entries = fs::read_dir(&copilot_base_dir).map_err(|e| {
+            Error::Other(format!(
+                "Failed to read copilot directory {}: {}",
+                copilot_base_dir.display(),
+                e
+            ))
+        })?;
+
+        for entry in entries {
+            let entry = entry
+                .map_err(|e| Error::Other(format!("Failed to read directory entry: {}", e)))?;
+
+            let path = entry.path();
+            if path.is_dir() {
+                // Version directory name (e.g., v0.0.396)
+                if let Some(version_name) = path.file_name().and_then(|n| n.to_str()) {
+                    let binary_path = path.join("copilot");
+
+                    // Only include if the binary exists
+                    if binary_path.exists() {
+                        let is_active = version_name == active_version;
+                        installed_versions.push(CopilotVersionInfo {
+                            version: version_name.to_string(),
+                            path: binary_path.to_string_lossy().to_string(),
+                            is_active,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort versions by name (which works for semver-like versions)
+    installed_versions.sort_by(|a, b| b.version.cmp(&a.version));
+
+    Ok(CopilotVersionResult {
+        active_version,
+        active_source,
+        installed_versions,
     })
 }
 
