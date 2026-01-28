@@ -965,6 +965,36 @@ fn run_command(
                 let result = commands::graph_components(repo_path)?;
                 output(&result, human);
             }
+            GraphCommands::Lineage { id, depth, verbose } => {
+                let result = commands::graph_lineage(repo_path, &id, depth, verbose)?;
+                output(&result, human);
+            }
+            GraphCommands::Peers {
+                id,
+                depth,
+                include_closed,
+                verbose,
+            } => {
+                let result = commands::graph_peers(repo_path, &id, depth, include_closed, verbose)?;
+                output(&result, human);
+            }
+            GraphCommands::Descendants {
+                id,
+                depth,
+                all,
+                include_closed,
+                verbose,
+            } => {
+                let result = commands::graph_descendants(
+                    repo_path,
+                    &id,
+                    depth,
+                    all,
+                    include_closed,
+                    verbose,
+                )?;
+                output(&result, human);
+            }
         },
         Some(Commands::Search { command }) => match command {
             SearchCommands::Link {
@@ -2857,6 +2887,44 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
 
         Some(Commands::Graph { command }) => match command {
             GraphCommands::Components => ("graph components".to_string(), serde_json::json!({})),
+            GraphCommands::Lineage { id, depth, verbose } => (
+                "graph lineage".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "depth": depth,
+                    "verbose": verbose,
+                }),
+            ),
+            GraphCommands::Peers {
+                id,
+                depth,
+                include_closed,
+                verbose,
+            } => (
+                "graph peers".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "depth": depth,
+                    "include_closed": include_closed,
+                    "verbose": verbose,
+                }),
+            ),
+            GraphCommands::Descendants {
+                id,
+                depth,
+                all,
+                include_closed,
+                verbose,
+            } => (
+                "graph descendants".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "depth": depth,
+                    "all": all,
+                    "include_closed": include_closed,
+                    "verbose": verbose,
+                }),
+            ),
         },
 
         Some(Commands::Search { command }) => match command {

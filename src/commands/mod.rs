@@ -9340,6 +9340,330 @@ pub fn graph_components(repo_path: &Path) -> Result<GraphComponentsResult> {
     })
 }
 
+// === Graph Navigation Commands ===
+
+/// A single hop in a lineage traversal.
+#[derive(Serialize)]
+pub struct LineageHop {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub entity_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_type: Option<String>,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edge_to_parent: Option<String>,
+}
+
+/// Result of lineage traversal.
+#[derive(Serialize)]
+pub struct LineageResult {
+    pub source: String,
+    pub hops: Vec<LineageHop>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prd_found: Option<String>,
+    pub truncated: bool,
+}
+
+impl Output for LineageResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = vec![format!(
+            "Lineage for {} ({})",
+            self.source,
+            self.hops
+                .first()
+                .map(|h| h.title.as_str())
+                .unwrap_or("unknown")
+        )];
+        lines.push(String::new());
+
+        for (idx, hop) in self.hops.iter().enumerate() {
+            if idx > 0 {
+                let edge_str = hop.edge_to_parent.as_deref().unwrap_or("???");
+                lines.push(format!("  ↑ {}", edge_str));
+            }
+
+            let status_str = hop
+                .status
+                .as_deref()
+                .or(hop.doc_type.as_deref())
+                .map(|s| format!("/{}", s))
+                .unwrap_or_default();
+
+            lines.push(format!(
+                "  {} [{}{}] {}",
+                hop.id, hop.entity_type, status_str, hop.title
+            ));
+
+            if let Some(ref desc) = hop.description
+                && !desc.is_empty()
+            {
+                lines.push(format!("    {}", desc));
+            }
+        }
+
+        lines.push(String::new());
+        if let Some(ref prd) = self.prd_found {
+            lines.push(format!("Found PRD: {}", prd));
+        } else if self.truncated {
+            lines.push("No PRD found (depth limit reached)".to_string());
+        } else {
+            lines.push("No PRD found in ancestry chain".to_string());
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Walk the ancestry chain from a task up to the first PRD document.
+pub fn graph_lineage(
+    repo_path: &Path,
+    id: &str,
+    max_depth: usize,
+    verbose: bool,
+) -> Result<LineageResult> {
+    let storage = Storage::open(repo_path)?;
+    let mut hops = Vec::new();
+    let mut current_id = id.to_string();
+    let mut prd_found = None;
+    let mut depth = 0;
+
+    loop {
+        if depth >= max_depth {
+            return Ok(LineageResult {
+                source: id.to_string(),
+                hops,
+                prd_found,
+                truncated: true,
+            });
+        }
+
+        // Get entity details
+        let entity_type = storage.get_entity_type(&current_id)?;
+        let (title, status, doc_type, description) = match entity_type {
+            EntityType::Task => {
+                let task = storage.get_task(&current_id)?;
+                let status_str = serde_json::to_value(&task.status)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| format!("{:?}", task.status));
+                (
+                    task.core.title,
+                    Some(status_str),
+                    None,
+                    if verbose { task.core.description } else { None },
+                )
+            }
+            EntityType::Bug => {
+                let bug = storage.get_bug(&current_id)?;
+                let status_str = serde_json::to_value(&bug.status)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| format!("{:?}", bug.status));
+                (
+                    bug.core.title,
+                    Some(status_str),
+                    None,
+                    if verbose { bug.core.description } else { None },
+                )
+            }
+            EntityType::Milestone => {
+                let milestone = storage.get_milestone(&current_id)?;
+                let status_str = serde_json::to_value(&milestone.status)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| format!("{:?}", milestone.status));
+                (
+                    milestone.core.title,
+                    Some(status_str),
+                    None,
+                    if verbose {
+                        milestone.core.description
+                    } else {
+                        None
+                    },
+                )
+            }
+            EntityType::Idea => {
+                let idea = storage.get_idea(&current_id)?;
+                let status_str = serde_json::to_value(&idea.status)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| format!("{:?}", idea.status));
+                (
+                    idea.core.title,
+                    Some(status_str),
+                    None,
+                    if verbose { idea.core.description } else { None },
+                )
+            }
+            EntityType::Doc => {
+                let doc = storage.get_doc(&current_id)?;
+                let doc_type_str = serde_json::to_value(&doc.doc_type)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| format!("{:?}", doc.doc_type));
+                (doc.core.title, None, Some(doc_type_str), None) // Don't include full doc content in lineage
+            }
+            EntityType::Agent => {
+                let agent = storage.get_agent_by_id(&current_id)?;
+                let agent_type_str = serde_json::to_value(&agent.agent_type)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| format!("{:?}", agent.agent_type));
+                (format!("Agent: {}", agent_type_str), None, None, None)
+            }
+            EntityType::Queue => {
+                let queue = storage.get_queue_by_id(&current_id)?;
+                (queue.title, None, None, queue.description.clone())
+            }
+            _ => {
+                return Err(Error::InvalidInput(format!(
+                    "Entity type {:?} not supported for lineage traversal",
+                    entity_type
+                )));
+            }
+        };
+
+        // Create hop entry
+        let edge_to_parent = if depth == 0 {
+            None
+        } else {
+            Some("child_of".to_string())
+        };
+
+        hops.push(LineageHop {
+            id: current_id.clone(),
+            entity_type: entity_type.to_string(),
+            status,
+            doc_type: doc_type.clone(),
+            title,
+            description,
+            edge_to_parent,
+        });
+
+        // Check if this node is a PRD doc
+        if entity_type == EntityType::Doc
+            && let Some(ref dtype) = doc_type
+            && dtype == "prd"
+        {
+            prd_found = Some(current_id.clone());
+            break;
+        }
+
+        // Check for documents edges to PRD at this hop
+        let doc_edges = storage.list_edges(Some(EdgeType::Documents), None, Some(&current_id))?;
+        for edge in doc_edges {
+            if let Ok(EntityType::Doc) = storage.get_entity_type(&edge.source)
+                && let Ok(doc) = storage.get_doc(&edge.source)
+                && doc.doc_type == DocType::Prd
+            {
+                // Add the PRD doc as the next hop
+                hops.push(LineageHop {
+                    id: edge.source.clone(),
+                    entity_type: "doc".to_string(),
+                    status: None,
+                    doc_type: Some("prd".to_string()),
+                    title: doc.core.title,
+                    description: None,
+                    edge_to_parent: Some("documents".to_string()),
+                });
+                prd_found = Some(edge.source);
+                break;
+            }
+        }
+
+        if prd_found.is_some() {
+            break;
+        }
+
+        // Find parent via child_of edge
+        let parent_edges = storage.list_edges(Some(EdgeType::ChildOf), Some(&current_id), None)?;
+
+        if let Some(edge) = parent_edges.first() {
+            current_id = edge.target.clone();
+            depth += 1;
+        } else {
+            // No parent found, end of chain
+            break;
+        }
+    }
+
+    Ok(LineageResult {
+        source: id.to_string(),
+        hops,
+        prd_found,
+        truncated: false,
+    })
+}
+
+/// Placeholder result for bn peers command.
+#[derive(Serialize)]
+pub struct PeersResult {
+    pub message: String,
+}
+
+impl Output for PeersResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        self.message.clone()
+    }
+}
+
+/// Placeholder for bn peers command (to be implemented).
+pub fn graph_peers(
+    _repo_path: &Path,
+    _id: &str,
+    _depth: usize,
+    _include_closed: bool,
+    _verbose: bool,
+) -> Result<PeersResult> {
+    Err(Error::InvalidInput(
+        "bn peers command not yet implemented".to_string(),
+    ))
+}
+
+/// Placeholder result for bn descendants command.
+#[derive(Serialize)]
+pub struct DescendantsResult {
+    pub message: String,
+}
+
+impl Output for DescendantsResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        self.message.clone()
+    }
+}
+
+/// Placeholder for bn descendants command (to be implemented).
+pub fn graph_descendants(
+    _repo_path: &Path,
+    _id: &str,
+    _depth: usize,
+    _all: bool,
+    _include_closed: bool,
+    _verbose: bool,
+) -> Result<DescendantsResult> {
+    Err(Error::InvalidInput(
+        "bn descendants command not yet implemented".to_string(),
+    ))
+}
+
 // === Search Commands ===
 
 /// Search result for link queries
