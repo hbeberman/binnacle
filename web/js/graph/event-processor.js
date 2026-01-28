@@ -1,8 +1,9 @@
 /**
  * Event Queue Processor
  * 
- * Processes events from the eventQueue, panning to new nodes
- * and lingering for 5 seconds before returning to the previous position.
+ * Processes events from the eventQueue, panning to new nodes sequentially
+ * and lingering for 5 seconds on each. After the queue is empty, returns to
+ * the followed agent (if Follow Agents ON) or stays at the last event position.
  */
 
 import * as state from '../state.js';
@@ -14,6 +15,7 @@ const LINGER_DURATION_MS = 5000; // 5 seconds
 // Processing state
 let processingEvent = false;
 let lingerTimeout = null;
+let savedInitialState = null; // Saved state from before queue processing started
 
 /**
  * Initialize the event processor
@@ -65,30 +67,32 @@ function processEvent(event) {
         return;
     }
     
-    // Save current camera position and follow state
-    const viewport = state.get('ui.viewport');
-    const followingNodeId = state.get('ui.followingNodeId');
-    
-    const savedState = {
-        panX: viewport.panX,
-        panY: viewport.panY,
-        zoom: viewport.zoom,
-        followTarget: followingNodeId
-    };
-    
-    console.log(`[EventProcessor] Saved position: panX=${savedState.panX}, panY=${savedState.panY}, zoom=${savedState.zoom}, following=${savedState.followTarget}`);
+    // Save initial state only once at the start of queue processing
+    if (savedInitialState === null) {
+        const viewport = state.get('ui.viewport');
+        const followingNodeId = state.get('ui.followingNodeId');
+        
+        savedInitialState = {
+            panX: viewport.panX,
+            panY: viewport.panY,
+            zoom: viewport.zoom,
+            followTarget: followingNodeId
+        };
+        
+        console.log(`[EventProcessor] Saved initial state: panX=${savedInitialState.panX}, panY=${savedInitialState.panY}, zoom=${savedInitialState.zoom}, following=${savedInitialState.followTarget}`);
+    }
     
     // Update linger state
     state.set('ui.eventLinger', {
         active: true,
         entityId: event.entityId,
         startTime: Date.now(),
-        savedPosition: {
-            panX: savedState.panX,
-            panY: savedState.panY,
-            zoom: savedState.zoom
-        },
-        savedFollowTarget: savedState.followTarget
+        savedPosition: savedInitialState ? {
+            panX: savedInitialState.panX,
+            panY: savedInitialState.panY,
+            zoom: savedInitialState.zoom
+        } : null,
+        savedFollowTarget: savedInitialState ? savedInitialState.followTarget : null
     });
     
     // Pan to the event node
@@ -104,45 +108,13 @@ function processEvent(event) {
             state.set('ui.selectedNode', event.entityId);
             state.set('ui.selectedNodes', [event.entityId]);
             
-            // Schedule return after linger duration
+            // Schedule completion after linger duration
+            // Don't return to previous position yet - wait until queue is empty
             lingerTimeout = setTimeout(() => {
-                returnToPreviousPosition(savedState);
+                finishProcessingEvent();
             }, LINGER_DURATION_MS);
         }
     });
-}
-
-/**
- * Return camera to previous position after lingering
- * @param {Object} savedState - Saved camera and follow state
- */
-function returnToPreviousPosition(savedState) {
-    console.log(`[EventProcessor] Linger complete, returning to previous position`);
-    
-    // If we were following an agent, resume following
-    if (savedState.followTarget) {
-        const followTarget = state.getNode(savedState.followTarget);
-        
-        if (followTarget && followTarget.x !== undefined && followTarget.y !== undefined) {
-            console.log(`[EventProcessor] Resuming follow of ${savedState.followTarget}`);
-            
-            panToNode(followTarget.x, followTarget.y, {
-                canvas: document.querySelector('#graph-canvas'),
-                duration: 500,
-                onComplete: () => {
-                    // Restore follow state
-                    state.set('ui.followingNodeId', savedState.followTarget);
-                    finishProcessingEvent();
-                }
-            });
-        } else {
-            // Follow target is gone, just return to saved position
-            returnToSavedCamera(savedState);
-        }
-    } else {
-        // No follow target, return to saved camera position
-        returnToSavedCamera(savedState);
-    }
 }
 
 /**
@@ -162,7 +134,7 @@ function returnToSavedCamera(savedState) {
         duration: 500,
         targetZoom: savedState.zoom,
         onComplete: () => {
-            finishProcessingEvent();
+            console.log(`[EventProcessor] Returned to saved position`);
         }
     });
 }
@@ -197,11 +169,57 @@ function finishProcessingEvent() {
     
     console.log(`[EventProcessor] Event processing complete. ${updatedQueue.length} events remaining in queue`);
     
+    // If queue is now empty, return to initial saved state
+    if (updatedQueue.length === 0 && savedInitialState !== null) {
+        console.log(`[EventProcessor] Queue empty, returning to initial position`);
+        returnToInitialPosition();
+        return;
+    }
+    
     // Process next event if any
     if (updatedQueue.length > 0) {
         // Use setTimeout to avoid recursion and allow state to settle
         setTimeout(() => {
             onEventQueueChanged(updatedQueue);
         }, 100);
+    }
+}
+
+/**
+ * Return camera to initial position when queue is empty
+ */
+function returnToInitialPosition() {
+    if (!savedInitialState) {
+        console.warn('[EventProcessor] No saved initial state to return to');
+        return;
+    }
+    
+    const initialState = savedInitialState;
+    savedInitialState = null; // Clear saved state
+    
+    console.log(`[EventProcessor] Returning to initial position/follow target`);
+    
+    // If we were following an agent, resume following
+    if (initialState.followTarget) {
+        const followTarget = state.getNode(initialState.followTarget);
+        
+        if (followTarget && followTarget.x !== undefined && followTarget.y !== undefined) {
+            console.log(`[EventProcessor] Resuming follow of ${initialState.followTarget}`);
+            
+            panToNode(followTarget.x, followTarget.y, {
+                canvas: document.querySelector('#graph-canvas'),
+                duration: 500,
+                onComplete: () => {
+                    // Restore follow state
+                    state.set('ui.followingNodeId', initialState.followTarget);
+                }
+            });
+        } else {
+            // Follow target is gone, just return to saved position
+            returnToSavedCamera(initialState);
+        }
+    } else {
+        // No follow target, stay at last event position
+        console.log(`[EventProcessor] No follow target, staying at current position`);
     }
 }
