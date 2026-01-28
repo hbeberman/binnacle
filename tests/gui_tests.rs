@@ -317,6 +317,58 @@ mod gui_enabled {
     }
 
     #[test]
+    fn test_gui_export_includes_state_js() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle
+        let mut cmd = bn_isolated();
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Export GUI to temporary output directory
+        let output_dir = tempfile::tempdir().unwrap();
+        let mut cmd = bn_isolated();
+        cmd.current_dir(&temp);
+        cmd.arg("gui")
+            .arg("export")
+            .arg("-o")
+            .arg(output_dir.path());
+
+        let output = cmd.assert().success();
+        let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+        assert!(
+            stdout.contains(r#""status":"success""#),
+            "Export should succeed"
+        );
+
+        // Verify state.js exists in the exported bundle
+        let state_js_path = output_dir.path().join("js").join("state.js");
+        assert!(
+            state_js_path.exists(),
+            "state.js should be included in exported bundle at {:?}",
+            state_js_path
+        );
+
+        // Verify it's a valid JavaScript file with exports
+        let state_js_content =
+            std::fs::read_to_string(&state_js_path).expect("Should be able to read state.js");
+        assert!(
+            state_js_content.contains("export"),
+            "state.js should contain exports (valid ES module)"
+        );
+
+        // Verify it's not empty and has reasonable size
+        let metadata =
+            std::fs::metadata(&state_js_path).expect("Should be able to get state.js metadata");
+        assert!(
+            metadata.len() > 1000,
+            "state.js should be at least 1KB (was {} bytes)",
+            metadata.len()
+        );
+    }
+
+    #[test]
     fn test_gui_serve_port_flag_in_help() {
         let mut cmd = bn_isolated();
         cmd.arg("gui").arg("serve").arg("--help");
