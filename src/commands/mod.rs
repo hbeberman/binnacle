@@ -2031,15 +2031,16 @@ pub fn copilot_install(version: Option<String>, upstream: bool) -> Result<Copilo
     })?;
 
     // Download URL pattern:
-    // https://github.com/github/gh-copilot/releases/download/v0.0.396/linux-amd64
+    // https://github.com/github/copilot-cli/releases/download/v0.0.398/copilot-linux-x64.tar.gz
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
     let platform = match (os, arch) {
-        ("linux", "x86_64") => "linux-amd64",
-        ("linux", "aarch64") => "linux-arm64",
-        ("macos", "x86_64") => "darwin-amd64",
-        ("macos", "aarch64") => "darwin-arm64",
-        ("windows", "x86_64") => "windows-amd64.exe",
+        ("linux", "x86_64") => "copilot-linux-x64.tar.gz",
+        ("linux", "aarch64") => "copilot-linux-arm64.tar.gz",
+        ("macos", "x86_64") => "copilot-darwin-x64.tar.gz",
+        ("macos", "aarch64") => "copilot-darwin-arm64.tar.gz",
+        ("windows", "x86_64") => "copilot-win32-x64.zip",
+        ("windows", "aarch64") => "copilot-win32-arm64.zip",
         _ => {
             return Err(Error::InvalidInput(format!(
                 "Unsupported platform: {}-{}",
@@ -2049,7 +2050,7 @@ pub fn copilot_install(version: Option<String>, upstream: bool) -> Result<Copilo
     };
 
     let download_url = format!(
-        "https://github.com/github/gh-copilot/releases/download/{}/{}",
+        "https://github.com/github/copilot-cli/releases/download/{}/{}",
         version_normalized, platform
     );
 
@@ -2082,14 +2083,58 @@ pub fn copilot_install(version: Option<String>, upstream: bool) -> Result<Copilo
         )));
     }
 
-    // Move to final location
-    fs::rename(&temp_file, &binary_path).map_err(|e| {
-        Error::Other(format!(
-            "Failed to move binary to {}: {}",
-            binary_path.display(),
-            e
-        ))
-    })?;
+    // Extract the binary from the archive
+    if platform.ends_with(".tar.gz") {
+        // Extract tar.gz (Unix platforms)
+        let extract_status = Command::new("tar")
+            .args([
+                "-xzf",
+                temp_file.to_str().unwrap(),
+                "-C",
+                cache_dir.to_str().unwrap(),
+            ])
+            .status()
+            .map_err(|e| Error::Other(format!("Failed to run tar: {}", e)))?;
+
+        // Clean up temp file
+        let _ = fs::remove_file(&temp_file);
+
+        if !extract_status.success() {
+            return Err(Error::Other("Failed to extract tar.gz archive".to_string()));
+        }
+    } else if platform.ends_with(".zip") {
+        // Extract zip (Windows)
+        let extract_status = Command::new("unzip")
+            .args([
+                "-o",
+                temp_file.to_str().unwrap(),
+                "-d",
+                cache_dir.to_str().unwrap(),
+            ])
+            .status()
+            .map_err(|e| Error::Other(format!("Failed to run unzip: {}", e)))?;
+
+        // Clean up temp file
+        let _ = fs::remove_file(&temp_file);
+
+        if !extract_status.success() {
+            return Err(Error::Other("Failed to extract zip archive".to_string()));
+        }
+
+        // On Windows, the binary has .exe extension
+        let windows_binary = cache_dir.join("copilot.exe");
+        if windows_binary.exists() {
+            fs::rename(&windows_binary, &binary_path)
+                .map_err(|e| Error::Other(format!("Failed to rename Windows binary: {}", e)))?;
+        }
+    } else {
+        // Unknown format
+        let _ = fs::remove_file(&temp_file);
+        return Err(Error::Other(format!(
+            "Unsupported archive format: {}",
+            platform
+        )));
+    }
 
     // Make executable (Unix only)
     #[cfg(unix)]
