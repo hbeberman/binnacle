@@ -584,7 +584,8 @@ function updateAutoFollow() {
                 const currentGoodbyeActive = state.get('ui.agentGoodbyeActive');
                 if (currentGoodbyeActive !== agent.id) {
                     state.set('ui.agentGoodbyeActive', agent.id);
-                    console.log(`Agent ${agent.id} entered goodbye state`);
+                    state.set('ui.goodbyeStartTime', Date.now());
+                    console.log(`Agent ${agent.id} entered goodbye state - camera will linger for 3s`);
                 }
             }
             
@@ -598,8 +599,41 @@ function updateAutoFollow() {
             const goodbyeAgent = agents.find(a => a.id === currentGoodbyeActive);
             if (!goodbyeAgent || (goodbyeAgent.current_action || '').toLowerCase() !== 'goodbye') {
                 state.set('ui.agentGoodbyeActive', null);
+                state.set('ui.goodbyeStartTime', null);
                 console.log(`Agent ${currentGoodbyeActive} left goodbye state`);
             }
+        }
+    }
+    
+    // Check if we're in goodbye linger period (3 seconds after goodbye started)
+    const goodbyeAgentId = state.get('ui.agentGoodbyeActive');
+    const goodbyeStartTime = state.get('ui.goodbyeStartTime');
+    const GOODBYE_LINGER_MS = 3000; // 3 seconds
+    
+    if (goodbyeAgentId && goodbyeStartTime) {
+        const elapsedMs = Date.now() - goodbyeStartTime;
+        if (elapsedMs < GOODBYE_LINGER_MS) {
+            // Still within linger period - keep camera on goodbye agent
+            const goodbyeAgent = candidateNodes.find(n => n.id === goodbyeAgentId);
+            if (goodbyeAgent) {
+                // Force following the goodbye agent
+                const currentFollowingId = state.get('ui.followingNodeId');
+                if (currentFollowingId !== goodbyeAgent.id) {
+                    state.set('ui.followingNodeId', goodbyeAgent.id);
+                    console.log(`Lingering on goodbye agent ${goodbyeAgent.id} (${Math.round((GOODBYE_LINGER_MS - elapsedMs) / 1000)}s remaining)`);
+                }
+                
+                // Keep camera centered on goodbye agent
+                if (canvas && goodbyeAgent.x !== undefined && goodbyeAgent.y !== undefined) {
+                    centerOn(goodbyeAgent.x, goodbyeAgent.y);
+                }
+                return; // Don't process normal follow logic during linger
+            }
+        } else {
+            // Linger period expired - clear goodbye state
+            state.set('ui.agentGoodbyeActive', null);
+            state.set('ui.goodbyeStartTime', null);
+            console.log(`Goodbye linger period expired for ${goodbyeAgentId}`);
         }
     }
     
