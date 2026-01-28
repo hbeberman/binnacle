@@ -3291,6 +3291,88 @@ impl Storage {
         Ok(results)
     }
 
+    /// Get copilot version from config.kdl.
+    /// Supports both old attribute format (`copilot version="v1.2.0"`) and new block format (`copilot { version "v1.2.0" }`).
+    /// Returns "latest" if not specified.
+    pub fn get_copilot_version_kdl(&self) -> Result<String> {
+        let doc = self.read_config_kdl()?;
+
+        if let Some(copilot_node) = doc.get("copilot") {
+            // Try new block format: copilot { version "v1.2.0" }
+            if let Some(children) = copilot_node.children()
+                && let Some(version_node) = children.get("version")
+            {
+                // Check for positional entry: version "v1.2.0"
+                let entries = version_node.entries();
+                if let Some(first_entry) = entries.first()
+                    && let Some(version_str) = first_entry.value().as_string()
+                {
+                    return Ok(version_str.to_string());
+                }
+            }
+
+            // Fall back to old attribute format: copilot version="v1.2.0"
+            if let Some(version_str) = copilot_node.get("version").and_then(|e| e.as_string()) {
+                return Ok(version_str.to_string());
+            }
+        }
+
+        // Default to "latest" if not specified
+        Ok("latest".to_string())
+    }
+
+    /// Set copilot version in config.kdl using block format.
+    pub fn set_copilot_version_kdl(&self, version: &str) -> Result<()> {
+        let mut doc = self.read_config_kdl()?;
+
+        // Find or create copilot node
+        let copilot_idx = doc
+            .nodes()
+            .iter()
+            .position(|n| n.name().value() == "copilot");
+
+        if let Some(idx) = copilot_idx {
+            // Update existing copilot node
+            let copilot_node = &mut doc.nodes_mut()[idx];
+
+            // Remove all old entries (attributes like version="...")
+            copilot_node.entries_mut().clear();
+
+            // Set block format
+            let children = copilot_node
+                .children_mut()
+                .get_or_insert_with(KdlDocument::new);
+
+            // Find or create version node
+            let version_idx = children
+                .nodes()
+                .iter()
+                .position(|n| n.name().value() == "version");
+
+            let mut version_node = KdlNode::new("version");
+            version_node.push(KdlEntry::new(KdlValue::String(version.to_string())));
+
+            if let Some(vidx) = version_idx {
+                children.nodes_mut()[vidx] = version_node;
+            } else {
+                children.nodes_mut().push(version_node);
+            }
+        } else {
+            // Create copilot node with child
+            let mut copilot_node = KdlNode::new("copilot");
+            let mut children = KdlDocument::new();
+
+            let mut version_node = KdlNode::new("version");
+            version_node.push(KdlEntry::new(KdlValue::String(version.to_string())));
+            children.nodes_mut().push(version_node);
+
+            copilot_node.set_children(children);
+            doc.nodes_mut().push(copilot_node);
+        }
+
+        self.write_config_kdl(&doc)
+    }
+
     // === Log Operations ===
 
     /// Get log entries from the JSONL file.
