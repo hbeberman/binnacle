@@ -105,6 +105,7 @@ const createDefaultState = () => ({
             nodeTypes: { task: true, bug: true, idea: true, test: true, doc: true, milestone: true }
         },
         eventQueue: [],  // Queue of events to process sequentially (array of {entityType, entityId, timestamp})
+        eventPanActive: false,  // Is the event processor currently panning/processing?
         
         // Event linger state (5-second pause on new events)
         eventLinger: {
