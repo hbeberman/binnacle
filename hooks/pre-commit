@@ -166,8 +166,8 @@ if [ -n "$staged_web_files" ]; then
         echo "   Skipping validation for now, but CI may fail."
         echo "   Consider installing lightpanda to validate locally before committing."
     else
-        # Run validation script
-        if ! ./scripts/validate-web.sh 2>&1; then
+        # Run validation script (using gui-check.sh which works correctly)
+        if ! ./scripts/gui-check.sh 2>&1; then
             echo ""
             echo "❌ Web portal validation failed!"
             echo "   Fix JavaScript errors before committing."
