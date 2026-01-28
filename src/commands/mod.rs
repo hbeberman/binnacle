@@ -1887,16 +1887,14 @@ pub fn copilot_path(repo_path: &Path) -> Result<CopilotPathResult> {
 
 /// Helper function to get copilot version from config.kdl if specified.
 fn get_copilot_version_from_config(storage: &Storage) -> Result<Option<String>> {
-    let doc = storage.read_config_kdl()?;
+    let version = storage.get_copilot_version_kdl()?;
 
-    // Look for copilot version="v1.2.0"
-    if let Some(copilot_node) = doc.get("copilot")
-        && let Some(version_str) = copilot_node.get("version").and_then(|e| e.as_string())
-    {
-        return Ok(Some(version_str.to_string()));
+    // If version is "latest", return None to use binnacle-preferred
+    if version == "latest" {
+        Ok(None)
+    } else {
+        Ok(Some(version))
     }
-
-    Ok(None)
 }
 
 /// Install a specific version of GitHub Copilot CLI.
@@ -24187,6 +24185,135 @@ mod tests {
         assert_eq!(all.planner.max, 1);
         assert_eq!(all.buddy.min, 2);
         assert_eq!(all.buddy.max, 5);
+    }
+
+    #[test]
+    #[serial]
+    fn test_copilot_version_defaults_to_latest() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Should default to "latest" when not set
+        let version = storage.get_copilot_version_kdl().unwrap();
+        assert_eq!(version, "latest");
+    }
+
+    #[test]
+    #[serial]
+    fn test_copilot_version_set_creates_block_format() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Set copilot version
+        storage.set_copilot_version_kdl("v1.2.3").unwrap();
+
+        // Verify config.kdl file was created
+        let kdl_path = storage.config_kdl_path();
+        assert!(kdl_path.exists(), "config.kdl should be created");
+
+        // Read and verify content uses block format
+        let content = std::fs::read_to_string(&kdl_path).unwrap();
+        eprintln!("Config content:\n{}", content);
+        assert!(
+            content.contains("copilot"),
+            "config.kdl should have copilot section"
+        );
+        // The actual KDL format might be different - check for the version value
+        assert!(
+            content.contains("v1.2.3"),
+            "config.kdl should have version v1.2.3"
+        );
+
+        // Verify we can read it back
+        let version = storage.get_copilot_version_kdl().unwrap();
+        assert_eq!(version, "v1.2.3");
+    }
+
+    #[test]
+    #[serial]
+    fn test_copilot_version_reads_old_attribute_format() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Manually write old attribute format
+        std::fs::write(storage.config_kdl_path(), "copilot version=\"v0.0.396\"\n").unwrap();
+
+        // Should read old format
+        let version = storage.get_copilot_version_kdl().unwrap();
+        assert_eq!(version, "v0.0.396");
+    }
+
+    #[test]
+    #[serial]
+    fn test_copilot_version_reads_new_block_format() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Manually write new block format
+        std::fs::write(
+            storage.config_kdl_path(),
+            "copilot {\n    version \"v1.5.0\"\n}\n",
+        )
+        .unwrap();
+
+        // Should read new format
+        let version = storage.get_copilot_version_kdl().unwrap();
+        assert_eq!(version, "v1.5.0");
+    }
+
+    #[test]
+    #[serial]
+    fn test_copilot_version_update_replaces_old_format() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Write old attribute format
+        std::fs::write(storage.config_kdl_path(), "copilot version=\"v0.0.1\"\n").unwrap();
+
+        // Update to new version using setter
+        storage.set_copilot_version_kdl("v1.0.0").unwrap();
+
+        // Should use new block format
+        let content = std::fs::read_to_string(storage.config_kdl_path()).unwrap();
+        eprintln!("Updated config content:\n{}", content);
+        assert!(content.contains("copilot"), "Should have copilot block");
+        assert!(content.contains("v1.0.0"), "Should have new version");
+
+        // Should read back correctly
+        let version = storage.get_copilot_version_kdl().unwrap();
+        assert_eq!(version, "v1.0.0");
+    }
+
+    #[test]
+    #[serial]
+    fn test_copilot_path_uses_config_version() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Set a specific version
+        storage.set_copilot_version_kdl("v0.5.0").unwrap();
+
+        // copilot_path should use config version
+        let result = copilot_path(temp.path()).unwrap();
+        assert_eq!(result.version, "v0.5.0");
+        assert_eq!(result.source, "config");
+    }
+
+    #[test]
+    #[serial]
+    fn test_copilot_path_uses_binnacle_preferred_when_latest() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Explicitly set to "latest"
+        storage.set_copilot_version_kdl("latest").unwrap();
+
+        // copilot_path should use binnacle-preferred
+        let result = copilot_path(temp.path()).unwrap();
+        assert_eq!(result.source, "binnacle-preferred");
+        // Version should be the embedded COPILOT_VERSION (which already has 'v' prefix)
+        let expected = crate::cli::copilot_version();
+        assert_eq!(result.version, expected);
     }
 
     #[test]
