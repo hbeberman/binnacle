@@ -99,6 +99,12 @@ const createDefaultState = () => ({
             focusDelaySeconds: 10
         },
         
+        // Follow Events configuration
+        followEvents: false,  // Toggle for following newly created nodes (events)
+        followEventsConfig: {
+            nodeTypes: { task: true, bug: true, idea: true, test: true, doc: true, milestone: true }
+        },
+        
         // Filters
         nodeTypeFilters: {
             task: true,

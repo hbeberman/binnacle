@@ -80,6 +80,43 @@ export function createGraphControls() {
                 </div>
             </div>
         </div>
+        <div class="follow-events-toggle" style="position: relative;">
+            <span class="follow-events-label">Follow Events</span>
+            <button class="follow-events-switch" id="follow-events-switch" title="Toggle follow events mode"></button>
+            <button class="follow-events-config-btn" id="follow-events-config-btn" title="Configure follow events settings">⚙</button>
+            <div class="follow-events-config-popover" id="follow-events-config-popover">
+                <div class="config-popover-title">Follow Events Settings</div>
+                <div class="config-section">
+                    <span class="config-section-label">Follow new:</span>
+                    <div class="config-node-types">
+                        <div class="config-node-type-row">
+                            <span class="config-node-type-label"><span class="config-node-type-icon">📋</span> Tasks</span>
+                            <button class="config-toggle active" id="config-events-tasks" data-type="task"></button>
+                        </div>
+                        <div class="config-node-type-row">
+                            <span class="config-node-type-label"><span class="config-node-type-icon">🐛</span> Bugs</span>
+                            <button class="config-toggle active" id="config-events-bugs" data-type="bug"></button>
+                        </div>
+                        <div class="config-node-type-row">
+                            <span class="config-node-type-label"><span class="config-node-type-icon">💡</span> Ideas</span>
+                            <button class="config-toggle active" id="config-events-ideas" data-type="idea"></button>
+                        </div>
+                        <div class="config-node-type-row">
+                            <span class="config-node-type-label"><span class="config-node-type-icon">🧪</span> Tests</span>
+                            <button class="config-toggle active" id="config-events-tests" data-type="test"></button>
+                        </div>
+                        <div class="config-node-type-row">
+                            <span class="config-node-type-label"><span class="config-node-type-icon">📄</span> Docs</span>
+                            <button class="config-toggle active" id="config-events-docs" data-type="doc"></button>
+                        </div>
+                        <div class="config-node-type-row">
+                            <span class="config-node-type-label"><span class="config-node-type-icon">🎯</span> Milestones</span>
+                            <button class="config-toggle active" id="config-events-milestones" data-type="milestone"></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="graph-controls-spacer"></div>
         <div class="zoom-controls-inline">
             <button class="graph-control-btn zoom-out-btn" id="zoom-out-btn" title="Zoom Out">−</button>
@@ -290,6 +327,93 @@ export function initializeGraphControls(controls, options = {}) {
                     if (Object.prototype.hasOwnProperty.call(config.nodeTypes, type)) {
                         config.nodeTypes[type] = !config.nodeTypes[type];
                         State.set('ui.autoFollowConfig', config);
+                        toggle.classList.toggle('active', config.nodeTypes[type]);
+                    }
+                }
+            }
+        });
+    }
+    
+    // Initialize follow events toggle switch
+    const followEventsSwitch = controls.querySelector('#follow-events-switch');
+    if (followEventsSwitch) {
+        // Load initial state (default to disabled)
+        const followEvents = State.get('ui.followEvents') || false;
+        followEventsSwitch.classList.toggle('active', followEvents);
+        
+        followEventsSwitch.addEventListener('click', () => {
+            const newState = !followEventsSwitch.classList.contains('active');
+            followEventsSwitch.classList.toggle('active', newState);
+            State.set('ui.followEvents', newState);
+            
+            // Trigger callback if provided
+            if (options.onFollowEventsToggle) {
+                options.onFollowEventsToggle(newState);
+            }
+        });
+    }
+    
+    // Initialize follow events config button
+    const eventsConfigBtn = controls.querySelector('#follow-events-config-btn');
+    const eventsConfigPopover = controls.querySelector('#follow-events-config-popover');
+    
+    if (eventsConfigBtn && eventsConfigPopover) {
+        // Load follow events config from state
+        let followEventsConfig = State.get('ui.followEventsConfig');
+        if (!followEventsConfig) {
+            followEventsConfig = {
+                nodeTypes: {
+                    task: true,
+                    bug: true,
+                    idea: true,
+                    test: true,
+                    doc: true,
+                    milestone: true
+                }
+            };
+            State.set('ui.followEventsConfig', followEventsConfig);
+        }
+        
+        // Update config toggle states
+        const updateEventsConfigToggles = () => {
+            const config = State.get('ui.followEventsConfig');
+            if (!config) return;
+            
+            Object.entries(config.nodeTypes).forEach(([type, enabled]) => {
+                const toggle = eventsConfigPopover.querySelector(`#config-events-${type}s`);
+                if (toggle) {
+                    toggle.classList.toggle('active', enabled);
+                }
+            });
+        };
+        
+        updateEventsConfigToggles();
+        
+        // Toggle popover visibility
+        eventsConfigBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            eventsConfigBtn.classList.toggle('active');
+            eventsConfigPopover.classList.toggle('visible');
+        });
+        
+        // Close popover when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!eventsConfigPopover.contains(e.target) && e.target !== eventsConfigBtn) {
+                eventsConfigBtn.classList.remove('active');
+                eventsConfigPopover.classList.remove('visible');
+            }
+        });
+        
+        // Handle config toggle clicks
+        eventsConfigPopover.addEventListener('click', (e) => {
+            const toggle = e.target.closest('.config-toggle');
+            if (toggle) {
+                const type = toggle.dataset.type;
+                if (type) {
+                    const config = State.get('ui.followEventsConfig');
+                    if (Object.prototype.hasOwnProperty.call(config.nodeTypes, type)) {
+                        config.nodeTypes[type] = !config.nodeTypes[type];
+                        State.set('ui.followEventsConfig', config);
                         toggle.classList.toggle('active', config.nodeTypes[type]);
                     }
                 }
