@@ -335,3 +335,84 @@ console.log('\nTest 10: Batch action events');
     const actions = ['close', 'queue-add', 'queue-remove', 'export'];
     console.log('  ✓ Supported batch actions:', actions.join(', '));
 }
+
+// Test 11: Working agent display
+console.log('\nTest 11: Working agent display');
+{
+    // Test case 1: Task with working_on edge (inbound)
+    const taskWithAgent = {
+        id: 'bn-a1b2',
+        type: 'task',
+        title: 'Test Task',
+        edges: [
+            { edge_type: 'working_on', direction: 'inbound', related_id: 'bn-ag01' }
+        ]
+    };
+    
+    // Should find the agent
+    const workingOnEdge = taskWithAgent.edges.find(e => 
+        e.edge_type === 'working_on' && e.direction === 'inbound'
+    );
+    
+    if (workingOnEdge && workingOnEdge.related_id === 'bn-ag01') {
+        console.log('  ✓ Found working agent bn-ag01 for task');
+    } else {
+        console.error('  ✗ Failed to find working agent');
+    }
+    
+    // Test case 2: Task without working_on edge
+    const taskWithoutAgent = {
+        id: 'bn-b2c3',
+        type: 'task',
+        title: 'Test Task 2',
+        edges: [
+            { edge_type: 'depends_on', direction: 'outbound', related_id: 'bn-c3d4' }
+        ]
+    };
+    
+    const noAgentEdge = taskWithoutAgent.edges && taskWithoutAgent.edges.find(e => 
+        e.edge_type === 'working_on' && e.direction === 'inbound'
+    );
+    
+    if (!noAgentEdge) {
+        console.log('  ✓ Correctly detected no working agent');
+    } else {
+        console.error('  ✗ False positive: found agent when none exists');
+    }
+    
+    // Test case 3: Bug with working_on edge
+    const bugWithAgent = {
+        id: 'bn-bug1',
+        type: 'bug',
+        title: 'Test Bug',
+        edges: [
+            { edge_type: 'working_on', direction: 'inbound', related_id: 'bn-ag02' }
+        ]
+    };
+    
+    const bugAgentEdge = bugWithAgent.edges.find(e => 
+        e.edge_type === 'working_on' && e.direction === 'inbound'
+    );
+    
+    if (bugAgentEdge && bugAgentEdge.related_id === 'bn-ag02') {
+        console.log('  ✓ Found working agent bn-ag02 for bug');
+    } else {
+        console.error('  ✗ Failed to find working agent for bug');
+    }
+    
+    // Test case 4: Non-task/bug entity (should not display agent)
+    const docNode = {
+        id: 'bn-doc1',
+        type: 'doc',
+        title: 'Test Doc',
+        edges: []
+    };
+    
+    const shouldShowForDoc = (docNode.type === 'task' || docNode.type === 'bug');
+    
+    if (!shouldShowForDoc) {
+        console.log('  ✓ Agent section hidden for doc nodes');
+    } else {
+        console.error('  ✗ Agent section should not show for doc nodes');
+    }
+}

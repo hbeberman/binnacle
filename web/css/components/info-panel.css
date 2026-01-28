@@ -463,6 +463,27 @@
     background: var(--accent-light);
 }
 
+/* Working Agent Section */
+.info-panel-working-agent-section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.info-panel-working-agent-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.info-panel-working-agent-id {
+    font-size: 0.85rem;
+}
+
 /* Activity Tab */
 .info-panel-activity-log {
     max-height: 300px;
