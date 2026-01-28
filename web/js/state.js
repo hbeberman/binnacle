@@ -89,6 +89,7 @@ const createDefaultState = () => ({
         autoFollow: true,
         followTargetId: 'auto',
         followingNodeId: null,
+        agentGoodbyeActive: null,  // ID of agent in goodbye state (if any)
         userPaused: false,  // Set to true when user manually pans/zooms
         followTypeFilter: 'agent',  // Follow mode type filter ('none', '', 'task', 'bug', 'idea', 'agent')
         autoFollowConfig: {
