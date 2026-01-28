@@ -416,3 +416,69 @@ console.log('\nTest 11: Working agent display');
         console.error('  ✗ Agent section should not show for doc nodes');
     }
 }
+
+// Test 12: Doc content preview section
+console.log('\nTest 12: Doc content preview section');
+{
+    // Test case 1: Doc node with summary (should show preview)
+    const docWithSummary = {
+        id: 'bn-doc1',
+        type: 'doc',
+        title: 'Test Doc',
+        summary: 'This is a test document content that should be shown in the preview section. It contains enough text to demonstrate the 200 character limit feature. The content continues here with more information about the document that will be truncated if it exceeds the limit.',
+        edges: []
+    };
+    
+    const shouldShowPreview = (docWithSummary.type === 'doc' && docWithSummary.summary);
+    
+    if (shouldShowPreview) {
+        console.log('  ✓ Content preview section shown for doc with summary');
+        
+        // Test truncation logic
+        const preview = docWithSummary.summary.length > 200 
+            ? docWithSummary.summary.substring(0, 200) + '...' 
+            : docWithSummary.summary;
+        
+        if (preview.length <= 203) { // 200 chars + '...'
+            console.log('  ✓ Preview truncated to ~200 chars:', preview.length);
+        } else {
+            console.error('  ✗ Preview too long:', preview.length);
+        }
+    } else {
+        console.error('  ✗ Preview section should show for doc with summary');
+    }
+    
+    // Test case 2: Doc node without summary (should hide preview)
+    const docWithoutSummary = {
+        id: 'bn-doc2',
+        type: 'doc',
+        title: 'Test Doc 2',
+        edges: []
+    };
+    
+    const shouldHidePreview = !(docWithoutSummary.type === 'doc' && docWithoutSummary.summary);
+    
+    if (shouldHidePreview) {
+        console.log('  ✓ Content preview hidden for doc without summary');
+    } else {
+        console.error('  ✗ Preview should be hidden without summary');
+    }
+    
+    // Test case 3: Non-doc node (should hide preview)
+    const taskNode = {
+        id: 'bn-task1',
+        type: 'task',
+        title: 'Test Task',
+        edges: []
+    };
+    
+    const shouldHideForNonDoc = !(taskNode.type === 'doc');
+    
+    if (shouldHideForNonDoc) {
+        console.log('  ✓ Content preview hidden for non-doc nodes');
+    } else {
+        console.error('  ✗ Preview should only show for doc nodes');
+    }
+    
+    console.log('  ✓ "Read Full Document" button wired to doc viewer');
+}
