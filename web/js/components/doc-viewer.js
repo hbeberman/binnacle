@@ -9,6 +9,7 @@
 import { getNode, setSelectedNode, setCurrentView } from '../state.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import { panToNode } from '../graph/index.js';
+import { setupEntityLinkHover } from './tooltip.js';
 
 /**
  * Create the doc viewer overlay HTML
@@ -145,6 +146,9 @@ export function initDocViewer() {
         // Select the node
         setSelectedNode(entityId);
     });
+    
+    // Setup entity link tooltips
+    setupEntityLinkHover(contentEl);
 }
 
 /**
