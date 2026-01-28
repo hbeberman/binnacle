@@ -10,7 +10,7 @@
 
 import { getNode, setSelectedNode, setCurrentView } from '../state.js';
 import { renderMarkdown } from '../utils/markdown.js';
-import { panToNode } from '../graph/index.js';
+import { panToNode, highlightNode, clearHighlight } from '../graph/index.js';
 
 /**
  * Create the markdown pane HTML
@@ -140,6 +140,25 @@ function initMarkdownPane() {
             
             // Select the node
             setSelectedNode(entityId);
+        });
+        
+        // Entity ID hover handler - highlight node on graph
+        contentEl.addEventListener('mouseover', (e) => {
+            const clickableId = e.target.closest('.clickable-entity-id');
+            if (!clickableId) return;
+            
+            const entityId = clickableId.dataset.entityId;
+            if (entityId) {
+                highlightNode(entityId);
+            }
+        });
+        
+        // Clear highlight when mouse leaves entity link
+        contentEl.addEventListener('mouseout', (e) => {
+            const clickableId = e.target.closest('.clickable-entity-id');
+            if (!clickableId) return;
+            
+            clearHighlight();
         });
     }
 }
