@@ -2,6 +2,9 @@
 # shellcheck disable=SC2016  # Backticks in prompts are intentional literals
 set -e
 
+# Ensure ~/.local/bin is first in PATH to use latest 'just install' binary
+export PATH="$HOME/.local/bin:$PATH"
+
 # Blocked commands - agents should not terminate each other
 # Note: bn goodbye is allowed - agents SHOULD terminate themselves gracefully when done
 BLOCKED_TOOLS=(
