@@ -48,15 +48,8 @@ export function createGraphControls() {
             <button class="hide-completed-switch" id="hide-completed-switch" title="Hide completed nodes (except in active chains)"></button>
         </div>
         <div class="auto-follow-toggle" style="position: relative;">
-            <span class="auto-follow-label">Follow</span>
-            <select class="follow-type-selector" id="follow-type-selector" title="Select type to follow">
-                <option value="none">None</option>
-                <option value="">Any</option>
-                <option value="task">📋 Tasks</option>
-                <option value="bug">🐛 Bugs</option>
-                <option value="idea">💡 Ideas</option>
-                <option value="agent">🤖 Agents</option>
-            </select>
+            <span class="auto-follow-label">Follow Agents</span>
+            <button class="auto-follow-switch" id="auto-follow-switch" title="Toggle follow agents mode"></button>
             <button class="auto-follow-config-btn" id="auto-follow-config-btn" title="Configure auto-follow settings">⚙</button>
             <div class="auto-follow-config-popover" id="auto-follow-config-popover">
                 <div class="config-popover-title">Auto-Follow Settings</div>
@@ -201,29 +194,33 @@ export function initializeGraphControls(controls, options = {}) {
         });
     }
     
-    // Initialize follow type selector with implicit auto-follow
-    const followTypeSelector = controls.querySelector('#follow-type-selector');
-    if (followTypeSelector) {
-        // Load initial state (default to 'agent' to match "follow agents" requirement)
+    // Initialize follow agents toggle switch
+    const autoFollowSwitch = controls.querySelector('#auto-follow-switch');
+    if (autoFollowSwitch) {
+        // Load initial state (default to enabled - follow agents mode)
         const storedFollowType = State.get('ui.followTypeFilter');
         const followType = storedFollowType !== null && storedFollowType !== undefined ? storedFollowType : 'agent';
-        followTypeSelector.value = followType;
         
-        // Set initial auto-follow state based on selection
-        const autoFollow = followType !== 'none';
-        State.set('ui.autoFollow', autoFollow);
+        // Toggle is active when following agents
+        const isFollowingAgents = followType === 'agent';
+        autoFollowSwitch.classList.toggle('active', isFollowingAgents);
         
-        followTypeSelector.addEventListener('change', () => {
-            const newType = followTypeSelector.value;
-            State.set('ui.followTypeFilter', newType);
+        // Set initial state
+        State.set('ui.followTypeFilter', isFollowingAgents ? 'agent' : 'none');
+        State.set('ui.autoFollow', isFollowingAgents);
+        
+        autoFollowSwitch.addEventListener('click', () => {
+            const newState = !autoFollowSwitch.classList.contains('active');
+            autoFollowSwitch.classList.toggle('active', newState);
             
-            // Implicitly enable/disable auto-follow based on selection
-            const shouldFollow = newType !== 'none';
-            State.set('ui.autoFollow', shouldFollow);
+            // Set follow type: 'agent' when on, 'none' when off
+            const newType = newState ? 'agent' : 'none';
+            State.set('ui.followTypeFilter', newType);
+            State.set('ui.autoFollow', newState);
             
             // Trigger the auto-follow callback with the new state
             if (onAutoFollowToggle) {
-                onAutoFollowToggle(shouldFollow);
+                onAutoFollowToggle(newState);
             }
             
             // Optionally trigger type change callback
@@ -430,6 +427,12 @@ export function initializeGraphControls(controls, options = {}) {
                     State.set('ui.selectedNode', agent.id);
                     State.set('ui.followTypeFilter', 'agent');
                     State.set('ui.autoFollow', true);
+                    
+                    // Update the toggle switch UI
+                    const autoFollowSwitch = controls.querySelector('#auto-follow-switch');
+                    if (autoFollowSwitch) {
+                        autoFollowSwitch.classList.add('active');
+                    }
                 });
                 
                 agentList.appendChild(item);

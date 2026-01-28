@@ -219,24 +219,6 @@
     transform: translateX(14px);
 }
 
-/* Follow type selector dropdown */
-.follow-type-selector {
-    font-size: 0.7rem;
-    padding: 0.15rem 0.25rem;
-    border-radius: 4px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
-    cursor: pointer;
-    max-width: 100px;
-    text-overflow: ellipsis;
-}
-
-.follow-type-selector option {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-}
-
 /* Auto-follow config button */
 .auto-follow-config-btn {
     width: 28px;
