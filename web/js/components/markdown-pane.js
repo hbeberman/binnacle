@@ -8,9 +8,9 @@
  * - Entity ID link integration for graph navigation
  */
 
-import { getNode, setSelectedNode, setCurrentView } from '../state.js';
+import { getNode, viewNodeOnGraph } from '../state.js';
 import { renderMarkdown } from '../utils/markdown.js';
-import { panToNode, highlightNode, clearHighlight } from '../graph/index.js';
+import { highlightNode, clearHighlight } from '../graph/index.js';
 import { setupEntityLinkHover } from './tooltip.js';
 
 /**
@@ -139,28 +139,9 @@ function initMarkdownPane() {
             e.stopPropagation();
             
             const entityId = clickableId.dataset.entityId;
-            if (!entityId) return;
-            
-            // Get the node to find its position
-            const node = getNode(entityId);
-            if (!node) {
-                console.warn(`Entity ${entityId} not found`);
-                return;
+            if (entityId) {
+                viewNodeOnGraph(entityId);
             }
-            
-            // Switch to graph view
-            setCurrentView('graph');
-            
-            // Pan to the node's position if coordinates exist
-            if (typeof node.x === 'number' && typeof node.y === 'number') {
-                panToNode(node.x, node.y, {
-                    duration: 500,
-                    targetZoom: 1.5
-                });
-            }
-            
-            // Select the node
-            setSelectedNode(entityId);
         });
         
         // Entity ID hover handler - highlight node on graph

@@ -7,13 +7,12 @@
 import { 
     subscribe, 
     getAgents,
-    setSelectedNode,
+    viewNodeOnGraph,
     set as setState,
     addToast
 } from '../state.js';
 import { createClickableId } from '../utils/clickable-ids.js';
 import { showNodeDetailModal } from './node-detail-modal.js';
-import { panToNode } from '../graph/index.js';
 
 /**
  * Get status badge configuration for an agent
@@ -249,25 +248,7 @@ async function terminateAgent(agentId) {
  * @param {string} agentId - Agent ID to view
  */
 function viewInGraph(agentId) {
-    // Switch to graph view
-    setState('ui.currentView', 'graph');
-    
-    // Get agent node to find its position
-    const agents = getAgents();
-    const agent = agents.find(e => e.id === agentId);
-    
-    if (agent && typeof agent.x === 'number' && typeof agent.y === 'number') {
-        // Pan to the agent's position
-        panToNode(agent.x, agent.y, {
-            duration: 500,
-            targetZoom: 1.5
-        });
-        
-        // Select the agent node
-        setSelectedNode(agentId);
-    } else {
-        console.warn('Agent position not found:', agentId);
-    }
+    viewNodeOnGraph(agentId);
 }
 
 /**
@@ -499,7 +480,7 @@ function createAgentCard(agent) {
         if (e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.closest('a')) {
             return;
         }
-        setSelectedNode(agent.id);
+        viewNodeOnGraph(agent.id);
         console.log('Selected agent:', agent.id);
     });
     

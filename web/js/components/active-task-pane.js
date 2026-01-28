@@ -179,8 +179,8 @@ function updatePane(pane) {
         el.addEventListener('click', () => {
             const taskId = el.getAttribute('data-task-id');
             // Import dynamically to avoid circular dependencies
-            import('../state.js').then(({ setSelectedNode }) => {
-                setSelectedNode(taskId);
+            import('../state.js').then(({ viewNodeOnGraph }) => {
+                viewNodeOnGraph(taskId);
             });
         });
     });

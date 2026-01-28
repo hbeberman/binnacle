@@ -459,6 +459,39 @@ export function setSelectedNode(nodeId) {
     set('ui.selectedNodes', nodeId ? [nodeId] : []);
 }
 
+/**
+ * View a node on the graph: switch to graph view, pan to node, and select it
+ * @param {string} nodeId - Node ID to view
+ * @param {Object} options - Optional configuration
+ * @param {number} options.duration - Pan animation duration in ms (default: 500)
+ * @param {number} options.targetZoom - Target zoom level (default: 1.5)
+ */
+export function viewNodeOnGraph(nodeId, options = {}) {
+    const { duration = 500, targetZoom = 1.5 } = options;
+    
+    // Get the node to find its position
+    const node = getNode(nodeId);
+    if (!node) {
+        console.warn(`Entity ${nodeId} not found`);
+        return;
+    }
+    
+    // Switch to graph view
+    setCurrentView('graph');
+    
+    // Dynamically import panToNode to avoid circular dependencies
+    // panToNode is in graph/index.js which may import state.js
+    import('./graph/index.js').then(({ panToNode }) => {
+        // Pan to the node's position if coordinates exist
+        if (typeof node.x === 'number' && typeof node.y === 'number') {
+            panToNode(node.x, node.y, { duration, targetZoom });
+        }
+    });
+    
+    // Select the node
+    setSelectedNode(nodeId);
+}
+
 export function setSelectedEdge(edgeId) {
     set('ui.selectedEdge', edgeId);
 }
