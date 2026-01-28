@@ -181,7 +181,7 @@ BLOCKED_TOOLS=(
 )
 
 if command -v copilot &> /dev/null; then
-    copilot --allow-all "${BLOCKED_TOOLS[@]}" -p "$BN_INITIAL_PROMPT"
+    copilot --allow-all --no-auto-update "${BLOCKED_TOOLS[@]}" -p "$BN_INITIAL_PROMPT"
     AGENT_EXIT=$?
 elif command -v claude &> /dev/null; then
     claude -p "$BN_INITIAL_PROMPT"
