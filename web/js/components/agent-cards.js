@@ -215,7 +215,7 @@ function viewInGraph(agentId) {
         // Pan to the agent's position
         panToNode(agent.x, agent.y, {
             duration: 500,
-            zoom: 1.5
+            targetZoom: 1.5
         });
         
         // Select the agent node
