@@ -15864,10 +15864,13 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     // - Planner agents: should NOT terminate (they produce artifacts, not long sessions)
     //   unless --force is used
     // - BN_AGENT_ID mode: should_terminate is false (container manages lifecycle externally)
-    // - BN_MCP_SESSION mode: should_terminate is false (MCP server manages lifecycle externally)
-    let should_terminate = if env_agent_id.is_some() || mcp_session_id.is_some() {
-        // Container mode or MCP mode: external system manages lifecycle, don't signal termination
+    // - BN_MCP_SESSION mode: should_terminate is true (agent should self-terminate based on signal)
+    let should_terminate = if env_agent_id.is_some() {
+        // Container mode: external system manages lifecycle, don't signal termination
         false
+    } else if mcp_session_id.is_some() {
+        // MCP mode: agent should self-terminate (but bn won't kill the process)
+        true
     } else {
         // Normal mode: follow planner/worker rules
         !is_planner || force
