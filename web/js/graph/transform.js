@@ -209,7 +209,9 @@ function calculateDuration(distance) {
  * @param {Object} options - Animation options
  * @param {number} [options.targetZoom] - Optional target zoom level
  * @param {number} [options.duration] - Override duration in ms (default: adaptive)
+ * @param {string} [options.nodeId] - Optional node ID to validate during animation
  * @param {Function} [options.onComplete] - Callback when animation completes
+ * @param {Function} [options.onNodeDisappeared] - Callback if node disappears during animation
  * @param {HTMLCanvasElement} [options.canvas] - Canvas element (for distance calculation)
  */
 export function panToNode(targetX, targetY, options = {}) {
@@ -254,6 +256,20 @@ export function panToNode(targetX, targetY, options = {}) {
     function animate(currentTime) {
         if (panAnimation.cancelled) {
             return;
+        }
+        
+        // If nodeId provided, check if node still exists
+        if (options.nodeId) {
+            const node = state.getNode(options.nodeId);
+            if (!node || typeof node.x !== 'number' || typeof node.y !== 'number') {
+                // Node disappeared - cancel animation and notify
+                console.warn(`[panToNode] Node ${options.nodeId} disappeared during animation`);
+                panAnimation = null;
+                if (options.onNodeDisappeared) {
+                    options.onNodeDisappeared();
+                }
+                return;
+            }
         }
         
         const elapsed = currentTime - startTime;
