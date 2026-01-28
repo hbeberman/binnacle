@@ -92,7 +92,11 @@ export function createInfoPanel() {
     panel.innerHTML = `
         <div class="info-panel-header">
             <span class="info-panel-title">Node Info</span>
-            <button class="info-panel-close" id="info-panel-close" title="Close">&times;</button>
+            <div class="info-panel-header-controls">
+                <button class="info-panel-expand-btn" id="info-panel-expand" title="Expand">▲</button>
+                <button class="info-panel-collapse-btn" id="info-panel-collapse" title="Collapse">▼</button>
+                <button class="info-panel-close" id="info-panel-close" title="Close">&times;</button>
+            </div>
         </div>
         <div id="info-panel-id" class="info-panel-id"></div>
         <div id="info-panel-task-title" class="info-panel-task-title"></div>
