@@ -578,8 +578,28 @@ function updateAutoFollow() {
                 break;
             }
             
+            // Detect agent entering goodbye state
+            const currentAction = (agent.current_action || '').toLowerCase();
+            if (currentAction === 'goodbye') {
+                const currentGoodbyeActive = state.get('ui.agentGoodbyeActive');
+                if (currentGoodbyeActive !== agent.id) {
+                    state.set('ui.agentGoodbyeActive', agent.id);
+                    console.log(`Agent ${agent.id} entered goodbye state`);
+                }
+            }
+            
             // Update status tracking
             previousAgentStatuses.set(agent.id, currentStatus);
+        }
+        
+        // Clear goodbye state if the tracked agent is no longer in goodbye mode
+        const currentGoodbyeActive = state.get('ui.agentGoodbyeActive');
+        if (currentGoodbyeActive) {
+            const goodbyeAgent = agents.find(a => a.id === currentGoodbyeActive);
+            if (!goodbyeAgent || (goodbyeAgent.current_action || '').toLowerCase() !== 'goodbye') {
+                state.set('ui.agentGoodbyeActive', null);
+                console.log(`Agent ${currentGoodbyeActive} left goodbye state`);
+            }
         }
     }
     
