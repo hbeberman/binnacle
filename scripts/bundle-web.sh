@@ -15,9 +15,9 @@ BUNDLE_DIR="target/web-bundle"
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR"
 
-# Find all JS files in web/js/ directory
+# Find all JS files in web/js/ directory (except state.js)
 echo "Bundling JavaScript..."
-find web/js -name "*.js" ! -name "*.test.js" -type f | while read -r jsfile; do
+find web/js -name "*.js" ! -name "*.test.js" ! -name "state.js" -type f | while read -r jsfile; do
     # Get relative path from web/js
     relpath="${jsfile#web/js/}"
     outfile="$BUNDLE_DIR/js/$relpath"
@@ -27,6 +27,11 @@ find web/js -name "*.js" ! -name "*.test.js" -type f | while read -r jsfile; do
     # Keep state.js external to avoid duplicate module instances
     npx esbuild "$jsfile" --bundle --minify --format=esm --external:../state.js --outfile="$outfile"
 done
+
+# Copy state.js as-is (don't bundle it to avoid circular dependency issues)
+echo "Copying state.js..."
+mkdir -p "$BUNDLE_DIR/js"
+cp web/js/state.js "$BUNDLE_DIR/js/state.js"
 
 # Bundle all CSS files into a single main.css
 echo "Bundling CSS..."
