@@ -39,7 +39,7 @@ export function createDocViewer() {
  * Show the doc viewer overlay with document content
  * @param {string} docId - The document node ID
  */
-export function showDocViewer(docId) {
+export async function showDocViewer(docId) {
     const overlay = document.getElementById('doc-viewer');
     if (!overlay) {
         console.error('Doc viewer overlay not found in DOM');
@@ -59,20 +59,40 @@ export function showDocViewer(docId) {
     // Update content - render markdown
     const contentEl = document.getElementById('doc-viewer-content');
     
-    if (node.content) {
-        // Render the markdown content
-        renderMarkdown(contentEl, node.content);
-    } else {
-        // Show placeholder if no content
+    // Show loading state
+    contentEl.innerHTML = '<div class="doc-viewer-loading">Loading document...</div>';
+    
+    // Show overlay immediately with loading state
+    overlay.classList.remove('hidden');
+    
+    // Fetch full document content
+    try {
+        const response = await fetch(`/api/docs/${docId}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch document: ${response.status}`);
+        }
+        const data = await response.json();
+        const fullDoc = data.doc;
+        
+        if (fullDoc.content) {
+            // Render the markdown content
+            renderMarkdown(contentEl, fullDoc.content);
+        } else {
+            // Show placeholder if no content
+            contentEl.innerHTML = `
+                <div class="doc-viewer-placeholder">
+                    <p class="doc-viewer-note">This document has no content yet.</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error loading document:', error);
         contentEl.innerHTML = `
             <div class="doc-viewer-placeholder">
-                <p class="doc-viewer-note">This document has no content yet.</p>
+                <p class="doc-viewer-note">Error loading document. Please try again.</p>
             </div>
         `;
     }
-    
-    // Show overlay
-    overlay.classList.remove('hidden');
 }
 
 /**

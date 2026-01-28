@@ -376,7 +376,7 @@ function getNodeTypeInfo(type) {
  * Show the node detail modal with node information
  * @param {string} nodeId - The node ID
  */
-export function showNodeDetailModal(nodeId) {
+export async function showNodeDetailModal(nodeId) {
     const overlay = document.getElementById('node-detail-modal');
     if (!overlay) {
         console.error('Node detail modal overlay not found in DOM');
@@ -426,16 +426,35 @@ export function showNodeDetailModal(nodeId) {
         makeIdsClickable(el);
     });
     
-    // If it's a doc with content, render markdown
-    if (node.type === 'doc' && node.content) {
+    // Show overlay immediately with loading state for docs
+    overlay.classList.remove('hidden');
+    
+    // If it's a doc, fetch full content
+    if (node.type === 'doc') {
         const markdownEl = document.getElementById('node-detail-markdown-content');
         if (markdownEl) {
-            renderMarkdown(markdownEl, node.content);
+            try {
+                // Show loading state
+                markdownEl.innerHTML = '<div class="node-detail-loading">Loading document...</div>';
+                
+                const response = await fetch(`/api/docs/${nodeId}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch document: ${response.status}`);
+                }
+                const data = await response.json();
+                const fullDoc = data.doc;
+                
+                if (fullDoc.content) {
+                    renderMarkdown(markdownEl, fullDoc.content);
+                } else {
+                    markdownEl.innerHTML = '<p class="node-detail-empty">This document has no content yet.</p>';
+                }
+            } catch (error) {
+                console.error('Error loading document:', error);
+                markdownEl.innerHTML = '<p class="node-detail-empty">Error loading document. Please try again.</p>';
+            }
         }
     }
-    
-    // Show overlay
-    overlay.classList.remove('hidden');
 }
 
 /**

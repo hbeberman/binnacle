@@ -39,7 +39,7 @@ export function createMarkdownPane() {
  * Show the markdown pane with document content
  * @param {string} docId - The document node ID
  */
-export function showMarkdownPane(docId) {
+export async function showMarkdownPane(docId) {
     const pane = document.getElementById('markdown-pane');
     if (!pane) {
         console.error('Markdown pane not found in DOM');
@@ -59,20 +59,40 @@ export function showMarkdownPane(docId) {
     // Update content - render markdown
     const contentEl = document.getElementById('markdown-pane-content');
     
-    if (node.content) {
-        // Render the markdown content
-        renderMarkdown(contentEl, node.content);
-    } else {
-        // Show placeholder if no content
+    // Show loading state
+    contentEl.innerHTML = '<div class="markdown-pane-loading">Loading document...</div>';
+    
+    // Show pane immediately with loading state
+    pane.classList.remove('hidden');
+    
+    // Fetch full document content
+    try {
+        const response = await fetch(`/api/docs/${docId}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch document: ${response.status}`);
+        }
+        const data = await response.json();
+        const fullDoc = data.doc;
+        
+        if (fullDoc.content) {
+            // Render the markdown content
+            renderMarkdown(contentEl, fullDoc.content);
+        } else {
+            // Show placeholder if no content
+            contentEl.innerHTML = `
+                <div class="markdown-pane-placeholder">
+                    <p class="markdown-pane-note">This document has no content yet.</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error loading document:', error);
         contentEl.innerHTML = `
             <div class="markdown-pane-placeholder">
-                <p class="markdown-pane-note">This document has no content yet.</p>
+                <p class="markdown-pane-note">Error loading document. Please try again.</p>
             </div>
         `;
     }
-    
-    // Show pane
-    pane.classList.remove('hidden');
 }
 
 /**
