@@ -925,7 +925,7 @@ fn test_blocked_command_human_readable() {
         .args(["-H", "blocked"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("blocked task"))
+        .stdout(predicate::str::contains("task blocked"))
         .stdout(predicate::str::contains("Task B"));
 }
 
