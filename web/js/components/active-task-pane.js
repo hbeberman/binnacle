@@ -60,8 +60,8 @@ function calculateElapsed(updatedAt) {
 /**
  * Find active tasks being worked on by agents
  * Uses working_on edges to determine which tasks are actively being worked on.
- * Returns an array of {agent, task} pairs.
- * @returns {Array} Array of {agent, task} objects, or empty array if none
+ * Returns an array of {agent, task, startTime} tuples.
+ * @returns {Array} Array of {agent, task, startTime} objects, or empty array if none
  */
 function findActiveTasks() {
     const edges = getEdges() || [];
@@ -70,14 +70,18 @@ function findActiveTasks() {
     // Find all working_on edges
     const workingOnEdges = edges.filter(e => e.edge_type === 'working_on');
     
-    // Map each edge to {agent, task} pair
+    // Map each edge to {agent, task, startTime} tuple
     const activePairs = workingOnEdges.map(edge => {
         const agent = agents.find(a => a.id === edge.source);
         const task = getNode(edge.target);  // Can be task or bug
         
         // Only include tasks that are actually in progress (not done/cancelled)
         if (agent && task && (task.status === 'pending' || task.status === 'in_progress')) {
-            return { agent, task };
+            return { 
+                agent, 
+                task, 
+                startTime: edge.created_at  // Use edge creation time, not task update time
+            };
         }
         return null;
     }).filter(pair => pair !== null);
@@ -92,7 +96,12 @@ function findActiveTasks() {
         ];
         
         // Return tasks without agent info (for backwards compatibility)
-        return inProgressTasks.map(task => ({ agent: null, task }));
+        // Use task.updated_at as fallback when no edge exists
+        return inProgressTasks.map(task => ({ 
+            agent: null, 
+            task,
+            startTime: task.updated_at 
+        }));
     }
     
     return activePairs;
@@ -129,8 +138,8 @@ function updatePane(pane) {
         <div class="active-task-list">
     `;
     
-    for (const { agent, task } of activePairs) {
-        const elapsed = calculateElapsed(task.updated_at);
+    for (const { agent, task, startTime } of activePairs) {
+        const elapsed = calculateElapsed(startTime);
         const durationText = formatDuration(elapsed);
         const agentName = agent ? (agent.title || agent.id) : 'Unknown';
         const agentDisplay = agent ? `<div class="active-task-agent">${escapeHtml(agentName)}</div>` : '';
@@ -154,7 +163,7 @@ function updatePane(pane) {
                 <div class="active-task-title" title="${task.title}">
                     ${escapeHtml(task.short_name || task.title)}
                 </div>
-                <div class="active-task-timer" data-start="${task.updated_at}">
+                <div class="active-task-timer" data-start="${startTime}">
                     ${durationText}
                 </div>
             </div>
