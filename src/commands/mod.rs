@@ -469,6 +469,75 @@ The task graph drives development priorities. Always update task status to keep 
 
 **Tip**: Use `bn show <id>` to view any entity by ID - it auto-detects the type from the prefix (bn-, bnt-, bnq-).
 
+## Finding Context for Your Task
+
+When starting work on a task, you often need to understand:
+- **Why** it exists (the parent PRD or milestone)
+- **What related work** is happening (sibling tasks)
+- **What subtasks** depend on it (child tasks)
+
+Use these graph navigation commands to explore the task hierarchy:
+
+### `bn graph lineage <id>`
+Walk **up** the ancestry chain to find the PRD, milestone, or parent task that explains why this task exists.
+
+```bash
+# Find the PRD or milestone that spawned this task
+bn graph lineage bn-xxxx
+
+# Limit to 5 hops up the chain
+bn graph lineage bn-xxxx --depth 5
+
+# Include descriptions for more context
+bn graph lineage bn-xxxx --verbose
+```
+
+**Use this when:** You need to understand the bigger picture or find documentation for your task.
+
+### `bn graph peers <id>`
+Find **sibling** tasks (tasks with the same parent) or **cousins** (tasks sharing a grandparent).
+
+```bash
+# Find sibling tasks (same parent)
+bn graph peers bn-xxxx
+
+# Find siblings and cousins (depth=2)
+bn graph peers bn-xxxx --depth 2
+
+# Include closed tasks in results
+bn graph peers bn-xxxx --include-closed
+```
+
+**Use this when:** You want to see what other work is happening in parallel, or find similar completed tasks to reference.
+
+### `bn graph descendants <id>`
+Walk **down** to find child tasks and subtasks.
+
+```bash
+# Find immediate children and grandchildren (depth=3)
+bn graph descendants bn-xxxx
+
+# Find all descendants regardless of depth
+bn graph descendants bn-xxxx --all
+
+# Include closed/completed subtasks
+bn graph descendants bn-xxxx --include-closed
+
+# Limit to direct children only
+bn graph descendants bn-xxxx --depth 1
+```
+
+**Use this when:** You're working on a high-level task and need to see what subtasks exist, or verify that all child work is complete.
+
+### Quick Reference
+
+| Goal | Command |
+|------|---------|
+| Find the PRD or parent goal | `bn graph lineage <id>` |
+| Find related parallel work | `bn graph peers <id>` |
+| Find subtasks or child work | `bn graph descendants <id>` |
+| See all connected entities | `bn show <id>` (includes edges) |
+
 ## Creating Tasks (Best Practices)
 
 - **Always use short names** (`-s`): They appear in the GUI and make tasks scannable
