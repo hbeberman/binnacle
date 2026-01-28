@@ -1708,6 +1708,8 @@ pub enum CopilotCommands {
         #[arg(long)]
         upstream: bool,
     },
+    /// Print path to the active Copilot CLI binary
+    Path,
 }
 
 /// Hooks management subcommands

@@ -2290,3 +2290,76 @@ fn test_store_import_handles_missing_title_field() {
     assert_eq!(task["id"], "bn-test");
     assert_eq!(task["title"], ""); // Should default to empty string when missing
 }
+
+#[test]
+fn test_copilot_path_binnacle_preferred() {
+    let env = init_binnacle();
+
+    // Test copilot path with JSON output
+    let output = bn_in(&env)
+        .args(["system", "copilot", "path"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["version"], "v1.2.0");
+    assert_eq!(json["source"], "binnacle-preferred");
+    assert!(json["path"].as_str().unwrap().contains("copilot"));
+    // exists may be false if not installed
+}
+
+#[test]
+fn test_copilot_path_human_format() {
+    let env = init_binnacle();
+
+    // Test copilot path with human-readable output
+    bn_in(&env)
+        .args(["system", "copilot", "path", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("v1.2.0"))
+        .stdout(predicate::str::contains("binnacle-preferred"));
+}
+
+#[test]
+fn test_copilot_path_with_config() {
+    use sha2::{Digest, Sha256};
+
+    let env = init_binnacle();
+
+    // Compute storage hash like the code does
+    let canonical = env.repo_path().canonicalize().unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    let hash = hasher.finalize();
+    let hash_hex = format!("{:x}", hash);
+    let short_hash = &hash_hex[..12];
+
+    // TestEnv uses data_dir for BN_DATA_DIR
+    let storage_root = env.data_dir.path().join(short_hash);
+    let config_path = storage_root.join("config.kdl");
+
+    // Ensure storage directory exists
+    fs::create_dir_all(&storage_root).unwrap();
+
+    // Write a config.kdl file with a copilot version
+    let config_content = r#"copilot version="v0.0.396"
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    // Test copilot path should use config version
+    let output = bn_in(&env)
+        .args(["system", "copilot", "path"])
+        .output()
+        .expect("Failed to run command");
+
+    assert!(output.status.success(), "Command failed");
+
+    let json: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["version"], "v0.0.396");
+    assert_eq!(json["source"], "config");
+    assert!(json["path"].as_str().unwrap().contains("v0.0.396"));
+}

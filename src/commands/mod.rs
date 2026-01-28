@@ -1795,7 +1795,32 @@ pub fn hooks_uninstall(repo_path: &Path) -> Result<HooksUninstallResult> {
 
 // === Copilot Management ===
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CopilotPathResult {
+    pub version: String,
+    pub path: String,
+    pub source: String, // "config" or "binnacle-preferred"
+    pub exists: bool,
+}
+
+impl Output for CopilotPathResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.exists {
+            format!("Copilot {} ({}): {}", self.version, self.source, self.path)
+        } else {
+            format!(
+                "Copilot {} ({}) not found at expected path: {}\nRun 'bn system copilot install' to install it.",
+                self.version, self.source, self.path
+            )
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CopilotInstallResult {
     pub version: String,
     pub path: String,
@@ -1817,6 +1842,61 @@ impl Output for CopilotInstallResult {
             format!("Installed Copilot {} to {}", self.version, self.path)
         }
     }
+}
+
+/// Get the path to the active Copilot CLI binary.
+/// Checks config.kdl for a specified version, otherwise uses the binnacle-preferred version.
+pub fn copilot_path(repo_path: &Path) -> Result<CopilotPathResult> {
+    // Initialize storage to access config.kdl
+    let storage = Storage::open(repo_path)?;
+
+    // Try to get copilot version from config.kdl
+    let (version, source) = match get_copilot_version_from_config(&storage)? {
+        Some(v) => (v, "config".to_string()),
+        None => (
+            crate::cli::copilot_version().to_string(),
+            "binnacle-preferred".to_string(),
+        ),
+    };
+
+    // Ensure version starts with 'v'
+    let version_normalized = if version.starts_with('v') {
+        version
+    } else {
+        format!("v{}", version)
+    };
+
+    // Construct expected path: ~/.local/share/binnacle/utils/copilot/<version>/copilot
+    let cache_dir = dirs::data_local_dir()
+        .ok_or_else(|| Error::Other("Could not determine local data directory".to_string()))?
+        .join("binnacle")
+        .join("utils")
+        .join("copilot")
+        .join(&version_normalized);
+
+    let binary_path = cache_dir.join("copilot");
+    let exists = binary_path.exists();
+
+    Ok(CopilotPathResult {
+        version: version_normalized,
+        path: binary_path.to_string_lossy().to_string(),
+        source,
+        exists,
+    })
+}
+
+/// Helper function to get copilot version from config.kdl if specified.
+fn get_copilot_version_from_config(storage: &Storage) -> Result<Option<String>> {
+    let doc = storage.read_config_kdl()?;
+
+    // Look for copilot version="v1.2.0"
+    if let Some(copilot_node) = doc.get("copilot")
+        && let Some(version_str) = copilot_node.get("version").and_then(|e| e.as_string())
+    {
+        return Ok(Some(version_str.to_string()));
+    }
+
+    Ok(None)
 }
 
 /// Install a specific version of GitHub Copilot CLI.

@@ -1135,6 +1135,10 @@ fn run_command(
                     let result = commands::copilot_install(version.clone(), upstream)?;
                     output(&result, human);
                 }
+                CopilotCommands::Path => {
+                    let result = commands::copilot_path(repo_path)?;
+                    output(&result, human);
+                }
             },
         },
         Some(Commands::Agent { command }) => match command {
@@ -2969,6 +2973,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "system copilot install".to_string(),
                     serde_json::json!({ "version": version, "upstream": upstream }),
                 ),
+                CopilotCommands::Path => ("system copilot path".to_string(), serde_json::json!({})),
             },
         },
 
