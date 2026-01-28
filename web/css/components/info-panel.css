@@ -463,6 +463,40 @@
     background: var(--accent-light);
 }
 
+/* Doc Content Preview (expanded view only) */
+.info-panel-doc-content {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+.info-panel-doc-read-btn {
+    width: 100%;
+    padding: 0.6rem 1rem;
+    background: var(--accent-blue);
+    border: none;
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.info-panel-doc-read-btn:hover {
+    background: var(--accent-light);
+}
+
+/* Hide doc content preview in compact mode */
+.info-panel.compact #info-panel-doc-content-section {
+    display: none !important;
+}
+
 /* Working Agent Section */
 .info-panel-working-agent-section {
     display: flex;

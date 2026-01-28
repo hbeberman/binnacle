@@ -133,6 +133,11 @@ export function createInfoPanel() {
                 <div class="info-panel-section-title">Description</div>
                 <div id="info-panel-description" class="info-panel-description"></div>
             </div>
+            <div id="info-panel-doc-content-section" class="info-panel-section" style="display: none;">
+                <div class="info-panel-section-title">Content Preview</div>
+                <div id="info-panel-doc-content" class="info-panel-doc-content"></div>
+                <button id="info-panel-doc-read-btn" class="info-panel-doc-read-btn">📖 Read Full Document</button>
+            </div>
             <div id="info-panel-tags-section" class="info-panel-section" style="display: none;">
                 <div class="info-panel-section-title">Tags</div>
                 <div id="info-panel-tags" class="info-panel-tags"></div>
@@ -258,6 +263,14 @@ export function initializeInfoPanel(panel, options = {}) {
     const docOpenBtn = panel.querySelector('#doc-open-btn');
     if (docOpenBtn) {
         docOpenBtn.addEventListener('click', () => {
+            onDocOpen();
+        });
+    }
+    
+    // Doc read full button (in content preview section)
+    const docReadBtn = panel.querySelector('#info-panel-doc-read-btn');
+    if (docReadBtn) {
+        docReadBtn.addEventListener('click', () => {
             onDocOpen();
         });
     }
@@ -625,6 +638,20 @@ export function updateInfoPanelContent(panel, node, selectedNodes = []) {
     } else {
         descEl.textContent = 'No description provided.';
         descEl.classList.add('empty');
+    }
+    
+    // Update doc content preview (doc nodes only, expanded view)
+    const docContentSection = panel.querySelector('#info-panel-doc-content-section');
+    const docContentEl = panel.querySelector('#info-panel-doc-content');
+    if (node.type === 'doc' && node.summary) {
+        docContentSection.style.display = 'block';
+        // Show first ~200 chars of summary
+        const preview = node.summary.length > 200 
+            ? node.summary.substring(0, 200) + '...' 
+            : node.summary;
+        docContentEl.textContent = preview;
+    } else {
+        docContentSection.style.display = 'none';
     }
     
     // Update tags (if any)
