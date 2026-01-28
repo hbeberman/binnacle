@@ -92,7 +92,7 @@ export async function getWasmVersion() {
  */
 export async function loadArchive(url) {
     // Initialize WASM if needed
-    const wasm = await initWasm();
+    await initWasm();
     
     // Fetch the archive
     const response = await fetch(url);

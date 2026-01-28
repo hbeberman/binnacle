@@ -55,10 +55,9 @@ function formatDate(timestamp) {
 /**
  * Get status badge HTML
  * @param {string} status - Node status
- * @param {string} nodeType - Type of node
  * @returns {string} HTML for status badge
  */
-function getStatusBadgeHTML(status, nodeType) {
+function getStatusBadgeHTML(status) {
     const statusColors = {
         pending: 'var(--text-secondary)',
         in_progress: 'var(--accent-blue)',
