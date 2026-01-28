@@ -67,6 +67,25 @@
             border-radius: 4px;
         }
         
+        .follow-badge {
+            font-size: 0.8rem;
+            color: var(--text-primary);
+            background: var(--accent-blue);
+            padding: 0.25rem 0.625rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: opacity 0.2s ease, background 0.2s ease;
+            display: none; /* Hidden by default */
+        }
+        
+        .follow-badge.visible {
+            display: inline-block;
+        }
+        
+        .follow-badge:hover {
+            background: var(--accent-blue-hover, #4a9eff);
+        }
+        
         .subtitle {
             color: var(--text-secondary);
             font-size: 0.9rem;
@@ -206,6 +225,7 @@
                 <h1 class="header-title">
                     🧭 Binnacle 
                     <span class="version-badge" id="version-badge">v0.0.0</span>
+                    <span class="follow-badge" id="follow-badge" title="Click to pan to agent">Following</span>
                     <div id="connection-status-container"></div>
                 </h1>
                 <p class="subtitle">Agent Navigation Graph</p>
@@ -861,6 +881,82 @@
             }
         }
         
+        // Update follow badge based on state
+        function updateFollowBadge() {
+            const followBadge = document.getElementById('follow-badge');
+            if (!followBadge) return;
+            
+            const autoFollow = state.get('ui.autoFollow');
+            const currentView = state.get('ui.currentView');
+            const followingNodeId = state.get('ui.followingNodeId');
+            const followTypeFilter = state.get('ui.followTypeFilter');
+            
+            // Show badge only when:
+            // 1. Follow Agents is ON (autoFollow is true)
+            // 2. Currently on Graph tab (currentView === 'graph')
+            // 3. Following an agent (followingNodeId is set and followTypeFilter is 'agent')
+            const shouldShow = autoFollow && 
+                             currentView === 'graph' && 
+                             followingNodeId && 
+                             followTypeFilter === 'agent';
+            
+            if (shouldShow) {
+                // Find the agent node to get its details
+                const agents = state.get('entities.agents') || [];
+                const agent = agents.find(a => a.id === followingNodeId);
+                
+                if (agent) {
+                    const agentName = agent._agent?.purpose || agent._agent?.name || agent.id;
+                    followBadge.textContent = `Following ${agentName}`;
+                    followBadge.title = `Click to pan to ${agentName}`;
+                    followBadge.classList.add('visible');
+                } else {
+                    // Agent not found, just show ID
+                    followBadge.textContent = `Following ${followingNodeId}`;
+                    followBadge.title = `Click to pan to ${followingNodeId}`;
+                    followBadge.classList.add('visible');
+                }
+            } else {
+                followBadge.classList.remove('visible');
+            }
+        }
+        
+        // Handle follow badge click - pan to the followed agent
+        function initializeFollowBadge() {
+            const followBadge = document.getElementById('follow-badge');
+            if (!followBadge) return;
+            
+            followBadge.addEventListener('click', () => {
+                const followingNodeId = state.get('ui.followingNodeId');
+                if (!followingNodeId) return;
+                
+                // Find the node in the graph
+                const graphNodes = graph.getNodes();
+                const node = graphNodes.find(n => n.id === followingNodeId);
+                
+                if (!node) {
+                    console.warn(`Followed agent ${followingNodeId} not found in graph`);
+                    return;
+                }
+                
+                // Pan to the agent
+                graph.panToNode(node.x, node.y, {
+                    canvas: document.querySelector('#graph-canvas'),
+                    duration: 500
+                });
+            });
+            
+            // Subscribe to state changes
+            state.subscribe('ui.autoFollow', updateFollowBadge);
+            state.subscribe('ui.currentView', updateFollowBadge);
+            state.subscribe('ui.followingNodeId', updateFollowBadge);
+            state.subscribe('ui.followTypeFilter', updateFollowBadge);
+            state.subscribe('entities.agents', updateFollowBadge);
+            
+            // Initial update
+            updateFollowBadge();
+        }
+        
         // Initialize connection
         async function initializeApp() {
             // Load user preferences from storage
@@ -868,6 +964,9 @@
             
             // Fetch version
             await fetchVersion();
+            
+            // Initialize follow badge
+            initializeFollowBadge();
             
             // Mount connection status indicator
             mountConnectionStatus('#connection-status-container');
