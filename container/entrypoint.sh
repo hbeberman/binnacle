@@ -180,15 +180,24 @@ BLOCKED_TOOLS=(
     --deny-tool "binnacle(binnacle-goodbye)"
 )
 
-if command -v copilot &> /dev/null; then
-    copilot --allow-all --no-auto-update "${BLOCKED_TOOLS[@]}" -p "$BN_INITIAL_PROMPT"
+# Use container-local pinned copilot binary
+# The copilot binary is pre-installed during image build at a pinned version
+# to prevent auto-updates from breaking the container in production.
+# Find the installed copilot binary in BN_DATA_DIR (set to /usr/local/share/binnacle in container)
+COPILOT_BIN=$(find "${BN_DATA_DIR}/utils/copilot" -name "copilot" -type f -executable 2>/dev/null | head -1)
+
+if [ -n "$COPILOT_BIN" ] && [ -x "$COPILOT_BIN" ]; then
+    echo "🤖 Using pinned copilot: $COPILOT_BIN"
+    "$COPILOT_BIN" --allow-all --no-auto-update "${BLOCKED_TOOLS[@]}" -p "$BN_INITIAL_PROMPT"
     AGENT_EXIT=$?
 elif command -v claude &> /dev/null; then
+    echo "🤖 Using claude CLI"
     claude -p "$BN_INITIAL_PROMPT"
     AGENT_EXIT=$?
 else
     echo "❌ No AI agent found (copilot or claude CLI)"
-    echo "   Please install @github/copilot via: npm install -g @github/copilot"
+    echo "   Expected copilot in: ${BN_DATA_DIR}/utils/copilot/"
+    echo "   Please rebuild the container with 'bn container build'"
     exit 1
 fi
 
