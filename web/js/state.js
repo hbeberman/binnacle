@@ -90,7 +90,7 @@ const createDefaultState = () => ({
         followTargetId: 'auto',
         followingNodeId: null,
         userPaused: false,  // Set to true when user manually pans/zooms
-        followTypeFilter: '',  // Follow mode type filter ('', 'task', 'bug', 'idea', 'agent')
+        followTypeFilter: 'agent',  // Follow mode type filter ('none', '', 'task', 'bug', 'idea', 'agent')
         autoFollowConfig: {
             nodeTypes: { task: true, bug: true, idea: false, test: false, doc: false },
             focusDelaySeconds: 10
