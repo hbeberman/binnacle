@@ -168,7 +168,10 @@ const createDefaultState = () => ({
     sync: {
         version: 0,
         lastSync: null,
-        pendingChanges: []
+        pendingChanges: [],
+        // Track entity IDs present at GUI load time (for new-creation event detection)
+        initialEntityIds: new Set(),
+        initialLoadComplete: false
     }
 });
 

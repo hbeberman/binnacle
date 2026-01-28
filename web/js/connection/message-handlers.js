@@ -163,6 +163,13 @@ registerHandler('sync', (message) => {
         state.set('logPagination.total', data.log.length);
     }
     
+    // Capture initial entity IDs for new-creation event detection (first sync only)
+    if (!state.get('sync.initialLoadComplete')) {
+        captureInitialEntityIds();
+        state.set('sync.initialLoadComplete', true);
+        console.log(`Initial load complete: captured ${state.get('sync.initialEntityIds').size} entity IDs`);
+    }
+    
     console.log(`Sync complete: ${countEntities()} entities, ${state.getEdges().length} edges`);
 });
 
@@ -333,6 +340,74 @@ function countEntities() {
 }
 
 /**
+ * Capture all current entity IDs to track what existed at GUI load time
+ * This enables detection of truly new entities vs filter-revealed entities.
+ */
+function captureInitialEntityIds() {
+    const initialIds = new Set();
+    
+    // Collect IDs from all entity types
+    const entityTypes = ['tasks', 'bugs', 'ideas', 'tests', 'docs', 'milestones', 'queues', 'agents'];
+    for (const entityType of entityTypes) {
+        const entities = state.get(`entities.${entityType}`) || [];
+        for (const entity of entities) {
+            if (entity.id) {
+                initialIds.add(entity.id);
+            }
+        }
+    }
+    
+    state.set('sync.initialEntityIds', initialIds);
+}
+
+/**
+ * Check if an entity ID is newly created (wasn't present at initial load)
+ * @param {string} id - Entity ID to check
+ * @returns {boolean} True if entity was created after GUI opened
+ */
+function isNewlyCreatedEntity(id) {
+    // If initial load hasn't completed, treat as not new (avoid false positives)
+    if (!state.get('sync.initialLoadComplete')) {
+        return false;
+    }
+    
+    const initialIds = state.get('sync.initialEntityIds');
+    if (!initialIds) {
+        return false;
+    }
+    
+    return !initialIds.has(id);
+}
+
+/**
+ * Trigger a follow event for a newly created entity
+ * @param {string} entityType - Entity type (task, bug, idea, etc.)
+ * @param {string} entityId - Entity ID
+ */
+function triggerFollowEvent(entityType, entityId) {
+    // Check if Follow Events is enabled
+    const followEvents = state.get('ui.followEvents');
+    if (!followEvents) {
+        console.debug(`Follow Events disabled, skipping event for ${entityType} ${entityId}`);
+        return;
+    }
+    
+    // Check if this entity type should trigger events
+    const followEventsConfig = state.get('ui.followEventsConfig') || {};
+    const nodeTypes = followEventsConfig.nodeTypes || {};
+    
+    if (!nodeTypes[entityType]) {
+        console.debug(`Follow Events: ${entityType} events disabled, skipping ${entityId}`);
+        return;
+    }
+    
+    // Trigger the event by updating followingNodeId
+    console.log(`Follow Events: Triggering event for new ${entityType} ${entityId}`);
+    state.set('ui.followingNodeId', entityId);
+}
+
+
+/**
  * Handle 'entity_added' message - incremental entity addition
  * 
  * Expected message format:
@@ -372,6 +447,12 @@ registerHandler('entity_added', (message) => {
         // Skip if entity was filtered out (e.g., non-worker agent)
         if (normalized !== null) {
             state.upsertEntity(entityKey, normalized);
+            
+            // Check if this is a newly created entity (not just revealed by filter change)
+            if (isNewlyCreatedEntity(id)) {
+                console.log(`Detected new entity creation: ${entity_type} ${id}`);
+                triggerFollowEvent(entity_type, id);
+            }
         } else {
             console.log(`Filtered out ${entity_type} ${id} (e.g., non-worker agent)`);
         }
