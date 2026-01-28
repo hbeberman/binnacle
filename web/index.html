@@ -399,8 +399,12 @@
                 const docOpenSection = document.getElementById('info-panel-doc-open-section');
                 const docId = docOpenSection?.dataset?.docId;
                 if (docId) {
-                    showMarkdownPane(docId);
+                    showDocViewer(docId);
                 }
+            },
+            onSummaryClick: (nodeId) => {
+                // Open doc viewer when summary section is clicked (for doc nodes)
+                showDocViewer(nodeId);
             },
             onViewFullLog: () => {
                 // Switch to log view
