@@ -5,10 +5,10 @@
  * Click to focus agent in graph.
  */
 
-import { 
-    subscribe, 
+import {
+    subscribe,
     getAgents,
-    setSelectedNode
+    viewNodeOnGraph
 } from '../state.js';
 
 /**
@@ -63,10 +63,7 @@ function createAgentItem(agent) {
     
     // Click to focus agent in graph
     item.addEventListener('click', () => {
-        setSelectedNode(agent.id);
-        
-        // TODO: Pan to node in graph (requires graph camera integration)
-        // For now, just select it - the graph will highlight it
+        viewNodeOnGraph(agent.id);
     });
     
     return item;
