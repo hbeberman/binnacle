@@ -322,6 +322,25 @@
     list-style: none;
     padding: 0;
     margin: 0;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.info-panel-relationships::-webkit-scrollbar {
+    width: 8px;
+}
+
+.info-panel-relationships::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+.info-panel-relationships::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+.info-panel-relationships::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
 }
 
 .relationship-item {
