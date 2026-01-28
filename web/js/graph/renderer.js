@@ -55,6 +55,10 @@ let highlightStartTime = null;
 // Agent status tracking (for detecting when agents acquire work)
 const previousAgentStatuses = new Map(); // agentId -> previous status
 
+// Goodbye linger pause tracking for visibility changes
+let goodbyePauseStartTime = null;
+let goodbyeRemainingTime = null;
+
 /**
  * Initialize the graph renderer with a canvas element
  * @param {HTMLCanvasElement} canvasElement - The canvas to render to
@@ -88,6 +92,9 @@ export function init(canvasElement, callbacks = {}) {
     state.subscribe('ui.selectedNode', onSelectionChanged);
     state.subscribe('ui.selectedNodes', onMultiSelectionChanged);
     state.subscribe('ui.boxSelection', scheduleRender);
+    
+    // Handle page visibility changes (tab switch, minimize) for goodbye linger
+    document.addEventListener('visibilitychange', handleGoodbyeVisibilityChange);
     
     // Build initial graph from current state (if any entities already loaded)
     buildGraphNodes();
@@ -651,6 +658,42 @@ function updateAutoFollow() {
                     centerOn(goodbyeAgent.x, goodbyeAgent.y);
                 }
                 return; // Don't process normal follow logic during linger
+            } else {
+                // Goodbye agent disappeared during linger - immediately transition to next agent
+                console.log(`Goodbye agent ${goodbyeAgentId} disappeared during linger - transitioning early`);
+                
+                // Find next agent to follow
+                const remainingAgents = candidateNodes.filter(n => 
+                    n.type === 'agent' && n.id !== goodbyeAgentId
+                );
+                
+                if (remainingAgents.length > 0) {
+                    const sortedAgents = [...remainingAgents].sort((a, b) => {
+                        const aTime = new Date(a.started_at || 0).getTime();
+                        const bTime = new Date(b.started_at || 0).getTime();
+                        return bTime - aTime;
+                    });
+                    
+                    const nextAgent = sortedAgents[0];
+                    console.log(`Transitioning to ${nextAgent.id} after goodbye agent disappeared`);
+                    
+                    state.set('ui.followingNodeId', nextAgent.id);
+                    
+                    if (canvas && nextAgent.x !== undefined && nextAgent.y !== undefined) {
+                        panToNode(nextAgent.x, nextAgent.y, {
+                            canvas: canvas,
+                            duration: 800,
+                            nodeId: nextAgent.id // Validate node during pan
+                        });
+                    }
+                }
+                
+                // Clear goodbye state
+                state.set('ui.agentGoodbyeActive', null);
+                state.set('ui.goodbyeStartTime', null);
+                goodbyePauseStartTime = null;
+                goodbyeRemainingTime = null;
+                return;
             }
         } else {
             // Linger period expired - transition to next agent
@@ -679,7 +722,8 @@ function updateAutoFollow() {
                 if (canvas && nextAgent.x !== undefined && nextAgent.y !== undefined) {
                     panToNode(nextAgent.x, nextAgent.y, {
                         canvas: canvas,
-                        duration: 800 // Smooth 0.8-second transition
+                        duration: 800, // Smooth 0.8-second transition
+                        nodeId: nextAgent.id // Validate node during pan
                     });
                 }
             } else {
@@ -689,6 +733,8 @@ function updateAutoFollow() {
             // Clear goodbye state
             state.set('ui.agentGoodbyeActive', null);
             state.set('ui.goodbyeStartTime', null);
+            goodbyePauseStartTime = null;
+            goodbyeRemainingTime = null;
             return; // Exit after handling goodbye transition
         }
     }
@@ -803,6 +849,40 @@ function updateFocusedNode() {
     // Keep camera centered on the focused node
     if (canvas && focusedNode.x !== undefined && focusedNode.y !== undefined) {
         centerOn(focusedNode.x, focusedNode.y);
+    }
+}
+
+/**
+ * Handle page visibility changes to pause/resume goodbye linger timer
+ */
+function handleGoodbyeVisibilityChange() {
+    const GOODBYE_LINGER_MS = 3000;
+    
+    if (document.hidden) {
+        // Page hidden - pause goodbye timer if active
+        const goodbyeStartTime = state.get('ui.goodbyeStartTime');
+        if (goodbyeStartTime) {
+            const elapsed = Date.now() - goodbyeStartTime;
+            goodbyeRemainingTime = Math.max(0, GOODBYE_LINGER_MS - elapsed);
+            goodbyePauseStartTime = Date.now();
+            
+            console.log(`[Renderer] Tab hidden - pausing goodbye linger (${goodbyeRemainingTime}ms remaining)`);
+        }
+    } else {
+        // Page visible again - resume goodbye timer if needed
+        if (goodbyePauseStartTime && goodbyeRemainingTime !== null && goodbyeRemainingTime > 0) {
+            const pauseDuration = Date.now() - goodbyePauseStartTime;
+            
+            // Adjust goodbyeStartTime forward by pause duration
+            const goodbyeStartTime = state.get('ui.goodbyeStartTime');
+            if (goodbyeStartTime) {
+                state.set('ui.goodbyeStartTime', goodbyeStartTime + pauseDuration);
+                console.log(`[Renderer] Tab visible - resuming goodbye linger (adjusted start time by ${pauseDuration}ms)`);
+            }
+            
+            goodbyePauseStartTime = null;
+            goodbyeRemainingTime = null;
+        }
     }
 }
 

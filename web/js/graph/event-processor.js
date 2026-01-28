@@ -16,6 +16,8 @@ const LINGER_DURATION_MS = 5000; // 5 seconds
 let processingEvent = false;
 let lingerTimeout = null;
 let savedInitialState = null; // Saved state from before queue processing started
+let lingerStartTime = null; // Track when linger started for pause handling
+let remainingLingerTime = LINGER_DURATION_MS; // Remaining linger time after pause
 
 /**
  * Initialize the event processor
@@ -25,7 +27,39 @@ export function init() {
     // Subscribe to event queue changes
     state.subscribe('ui.eventQueue', onEventQueueChanged);
     
+    // Handle page visibility changes to pause/resume timers
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
     console.log('[EventProcessor] Initialized');
+}
+
+/**
+ * Handle page visibility changes (tab switch, minimize)
+ * Pauses timers when page is hidden, resumes when visible
+ */
+function handleVisibilityChange() {
+    if (document.hidden) {
+        // Page hidden - pause linger timer if active
+        if (lingerTimeout && lingerStartTime) {
+            const elapsed = Date.now() - lingerStartTime;
+            remainingLingerTime = Math.max(0, LINGER_DURATION_MS - elapsed);
+            
+            clearTimeout(lingerTimeout);
+            lingerTimeout = null;
+            
+            console.log(`[EventProcessor] Tab hidden - pausing linger (${remainingLingerTime}ms remaining)`);
+        }
+    } else {
+        // Page visible again - resume linger timer if needed
+        if (processingEvent && lingerStartTime && !lingerTimeout && remainingLingerTime > 0) {
+            console.log(`[EventProcessor] Tab visible - resuming linger (${remainingLingerTime}ms remaining)`);
+            
+            lingerStartTime = Date.now(); // Reset start time
+            lingerTimeout = setTimeout(() => {
+                finishProcessingEvent();
+            }, remainingLingerTime);
+        }
+    }
 }
 
 /**
@@ -105,6 +139,7 @@ function processEvent(event) {
         canvas: document.querySelector('#graph-canvas'),
         duration: 500,
         targetZoom: 1.5,
+        nodeId: event.entityId, // Pass node ID for mid-pan validation
         onComplete: () => {
             console.log(`[EventProcessor] Panned to ${event.entityId}, starting ${LINGER_DURATION_MS}ms linger`);
             
@@ -113,11 +148,20 @@ function processEvent(event) {
             state.set('ui.selectedNode', event.entityId);
             state.set('ui.selectedNodes', [event.entityId]);
             
+            // Track linger start time and reset remaining time
+            lingerStartTime = Date.now();
+            remainingLingerTime = LINGER_DURATION_MS;
+            
             // Schedule completion after linger duration
             // Don't return to previous position yet - wait until queue is empty
             lingerTimeout = setTimeout(() => {
                 finishProcessingEvent();
             }, LINGER_DURATION_MS);
+        },
+        onNodeDisappeared: () => {
+            // Node disappeared during pan - abort this event
+            console.warn(`[EventProcessor] Node ${event.entityId} disappeared during pan, skipping`);
+            finishProcessingEvent();
         }
     });
 }
@@ -162,6 +206,10 @@ function finishProcessingEvent() {
         clearTimeout(lingerTimeout);
         lingerTimeout = null;
     }
+    
+    // Reset linger tracking
+    lingerStartTime = null;
+    remainingLingerTime = LINGER_DURATION_MS;
     
     // Remove processed event from queue
     const eventQueue = state.get('ui.eventQueue') || [];
