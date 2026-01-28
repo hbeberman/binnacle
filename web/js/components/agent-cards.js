@@ -8,7 +8,8 @@ import {
     subscribe, 
     getAgents,
     setSelectedNode,
-    set as setState
+    set as setState,
+    addToast
 } from '../state.js';
 import { createClickableId } from '../utils/clickable-ids.js';
 import { showNodeDetailModal } from './node-detail-modal.js';
@@ -275,6 +276,20 @@ function createActionButtonsFooter(agent) {
             setTimeout(() => {
                 copyBtn.innerHTML = originalText;
             }, 2000);
+            
+            // Show toast notification
+            addToast({
+                type: 'success',
+                message: `Copied agent ID: ${agent.id}`,
+                duration: 3000
+            });
+        } else {
+            // Show error toast
+            addToast({
+                type: 'error',
+                message: 'Failed to copy agent ID to clipboard',
+                duration: 3000
+            });
         }
     });
     footer.appendChild(copyBtn);
