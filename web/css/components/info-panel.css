@@ -200,6 +200,31 @@
     line-height: 1.5;
 }
 
+/* Clickable summary section for doc nodes */
+.info-panel-section.clickable {
+    cursor: pointer;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    transition: background 0.2s ease;
+}
+
+.info-panel-section.clickable:hover {
+    background: var(--bg-secondary);
+}
+
+.doc-summary-link {
+    color: var(--accent-light);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.info-panel-section.clickable:hover .doc-summary-link {
+    color: var(--accent-blue);
+}
+
 .info-panel-deps {
     list-style: none;
     padding: 0;

@@ -176,6 +176,7 @@ export function createInfoPanel() {
  * @param {Function} options.onDocOpen - Callback when doc open is clicked
  * @param {Function} options.onViewFullLog - Callback when view full log is clicked
  * @param {Function} options.onRelationshipClick - Callback when a relationship is clicked (nodeId)
+ * @param {Function} options.onSummaryClick - Callback when summary section is clicked (for doc nodes)
  */
 export function initializeInfoPanel(panel, options = {}) {
     const {
@@ -184,7 +185,8 @@ export function initializeInfoPanel(panel, options = {}) {
         onQueueToggle = () => {},
         onDocOpen = () => {},
         onViewFullLog = () => {},
-        onRelationshipClick = () => {}
+        onRelationshipClick = () => {},
+        onSummaryClick = () => {}
     } = options;
     
     // Store callback reference for relationship clicks
@@ -238,6 +240,20 @@ export function initializeInfoPanel(panel, options = {}) {
         viewFullLogLink.addEventListener('click', (e) => {
             e.preventDefault();
             onViewFullLog();
+        });
+    }
+    
+    // Summary section click handler (for doc nodes)
+    const summarySection = panel.querySelector('#info-panel-summary-section');
+    if (summarySection) {
+        summarySection.addEventListener('click', () => {
+            // Only trigger if the section is marked as clickable (doc nodes)
+            if (summarySection.classList.contains('clickable')) {
+                const nodeId = panel.dataset.currentNodeId;
+                if (nodeId) {
+                    onSummaryClick(nodeId);
+                }
+            }
         });
     }
     
@@ -540,14 +556,30 @@ export function updateInfoPanelContent(panel, node, selectedNodes = []) {
     // Update summary section (status, priority badges for expanded view)
     const summarySection = panel.querySelector('#info-panel-summary-section');
     const summaryContent = panel.querySelector('#info-panel-summary-content');
-    if (node.status || node.priority !== undefined) {
+    
+    // For doc nodes, make the summary section clickable to open the doc viewer
+    if (node.type === 'doc') {
         summarySection.style.display = 'block';
-        const summaryParts = [];
-        if (node.status) summaryParts.push(`Status: ${node.status}`);
-        if (node.priority !== undefined && node.priority !== null) summaryParts.push(`Priority: ${node.priority}`);
-        summaryContent.textContent = summaryParts.join(' • ');
+        summarySection.classList.add('clickable');
+        summarySection.title = 'Click to open document viewer';
+        
+        // Create a link-like appearance for the summary
+        const docTypeLabel = node.doc_type ? `${node.doc_type.toUpperCase()}` : 'DOC';
+        summaryContent.innerHTML = `<span class="doc-summary-link">📖 ${escapeHtml(docTypeLabel)}: Click to view full document</span>`;
     } else {
-        summarySection.style.display = 'none';
+        // Remove clickable styling for non-doc nodes
+        summarySection.classList.remove('clickable');
+        summarySection.title = '';
+        
+        if (node.status || node.priority !== undefined) {
+            summarySection.style.display = 'block';
+            const summaryParts = [];
+            if (node.status) summaryParts.push(`Status: ${node.status}`);
+            if (node.priority !== undefined && node.priority !== null) summaryParts.push(`Priority: ${node.priority}`);
+            summaryContent.textContent = summaryParts.join(' • ');
+        } else {
+            summarySection.style.display = 'none';
+        }
     }
     
     // Update description
