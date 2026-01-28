@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Info Panel - All Node Types Test</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/info-panel.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        
+        /* Mock menu bar to test overlap detection */
+        .mock-menu-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: var(--bg-secondary, #2a2a2a);
+            border-bottom: 1px solid var(--border-color, #3a3a3a);
+            display: flex;
+            align-items: center;
+            padding: 0 1rem;
+            z-index: 100;
+            color: var(--text-primary, #e0e0e0);
+        }
+        
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: var(--bg-primary, #1a1a1a);
+            padding-top: 70px; /* Account for menu bar */
+            padding-left: 2rem;
+        }
+        
+        .content {
+            color: var(--text-primary, #e0e0e0);
+            max-width: 800px;
+        }
+        
+        .test-section {
+            margin-bottom: 2rem;
+        }
+        
+        .test-section h2 {
+            color: var(--accent-blue);
+            margin-bottom: 1rem;
+        }
+        
+        .test-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        
+        .test-btn {
+            padding: 0.5rem 1rem;
+            background: var(--accent-blue);
+            border: none;
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        
+        .test-btn:hover {
+            background: var(--accent-light);
+        }
+        
+        .test-btn.secondary {
+            background: var(--bg-tertiary, #3a3a3a);
+        }
+        
+        .test-btn.secondary:hover {
+            background: var(--bg-quaternary, #4a4a4a);
+        }
+        
+        .test-btn.success {
+            background: var(--success-color, #2d7a3e);
+        }
+        
+        .test-btn.success:hover {
+            background: var(--success-hover, #3a9e4f);
+        }
+        
+        .test-btn.danger {
+            background: var(--error-color, #a02727);
+        }
+        
+        .test-btn.danger:hover {
+            background: var(--error-hover, #c03030);
+        }
+        
+        .checklist {
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 4px;
+            border-left: 4px solid var(--accent-blue);
+        }
+        
+        .checklist h3 {
+            margin-top: 0;
+            color: var(--accent-light);
+        }
+        
+        .checklist ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .checklist li {
+            margin: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+        
+        .checklist li:before {
+            content: '☐';
+            position: absolute;
+            left: 0;
+            font-size: 1.2rem;
+        }
+        
+        .status-message {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        
+        .status-message.success {
+            background: var(--success-color);
+        }
+        
+        .status-message.warning {
+            background: var(--warning-color, #d97706);
+        }
+        
+        .status-message.error {
+            background: var(--error-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="mock-menu-bar">
+        <strong>Mock Menu Bar (z-index: 100)</strong> - Panel should not overlap this
+    </div>
+    
+    <div class="container" id="container">
+        <div class="content">
+            <h1>Info Panel - Comprehensive Test Suite</h1>
+            <p>This test validates the expandable info panel with all node types and edge cases.</p>
+            
+            <div class="test-section">
+                <h2>1. Node Type Tests</h2>
+                <p>Test panel rendering with different entity types:</p>
+                <div class="test-buttons">
+                    <button class="test-btn" id="show-task">Task Node</button>
+                    <button class="test-btn" id="show-bug">Bug Node</button>
+                    <button class="test-btn" id="show-doc">Doc Node</button>
+                    <button class="test-btn" id="show-milestone">Milestone Node</button>
+                    <button class="test-btn" id="show-idea">Idea Node</button>
+                    <button class="test-btn" id="show-agent">Agent Node</button>
+                </div>
+            </div>
+            
+            <div class="test-section">
+                <h2>2. Panel State Tests</h2>
+                <p>Test expand/collapse behavior and transitions:</p>
+                <div class="test-buttons">
+                    <button class="test-btn secondary" id="expand-panel">Expand Panel</button>
+                    <button class="test-btn secondary" id="collapse-panel">Collapse Panel</button>
+                    <button class="test-btn secondary" id="toggle-expand">Toggle Expand</button>
+                    <button class="test-btn danger" id="hide-panel">Hide Panel</button>
+                </div>
+            </div>
+            
+            <div class="test-section">
+                <h2>3. Keyboard Accessibility Tests</h2>
+                <p>Test keyboard navigation and focus management:</p>
+                <div class="test-buttons">
+                    <button class="test-btn success" id="test-escape">Test Escape Key (should collapse/close)</button>
+                    <button class="test-btn success" id="test-tab">Test Tab Navigation</button>
+                    <button class="test-btn success" id="focus-panel">Focus Panel</button>
+                </div>
+            </div>
+            
+            <div class="test-section">
+                <h2>4. Edge Cases</h2>
+                <p>Test edge cases and error conditions:</p>
+                <div class="test-buttons">
+                    <button class="test-btn secondary" id="show-no-edges">Node with No Edges</button>
+                    <button class="test-btn secondary" id="show-many-edges">Node with Many Edges</button>
+                    <button class="test-btn secondary" id="show-long-desc">Node with Long Description</button>
+                </div>
+            </div>
+            
+            <div class="checklist">
+                <h3>Manual Test Checklist</h3>
+                <ul>
+                    <li>Panel appears with correct styling for each node type</li>
+                    <li>Panel does NOT overlap the menu bar (z-index < 100)</li>
+                    <li>Expand animation is smooth (250ms ease-out)</li>
+                    <li>Collapse animation is smooth</li>
+                    <li>Content fades in after expansion</li>
+                    <li>Escape key collapses expanded panel</li>
+                    <li>Escape key again closes panel</li>
+                    <li>Tab key navigates through interactive elements</li>
+                    <li>Focus is trapped within panel when open</li>
+                    <li>Relationships section is scrollable when many edges</li>
+                    <li>Long descriptions are properly formatted</li>
+                    <li>Close button works correctly</li>
+                </ul>
+            </div>
+            
+            <div id="status-area"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import {
+            createInfoPanel,
+            initializeInfoPanel,
+            showInfoPanel,
+            hideInfoPanel,
+            expandInfoPanel,
+            collapseInfoPanel,
+            toggleInfoPanelExpanded,
+            updateInfoPanelContent
+        } from './js/components/info-panel.js';
+        
+        const container = document.getElementById('container');
+        const statusArea = document.getElementById('status-area');
+        
+        // Create and append info panel
+        const panel = createInfoPanel();
+        container.appendChild(panel);
+        
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.createElement('div');
+            statusDiv.className = `status-message ${type}`;
+            statusDiv.textContent = message;
+            statusArea.innerHTML = '';
+            statusArea.appendChild(statusDiv);
+            
+            setTimeout(() => statusDiv.remove(), 5000);
+        }
+        
+        // Initialize with callbacks
+        initializeInfoPanel(panel, {
+            onClose: () => {
+                console.log('Panel closed');
+                showStatus('Panel closed', 'info');
+                hideInfoPanel(panel);
+            },
+            onTabChange: (tabName) => {
+                console.log('Tab changed to:', tabName);
+                showStatus(`Tab changed to: ${tabName}`, 'info');
+            },
+            onQueueToggle: (nodeId) => {
+                console.log('Queue toggle clicked for node:', nodeId);
+                const btn = panel.querySelector('#queue-toggle-btn');
+                if (btn) btn.classList.toggle('active');
+                showStatus(`Queue toggled for ${nodeId}`, 'success');
+            },
+            onDocOpen: () => {
+                console.log('Doc open clicked');
+                showStatus('Doc open clicked', 'info');
+            },
+            onRelationshipClick: (nodeId) => {
+                console.log('Relationship clicked, navigate to:', nodeId);
+                showStatus(`Navigate to: ${nodeId}`, 'info');
+            }
+        });
+        
+        // Test data for different node types
+        const sampleTask = {
+            id: 'bn-a1b2',
+            type: 'task',
+            title: 'Implement authentication middleware',
+            short_name: 'Auth middleware',
+            description: 'Add JWT validation to all API endpoints.\n\nEnsure proper error handling and logging for authentication failures.',
+            status: 'in_progress',
+            priority: 1,
+            tags: ['backend', 'security'],
+            depends_on: ['bn-c3d4'],
+            queued: true,
+            edges: [
+                { edge_type: 'depends_on', direction: 'outbound', related_id: 'bn-c3d4', related_title: 'Setup auth database schema', related_status: 'done' },
+                { edge_type: 'child_of', direction: 'outbound', related_id: 'bn-m1l2', related_title: 'Authentication milestone', related_status: 'pending' },
+                { edge_type: 'tested_by', direction: 'inbound', related_id: 'bnt-0001', related_title: 'JWT validation tests' },
+                { edge_type: 'working_on', direction: 'inbound', related_id: 'bn-ag01', related_title: 'Agent Claude' }
+            ]
+        };
+        
+        const sampleBug = {
+            id: 'bn-b0b6',
+            type: 'bug',
+            title: 'Memory leak in graph renderer',
+            short_name: 'Graph memory leak',
+            description: 'Graph nodes are not properly garbage collected after removal, causing memory usage to grow over time.',
+            status: 'pending',
+            priority: 0,
+            severity: 'critical',
+            tags: ['frontend', 'performance'],
+            queued: false,
+            edges: [
+                { edge_type: 'blocks', direction: 'outbound', related_id: 'bn-x9y8', related_title: 'Release v1.0', related_status: 'pending' },
+                { edge_type: 'related_to', direction: 'outbound', related_id: 'bn-z7w6', related_title: 'Graph performance optimization', related_status: 'in_progress' }
+            ]
+        };
+        
+        const sampleDoc = {
+            id: 'bn-d0c1',
+            type: 'doc',
+            title: 'API Design Document',
+            short_name: 'API Design',
+            description: 'RESTful API design specification for the task management system.\n\nIncludes endpoint definitions, authentication flows, and error handling patterns.',
+            status: 'done',
+            doc_type: 'prd',
+            edges: [
+                { edge_type: 'documents', direction: 'outbound', related_id: 'bn-a1b2', related_title: 'Implement authentication middleware', related_status: 'in_progress' },
+                { edge_type: 'documents', direction: 'outbound', related_id: 'bn-x1y2', related_title: 'API rate limiting', related_status: 'pending' }
+            ]
+        };
+        
+        const sampleMilestone = {
+            id: 'bn-m1l2',
+            type: 'milestone',
+            title: 'Authentication System Complete',
+            short_name: 'Auth milestone',
+            description: 'All authentication features implemented and tested.\n\nIncludes JWT validation, refresh tokens, and SSO integration.',
+            status: 'in_progress',
+            priority: 0,
+            edges: [
+                { edge_type: 'parent_of', direction: 'inbound', related_id: 'bn-a1b2', related_title: 'Implement authentication middleware', related_status: 'in_progress' },
+                { edge_type: 'parent_of', direction: 'inbound', related_id: 'bn-r3f4', related_title: 'Implement refresh token rotation', related_status: 'done' },
+                { edge_type: 'parent_of', direction: 'inbound', related_id: 'bn-s5o6', related_title: 'Add SSO integration', related_status: 'pending' }
+            ]
+        };
+        
+        const sampleIdea = {
+            id: 'bn-1de4',
+            type: 'idea',
+            title: 'Add keyboard shortcuts for power users',
+            short_name: 'Keyboard shortcuts',
+            description: 'Implement vim-style navigation throughout the UI.\n\nProvide customizable key bindings and a cheat sheet modal.',
+            status: 'pending',
+            priority: 3,
+            tags: ['ux', 'enhancement'],
+            edges: []
+        };
+        
+        const sampleAgent = {
+            id: 'bn-ag01',
+            type: 'agent',
+            title: 'Agent Claude',
+            short_name: 'Claude',
+            description: 'AI agent working on authentication tasks.',
+            status: 'active',
+            agent_type: 'worker',
+            edges: [
+                { edge_type: 'assigned_to', direction: 'outbound', related_id: 'bn-a1b2', related_title: 'Implement authentication middleware', related_status: 'in_progress' }
+            ]
+        };
+        
+        const nodeWithNoEdges = {
+            id: 'bn-0000',
+            type: 'task',
+            title: 'Standalone task with no relationships',
+            short_name: 'Standalone',
+            description: 'This task has no dependencies or related nodes.',
+            status: 'pending',
+            priority: 2,
+            edges: []
+        };
+        
+        const nodeWithManyEdges = {
+            id: 'bn-9999',
+            type: 'task',
+            title: 'Task with many relationships',
+            short_name: 'Complex task',
+            description: 'This task has many dependencies and relationships to test scrolling.',
+            status: 'in_progress',
+            priority: 1,
+            edges: Array.from({ length: 15 }, (_, i) => ({
+                edge_type: i % 3 === 0 ? 'depends_on' : i % 3 === 1 ? 'blocks' : 'related_to',
+                direction: i % 2 === 0 ? 'outbound' : 'inbound',
+                related_id: `bn-${1000 + i}`,
+                related_title: `Related task ${i + 1}`,
+                related_status: i % 3 === 0 ? 'done' : i % 3 === 1 ? 'in_progress' : 'pending'
+            }))
+        };
+        
+        const nodeWithLongDescription = {
+            id: 'bn-long',
+            type: 'task',
+            title: 'Task with very long description',
+            short_name: 'Long desc',
+            description: `This is a very long description that should test the panel's ability to handle extensive text content.
+
+${'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(20)}
+
+The panel should handle this gracefully with proper scrolling and formatting.
+
+Key requirements:
+1. Proper text wrapping
+2. Scrollable content area
+3. Readable line spacing
+4. Proper padding and margins
+
+${'Additional paragraph with more content. '.repeat(10)}`,
+            status: 'pending',
+            priority: 2,
+            edges: []
+        };
+        
+        // Button event handlers
+        document.getElementById('show-task').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleTask);
+            showInfoPanel(panel);
+            showStatus('Showing task node', 'info');
+        });
+        
+        document.getElementById('show-bug').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleBug);
+            showInfoPanel(panel);
+            showStatus('Showing bug node', 'info');
+        });
+        
+        document.getElementById('show-doc').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleDoc);
+            showInfoPanel(panel);
+            showStatus('Showing doc node', 'info');
+        });
+        
+        document.getElementById('show-milestone').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleMilestone);
+            showInfoPanel(panel);
+            showStatus('Showing milestone node', 'info');
+        });
+        
+        document.getElementById('show-idea').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleIdea);
+            showInfoPanel(panel);
+            showStatus('Showing idea node', 'info');
+        });
+        
+        document.getElementById('show-agent').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleAgent);
+            showInfoPanel(panel);
+            showStatus('Showing agent node', 'info');
+        });
+        
+        document.getElementById('expand-panel').addEventListener('click', () => {
+            expandInfoPanel(panel);
+            showStatus('Panel expanded', 'success');
+        });
+        
+        document.getElementById('collapse-panel').addEventListener('click', () => {
+            collapseInfoPanel(panel);
+            showStatus('Panel collapsed', 'success');
+        });
+        
+        document.getElementById('toggle-expand').addEventListener('click', () => {
+            const expanded = toggleInfoPanelExpanded(panel);
+            showStatus(`Panel ${expanded ? 'expanded' : 'collapsed'}`, 'success');
+        });
+        
+        document.getElementById('hide-panel').addEventListener('click', () => {
+            hideInfoPanel(panel);
+            showStatus('Panel hidden', 'info');
+        });
+        
+        document.getElementById('test-escape').addEventListener('click', () => {
+            // Show panel first
+            updateInfoPanelContent(panel, sampleTask);
+            showInfoPanel(panel);
+            expandInfoPanel(panel);
+            showStatus('Press Escape key now - should collapse panel, then close on second press', 'warning');
+        });
+        
+        document.getElementById('test-tab').addEventListener('click', () => {
+            updateInfoPanelContent(panel, sampleTask);
+            showInfoPanel(panel);
+            showStatus('Press Tab key to test focus navigation within panel', 'warning');
+            // Focus the first interactive element
+            const firstButton = panel.querySelector('button, [tabindex]');
+            if (firstButton) firstButton.focus();
+        });
+        
+        document.getElementById('focus-panel').addEventListener('click', () => {
+            const firstButton = panel.querySelector('button, [tabindex]');
+            if (firstButton) {
+                firstButton.focus();
+                showStatus('Panel focused', 'success');
+            } else {
+                showStatus('No focusable element found in panel', 'error');
+            }
+        });
+        
+        document.getElementById('show-no-edges').addEventListener('click', () => {
+            updateInfoPanelContent(panel, nodeWithNoEdges);
+            showInfoPanel(panel);
+            showStatus('Showing node with no edges', 'info');
+        });
+        
+        document.getElementById('show-many-edges').addEventListener('click', () => {
+            updateInfoPanelContent(panel, nodeWithManyEdges);
+            showInfoPanel(panel);
+            expandInfoPanel(panel);
+            showStatus('Showing node with many edges - check scrolling in relationships', 'warning');
+        });
+        
+        document.getElementById('show-long-desc').addEventListener('click', () => {
+            updateInfoPanelContent(panel, nodeWithLongDescription);
+            showInfoPanel(panel);
+            expandInfoPanel(panel);
+            showStatus('Showing node with long description - check scrolling', 'warning');
+        });
+        
+        // Check panel z-index on load
+        window.addEventListener('load', () => {
+            const panelZIndex = parseInt(window.getComputedStyle(panel).zIndex, 10);
+            const menuBarZIndex = 100;
+            
+            if (panelZIndex >= menuBarZIndex) {
+                showStatus(`WARNING: Panel z-index (${panelZIndex}) >= menu bar z-index (${menuBarZIndex})`, 'error');
+            } else {
+                showStatus(`✓ Panel z-index (${panelZIndex}) < menu bar z-index (${menuBarZIndex})`, 'success');
+            }
+        });
+    </script>
+</body>
+</html>
