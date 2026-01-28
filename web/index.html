@@ -269,6 +269,7 @@
         import { mountDocViewer, showDocViewer } from './js/components/doc-viewer.js';
         import { mountNodeDetailModal, showNodeDetailModal } from './js/components/node-detail-modal.js';
         import { mountNodeDetailPane, showNodeDetailPane } from './js/components/node-detail-pane.js';
+        import { mountMarkdownPane, showMarkdownPane } from './js/components/markdown-pane.js';
         import { mountSummarizeChatModal, showSummarizeChatModal } from './js/components/summarize-chat.js';
         import { createAvailableWorkPane } from './js/components/available-work-pane.js';
         import { createActiveTaskPane } from './js/components/active-task-pane.js';
@@ -344,7 +345,7 @@
                 showNodeDetailModal(nodeId);
             },
             onDocRead: (docId) => {
-                showDocViewer(docId);
+                showMarkdownPane(docId);
             }
         });
         
@@ -393,7 +394,7 @@
                 const docOpenSection = document.getElementById('info-panel-doc-open-section');
                 const docId = docOpenSection?.dataset?.docId;
                 if (docId) {
-                    showDocViewer(docId);
+                    showMarkdownPane(docId);
                 }
             },
             onViewFullLog: () => {
@@ -550,6 +551,9 @@
         const mainContent = document.querySelector('.main-content');
         mountNodeDetailPane(mainContent);
         
+        // Mount markdown pane (side panel for document viewing)
+        mountMarkdownPane(mainContent);
+        
         // Create and mount available work pane
         const availableWorkPane = createAvailableWorkPane();
         document.getElementById('available-work-container').appendChild(availableWorkPane);
@@ -583,8 +587,12 @@
             },
             onNodeDoubleClick: (node) => {
                 console.log('Node double-clicked:', node);
-                // Show detail pane for the double-clicked node
-                showNodeDetailPane(node.id);
+                // Show markdown pane for doc nodes, detail pane for others
+                if (node.type === 'doc') {
+                    showMarkdownPane(node.id);
+                } else {
+                    showNodeDetailPane(node.id);
+                }
             }
         });
         
