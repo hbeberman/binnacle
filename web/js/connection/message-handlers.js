@@ -338,7 +338,7 @@ function countEntities() {
  * Expected message format:
  * {
  *   type: 'entity_added',
- *   entity_type: 'task' | 'bug' | 'idea' | 'test' | 'doc' | 'milestone' | 'queue',
+ *   entity_type: 'task' | 'bug' | 'idea' | 'test' | 'doc' | 'milestone' | 'queue' | 'agent',
  *   id: string,
  *   entity: object,
  *   version: number,
@@ -369,7 +369,12 @@ registerHandler('entity_added', (message) => {
     const entityKey = getEntityKey(entity_type);
     if (entityKey) {
         const normalized = normalizeEntity(entity, entity_type);
-        state.upsertEntity(entityKey, normalized);
+        // Skip if entity was filtered out (e.g., non-worker agent)
+        if (normalized !== null) {
+            state.upsertEntity(entityKey, normalized);
+        } else {
+            console.log(`Filtered out ${entity_type} ${id} (e.g., non-worker agent)`);
+        }
     } else {
         console.warn(`Unknown entity type: ${entity_type}`);
     }
@@ -412,7 +417,14 @@ registerHandler('entity_updated', (message) => {
     const entityKey = getEntityKey(entity_type);
     if (entityKey) {
         const normalized = normalizeEntity(entity, entity_type);
-        state.upsertEntity(entityKey, normalized);
+        // Skip if entity was filtered out (e.g., non-worker agent)
+        if (normalized !== null) {
+            state.upsertEntity(entityKey, normalized);
+        } else {
+            console.log(`Filtered out ${entity_type} ${id} (e.g., non-worker agent)`);
+            // Remove from state if it was previously added
+            state.removeEntity(entityKey, id);
+        }
     } else {
         console.warn(`Unknown entity type: ${entity_type}`);
     }
@@ -574,9 +586,32 @@ function getEntityKey(entity_type) {
  * Normalize a single entity to ensure consistent format
  * @param {Object} entity - Raw entity object
  * @param {string} type - Entity type
- * @returns {Object} Normalized entity
+ * @returns {Object|null} Normalized entity, or null if entity should be filtered out
  */
 function normalizeEntity(entity, type) {
+    // Special handling for agents: filter to worker agents only and apply agent-specific normalization
+    if (type === 'agent') {
+        // Only include worker agents in the graph (consistent with initial fetch)
+        if (entity.agent_type !== 'worker') {
+            return null;
+        }
+        
+        return {
+            id: entity.id || `agent-${entity.pid}`,
+            title: entity.name,
+            short_name: entity.purpose || entity.name,
+            type: 'agent',
+            status: entity.status || 'unknown',
+            pid: entity.pid,
+            container_id: entity.container_id,
+            started_at: entity.started_at,
+            last_heartbeat: entity.last_heartbeat,
+            // Keep original agent data for renderer (used by drawAgentLabel)
+            _agent: entity
+        };
+    }
+    
+    // Default normalization for other entity types
     return {
         ...entity,
         type: entity.type || type,
