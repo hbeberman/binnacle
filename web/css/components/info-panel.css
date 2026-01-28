@@ -145,6 +145,13 @@
     line-height: 1.4;
 }
 
+/* Compact mode: truncate title to single line */
+.info-panel.compact .info-panel-task-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .info-panel-short-name-row {
     font-size: 0.9rem;
     color: var(--text-secondary);
@@ -222,6 +229,16 @@
     color: var(--text-primary);
     line-height: 1.5;
     white-space: pre-wrap;
+}
+
+/* Compact mode: truncate description to 3 lines */
+.info-panel.compact .info-panel-description {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;
 }
 
 .info-panel-description.empty {
