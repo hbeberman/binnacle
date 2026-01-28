@@ -55,6 +55,12 @@ fn test_doctor_healthy_json() {
     // Create a queue to make repo fully healthy
     create_queue(&temp);
 
+    // Install copilot to avoid copilot warning
+    bn_in(&temp)
+        .args(["system", "copilot", "install", "--upstream"])
+        .assert()
+        .success();
+
     // Create a task to have some data
     create_task(&temp, "Test task");
 
@@ -72,6 +78,12 @@ fn test_doctor_healthy_human() {
 
     // Create a queue to make repo fully healthy
     create_queue(&temp);
+
+    // Install copilot to avoid copilot warning
+    bn_in(&temp)
+        .args(["system", "copilot", "install", "--upstream"])
+        .assert()
+        .success();
 
     bn_in(&temp)
         .args(["-H", "doctor"])
@@ -158,6 +170,12 @@ fn test_doctor_ignores_migrated_archives() {
     let temp = init_binnacle();
     create_queue(&temp);
 
+    // Install copilot to avoid copilot warning
+    bn_in(&temp)
+        .args(["system", "copilot", "install", "--upstream"])
+        .assert()
+        .success();
+
     // Create a fake archive directory (stable location)
     let archive_dir = std::path::PathBuf::from("/tmp/test_archives_migrated");
     std::fs::create_dir_all(&archive_dir).unwrap();
@@ -193,6 +211,12 @@ fn test_doctor_ignores_migrated_archives() {
 #[test]
 fn test_doctor_fix_creates_queue() {
     let temp = init_binnacle();
+
+    // Install copilot to avoid copilot warning
+    bn_in(&temp)
+        .args(["system", "copilot", "install", "--upstream"])
+        .assert()
+        .success();
 
     // Without a queue, doctor should report an issue
     bn_in(&temp)
@@ -636,4 +660,147 @@ fn test_config_not_initialized() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("Not initialized"));
+}
+
+// === Doctor Copilot Tests ===
+
+#[test]
+fn test_doctor_copilot_not_installed() {
+    let temp = init_binnacle();
+    create_queue(&temp);
+
+    // By default, copilot won't be installed
+    let output = bn_in(&temp)
+        .arg("doctor")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8_lossy(&output);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
+
+    // Check JSON output
+    assert!(json["stats"]["copilot_version"].is_string());
+    assert_eq!(json["stats"]["copilot_installed"], false);
+    assert_eq!(json["stats"]["copilot_executable"], false);
+
+    // Should report warning about missing copilot
+    let issues = json["issues"].as_array().unwrap();
+    let copilot_issue = issues
+        .iter()
+        .find(|i| i["category"] == "copilot")
+        .expect("Should have copilot issue");
+    assert_eq!(copilot_issue["severity"], "warning");
+    assert!(
+        copilot_issue["message"]
+            .as_str()
+            .unwrap()
+            .contains("not found")
+    );
+}
+
+#[test]
+fn test_doctor_copilot_human_output() {
+    let temp = init_binnacle();
+    create_queue(&temp);
+
+    // Check human-readable output
+    bn_in(&temp)
+        .args(["-H", "doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Copilot:"))
+        .stdout(predicate::str::contains("binnacle-preferred"))
+        .stdout(predicate::str::contains("not installed"));
+}
+
+#[test]
+fn test_doctor_copilot_installed() {
+    let temp = init_binnacle();
+    create_queue(&temp);
+
+    // Install copilot first
+    bn_in(&temp)
+        .args(["system", "copilot", "install", "--upstream"])
+        .assert()
+        .success();
+
+    // Now doctor should report it as installed and executable
+    let output = bn_in(&temp)
+        .arg("doctor")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8_lossy(&output);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
+
+    // Check JSON output
+    assert_eq!(json["stats"]["copilot_installed"], true);
+    assert_eq!(json["stats"]["copilot_executable"], true);
+
+    // Should NOT have copilot warning
+    let issues = json["issues"].as_array().unwrap();
+    let copilot_issue = issues.iter().find(|i| i["category"] == "copilot");
+    assert!(copilot_issue.is_none(), "Should not have copilot issue");
+}
+
+#[test]
+fn test_doctor_copilot_installed_human_output() {
+    let temp = init_binnacle();
+    create_queue(&temp);
+
+    // Install copilot
+    bn_in(&temp)
+        .args(["system", "copilot", "install", "--upstream"])
+        .assert()
+        .success();
+
+    // Check human output shows [OK]
+    bn_in(&temp)
+        .args(["-H", "doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Copilot:"))
+        .stdout(predicate::str::contains("[OK]"));
+}
+
+#[test]
+fn test_doctor_copilot_respects_config() {
+    use sha2::{Digest, Sha256};
+
+    let temp = init_binnacle();
+    create_queue(&temp);
+
+    // Set a different copilot version in config
+    let canonical = temp.repo_path().canonicalize().unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    let hash = hasher.finalize();
+    let hash_hex = format!("{:x}", hash);
+    let short_hash = &hash_hex[..12];
+
+    let config_path = temp.data_dir.path().join(short_hash).join("config.kdl");
+    std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    std::fs::write(&config_path, "copilot {\n    version \"v0.0.396\"\n}\n").unwrap();
+
+    // Doctor should show config version
+    let output = bn_in(&temp)
+        .arg("doctor")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8_lossy(&output);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON");
+
+    assert_eq!(json["stats"]["copilot_version"], "v0.0.396");
+    assert_eq!(json["stats"]["copilot_source"], "config");
+    assert_eq!(json["stats"]["copilot_installed"], false);
 }

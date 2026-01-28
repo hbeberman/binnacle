@@ -10648,6 +10648,18 @@ pub struct DoctorStats {
     /// Total size of archive directory in bytes, if configured and exists
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archive_size_bytes: Option<u64>,
+    /// Copilot active version (config or binnacle-preferred)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub copilot_version: Option<String>,
+    /// Copilot version source ("config" or "binnacle-preferred")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub copilot_source: Option<String>,
+    /// Whether the copilot binary exists at expected path
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub copilot_installed: Option<bool>,
+    /// Whether the copilot binary is executable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub copilot_executable: Option<bool>,
 }
 
 impl Output for DoctorResult {
@@ -10688,6 +10700,30 @@ impl Output for DoctorResult {
             }
         } else {
             lines.push("  Archive: not configured".to_string());
+        }
+
+        // Copilot status
+        if let Some(version) = &self.stats.copilot_version {
+            let source = self.stats.copilot_source.as_deref().unwrap_or("unknown");
+            let installed = self.stats.copilot_installed.unwrap_or(false);
+            let executable = self.stats.copilot_executable.unwrap_or(false);
+
+            let mut status_parts = Vec::new();
+            if !installed {
+                status_parts.push("not installed");
+            } else if !executable {
+                status_parts.push("not executable");
+            } else {
+                status_parts.push("OK");
+            }
+
+            let status_str = if !status_parts.is_empty() {
+                format!(" [{}]", status_parts.join(", "))
+            } else {
+                String::new()
+            };
+
+            lines.push(format!("  Copilot: {} ({}){}", version, source, status_str));
         }
 
         if !self.issues.is_empty() {
@@ -11056,6 +11092,68 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
         }
     });
 
+    // Check copilot installation status
+    let (copilot_version, copilot_source, copilot_installed, copilot_executable) =
+        match copilot_path(repo_path) {
+            Ok(info) => {
+                // Check if binary exists and is executable
+                let installed = info.exists;
+                let executable = if installed {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let path = Path::new(&info.path);
+                        path.metadata()
+                            .map(|m| m.permissions().mode() & 0o111 != 0)
+                            .unwrap_or(false)
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        // On non-Unix, assume executable if it exists
+                        true
+                    }
+                } else {
+                    false
+                };
+
+                // Add issues if copilot is not properly set up
+                if !installed {
+                    issues.push(DoctorIssue {
+                        severity: "warning".to_string(),
+                        category: "copilot".to_string(),
+                        message: format!(
+                            "Copilot binary not found at expected path for version {}. \
+                             Run 'bn system copilot install --upstream' to install.",
+                            info.version
+                        ),
+                        entity_id: None,
+                    });
+                } else if !executable {
+                    issues.push(DoctorIssue {
+                        severity: "error".to_string(),
+                        category: "copilot".to_string(),
+                        message: format!(
+                            "Copilot binary at {} is not executable. \
+                             Run 'chmod +x {}' to fix.",
+                            info.path, info.path
+                        ),
+                        entity_id: None,
+                    });
+                }
+
+                (
+                    Some(info.version),
+                    Some(info.source),
+                    Some(installed),
+                    Some(executable),
+                )
+            }
+            Err(_) => {
+                // If copilot_path fails, we can't check status
+                (None, None, None, None)
+            }
+        };
+
     let stats = DoctorStats {
         total_tasks: tasks.len(),
         total_bugs: bugs.len(),
@@ -11064,6 +11162,10 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
         storage_path: storage.root().to_string_lossy().to_string(),
         archive_directory: archive_directory.map(|p| p.to_string_lossy().to_string()),
         archive_size_bytes,
+        copilot_version,
+        copilot_source,
+        copilot_installed,
+        copilot_executable,
     };
 
     Ok(DoctorResult {
@@ -20183,6 +20285,9 @@ mod tests {
         let queue = Queue::new("bnq-test".to_string(), "Test Queue".to_string());
         storage.create_queue(&queue).unwrap();
         drop(storage);
+
+        // Install copilot to avoid copilot warning
+        copilot_install(None, true).unwrap();
 
         task_create(
             temp.path(),
