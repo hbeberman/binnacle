@@ -41,3 +41,6 @@ test-results/
 # Test/development files
 web/test-*.html
 web/tests/
+
+# Container build artifacts
+container/bn
