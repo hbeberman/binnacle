@@ -422,11 +422,12 @@ export function initializeGraphControls(controls, options = {}) {
                     </div>
                 `;
                 
-                // Click to focus agent in graph and enable agent follow mode
+                // Click to focus agent in graph and pin follow to that agent
                 item.addEventListener('click', () => {
                     State.set('ui.selectedNode', agent.id);
                     State.set('ui.followTypeFilter', 'agent');
                     State.set('ui.autoFollow', true);
+                    State.set('ui.pinnedAgentId', agent.id);  // Pin to this specific agent
                     
                     // Update the toggle switch UI
                     const autoFollowSwitch = controls.querySelector('#auto-follow-switch');

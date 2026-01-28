@@ -637,6 +637,30 @@ function updateAutoFollow() {
         }
     }
     
+    // Check for pinned agent (takes priority after goodbye linger)
+    const pinnedAgentId = state.get('ui.pinnedAgentId');
+    if (pinnedAgentId) {
+        const pinnedAgent = candidateNodes.find(n => n.id === pinnedAgentId);
+        if (pinnedAgent) {
+            // Pinned agent exists - follow it exclusively
+            const currentFollowingId = state.get('ui.followingNodeId');
+            if (currentFollowingId !== pinnedAgent.id) {
+                state.set('ui.followingNodeId', pinnedAgent.id);
+                console.log(`Following pinned agent ${pinnedAgent.id}`);
+            }
+            
+            // Keep camera centered on pinned agent
+            if (canvas && pinnedAgent.x !== undefined && pinnedAgent.y !== undefined) {
+                centerOn(pinnedAgent.x, pinnedAgent.y);
+            }
+            return; // Don't process normal follow logic when pinned
+        } else {
+            // Pinned agent no longer exists - clear pin and fall back to auto-priority
+            state.set('ui.pinnedAgentId', null);
+            console.log(`Pinned agent ${pinnedAgentId} no longer exists - falling back to auto-priority`);
+        }
+    }
+    
     // Determine target node: newly active agent takes priority
     let targetNode;
     if (newlyActiveAgent) {
