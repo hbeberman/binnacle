@@ -16,6 +16,11 @@ fn main() {
     // Rerun if COPILOT_VERSION changes
     println!("cargo:rerun-if-changed=COPILOT_VERSION");
 
+    // Rerun if container files change
+    println!("cargo:rerun-if-changed=container/Containerfile");
+    println!("cargo:rerun-if-changed=container/entrypoint.sh");
+    println!("cargo:rerun-if-changed=container/git-wrapper.sh");
+
     // Get build timestamp
     let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     println!("cargo:rustc-env=BN_BUILD_TIMESTAMP={}", timestamp);

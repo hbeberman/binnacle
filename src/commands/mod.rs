@@ -16804,6 +16804,47 @@ impl Output for ContainerListResult {
     }
 }
 
+/// Embedded container files - included at compile time
+const EMBEDDED_CONTAINERFILE: &[u8] = include_bytes!("../../container/Containerfile");
+const EMBEDDED_ENTRYPOINT: &[u8] = include_bytes!("../../container/entrypoint.sh");
+const EMBEDDED_GIT_WRAPPER: &[u8] = include_bytes!("../../container/git-wrapper.sh");
+
+/// Write embedded container files to a directory.
+/// Returns the path to the directory containing the files.
+fn write_embedded_container_files() -> Result<PathBuf> {
+    use std::fs;
+    use std::io::Write;
+
+    // Create a temp directory for the container context
+    let temp_dir = std::env::temp_dir().join(format!("bn-container-{}", std::process::id()));
+    let container_dir = temp_dir.join("container");
+    fs::create_dir_all(&container_dir)
+        .map_err(|e| Error::Other(format!("Failed to create temp container directory: {}", e)))?;
+
+    // Write Containerfile
+    let mut containerfile = fs::File::create(container_dir.join("Containerfile"))
+        .map_err(|e| Error::Other(format!("Failed to create Containerfile: {}", e)))?;
+    containerfile
+        .write_all(EMBEDDED_CONTAINERFILE)
+        .map_err(|e| Error::Other(format!("Failed to write Containerfile: {}", e)))?;
+
+    // Write entrypoint.sh
+    let mut entrypoint = fs::File::create(container_dir.join("entrypoint.sh"))
+        .map_err(|e| Error::Other(format!("Failed to create entrypoint.sh: {}", e)))?;
+    entrypoint
+        .write_all(EMBEDDED_ENTRYPOINT)
+        .map_err(|e| Error::Other(format!("Failed to write entrypoint.sh: {}", e)))?;
+
+    // Write git-wrapper.sh
+    let mut git_wrapper = fs::File::create(container_dir.join("git-wrapper.sh"))
+        .map_err(|e| Error::Other(format!("Failed to create git-wrapper.sh: {}", e)))?;
+    git_wrapper
+        .write_all(EMBEDDED_GIT_WRAPPER)
+        .map_err(|e| Error::Other(format!("Failed to write git-wrapper.sh: {}", e)))?;
+
+    Ok(temp_dir)
+}
+
 /// Check if a command exists on the system.
 fn command_exists(cmd: &str) -> bool {
     Command::new("which")
@@ -16981,23 +17022,28 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
         });
     }
 
-    // Check if Containerfile exists
-    let containerfile = Path::new("container/Containerfile");
-    if !containerfile.exists() {
-        return Ok(ContainerBuildResult {
-            success: false,
-            tag: tag.to_string(),
-            error: Some(
-                "container/Containerfile not found. Run from binnacle repository root.".to_string(),
-            ),
-        });
-    }
+    // Determine build context: prefer external files if available, otherwise use embedded
+    let (build_context_dir, containerfile_path, using_embedded) =
+        if Path::new("container/Containerfile").exists() {
+            // Use repository files if they exist
+            (
+                PathBuf::from("."),
+                PathBuf::from("container/Containerfile"),
+                false,
+            )
+        } else {
+            // Use embedded files - write them to a temp directory
+            eprintln!("📦 Using embedded container files...");
+            let temp_dir = write_embedded_container_files()?;
+            let containerfile = temp_dir.join("container/Containerfile");
+            (temp_dir, containerfile, true)
+        };
 
     // Get the currently running binary and copy it to the build context
     let current_exe = std::env::current_exe()
         .map_err(|e| Error::Other(format!("Failed to get current executable path: {}", e)))?;
 
-    let container_binary_path = Path::new("container/bn");
+    let container_binary_path = build_context_dir.join("container/bn");
     eprintln!(
         "📋 Copying bn binary from {} to {}...",
         current_exe.display(),
@@ -17005,7 +17051,7 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
     );
 
     // Copy the binary to the container build context
-    fs::copy(&current_exe, container_binary_path).map_err(|e| {
+    fs::copy(&current_exe, &container_binary_path).map_err(|e| {
         Error::Other(format!(
             "Failed to copy binary from {} to {}: {}",
             current_exe.display(),
@@ -17026,7 +17072,7 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
         .arg("-t")
         .arg(format!("localhost/binnacle-worker:{}", tag))
         .arg("-f")
-        .arg("container/Containerfile")
+        .arg(&containerfile_path)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
 
@@ -17034,12 +17080,15 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
         build_cmd.arg("--no-cache");
     }
 
-    build_cmd.arg(".");
+    build_cmd.arg(&build_context_dir);
 
     let status = build_cmd.status()?;
 
-    // Clean up the copied binary from container/ directory
-    let _ = fs::remove_file(container_binary_path);
+    // Clean up the copied binary and temp directory
+    let _ = fs::remove_file(&container_binary_path);
+    if using_embedded {
+        let _ = fs::remove_dir_all(&build_context_dir);
+    }
 
     if !status.success() {
         return Ok(ContainerBuildResult {
