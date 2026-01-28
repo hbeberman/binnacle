@@ -116,6 +116,9 @@ const createDefaultState = () => ({
             savedFollowTarget: null // Which agent we were following (if any)
         },
         
+        // NEW badges for event-triggered nodes
+        newBadges: new Map(),  // Map of entityId -> timestamp when badge was added
+        
         // Filters
         nodeTypeFilters: {
             task: true,
