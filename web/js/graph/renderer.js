@@ -1027,8 +1027,8 @@ function drawNode(node) {
         drawAgentSpiral(screenPos.x, screenPos.y, radius);
     }
     
-    // Draw animated rings for in_progress tasks/bugs/ideas
-    if (node.status === 'in_progress' && node.type !== 'queue' && node.type !== 'agent' && node.type !== 'doc') {
+    // Draw animated rings for in_progress tasks/bugs/ideas with active agents
+    if (node.status === 'in_progress' && node.type !== 'queue' && node.type !== 'agent' && node.type !== 'doc' && hasActiveAgent(node.id)) {
         drawInProgressRings(screenPos.x, screenPos.y, radius);
     }
     
@@ -1393,6 +1393,17 @@ function isNodeQueued(nodeId) {
     return edges.some(edge => 
         edge.source === nodeId && 
         edge.edge_type === 'queued'
+    );
+}
+
+/**
+ * Check if a node has an agent actively working on it
+ */
+function hasActiveAgent(nodeId) {
+    const edges = state.get('edges') || [];
+    return edges.some(edge => 
+        edge.target === nodeId && 
+        edge.edge_type === 'working_on'
     );
 }
 
