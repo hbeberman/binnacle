@@ -991,6 +991,7 @@ fn run_command(
                 write_mcp_vscode,
                 write_mcp_copilot,
                 write_mcp_all,
+                install_copilot,
                 yes,
             } => {
                 // Expand --write-mcp-all into individual MCP flags
@@ -1008,6 +1009,7 @@ fn run_command(
                         install_hook,
                         write_mcp_vscode,
                         write_mcp_copilot,
+                        install_copilot,
                     )?
                 } else if write_agents_md
                     || write_claude_skills
@@ -1017,6 +1019,7 @@ fn run_command(
                     || write_mcp_vscode
                     || write_mcp_copilot
                     || write_mcp_all
+                    || install_copilot
                 {
                     // Flags provided without -y: use flags as the options
                     commands::init_non_interactive(
@@ -1028,6 +1031,7 @@ fn run_command(
                         install_hook,
                         write_mcp_vscode,
                         write_mcp_copilot,
+                        install_copilot,
                     )?
                 } else {
                     // Interactive mode (default)
@@ -2880,6 +2884,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 write_mcp_vscode,
                 write_mcp_copilot,
                 write_mcp_all,
+                install_copilot,
                 yes,
             } => (
                 "system init".to_string(),
@@ -2892,6 +2897,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "write_mcp_vscode": write_mcp_vscode,
                     "write_mcp_copilot": write_mcp_copilot,
                     "write_mcp_all": write_mcp_all,
+                    "install_copilot": install_copilot,
                     "yes": yes,
                 }),
             ),

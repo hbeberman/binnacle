@@ -183,6 +183,7 @@ pub struct InitResult {
     pub hook_installed: bool,
     pub mcp_vscode_config_created: bool,
     pub mcp_copilot_config_created: bool,
+    pub copilot_installed: bool,
 }
 
 impl Output for InitResult {
@@ -228,6 +229,12 @@ impl Output for InitResult {
                 "Updated GitHub Copilot CLI MCP config at ~/.copilot/mcp-config.json".to_string(),
             );
         }
+        if self.copilot_installed {
+            lines.push(format!(
+                "Installed GitHub Copilot CLI {}",
+                crate::cli::copilot_version()
+            ));
+        }
         lines.join("\n")
     }
 }
@@ -267,6 +274,12 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         false,
     );
 
+    // Prompt for copilot installation (default Yes - binnacle-preferred version)
+    let install_copilot = prompt_yes_no(
+        "Install GitHub Copilot CLI with binnacle-preferred version?",
+        true,
+    );
+
     init_with_options(
         repo_path,
         update_agents_md,
@@ -276,6 +289,7 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         install_hook,
         write_mcp_vscode,
         write_mcp_copilot,
+        install_copilot,
     )
 }
 
@@ -291,6 +305,7 @@ pub fn init_non_interactive(
     install_hook: bool,
     write_mcp_vscode: bool,
     write_mcp_copilot: bool,
+    install_copilot: bool,
 ) -> Result<InitResult> {
     init_with_options(
         repo_path,
@@ -301,6 +316,7 @@ pub fn init_non_interactive(
         install_hook,
         write_mcp_vscode,
         write_mcp_copilot,
+        install_copilot,
     )
 }
 
@@ -316,6 +332,7 @@ fn init_with_options(
     install_hook: bool,
     write_mcp_vscode: bool,
     write_mcp_copilot: bool,
+    install_copilot: bool,
 ) -> Result<InitResult> {
     let already_exists = Storage::exists(repo_path)?;
     let storage = if already_exists {
@@ -375,6 +392,19 @@ fn init_with_options(
         false
     };
 
+    // Install GitHub Copilot CLI if requested
+    let copilot_installed = if install_copilot {
+        match copilot_install(None, true) {
+            Ok(result) => !result.already_installed,
+            Err(e) => {
+                eprintln!("Warning: Failed to install GitHub Copilot CLI: {}", e);
+                false
+            }
+        }
+    } else {
+        false
+    };
+
     Ok(InitResult {
         initialized: !already_exists,
         storage_path: storage.root().to_string_lossy().to_string(),
@@ -385,6 +415,7 @@ fn init_with_options(
         hook_installed,
         mcp_vscode_config_created,
         mcp_copilot_config_created,
+        copilot_installed,
     })
 }
 
@@ -18558,8 +18589,18 @@ mod tests {
     #[serial]
     fn test_init_new() {
         let env = TestEnv::new_with_env();
-        let result =
-            init_with_options(env.path(), false, false, false, false, false, false, false).unwrap();
+        let result = init_with_options(
+            env.path(),
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result.initialized);
     }
 
@@ -18568,8 +18609,18 @@ mod tests {
     fn test_init_existing() {
         let env = TestEnv::new_with_env();
         Storage::init(env.path()).unwrap();
-        let result =
-            init_with_options(env.path(), false, false, false, false, false, false, false).unwrap();
+        let result = init_with_options(
+            env.path(),
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         assert!(!result.initialized);
     }
 
@@ -20943,8 +20994,18 @@ mod tests {
         assert!(!agents_path.exists());
 
         // Run init with AGENTS.md update enabled
-        let result =
-            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
+        let result = init_with_options(
+            temp.path(),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
         assert!(!result.skills_file_created);
@@ -20966,8 +21027,18 @@ mod tests {
         std::fs::write(&agents_path, "# My Existing Agents\n\nSome content here.\n").unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result =
-            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
+        let result = init_with_options(
+            temp.path(),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated);
 
@@ -20991,8 +21062,18 @@ mod tests {
         .unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result =
-            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
+        let result = init_with_options(
+            temp.path(),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated); // Should be updated to add markers
 
@@ -21009,9 +21090,30 @@ mod tests {
         let temp = TestEnv::new_with_env();
 
         // Run init twice with AGENTS.md enabled
-        init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
-        let result =
-            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
+        init_with_options(
+            temp.path(),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        let result = init_with_options(
+            temp.path(),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
 
         // Second run should not update AGENTS.md (content unchanged)
         assert!(!result.initialized); // binnacle already exists
@@ -21031,8 +21133,18 @@ mod tests {
         Storage::init(temp.path()).unwrap();
 
         // Now run init with AGENTS.md update - should detect no change needed
-        let result =
-            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
+        let result = init_with_options(
+            temp.path(),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         assert!(!result.initialized); // binnacle already exists
         assert!(!result.agents_md_updated); // Content already matches exactly
 
@@ -21055,8 +21167,18 @@ mod tests {
         .unwrap();
 
         // Run init with AGENTS.md update enabled
-        let result =
-            init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
+        let result = init_with_options(
+            temp.path(),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result.initialized);
         assert!(result.agents_md_updated); // Section was replaced with standard content
 
@@ -21075,7 +21197,18 @@ mod tests {
         let agents_path = temp.path().join("AGENTS.md");
 
         // Run init with AGENTS.md update enabled
-        init_with_options(temp.path(), true, false, false, false, false, false, false).unwrap();
+        init_with_options(
+            temp.path(),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
 
         // Verify AGENTS.md contains HTML markers
         let contents = std::fs::read_to_string(&agents_path).unwrap();
@@ -21224,8 +21357,18 @@ mod tests {
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
         // Init with hook installation
-        let result =
-            init_with_options(temp.path(), false, false, false, false, true, false, false).unwrap();
+        let result = init_with_options(
+            temp.path(),
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result.hook_installed);
 
         let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");
@@ -21239,9 +21382,18 @@ mod tests {
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
         // Init without hook installation
-        let result =
-            init_with_options(temp.path(), false, false, false, false, false, false, false)
-                .unwrap();
+        let result = init_with_options(
+            temp.path(),
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         assert!(!result.hook_installed);
 
         let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");
