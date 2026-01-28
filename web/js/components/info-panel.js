@@ -200,12 +200,32 @@ export function initializeInfoPanel(panel, options = {}) {
         });
     }
     
-    // Close button
+    // Close button - collapses when in expanded mode, hides otherwise
     const closeBtn = panel.querySelector('#info-panel-close');
     closeBtn.addEventListener('click', () => {
-        hideInfoPanel(panel);
-        onClose();
+        if (panel.classList.contains('expanded')) {
+            collapseInfoPanel(panel);
+        } else {
+            hideInfoPanel(panel);
+            onClose();
+        }
     });
+    
+    // Expand button
+    const expandBtn = panel.querySelector('#info-panel-expand');
+    if (expandBtn) {
+        expandBtn.addEventListener('click', () => {
+            expandInfoPanel(panel);
+        });
+    }
+    
+    // Collapse button
+    const collapseBtn = panel.querySelector('#info-panel-collapse');
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', () => {
+            collapseInfoPanel(panel);
+        });
+    }
     
     // Tab switching
     const tabs = panel.querySelectorAll('.info-panel-tab');
@@ -293,6 +313,10 @@ function switchTab(panel, tabName) {
  */
 export function showInfoPanel(panel) {
     panel.classList.add('visible');
+    // Start in compact mode if not already expanded
+    if (!panel.classList.contains('expanded')) {
+        panel.classList.add('compact');
+    }
 }
 
 /**
@@ -302,6 +326,7 @@ export function showInfoPanel(panel) {
 export function hideInfoPanel(panel) {
     panel.classList.remove('visible');
     panel.classList.remove('expanded');
+    panel.classList.remove('compact');
 }
 
 /**
@@ -312,6 +337,7 @@ export function expandInfoPanel(panel) {
     if (!panel.classList.contains('visible')) {
         showInfoPanel(panel);
     }
+    panel.classList.remove('compact');
     panel.classList.add('expanded');
 }
 
@@ -321,6 +347,7 @@ export function expandInfoPanel(panel) {
  */
 export function collapseInfoPanel(panel) {
     panel.classList.remove('expanded');
+    panel.classList.add('compact');
 }
 
 /**
