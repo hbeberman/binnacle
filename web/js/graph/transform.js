@@ -118,6 +118,9 @@ export function applyPan(deltaX, deltaY) {
  * @param {number} worldY - World Y coordinate to center on
  */
 export function centerOn(worldX, worldY) {
+    // Cancel any ongoing pan animation to avoid conflicts
+    cancelPanAnimation();
+    
     // To center (worldX, worldY), we need to adjust pan so that:
     // screenX = (worldX + panX) * zoom + canvas.width / 2 = canvas.width / 2
     // This means: (worldX + panX) * zoom = 0
