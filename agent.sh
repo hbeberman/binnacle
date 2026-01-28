@@ -195,6 +195,24 @@ if [[ -n "$GIT_DIR" ]]; then
     trap cleanup_marker EXIT
 fi
 
+# Resolve copilot binary path using bn system copilot path
+COPILOT_JSON=$(bn system copilot path 2>&1) || {
+    echo "❌ Failed to resolve copilot binary path" >&2
+    echo "   Error: $COPILOT_JSON" >&2
+    exit 1
+}
+
+COPILOT_PATH=$(echo "$COPILOT_JSON" | jq -r '.path')
+COPILOT_EXISTS=$(echo "$COPILOT_JSON" | jq -r '.exists')
+COPILOT_VERSION=$(echo "$COPILOT_JSON" | jq -r '.version')
+COPILOT_SOURCE=$(echo "$COPILOT_JSON" | jq -r '.source')
+
+if [[ "$COPILOT_EXISTS" != "true" ]]; then
+    echo "❌ Copilot $COPILOT_VERSION ($COPILOT_SOURCE) not found at: $COPILOT_PATH" >&2
+    echo "   Run 'bn system copilot install' to install it" >&2
+    exit 1
+fi
+
 # Run the agent (with optional loop)
 # Common copilot flags for all agent types
 COPILOT_FLAGS=(
@@ -233,11 +251,11 @@ if [[ "$LOOP_MODE" == "true" ]]; then
     while true; do
         # Reset SIGINT count at start of each iteration
         SIGINT_COUNT=0
-        copilot "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT" || true
+        "$COPILOT_PATH" "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT" || true
         echo ""
         echo "Agent exited. Restarting in 3 seconds... (Ctrl+C twice to stop)"
         sleep 3
     done
 else
-    copilot "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT"
+    "$COPILOT_PATH" "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT"
 fi
