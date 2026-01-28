@@ -369,6 +369,59 @@ mod gui_enabled {
     }
 
     #[test]
+    fn test_gui_state_js_no_self_import() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Initialize binnacle
+        let mut cmd = bn_isolated();
+        cmd.current_dir(&temp);
+        cmd.arg("system").arg("init");
+        cmd.assert().success();
+
+        // Export GUI to temporary output directory
+        let output_dir = tempfile::tempdir().unwrap();
+        let mut cmd = bn_isolated();
+        cmd.current_dir(&temp);
+        cmd.arg("gui")
+            .arg("export")
+            .arg("-o")
+            .arg(output_dir.path());
+
+        cmd.assert().success();
+
+        // Read state.js content
+        let state_js_path = output_dir.path().join("js").join("state.js");
+        let state_js_content =
+            std::fs::read_to_string(&state_js_path).expect("Should be able to read state.js");
+
+        // Regression test for bn-021e: state.js should NOT import itself
+        // The bug was that esbuild was adding `import*as _ from"../state.js";` to bundled state.js
+        // We fixed this by copying state.js as-is instead of bundling it
+        assert!(
+            !state_js_content.contains("import*as"),
+            "state.js should not contain minified import statements (should be unbundled)"
+        );
+        assert!(
+            !state_js_content.contains(r#"from"../state.js""#),
+            "state.js should not import itself via '../state.js'"
+        );
+        assert!(
+            !state_js_content.contains(r#"from"./state.js""#),
+            "state.js should not import itself via './state.js'"
+        );
+
+        // Verify it's the original source (not minified/bundled)
+        assert!(
+            state_js_content.contains("/**"),
+            "state.js should contain doc comments (not minified)"
+        );
+        assert!(
+            state_js_content.contains("Connection modes"),
+            "state.js should contain original comments"
+        );
+    }
+
+    #[test]
     fn test_gui_serve_port_flag_in_help() {
         let mut cmd = bn_isolated();
         cmd.arg("gui").arg("serve").arg("--help");
