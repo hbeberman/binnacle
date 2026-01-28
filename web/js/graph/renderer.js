@@ -528,9 +528,16 @@ function applyPhysics() {
 function updateAutoFollow() {
     const autoFollow = state.get('ui.autoFollow');
     const userPaused = state.get('ui.userPaused');
+    const currentView = state.get('ui.currentView');
     
     // Don't auto-follow if disabled or user has paused it
     if (!autoFollow || userPaused) {
+        return;
+    }
+    
+    // Only perform auto-follow when on the Graph tab
+    // Follow mode should never pull users to Graph from other tabs
+    if (currentView !== 'graph') {
         return;
     }
     
