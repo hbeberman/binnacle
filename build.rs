@@ -3,6 +3,7 @@
 //! This sets environment variables that can be read at compile time:
 //! - `BN_BUILD_TIMESTAMP`: ISO 8601 timestamp when the binary was built
 //! - `BN_GIT_COMMIT`: Short git commit hash (or "unknown" if not in a git repo)
+//! - `BN_COPILOT_VERSION`: Version from COPILOT_VERSION file (or "unknown" if not found)
 //! - `BN_WEB_BUNDLE`: Path to embedded web bundle (when gui feature enabled)
 
 use std::process::Command;
@@ -12,6 +13,9 @@ fn main() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/index");
 
+    // Rerun if COPILOT_VERSION changes
+    println!("cargo:rerun-if-changed=COPILOT_VERSION");
+
     // Get build timestamp
     let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     println!("cargo:rustc-env=BN_BUILD_TIMESTAMP={}", timestamp);
@@ -19,6 +23,10 @@ fn main() {
     // Get git commit hash
     let commit = get_git_commit().unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=BN_GIT_COMMIT={}", commit);
+
+    // Get Copilot version
+    let copilot_version = get_copilot_version().unwrap_or_else(|| "unknown".to_string());
+    println!("cargo:rustc-env=BN_COPILOT_VERSION={}", copilot_version);
 
     // Bundle and embed web assets when gui feature is enabled
     #[cfg(feature = "gui")]
@@ -138,4 +146,18 @@ fn get_git_commit() -> Option<String> {
     } else {
         None
     }
+}
+
+fn get_copilot_version() -> Option<String> {
+    use std::fs;
+    let contents = fs::read_to_string("COPILOT_VERSION").ok()?;
+    // Parse the version - expected format is "v0.0.396" on line 4
+    // Read all lines and find the one that starts with 'v'
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('v') && !trimmed.starts_with('#') {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
 }
