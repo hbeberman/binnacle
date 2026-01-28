@@ -1710,6 +1710,8 @@ pub enum CopilotCommands {
     },
     /// Print path to the active Copilot CLI binary
     Path,
+    /// List all installed Copilot CLI versions with active indicator
+    Version,
 }
 
 /// Hooks management subcommands

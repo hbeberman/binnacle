@@ -2363,3 +2363,168 @@ fn test_copilot_path_with_config() {
     assert_eq!(json["source"], "config");
     assert!(json["path"].as_str().unwrap().contains("v0.0.396"));
 }
+
+#[test]
+fn test_copilot_version_no_installations() {
+    let env = init_binnacle();
+
+    // Test copilot version with no installations
+    let output = bn_in(&env)
+        .args(["system", "copilot", "version"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["active_version"], "v1.2.0");
+    assert_eq!(json["active_source"], "binnacle-preferred");
+    assert_eq!(json["installed_versions"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn test_copilot_version_human_format() {
+    let env = init_binnacle();
+
+    // Test copilot version with human-readable output
+    bn_in(&env)
+        .args(["system", "copilot", "version", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Active: v1.2.0 (binnacle-preferred)",
+        ))
+        .stdout(predicate::str::contains("No versions installed"));
+}
+
+#[test]
+fn test_copilot_version_with_installation() {
+    let env = init_binnacle();
+
+    // Create a mock installation directory
+    let copilot_base_dir = env.data_dir.path().join("utils").join("copilot");
+    let version_dir = copilot_base_dir.join("v1.2.0");
+    fs::create_dir_all(&version_dir).unwrap();
+
+    // Create a mock copilot binary
+    let binary_path = version_dir.join("copilot");
+    fs::write(&binary_path, "#!/bin/sh\necho 'mock copilot'").unwrap();
+
+    // Test copilot version should show the installation
+    let output = bn_in(&env)
+        .args(["system", "copilot", "version"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["active_version"], "v1.2.0");
+    assert_eq!(json["active_source"], "binnacle-preferred");
+
+    let installed = json["installed_versions"].as_array().unwrap();
+    assert_eq!(installed.len(), 1);
+    assert_eq!(installed[0]["version"], "v1.2.0");
+    assert_eq!(installed[0]["is_active"], true);
+    assert!(installed[0]["path"].as_str().unwrap().contains("v1.2.0"));
+}
+
+#[test]
+fn test_copilot_version_multiple_installations() {
+    let env = init_binnacle();
+
+    // Create mock installation directories for multiple versions
+    let copilot_base_dir = env.data_dir.path().join("utils").join("copilot");
+
+    // Install v1.2.0 (active)
+    let version_dir_1 = copilot_base_dir.join("v1.2.0");
+    fs::create_dir_all(&version_dir_1).unwrap();
+    let binary_path_1 = version_dir_1.join("copilot");
+    fs::write(&binary_path_1, "#!/bin/sh\necho 'mock copilot v1.2.0'").unwrap();
+
+    // Install v1.1.0 (inactive)
+    let version_dir_2 = copilot_base_dir.join("v1.1.0");
+    fs::create_dir_all(&version_dir_2).unwrap();
+    let binary_path_2 = version_dir_2.join("copilot");
+    fs::write(&binary_path_2, "#!/bin/sh\necho 'mock copilot v1.1.0'").unwrap();
+
+    // Test copilot version should show both installations
+    let output = bn_in(&env)
+        .args(["system", "copilot", "version"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["active_version"], "v1.2.0");
+
+    let installed = json["installed_versions"].as_array().unwrap();
+    assert_eq!(installed.len(), 2);
+
+    // Check that versions are sorted (v1.2.0 should be first)
+    assert_eq!(installed[0]["version"], "v1.2.0");
+    assert_eq!(installed[0]["is_active"], true);
+    assert_eq!(installed[1]["version"], "v1.1.0");
+    assert_eq!(installed[1]["is_active"], false);
+}
+
+#[test]
+fn test_copilot_version_with_config_override() {
+    use sha2::{Digest, Sha256};
+
+    let env = init_binnacle();
+
+    // Compute storage hash and write config with different version
+    let canonical = env.repo_path().canonicalize().unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    let hash = hasher.finalize();
+    let hash_hex = format!("{:x}", hash);
+    let short_hash = &hash_hex[..12];
+
+    let storage_root = env.data_dir.path().join(short_hash);
+    fs::create_dir_all(&storage_root).unwrap();
+
+    let config_path = storage_root.join("config.kdl");
+    let config_content = r#"copilot version="v1.1.0"
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    // Create mock installations
+    let copilot_base_dir = env.data_dir.path().join("utils").join("copilot");
+
+    let version_dir_1 = copilot_base_dir.join("v1.2.0");
+    fs::create_dir_all(&version_dir_1).unwrap();
+    fs::write(version_dir_1.join("copilot"), "#!/bin/sh\necho 'v1.2.0'").unwrap();
+
+    let version_dir_2 = copilot_base_dir.join("v1.1.0");
+    fs::create_dir_all(&version_dir_2).unwrap();
+    fs::write(version_dir_2.join("copilot"), "#!/bin/sh\necho 'v1.1.0'").unwrap();
+
+    // Test that active version respects config
+    let output = bn_in(&env)
+        .args(["system", "copilot", "version"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["active_version"], "v1.1.0");
+    assert_eq!(json["active_source"], "config");
+
+    let installed = json["installed_versions"].as_array().unwrap();
+    assert_eq!(installed.len(), 2);
+
+    // v1.1.0 should be marked as active even though it's not the binnacle-preferred
+    let v110 = installed.iter().find(|v| v["version"] == "v1.1.0").unwrap();
+    assert_eq!(v110["is_active"], true);
+
+    let v120 = installed.iter().find(|v| v["version"] == "v1.2.0").unwrap();
+    assert_eq!(v120["is_active"], false);
+}
