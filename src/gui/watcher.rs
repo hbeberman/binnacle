@@ -245,6 +245,35 @@ fn entity_type_from_value(value: &Value) -> &'static str {
     }
 }
 
+/// Extract actor information from an entity JSON value.
+/// Returns (actor, actor_type) tuple. Checks assignee for tasks, assignee for bugs,
+/// and falls back to environment variables (BN_AGENT_ID or USER).
+fn extract_actor_info(entity: &Value) -> (Option<String>, Option<String>) {
+    // Try to get assignee field (used in tasks, bugs)
+    if let Some(assignee) = entity.get("assignee").and_then(|a| a.as_str())
+        && !assignee.is_empty()
+    {
+        // Determine if assignee is an agent (starts with "bn-" or "bna-")
+        let actor_type = if assignee.starts_with("bn-") || assignee.starts_with("bna-") {
+            "agent"
+        } else {
+            "user"
+        };
+        return (Some(assignee.to_string()), Some(actor_type.to_string()));
+    }
+
+    // Fallback to environment variables
+    if let Ok(agent_id) = std::env::var("BN_AGENT_ID") {
+        return (Some(agent_id), Some("agent".to_string()));
+    }
+
+    if let Ok(user) = std::env::var("USER") {
+        return (Some(user), Some("user".to_string()));
+    }
+
+    (None, None)
+}
+
 /// Determine entity type from ID prefix (fallback for legacy IDs)
 fn entity_type_from_id(id: &str) -> &'static str {
     if id.starts_with("bnt-") {
@@ -413,6 +442,25 @@ pub async fn watch_storage(
                                 .to_string();
                                 let _ = update_tx.send(msg.clone());
                                 message_history.push(new_version, msg).await;
+
+                                // Also broadcast a log_entry message
+                                let (actor, actor_type) = extract_actor_info(&change.entity);
+                                let log_msg = serde_json::json!({
+                                    "type": "log_entry",
+                                    "entry": {
+                                        "timestamp": timestamp,
+                                        "entity_type": change.entity_type,
+                                        "entity_id": change.id,
+                                        "action": "created",
+                                        "details": null,
+                                        "actor": actor,
+                                        "actor_type": actor_type,
+                                    },
+                                    "version": new_version,
+                                })
+                                .to_string();
+                                let _ = update_tx.send(log_msg.clone());
+                                message_history.push(new_version, log_msg).await;
                             }
 
                             for change in &diff.updated {
@@ -427,6 +475,42 @@ pub async fn watch_storage(
                                 .to_string();
                                 let _ = update_tx.send(msg.clone());
                                 message_history.push(new_version, msg).await;
+
+                                // Also broadcast a log_entry message
+                                let (actor, actor_type) = extract_actor_info(&change.entity);
+                                // Determine the action based on entity state
+                                let action = if change.entity.get("status").and_then(|s| s.as_str()) == Some("done")
+                                    && change.entity.get("closed_at").is_some()
+                                {
+                                    "closed"
+                                } else if change.entity.get("status").and_then(|s| s.as_str()) == Some("reopened") {
+                                    "reopened"
+                                } else {
+                                    "updated"
+                                };
+
+                                let details = if action == "closed" {
+                                    change.entity.get("closed_reason").and_then(|r| r.as_str()).map(|s| s.to_string())
+                                } else {
+                                    change.entity.get("status").and_then(|s| s.as_str()).map(|s| format!("status: {}", s))
+                                };
+
+                                let log_msg = serde_json::json!({
+                                    "type": "log_entry",
+                                    "entry": {
+                                        "timestamp": timestamp,
+                                        "entity_type": change.entity_type,
+                                        "entity_id": change.id,
+                                        "action": action,
+                                        "details": details,
+                                        "actor": actor,
+                                        "actor_type": actor_type,
+                                    },
+                                    "version": new_version,
+                                })
+                                .to_string();
+                                let _ = update_tx.send(log_msg.clone());
+                                message_history.push(new_version, log_msg).await;
                             }
 
                             for removal in &diff.removed {
@@ -440,6 +524,34 @@ pub async fn watch_storage(
                                 .to_string();
                                 let _ = update_tx.send(msg.clone());
                                 message_history.push(new_version, msg).await;
+
+                                // Also broadcast a log_entry message for deletion
+                                // Note: For removed entities, we don't have the entity data to extract actor
+                                // Use environment fallback
+                                let (actor, actor_type) = if let Ok(agent_id) = std::env::var("BN_AGENT_ID") {
+                                    (Some(agent_id), Some("agent".to_string()))
+                                } else if let Ok(user) = std::env::var("USER") {
+                                    (Some(user), Some("user".to_string()))
+                                } else {
+                                    (None, None)
+                                };
+
+                                let log_msg = serde_json::json!({
+                                    "type": "log_entry",
+                                    "entry": {
+                                        "timestamp": timestamp,
+                                        "entity_type": removal.entity_type,
+                                        "entity_id": removal.id,
+                                        "action": "deleted",
+                                        "details": null,
+                                        "actor": actor,
+                                        "actor_type": actor_type,
+                                    },
+                                    "version": new_version,
+                                })
+                                .to_string();
+                                let _ = update_tx.send(log_msg.clone());
+                                message_history.push(new_version, log_msg).await;
                             }
 
                             // Send edge messages
