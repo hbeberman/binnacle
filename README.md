@@ -62,6 +62,25 @@ bn orient                       # get up to speed on project state
 bn goodbye "summary"            # graceful exit
 ```
 
+## Copilot CLI Management
+
+Binnacle can manage GitHub Copilot CLI binaries to provide version stability for agent workflows:
+
+```bash
+bn system copilot install --upstream   # Install binnacle-preferred version
+bn system copilot install v0.0.396     # Install specific version
+bn system copilot path                 # Show active binary location
+bn system copilot version              # List installed versions
+```
+
+**Version Pinning:**
+- Binnacle ships with a preferred Copilot version (embedded at build time)
+- Agents use `--no-auto-update` flag to prevent runtime updates
+- Containers pre-install the pinned version during image build
+- Host agents resolve binaries via `bn system copilot path`
+
+This prevents unexpected behavior from automatic Copilot updates mid-workflow.
+
 ## Running Agents
 
 ```bash
@@ -69,6 +88,8 @@ bn goodbye "summary"            # graceful exit
 ./agent.sh --loop auto          # keep going until queue is empty
 ./agent.sh buddy                # helper for adding tasks interactively
 ```
+
+**Note:** `agent.sh` automatically resolves the Copilot binary via `bn system copilot path` and runs it with `--no-auto-update` to prevent mid-workflow updates. Install a pinned version with `bn system copilot install --upstream` before running agents.
 
 ### Containerized Agents (Quick Start)
 
@@ -89,7 +110,13 @@ bn container build
 bn container run ../agent-work
 ```
 
-The container mounts your worktree and binnacle data, runs an AI agent (copilot or claude), and auto-merges completed work back to `main`.
+The container mounts your worktree and binnacle data, runs an AI agent (copilot or claude with pinned versions), and auto-merges completed work back to `main`.
+
+**Copilot Version Management:**
+- Containers use a pinned GitHub Copilot CLI version pre-installed during image build
+- The pinned version is managed by `bn system copilot` commands
+- Copilot runs with `--no-auto-update` to prevent runtime updates
+- This ensures consistent agent behavior across container runs
 
 See [container/README.md](container/README.md) for full documentation including resource limits, environment variables, and troubleshooting.
 
