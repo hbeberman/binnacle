@@ -50,13 +50,13 @@ export function createGraphControls() {
         <div class="auto-follow-toggle" style="position: relative;">
             <span class="auto-follow-label">Follow</span>
             <select class="follow-type-selector" id="follow-type-selector" title="Select type to follow">
+                <option value="none">None</option>
                 <option value="">Any</option>
                 <option value="task">📋 Tasks</option>
                 <option value="bug">🐛 Bugs</option>
                 <option value="idea">💡 Ideas</option>
                 <option value="agent">🤖 Agents</option>
             </select>
-            <button class="auto-follow-switch" id="auto-follow-switch" title="Auto-focus on selected types"></button>
             <button class="auto-follow-config-btn" id="auto-follow-config-btn" title="Configure auto-follow settings">⚙</button>
             <div class="auto-follow-config-popover" id="auto-follow-config-popover">
                 <div class="config-popover-title">Auto-Follow Settings</div>
@@ -201,34 +201,31 @@ export function initializeGraphControls(controls, options = {}) {
         });
     }
     
-    // Initialize auto-follow toggle
-    const autoFollowSwitch = controls.querySelector('#auto-follow-switch');
-    if (autoFollowSwitch) {
-        // Load initial state
-        const autoFollow = State.get('ui.autoFollow') === true;
-        autoFollowSwitch.classList.toggle('active', autoFollow);
-        
-        autoFollowSwitch.addEventListener('click', () => {
-            const newState = !autoFollowSwitch.classList.contains('active');
-            autoFollowSwitch.classList.toggle('active', newState);
-            State.set('ui.autoFollow', newState);
-            if (onAutoFollowToggle) {
-                onAutoFollowToggle(newState);
-            }
-        });
-    }
-    
-    // Initialize follow type selector
+    // Initialize follow type selector with implicit auto-follow
     const followTypeSelector = controls.querySelector('#follow-type-selector');
     if (followTypeSelector) {
         // Load initial state
-        const followType = State.get('ui.followTypeFilter') || '';
+        const followType = State.get('ui.followTypeFilter') || 'none';
         followTypeSelector.value = followType;
+        
+        // Set initial auto-follow state based on selection
+        const autoFollow = followType !== 'none';
+        State.set('ui.autoFollow', autoFollow);
         
         followTypeSelector.addEventListener('change', () => {
             const newType = followTypeSelector.value;
             State.set('ui.followTypeFilter', newType);
-            // Optionally trigger a callback if needed
+            
+            // Implicitly enable/disable auto-follow based on selection
+            const shouldFollow = newType !== 'none';
+            State.set('ui.autoFollow', shouldFollow);
+            
+            // Trigger the auto-follow callback with the new state
+            if (onAutoFollowToggle) {
+                onAutoFollowToggle(shouldFollow);
+            }
+            
+            // Optionally trigger type change callback
             if (options.onFollowTypeChange) {
                 options.onFollowTypeChange(newType);
             }
@@ -430,8 +427,8 @@ export function initializeGraphControls(controls, options = {}) {
                 // Click to focus agent in graph and enable agent follow mode
                 item.addEventListener('click', () => {
                     State.set('ui.selectedNode', agent.id);
-                    State.set('ui.autoFollow', true);
                     State.set('ui.followTypeFilter', 'agent');
+                    State.set('ui.autoFollow', true);
                 });
                 
                 agentList.appendChild(item);
