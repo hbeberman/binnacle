@@ -401,9 +401,16 @@ function triggerFollowEvent(entityType, entityId) {
         return;
     }
     
-    // Trigger the event by updating followingNodeId
-    console.log(`Follow Events: Triggering event for new ${entityType} ${entityId}`);
-    state.set('ui.followingNodeId', entityId);
+    // Add event to the queue
+    console.log(`Follow Events: Adding ${entityType} ${entityId} to event queue`);
+    const eventQueue = state.get('ui.eventQueue') || [];
+    const newEvent = {
+        entityType,
+        entityId,
+        timestamp: Date.now()
+    };
+    eventQueue.push(newEvent);
+    state.set('ui.eventQueue', eventQueue);
 }
 
 

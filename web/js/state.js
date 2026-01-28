@@ -104,6 +104,7 @@ const createDefaultState = () => ({
         followEventsConfig: {
             nodeTypes: { task: true, bug: true, idea: true, test: true, doc: true, milestone: true }
         },
+        eventQueue: [],  // Queue of events to process sequentially (array of {entityType, entityId, timestamp})
         
         // Filters
         nodeTypeFilters: {
