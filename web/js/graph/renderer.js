@@ -19,6 +19,7 @@ import * as camera from './camera.js';
 const AGENT_DEPARTURE_FADE_MS = 5000;
 const STABLE_THRESHOLD = 0.01;
 const STABLE_FRAMES_REQUIRED = 60;
+const NEW_BADGE_DURATION_MS = 10000; // NEW badge fades after 10 seconds
 
 // Renderer state
 let canvas = null;
@@ -355,9 +356,18 @@ function onEdgesChanged() {
 /**
  * Handle single selection changes (backward compatibility)
  */
-function onSelectionChanged(_nodeId) {
+function onSelectionChanged(nodeId) {
     // Keep for backward compatibility with components that use ui.selectedNode
     scheduleRender();
+    
+    // Clear NEW badge when node gets selected
+    if (nodeId) {
+        const newBadges = state.get('ui.newBadges') || new Map();
+        if (newBadges.has(nodeId)) {
+            newBadges.delete(nodeId);
+            state.set('ui.newBadges', newBadges);
+        }
+    }
 }
 
 /**
@@ -380,6 +390,19 @@ function onMultiSelectionChanged(nodeIds) {
         if (!selectedNodes.includes(nodeId)) {
             selectionAnimations.delete(nodeId);
         }
+    }
+    
+    // Clear NEW badges for all selected nodes
+    const newBadges = state.get('ui.newBadges') || new Map();
+    let badgesChanged = false;
+    for (const nodeId of selectedNodes) {
+        if (newBadges.has(nodeId)) {
+            newBadges.delete(nodeId);
+            badgesChanged = true;
+        }
+    }
+    if (badgesChanged) {
+        state.set('ui.newBadges', newBadges);
     }
     
     startAnimation(); // Ensure animation runs for selection effects
@@ -803,6 +826,19 @@ function animate() {
         }
     }
     
+    // Clean up expired NEW badges (after 10 seconds)
+    const newBadges = state.get('ui.newBadges') || new Map();
+    let badgesChanged = false;
+    for (const [entityId, badgeTime] of newBadges.entries()) {
+        if (now - badgeTime >= NEW_BADGE_DURATION_MS) {
+            newBadges.delete(entityId);
+            badgesChanged = true;
+        }
+    }
+    if (badgesChanged) {
+        state.set('ui.newBadges', newBadges);
+    }
+    
     // Clean up completed selection animations
     for (const [nodeId, selectionTime] of selectionAnimations.entries()) {
         if (now - selectionTime >= SELECTION_ANIMATION_DURATION) {
@@ -1170,6 +1206,9 @@ function drawNode(node) {
     
     // Draw node type capsule labels
     drawNodeTypeCapsule(node, screenPos, radius);
+    
+    // Draw NEW badge if this node triggered an event recently
+    drawNewBadge(node, screenPos, radius);
     
     ctx.globalAlpha = 1.0;
 }
@@ -1618,6 +1657,91 @@ function drawEdge(fromNode, toNode, edge) {
         ctx.closePath();
         ctx.fill();
     }
+}
+
+/**
+ * Draw NEW badge for nodes that triggered events
+ * @param {Object} node - Node to draw badge for
+ * @param {Object} screenPos - Screen position {x, y}
+ * @param {number} radius - Node radius
+ */
+function drawNewBadge(node, screenPos, radius) {
+    const newBadges = state.get('ui.newBadges') || new Map();
+    const badgeTime = newBadges.get(node.id);
+    
+    if (!badgeTime) {
+        return; // No badge for this node
+    }
+    
+    const zoom = getZoom();
+    const now = performance.now();
+    const elapsed = now - badgeTime;
+    
+    // Calculate fade opacity (fades in last 2 seconds)
+    let opacity = 1.0;
+    const fadeStart = NEW_BADGE_DURATION_MS - 2000; // Start fading at 8 seconds
+    if (elapsed > fadeStart) {
+        const fadeProgress = (elapsed - fadeStart) / 2000; // 0 to 1
+        opacity = 1.0 - fadeProgress;
+    }
+    
+    if (opacity <= 0) {
+        return; // Fully faded
+    }
+    
+    // Badge position: top-right of node
+    const badgePadding = 8 * zoom;
+    const badgeX = screenPos.x + radius + badgePadding;
+    const badgeY = screenPos.y - radius;
+    
+    // Badge dimensions
+    const badgeHeight = 20 * zoom;
+    const badgePaddingX = 8 * zoom;
+    const fontSize = 11 * zoom;
+    
+    // Measure text
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    const text = 'NEW';
+    const textWidth = ctx.measureText(text).width;
+    const badgeWidth = textWidth + badgePaddingX * 2;
+    
+    // Draw badge background
+    ctx.save();
+    ctx.globalAlpha *= opacity;
+    
+    const cornerRadius = 4 * zoom;
+    ctx.beginPath();
+    ctx.moveTo(badgeX + cornerRadius, badgeY);
+    ctx.lineTo(badgeX + badgeWidth - cornerRadius, badgeY);
+    ctx.quadraticCurveTo(badgeX + badgeWidth, badgeY, badgeX + badgeWidth, badgeY + cornerRadius);
+    ctx.lineTo(badgeX + badgeWidth, badgeY + badgeHeight - cornerRadius);
+    ctx.quadraticCurveTo(badgeX + badgeWidth, badgeY + badgeHeight, badgeX + badgeWidth - cornerRadius, badgeY + badgeHeight);
+    ctx.lineTo(badgeX + cornerRadius, badgeY + badgeHeight);
+    ctx.quadraticCurveTo(badgeX, badgeY + badgeHeight, badgeX, badgeY + badgeHeight - cornerRadius);
+    ctx.lineTo(badgeX, badgeY + cornerRadius);
+    ctx.quadraticCurveTo(badgeX, badgeY, badgeX + cornerRadius, badgeY);
+    ctx.closePath();
+    
+    // Gradient background (bright accent)
+    const gradient = ctx.createLinearGradient(badgeX, badgeY, badgeX, badgeY + badgeHeight);
+    gradient.addColorStop(0, '#ff6b6b'); // Bright red
+    gradient.addColorStop(1, '#ff4757'); // Darker red
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    
+    // Border
+    ctx.strokeStyle = '#ff3838';
+    ctx.lineWidth = 1.5 * zoom;
+    ctx.stroke();
+    
+    // Draw text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, badgeX + badgeWidth / 2, badgeY + badgeHeight / 2);
+    
+    ctx.restore();
 }
 
 // ============================================

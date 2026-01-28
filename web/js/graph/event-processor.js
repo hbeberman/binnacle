@@ -95,6 +95,11 @@ function processEvent(event) {
         savedFollowTarget: savedInitialState ? savedInitialState.followTarget : null
     });
     
+    // Add NEW badge for this entity
+    const newBadges = state.get('ui.newBadges') || new Map();
+    newBadges.set(event.entityId, Date.now());
+    state.set('ui.newBadges', newBadges);
+    
     // Pan to the event node
     panToNode(node.x, node.y, {
         canvas: document.querySelector('#graph-canvas'),
