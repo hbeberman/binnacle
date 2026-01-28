@@ -5,10 +5,6 @@
 //! - `BN_GIT_COMMIT`: Short git commit hash (or "unknown" if not in a git repo)
 //! - `BN_WEB_BUNDLE`: Path to embedded web bundle (when gui feature enabled)
 
-use std::collections::hash_map::DefaultHasher;
-use std::fs;
-use std::hash::{Hash, Hasher};
-use std::path::Path;
 use std::process::Command;
 
 fn main() {
@@ -31,6 +27,9 @@ fn main() {
 
 #[cfg(feature = "gui")]
 fn bundle_web_assets() {
+    use std::fs;
+    use std::path::Path;
+
     // Rerun if web files change
     println!("cargo:rerun-if-changed=web/");
     println!("cargo:rerun-if-changed=scripts/bundle-web.sh");
@@ -77,14 +76,22 @@ fn bundle_web_assets() {
 
 /// Hash all files in a directory recursively
 #[cfg(feature = "gui")]
-fn hash_directory(path: impl AsRef<Path>) -> std::io::Result<u64> {
+fn hash_directory(path: impl AsRef<std::path::Path>) -> std::io::Result<u64> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+
     let mut hasher = DefaultHasher::new();
     hash_directory_recursive(path.as_ref(), &mut hasher)?;
     Ok(hasher.finish())
 }
 
 #[cfg(feature = "gui")]
-fn hash_directory_recursive(path: &Path, hasher: &mut DefaultHasher) -> std::io::Result<()> {
+fn hash_directory_recursive(
+    path: &std::path::Path,
+    hasher: &mut std::collections::hash_map::DefaultHasher,
+) -> std::io::Result<()> {
+    use std::fs;
+    use std::hash::Hash;
     if !path.exists() {
         return Ok(());
     }
