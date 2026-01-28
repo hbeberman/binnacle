@@ -27317,4 +27317,747 @@ mod tests {
         let result_c = find_queued_ancestors(&storage, &task_c.id).unwrap();
         assert_eq!(result_c, Some(task_a.id.clone()));
     }
+
+    // Graph traversal tests
+
+    #[test]
+    #[serial]
+    fn test_graph_lineage_stops_at_prd() {
+        let temp = setup();
+
+        // Create PRD doc with a temporary milestone to attach it to
+        let temp_milestone = milestone_create(
+            temp.path(),
+            "Temp milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        let prd = doc_create(
+            temp.path(),
+            "PRD: Feature X".to_string(),
+            DocType::Prd,
+            None,
+            Some("Detailed PRD content".to_string()),
+            None,
+            vec![],
+            vec![temp_milestone.id.clone()],
+        )
+        .unwrap();
+
+        // Create milestone linked to PRD
+        let milestone = milestone_create(
+            temp.path(),
+            "Milestone 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &prd.id,
+            &milestone.id,
+            "documents",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Create task linked to milestone
+        let task = task_create(
+            temp.path(),
+            "Implement X".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &task.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Test: lineage should traverse task -> milestone -> PRD and stop
+        let result = graph_lineage(temp.path(), &task.id, 10, false).unwrap();
+
+        assert_eq!(result.source, task.id);
+        assert_eq!(result.hops.len(), 3); // task, milestone, doc
+        assert_eq!(result.prd_found, Some(prd.id.clone()));
+        assert!(!result.truncated);
+
+        // Verify the chain
+        assert_eq!(result.hops[0].id, task.id);
+        assert_eq!(result.hops[1].id, milestone.id);
+        assert_eq!(result.hops[2].id, prd.id);
+        assert_eq!(result.hops[2].doc_type, Some("prd".to_string()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_lineage_respects_depth_limit() {
+        let temp = setup();
+
+        // Create a deep chain: task1 -> task2 -> task3 -> task4 -> task5
+        let task5 = task_create(
+            temp.path(),
+            "Task 5".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let task4 = task_create(
+            temp.path(),
+            "Task 4".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task4.id, &task5.id, "child_of", None, false).unwrap();
+
+        let task3 = task_create(
+            temp.path(),
+            "Task 3".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task3.id, &task4.id, "child_of", None, false).unwrap();
+
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task2.id, &task3.id, "child_of", None, false).unwrap();
+
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task1.id, &task2.id, "child_of", None, false).unwrap();
+
+        // Test: max_depth=3 should stop at task3
+        let result = graph_lineage(temp.path(), &task1.id, 3, false).unwrap();
+
+        assert_eq!(result.source, task1.id);
+        assert_eq!(result.hops.len(), 3); // task1, task2, task3
+        assert_eq!(result.prd_found, None);
+        assert!(result.truncated); // Depth limit reached
+
+        // Verify chain order
+        assert_eq!(result.hops[0].id, task1.id);
+        assert_eq!(result.hops[1].id, task2.id);
+        assert_eq!(result.hops[2].id, task3.id);
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_lineage_no_parents() {
+        let temp = setup();
+
+        // Create task with no parent
+        let task = task_create(
+            temp.path(),
+            "Orphan Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Test: lineage of orphan should contain only itself
+        let result = graph_lineage(temp.path(), &task.id, 10, false).unwrap();
+
+        assert_eq!(result.source, task.id);
+        assert_eq!(result.hops.len(), 1);
+        assert_eq!(result.hops[0].id, task.id);
+        assert_eq!(result.prd_found, None);
+        assert!(!result.truncated);
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_peers_identifies_siblings() {
+        let temp = setup();
+
+        // Create parent milestone
+        let parent = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create sibling tasks
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task1.id, &parent.id, "child_of", None, false).unwrap();
+
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task2.id, &parent.id, "child_of", None, false).unwrap();
+
+        let task3 = task_create(
+            temp.path(),
+            "Task 3".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task3.id, &parent.id, "child_of", None, false).unwrap();
+
+        // Test: task1's peers should be task2 and task3 (depth=1, siblings only)
+        let result = graph_peers(temp.path(), &task1.id, 1, false, false).unwrap();
+
+        assert_eq!(result.source, task1.id);
+        assert_eq!(result.max_depth, 1);
+        assert_eq!(result.peers.len(), 2);
+
+        // Verify peers are task2 and task3
+        let peer_ids: Vec<&str> = result.peers.iter().map(|p| p.id.as_str()).collect();
+        assert!(peer_ids.contains(&task2.id.as_str()));
+        assert!(peer_ids.contains(&task3.id.as_str()));
+
+        // All peers should be at depth 1 (siblings)
+        for peer in &result.peers {
+            assert_eq!(peer.depth, 1);
+            assert_eq!(peer.shared_parent, parent.id);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_peers_identifies_cousins() {
+        let temp = setup();
+
+        // Create a simpler structure for testing depth=2 peers
+        // We'll test that peers correctly identifies entities through shared grandparents
+
+        // Create grandparent
+        let grandparent = milestone_create(
+            temp.path(),
+            "Grandparent".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create parent (task1's parent)
+        let parent1 = task_create(
+            temp.path(),
+            "Parent 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &parent1.id,
+            &grandparent.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Create task1 under parent1
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task1.id, &parent1.id, "child_of", None, false).unwrap();
+
+        // Create sibling of task1
+        let task2 = task_create(
+            temp.path(),
+            "Task 2 (sibling)".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task2.id, &parent1.id, "child_of", None, false).unwrap();
+
+        // Create parent2 (sibling to parent1 at grandparent level)
+        let parent2 = task_create(
+            temp.path(),
+            "Parent 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &parent2.id,
+            &grandparent.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Test: task1's peers with depth=1 should only find task2 (sibling)
+        let result_d1 = graph_peers(temp.path(), &task1.id, 1, false, false).unwrap();
+        assert_eq!(result_d1.peers.len(), 1);
+        assert_eq!(result_d1.peers[0].id, task2.id);
+        assert_eq!(result_d1.peers[0].depth, 1);
+
+        // Test: task1's peers with depth=2 should find:
+        // - task2 (sibling at depth 1 via parent1)
+        // - parent1 and parent2 (both share grandparent at depth 2)
+        let result_d2 = graph_peers(temp.path(), &task1.id, 2, false, false).unwrap();
+
+        // We expect 3 peers: task2, parent1, parent2
+        assert_eq!(result_d2.peers.len(), 3);
+
+        let peer_ids: Vec<&str> = result_d2.peers.iter().map(|p| p.id.as_str()).collect();
+        assert!(peer_ids.contains(&task2.id.as_str()));
+        assert!(peer_ids.contains(&parent1.id.as_str()));
+        assert!(peer_ids.contains(&parent2.id.as_str()));
+
+        // Verify depths: task2 at depth 1, parent1 and parent2 at depth 2
+        let depth1_peers: Vec<_> = result_d2.peers.iter().filter(|p| p.depth == 1).collect();
+        let depth2_peers: Vec<_> = result_d2.peers.iter().filter(|p| p.depth == 2).collect();
+        assert_eq!(depth1_peers.len(), 1); // task2
+        assert_eq!(depth2_peers.len(), 2); // parent1, parent2
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_peers_filters_closed_tasks() {
+        let temp = setup();
+
+        // Create parent
+        let parent = milestone_create(
+            temp.path(),
+            "Parent".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create task1 (the source)
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task1.id, &parent.id, "child_of", None, false).unwrap();
+
+        // Create task2 (open sibling)
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task2.id, &parent.id, "child_of", None, false).unwrap();
+
+        // Create task3 (closed sibling)
+        let task3 = task_create(
+            temp.path(),
+            "Task 3".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task3.id, &parent.id, "child_of", None, false).unwrap();
+        task_close(temp.path(), &task3.id, None, false).unwrap();
+
+        // Test: without include_closed, should only find task2
+        let result = graph_peers(temp.path(), &task1.id, 1, false, false).unwrap();
+        assert_eq!(result.peers.len(), 1);
+        assert_eq!(result.peers[0].id, task2.id);
+
+        // Test: with include_closed, should find task2 and task3
+        let result_with_closed = graph_peers(temp.path(), &task1.id, 1, true, false).unwrap();
+        assert_eq!(result_with_closed.peers.len(), 2);
+        let peer_ids: Vec<&str> = result_with_closed
+            .peers
+            .iter()
+            .map(|p| p.id.as_str())
+            .collect();
+        assert!(peer_ids.contains(&task2.id.as_str()));
+        assert!(peer_ids.contains(&task3.id.as_str()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_descendants_respects_depth() {
+        let temp = setup();
+
+        // Create parent
+        let parent = task_create(
+            temp.path(),
+            "Parent".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create depth 1 children
+        let child1 = task_create(
+            temp.path(),
+            "Child 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &child1.id, &parent.id, "child_of", None, false).unwrap();
+
+        let child2 = task_create(
+            temp.path(),
+            "Child 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &child2.id, &parent.id, "child_of", None, false).unwrap();
+
+        // Create depth 2 grandchildren under child1
+        let grandchild1 = task_create(
+            temp.path(),
+            "Grandchild 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &grandchild1.id,
+            &child1.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Create depth 3 great-grandchild
+        let great_grandchild = task_create(
+            temp.path(),
+            "Great-grandchild".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &great_grandchild.id,
+            &grandchild1.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Test: depth=1 should only find child1 and child2
+        let result_d1 = graph_descendants(temp.path(), &parent.id, 1, false, false, false).unwrap();
+        assert_eq!(result_d1.max_depth, 1);
+        assert_eq!(result_d1.descendants.len(), 2);
+        let d1_ids: Vec<&str> = result_d1
+            .descendants
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        assert!(d1_ids.contains(&child1.id.as_str()));
+        assert!(d1_ids.contains(&child2.id.as_str()));
+        assert_eq!(result_d1.unexplored_count, 1); // grandchild1 not explored
+
+        // Test: depth=2 should find child1, child2, and grandchild1
+        let result_d2 = graph_descendants(temp.path(), &parent.id, 2, false, false, false).unwrap();
+        assert_eq!(result_d2.max_depth, 2);
+        assert_eq!(result_d2.descendants.len(), 3);
+        let d2_ids: Vec<&str> = result_d2
+            .descendants
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        assert!(d2_ids.contains(&child1.id.as_str()));
+        assert!(d2_ids.contains(&child2.id.as_str()));
+        assert!(d2_ids.contains(&grandchild1.id.as_str()));
+        assert_eq!(result_d2.unexplored_count, 1); // great_grandchild not explored
+
+        // Test: depth=3 should find all
+        let result_d3 = graph_descendants(temp.path(), &parent.id, 3, false, false, false).unwrap();
+        assert_eq!(result_d3.descendants.len(), 4);
+        assert_eq!(result_d3.unexplored_count, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_descendants_reports_unexplored_count() {
+        let temp = setup();
+
+        // Create parent with 3 children, each with 2 grandchildren
+        let parent = task_create(
+            temp.path(),
+            "Parent".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        for i in 1..=3 {
+            let child = task_create(
+                temp.path(),
+                format!("Child {}", i),
+                None,
+                None,
+                None,
+                vec![],
+                None,
+            )
+            .unwrap();
+            link_add(temp.path(), &child.id, &parent.id, "child_of", None, false).unwrap();
+
+            for j in 1..=2 {
+                let grandchild = task_create(
+                    temp.path(),
+                    format!("Grandchild {}-{}", i, j),
+                    None,
+                    None,
+                    None,
+                    vec![],
+                    None,
+                )
+                .unwrap();
+                link_add(
+                    temp.path(),
+                    &grandchild.id,
+                    &child.id,
+                    "child_of",
+                    None,
+                    false,
+                )
+                .unwrap();
+            }
+        }
+
+        // Test: depth=1 should show 3 descendants and 6 unexplored (all grandchildren)
+        let result = graph_descendants(temp.path(), &parent.id, 1, false, false, false).unwrap();
+        assert_eq!(result.descendants.len(), 3);
+        assert_eq!(result.unexplored_count, 6);
+
+        // Test: depth=2 (or --all) should show all 9 descendants and 0 unexplored
+        let result_all = graph_descendants(temp.path(), &parent.id, 2, true, false, false).unwrap();
+        assert_eq!(result_all.descendants.len(), 9);
+        assert_eq!(result_all.unexplored_count, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_descendants_filters_closed() {
+        let temp = setup();
+
+        // Create parent
+        let parent = task_create(
+            temp.path(),
+            "Parent".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create open child
+        let child_open = task_create(
+            temp.path(),
+            "Open Child".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &child_open.id,
+            &parent.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Create closed child
+        let child_closed = task_create(
+            temp.path(),
+            "Closed Child".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &child_closed.id,
+            &parent.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+        task_close(temp.path(), &child_closed.id, None, false).unwrap();
+
+        // Test: without include_closed, should only find open child
+        let result = graph_descendants(temp.path(), &parent.id, 3, false, false, false).unwrap();
+        assert_eq!(result.descendants.len(), 1);
+        assert_eq!(result.descendants[0].id, child_open.id);
+
+        // Test: with include_closed, should find both
+        let result_with_closed =
+            graph_descendants(temp.path(), &parent.id, 3, false, true, false).unwrap();
+        assert_eq!(result_with_closed.descendants.len(), 2);
+        let desc_ids: Vec<&str> = result_with_closed
+            .descendants
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        assert!(desc_ids.contains(&child_open.id.as_str()));
+        assert!(desc_ids.contains(&child_closed.id.as_str()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_descendants_no_children() {
+        let temp = setup();
+
+        // Create leaf task with no children
+        let task = task_create(
+            temp.path(),
+            "Leaf Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Test: descendants should be empty
+        let result = graph_descendants(temp.path(), &task.id, 3, false, false, false).unwrap();
+        assert_eq!(result.source, task.id);
+        assert_eq!(result.descendants.len(), 0);
+        assert_eq!(result.unexplored_count, 0);
+    }
 }
