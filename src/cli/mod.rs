@@ -334,6 +334,11 @@ For detailed instructions, see: container/README.md
         #[arg(long, global = true)]
         dev: bool,
 
+        /// Create a public URL via devtunnel
+        /// Used when no subcommand is given (starts server)
+        #[arg(long, env = "BN_GUI_TUNNEL", global = true)]
+        tunnel: bool,
+
         /// Load from a .bng archive file (imports to temp directory and serves from there)
         #[arg(long, global = true)]
         archive: Option<String>,
@@ -1135,6 +1140,10 @@ pub enum GuiCommands {
         /// Development mode: serve assets from filesystem instead of embedded bundle
         #[arg(long)]
         dev: bool,
+
+        /// Create a public URL via devtunnel
+        #[arg(long, env = "BN_GUI_TUNNEL")]
+        tunnel: bool,
     },
 
     /// Show status of running GUI server

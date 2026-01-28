@@ -173,6 +173,7 @@ cargo install --path . --features gui
 bn gui                           # Start on default port (3030)
 bn gui -p 8080                   # Start on custom port
 bn gui --readonly                # Start in read-only mode
+bn gui --tunnel                  # Create public URL via devtunnel (read-only)
 bn gui --archive data.bng        # Load a .bng archive file (read-only snapshot)
 ```
 
@@ -215,6 +216,33 @@ Development mode (`--dev` flag):
 - `BN_GUI_PORT`: Override default port (default: 3030)
 - `BN_GUI_HOST`: Override bind address (default: 0.0.0.0)
 - `BN_GUI_READONLY`: Start in read-only mode
+- `BN_GUI_TUNNEL`: Enable tunnel mode (see below)
+
+### Public URL via Dev Tunnels
+
+Share your GUI publicly without port forwarding using Microsoft Dev Tunnels:
+
+```bash
+bn gui --tunnel              # Start with a public URL
+```
+
+This spawns a `devtunnel` process that creates a temporary public URL (e.g., `https://abc123-3030.use.devtunnels.ms`) proxying to your local GUI.
+
+**Requirements:**
+1. Install devtunnel: `just install-devtunnel`
+2. Authenticate (one-time): `devtunnel user login`
+
+The authentication step is required before first use and supports GitHub, Microsoft, or Azure AD accounts.
+
+**Security:**
+- Tunnel mode **automatically enables read-only mode** to prevent remote modifications
+- The URL is randomly generated and not easily guessable
+- Tunnel terminates when the GUI server stops
+
+**Use cases:**
+- Share project status with remote collaborators
+- Demo your task graph without exposing your network
+- Quick reviews without VPN setup
 
 ### GUI Management Commands
 

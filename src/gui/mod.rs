@@ -10,6 +10,8 @@ mod pid_file;
 #[cfg(feature = "gui")]
 mod server;
 #[cfg(feature = "gui")]
+pub mod tunnel;
+#[cfg(feature = "gui")]
 mod watcher;
 #[cfg(feature = "gui")]
 mod websocket;
@@ -24,3 +26,5 @@ pub mod shared;
 pub use pid_file::{GuiPidFile, GuiPidInfo, ProcessStatus, verify_process};
 #[cfg(feature = "gui")]
 pub use server::{DEFAULT_PORT, find_available_port, start_server};
+#[cfg(feature = "gui")]
+pub use tunnel::{TunnelError, TunnelManager};

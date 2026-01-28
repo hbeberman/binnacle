@@ -1186,6 +1186,7 @@ fn run_command(
             host,
             readonly,
             dev,
+            tunnel,
             archive,
         }) => match command {
             Some(GuiCommands::Serve {
@@ -1194,11 +1195,13 @@ fn run_command(
                 replace,
                 readonly: sub_readonly,
                 dev: sub_dev,
+                tunnel: sub_tunnel,
             }) => {
                 let actual_port = sub_port.or(port);
                 let actual_host = &sub_host;
                 let actual_readonly = sub_readonly || readonly;
                 let actual_dev = sub_dev || dev;
+                let actual_tunnel = sub_tunnel || tunnel;
                 if replace {
                     replace_gui(
                         repo_path,
@@ -1208,6 +1211,7 @@ fn run_command(
                         archive.as_deref(),
                         human,
                         actual_dev,
+                        actual_tunnel,
                     )?;
                 } else {
                     run_gui(
@@ -1217,6 +1221,7 @@ fn run_command(
                         actual_readonly,
                         archive.as_deref(),
                         actual_dev,
+                        actual_tunnel,
                     )?;
                 }
             }
@@ -1234,7 +1239,15 @@ fn run_command(
             }
             None => {
                 // Default: start server (same as `bn gui serve`)
-                run_gui(repo_path, port, &host, readonly, archive.as_deref(), dev)?;
+                run_gui(
+                    repo_path,
+                    port,
+                    &host,
+                    readonly,
+                    archive.as_deref(),
+                    dev,
+                    tunnel,
+                )?;
             }
         },
         None => {
@@ -1277,9 +1290,12 @@ fn run_gui(
     readonly: bool,
     archive_path: Option<&str>,
     dev: bool,
+    tunnel: bool,
 ) -> Result<(), binnacle::Error> {
     use binnacle::commands::system_store_import;
-    use binnacle::gui::{DEFAULT_PORT, GuiPidFile, GuiPidInfo, ProcessStatus, find_available_port};
+    use binnacle::gui::{
+        DEFAULT_PORT, GuiPidFile, GuiPidInfo, ProcessStatus, TunnelManager, find_available_port,
+    };
     use binnacle::storage::{Storage, get_storage_dir};
 
     // Handle archive mode: import to temp directory and serve from there
@@ -1338,9 +1354,27 @@ fn run_gui(
         }
     }
 
-    // Determine port: use specified port or find an available one
+    // Tunnel mode: check devtunnel availability and authentication
+    if tunnel {
+        if !TunnelManager::check_devtunnel() {
+            return Err(binnacle::Error::Other(
+                "devtunnel not found in PATH. Install it with: just install-devtunnel".to_string(),
+            ));
+        }
+        if !TunnelManager::check_authenticated() {
+            return Err(binnacle::Error::Other(
+                "devtunnel not authenticated. Run: devtunnel user login".to_string(),
+            ));
+        }
+    }
+
+    // Determine port: use specified port, or for tunnel mode use default (no auto-port)
     let actual_port = match port {
         Some(p) => p,
+        None if tunnel => {
+            // Tunnel mode: use default port directly (no auto-port search)
+            DEFAULT_PORT
+        }
         None => find_available_port(host, DEFAULT_PORT).ok_or_else(|| {
             binnacle::Error::Other(format!(
                 "Could not find an available port starting from {}",
@@ -1360,8 +1394,33 @@ fn run_gui(
         .write(&pid_info)
         .map_err(|e| binnacle::Error::Other(format!("Failed to write PID file: {}", e)))?;
 
-    // Force readonly mode when serving from archive
-    let actual_readonly = readonly || archive_path.is_some();
+    // Force readonly mode when serving from archive or via tunnel (security)
+    let actual_readonly = readonly || archive_path.is_some() || tunnel;
+
+    // Start tunnel if enabled
+    let _tunnel_manager = if tunnel {
+        println!("Starting devtunnel...");
+        let manager = TunnelManager::start(actual_port)
+            .map_err(|e| binnacle::Error::Other(format!("Failed to start tunnel: {}", e)))?;
+
+        if let Some(public_url) = manager.public_url() {
+            println!();
+            println!("┌─────────────────────────────────────────────────────────────────────┐");
+            println!("│  Binnacle GUI is available at:                                      │");
+            println!("│                                                                     │");
+            println!("│  Local:  http://{}:{:<43} │", host, actual_port);
+            println!("│  Public: {:<55} │", public_url);
+            println!("│                                                                     │");
+            println!("│  Note: Public URL is read-only for security.                        │");
+            println!("│  Press Ctrl+C to stop                                               │");
+            println!("└─────────────────────────────────────────────────────────────────────┘");
+            println!();
+        }
+
+        Some(manager)
+    } else {
+        None
+    };
 
     // Create tokio runtime and run the server
     let result = tokio::runtime::Builder::new_multi_thread()
@@ -1377,6 +1436,7 @@ fn run_gui(
     // Clean up PID file on shutdown (whether success or error)
     pid_file.delete().ok();
 
+    // Note: _tunnel_manager is automatically dropped here, which calls shutdown()
     // Note: temp_dir is automatically cleaned up when it goes out of scope
 
     result
@@ -1384,6 +1444,7 @@ fn run_gui(
 
 /// Stop any running GUI server and start a new one
 #[cfg(feature = "gui")]
+#[allow(clippy::too_many_arguments)]
 fn replace_gui(
     repo_path: &Path,
     port: Option<u16>,
@@ -1392,6 +1453,7 @@ fn replace_gui(
     archive_path: Option<&str>,
     human: bool,
     dev: bool,
+    tunnel: bool,
 ) -> Result<(), binnacle::Error> {
     use binnacle::gui::{GuiPidFile, ProcessStatus};
     use binnacle::storage::{Storage, get_storage_dir};
@@ -1468,7 +1530,7 @@ fn replace_gui(
     }
 
     // Now delegate to run_gui which handles archive logic
-    run_gui(repo_path, port, host, readonly, archive_path, dev)
+    run_gui(repo_path, port, host, readonly, archive_path, dev, tunnel)
 }
 
 /// Show the status of the GUI server
@@ -2837,6 +2899,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             host,
             readonly,
             dev,
+            tunnel,
             archive,
         }) => {
             let subcommand = match command {
@@ -2846,8 +2909,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     replace,
                     readonly: sub_readonly,
                     dev: sub_dev,
+                    tunnel: sub_tunnel,
                 }) => {
-                    serde_json::json!({ "subcommand": "serve", "port": sub_port.or(*port), "host": sub_host, "replace": replace, "readonly": *sub_readonly || *readonly, "dev": *sub_dev || *dev, "archive": archive })
+                    serde_json::json!({ "subcommand": "serve", "port": sub_port.or(*port), "host": sub_host, "replace": replace, "readonly": *sub_readonly || *readonly, "dev": *sub_dev || *dev, "tunnel": *sub_tunnel || *tunnel, "archive": archive })
                 }
                 Some(GuiCommands::Status) => serde_json::json!({ "subcommand": "status" }),
                 Some(GuiCommands::Stop { force }) => {
@@ -2860,7 +2924,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     serde_json::json!({ "subcommand": "export", "output": output, "archive": archive })
                 }
                 None => {
-                    serde_json::json!({ "subcommand": null, "port": port, "host": host, "readonly": readonly, "dev": dev, "archive": archive })
+                    serde_json::json!({ "subcommand": null, "port": port, "host": host, "readonly": readonly, "dev": dev, "tunnel": tunnel, "archive": archive })
                 }
             };
             ("gui".to_string(), subcommand)

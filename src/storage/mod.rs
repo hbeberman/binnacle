@@ -1168,6 +1168,27 @@ impl Storage {
         Ok(())
     }
 
+    /// Load all tasks from JSONL into a HashMap keyed by ID.
+    /// This reads the JSONL file once and returns the latest version of each task.
+    fn load_all_tasks_from_jsonl(&self) -> Result<std::collections::HashMap<String, Task>> {
+        let tasks_path = self.root.join("tasks.jsonl");
+        let file = File::open(&tasks_path)?;
+        let reader = BufReader::new(file);
+
+        let mut tasks_map = std::collections::HashMap::new();
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(task) = serde_json::from_str::<Task>(&line) {
+                tasks_map.insert(task.core.id.clone(), task);
+            }
+        }
+
+        Ok(tasks_map)
+    }
+
     /// Get a task by ID.
     pub fn get_task(&self, id: &str) -> Result<Task> {
         // Read from JSONL to get the latest version
@@ -1192,6 +1213,7 @@ impl Storage {
     }
 
     /// List all tasks, optionally filtered.
+    /// Uses batch loading from JSONL for efficiency.
     pub fn list_tasks(
         &self,
         status: Option<&str>,
@@ -1230,11 +1252,14 @@ impl Storage {
             .filter_map(|r| r.ok())
             .collect();
 
-        // Fetch full task objects
+        // Batch load all tasks from JSONL once
+        let all_tasks = self.load_all_tasks_from_jsonl()?;
+
+        // Fetch full task objects from the batch-loaded map
         let mut tasks = Vec::new();
         for id in ids {
-            if let Ok(task) = self.get_task(&id) {
-                tasks.push(task);
+            if let Some(task) = all_tasks.get(&id) {
+                tasks.push(task.clone());
             }
         }
 
@@ -1293,6 +1318,31 @@ impl Storage {
         self.cache_bug(bug)?;
 
         Ok(())
+    }
+
+    /// Load all bugs from JSONL into a HashMap keyed by ID.
+    /// This reads the JSONL file once and returns the latest version of each bug.
+    fn load_all_bugs_from_jsonl(&self) -> Result<std::collections::HashMap<String, Bug>> {
+        let bugs_path = self.root.join("bugs.jsonl");
+        if !bugs_path.exists() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let file = File::open(&bugs_path)?;
+        let reader = BufReader::new(file);
+
+        let mut bugs_map = std::collections::HashMap::new();
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(bug) = serde_json::from_str::<Bug>(&line) {
+                bugs_map.insert(bug.core.id.clone(), bug);
+            }
+        }
+
+        Ok(bugs_map)
     }
 
     /// Get a bug by ID.
@@ -1370,10 +1420,14 @@ impl Storage {
             .filter_map(|r| r.ok())
             .collect();
 
+        // Batch load all bugs from JSONL once
+        let all_bugs = self.load_all_bugs_from_jsonl()?;
+
+        // Fetch full bug objects from the batch-loaded map
         let mut bugs = Vec::new();
         for id in ids {
-            if let Ok(bug) = self.get_bug(&id) {
-                bugs.push(bug);
+            if let Some(bug) = all_bugs.get(&id) {
+                bugs.push(bug.clone());
             }
         }
 
@@ -2376,13 +2430,28 @@ impl Storage {
     }
 
     /// Check if an entity (task or bug) is in a "done" state.
+    /// Uses SQLite cache for fast lookups instead of scanning JSONL files.
     pub fn is_entity_done(&self, id: &str) -> bool {
-        if let Ok(task) = self.get_task(id) {
-            return task.status == TaskStatus::Done;
+        // Try tasks table first
+        let task_done: std::result::Result<bool, _> = self.conn.query_row(
+            "SELECT status = 'done' FROM tasks WHERE id = ?",
+            [id],
+            |row| row.get(0),
+        );
+        if let Ok(done) = task_done {
+            return done;
         }
-        if let Ok(bug) = self.get_bug(id) {
-            return bug.status == TaskStatus::Done;
+
+        // Try bugs table
+        let bug_done: std::result::Result<bool, _> = self.conn.query_row(
+            "SELECT status = 'done' FROM bugs WHERE id = ?",
+            [id],
+            |row| row.get(0),
+        );
+        if let Ok(done) = bug_done {
+            return done;
         }
+
         false
     }
 

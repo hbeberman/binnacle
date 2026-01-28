@@ -31,7 +31,7 @@ fn setup_test_repo() -> TempDir {
     // Initialize binnacle
     let bn = env!("CARGO_BIN_EXE_bn");
     Command::new(bn)
-        .args(["init"])
+        .args(["system", "init"])
         .current_dir(repo_path)
         .output()
         .expect("Failed to init binnacle");

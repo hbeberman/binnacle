@@ -23,6 +23,70 @@ install: (build "release" "gui")
     mv ~/.local/bin/bn.tmp ~/.local/bin/bn
     @echo "Installed bn to ~/.local/bin/bn (with GUI feature)"
 
+# Install devtunnel CLI for tunnel support
+# macOS/Linux: downloads binary to ~/.local/bin
+# After install, run: devtunnel user login
+install-devtunnel:
+    #!/usr/bin/env bash
+    set -e
+    
+    # Check if already installed
+    if command -v devtunnel &>/dev/null; then
+        echo "devtunnel is already installed: $(command -v devtunnel)"
+        devtunnel --version
+        echo ""
+        echo "Note: Run 'devtunnel user login' if you haven't authenticated yet."
+        exit 0
+    fi
+    
+    OS="$(uname -s)"
+    ARCH="$(uname -m)"
+    
+    # Map OS/arch to devtunnel download URL
+    case "$OS" in
+        Darwin)
+            case "$ARCH" in
+                x86_64)  PLATFORM="osx-x64" ;;
+                arm64)   PLATFORM="osx-arm64" ;;
+                *)
+                    echo "Error: Unsupported macOS architecture: $ARCH"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        Linux)
+            case "$ARCH" in
+                x86_64)  PLATFORM="linux-x64" ;;
+                aarch64) PLATFORM="linux-arm64" ;;
+                *)
+                    echo "Error: Unsupported Linux architecture: $ARCH"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        *)
+            echo "Error: Unsupported OS: $OS"
+            echo "See: https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started"
+            exit 1
+            ;;
+    esac
+    
+    echo "Installing devtunnel to ~/.local/bin..."
+    mkdir -p ~/.local/bin
+    
+    URL="https://aka.ms/TunnelsCliDownload/$PLATFORM"
+    echo "Downloading from: $URL"
+    curl -L -o ~/.local/bin/devtunnel "$URL"
+    chmod +x ~/.local/bin/devtunnel
+    echo "Installed devtunnel to ~/.local/bin/devtunnel"
+    ~/.local/bin/devtunnel --version
+    
+    echo ""
+    echo "✓ devtunnel installed successfully"
+    echo ""
+    echo "IMPORTANT: Run 'devtunnel user login' to authenticate before using tunnels."
+    echo "You can log in with GitHub, Microsoft, or Azure AD account."
+
 # Run GUI in development mode (serves from filesystem, auto-reloads on changes)
 dev-gui:
     @echo "Starting GUI in development mode..."
