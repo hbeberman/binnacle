@@ -4,7 +4,7 @@
     position: absolute;
     bottom: 16px;
     right: 16px;
-    width: 320px;
+    width: 400px;
     max-height: calc(100% - 5rem);
     background: var(--overlay-bg);
     border: 1px solid var(--border-color);
@@ -23,11 +23,15 @@
     visibility: visible;
 }
 
-/* Expanded state - fills height and increases width */
+/* Compact state - constrained height */
+.info-panel.compact {
+    max-height: 250px;
+}
+
+/* Expanded state - fills height below menu bar */
 .info-panel.expanded {
-    width: 380px;
-    height: calc(100vh - 5rem);
-    max-height: calc(100vh - 5rem);
+    height: calc(100% - 76px);
+    max-height: calc(100% - 76px);
 }
 
 /* Content fade-in after expansion */
