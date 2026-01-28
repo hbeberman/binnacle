@@ -338,6 +338,8 @@ fn test_mcp_timeout_with_slow_command() {
         .current_dir(env.repo_path())
         .env("BN_DATA_DIR", env.data_path())
         .env("BN_MCP_TIMEOUT", "1") // 1 second timeout
+        .env_remove("BN_CONTAINER_MODE") // Clear container mode to ensure consistent hashing
+        .env_remove("BN_STORAGE_HASH") // Clear pre-computed hash
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
