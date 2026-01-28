@@ -5,9 +5,9 @@ use binnacle::action_log;
 use binnacle::cli::GuiCommands;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
-    DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands, LinkCommands,
-    LogCommands, McpCommands, MilestoneCommands, MissionCommands, QueueCommands, SearchCommands,
-    StoreCommands, SystemCommands, TaskCommands, TestCommands,
+    CopilotCommands, DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands,
+    LinkCommands, LogCommands, McpCommands, MilestoneCommands, MissionCommands, QueueCommands,
+    SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -1127,6 +1127,12 @@ fn run_command(
             SystemCommands::Hooks { command } => match command {
                 HooksCommands::Uninstall => {
                     let result = commands::hooks_uninstall(repo_path)?;
+                    output(&result, human);
+                }
+            },
+            SystemCommands::Copilot { command } => match command {
+                CopilotCommands::Install { version, upstream } => {
+                    let result = commands::copilot_install(version.clone(), upstream)?;
                     output(&result, human);
                 }
             },
@@ -2957,6 +2963,12 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 HooksCommands::Uninstall => {
                     ("system hooks uninstall".to_string(), serde_json::json!({}))
                 }
+            },
+            SystemCommands::Copilot { command } => match command {
+                CopilotCommands::Install { version, upstream } => (
+                    "system copilot install".to_string(),
+                    serde_json::json!({ "version": version, "upstream": upstream }),
+                ),
             },
         },
 
