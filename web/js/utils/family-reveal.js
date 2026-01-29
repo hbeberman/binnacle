@@ -82,3 +82,46 @@ export function collectDescendants(rootId) {
     
     return descendants;
 }
+
+/**
+ * Compute depth from root for each descendant node
+ * @param {string} rootId - Root node ID (depth 0)
+ * @param {Set<string>} descendants - Set of descendant node IDs to compute depths for
+ * @returns {Map<string, number>} Map of node ID to depth level
+ */
+export function computeDepths(rootId, descendants) {
+    const depthMap = new Map();
+    const queue = [[rootId, 0]]; // [nodeId, depth]
+    const visited = new Set();
+    const edges = getEdges();
+    
+    while (queue.length > 0) {
+        const [current, depth] = queue.shift();
+        
+        // Skip if already visited (cycle detection)
+        if (visited.has(current)) {
+            continue;
+        }
+        
+        visited.add(current);
+        
+        // Only track depth for nodes in the descendants set
+        if (descendants.has(current)) {
+            depthMap.set(current, depth);
+        }
+        
+        // Find all children (nodes with child_of edge pointing to current)
+        const childEdges = edges.filter(e => 
+            e.edge_type === 'child_of' && e.target === current
+        );
+        
+        // Add children to queue with incremented depth
+        for (const edge of childEdges) {
+            if (!visited.has(edge.source) && descendants.has(edge.source)) {
+                queue.push([edge.source, depth + 1]);
+            }
+        }
+    }
+    
+    return depthMap;
+}
