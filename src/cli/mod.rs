@@ -1697,6 +1697,10 @@ pub enum SystemCommands {
         #[arg(long)]
         install_copilot: bool,
 
+        /// Install bn-agent script to ~/.local/bin/bn-agent
+        #[arg(long)]
+        install_bn_agent: bool,
+
         /// Skip interactive prompts (use flags to control what gets written)
         #[arg(long, short = 'y')]
         yes: bool,

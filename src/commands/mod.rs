@@ -184,6 +184,7 @@ pub struct InitResult {
     pub mcp_vscode_config_created: bool,
     pub mcp_copilot_config_created: bool,
     pub copilot_installed: bool,
+    pub bn_agent_installed: bool,
 }
 
 impl Output for InitResult {
@@ -235,6 +236,9 @@ impl Output for InitResult {
                 crate::cli::copilot_version()
             ));
         }
+        if self.bn_agent_installed {
+            lines.push("Installed bn-agent script to ~/.local/bin/bn-agent".to_string());
+        }
         lines.join("\n")
     }
 }
@@ -280,6 +284,9 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         true,
     );
 
+    // Prompt for bn-agent installation (default Yes)
+    let install_bn_agent = prompt_yes_no("Install bn-agent script to ~/.local/bin/bn-agent?", true);
+
     init_with_options(
         repo_path,
         update_agents_md,
@@ -290,6 +297,7 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         write_mcp_vscode,
         write_mcp_copilot,
         install_copilot,
+        install_bn_agent,
     )
 }
 
@@ -306,6 +314,7 @@ pub fn init_non_interactive(
     write_mcp_vscode: bool,
     write_mcp_copilot: bool,
     install_copilot: bool,
+    install_bn_agent: bool,
 ) -> Result<InitResult> {
     init_with_options(
         repo_path,
@@ -317,6 +326,7 @@ pub fn init_non_interactive(
         write_mcp_vscode,
         write_mcp_copilot,
         install_copilot,
+        install_bn_agent,
     )
 }
 
@@ -333,6 +343,7 @@ fn init_with_options(
     write_mcp_vscode: bool,
     write_mcp_copilot: bool,
     install_copilot: bool,
+    install_bn_agent: bool,
 ) -> Result<InitResult> {
     let already_exists = Storage::exists(repo_path)?;
     let storage = if already_exists {
@@ -405,6 +416,19 @@ fn init_with_options(
         false
     };
 
+    // Install bn-agent script if requested
+    let bn_agent_installed = if install_bn_agent {
+        match install_bn_agent_script() {
+            Ok(installed) => installed,
+            Err(e) => {
+                eprintln!("Warning: Failed to install bn-agent script: {}", e);
+                false
+            }
+        }
+    } else {
+        false
+    };
+
     Ok(InitResult {
         initialized: !already_exists,
         storage_path: storage.root().to_string_lossy().to_string(),
@@ -416,6 +440,7 @@ fn init_with_options(
         mcp_vscode_config_created,
         mcp_copilot_config_created,
         copilot_installed,
+        bn_agent_installed,
     })
 }
 
@@ -2528,6 +2553,59 @@ fn parse_agent_type(s: &str) -> Result<AgentType> {
             s
         ))),
     }
+}
+
+/// The bn-agent script content (embedded at build time)
+pub const BN_AGENT_SCRIPT: &str = include_str!("../../scripts/bn-agent");
+
+/// Install bn-agent script to ~/.local/bin/bn-agent
+/// Returns true if installed, false if already exists and unchanged
+pub fn install_bn_agent_script() -> Result<bool> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| Error::Other("Could not find home directory".to_string()))?;
+    let bin_dir = home_dir.join(".local").join("bin");
+    let bn_agent_path = bin_dir.join("bn-agent");
+
+    // Create ~/.local/bin if it doesn't exist
+    fs::create_dir_all(&bin_dir).map_err(|e| {
+        Error::Other(format!(
+            "Failed to create directory {}: {}",
+            bin_dir.display(),
+            e
+        ))
+    })?;
+
+    // Check if file already exists and has the same content
+    if bn_agent_path.exists()
+        && let Ok(existing_content) = fs::read_to_string(&bn_agent_path)
+        && existing_content == BN_AGENT_SCRIPT
+    {
+        // Already installed with correct content
+        return Ok(false);
+    }
+
+    // Write the script
+    fs::write(&bn_agent_path, BN_AGENT_SCRIPT).map_err(|e| {
+        Error::Other(format!(
+            "Failed to write bn-agent script to {}: {}",
+            bn_agent_path.display(),
+            e
+        ))
+    })?;
+
+    // Make executable
+    let mut perms = fs::metadata(&bn_agent_path)
+        .map_err(|e| Error::Other(format!("Failed to get file metadata: {}", e)))?
+        .permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&bn_agent_path, perms)
+        .map_err(|e| Error::Other(format!("Failed to set executable permissions: {}", e)))?;
+
+    eprintln!("Installed bn-agent to {}", bn_agent_path.display());
+    Ok(true)
 }
 
 /// Orient an AI agent to this project.
@@ -19543,6 +19621,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
         assert!(result.initialized);
@@ -19563,6 +19642,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
         assert!(!result.initialized);
@@ -21948,6 +22028,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
         assert!(result.initialized);
@@ -21981,6 +22062,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
         assert!(result.initialized);
@@ -22016,6 +22098,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
         assert!(result.initialized);
@@ -22044,6 +22127,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
         let result = init_with_options(
@@ -22056,6 +22140,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
 
@@ -22087,6 +22172,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
         assert!(!result.initialized); // binnacle already exists
@@ -22121,6 +22207,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
         assert!(result.initialized);
@@ -22140,7 +22227,7 @@ mod tests {
         let temp = TestEnv::new_with_env();
         let agents_path = temp.path().join("AGENTS.md");
 
-        // Run init with AGENTS.md update enabled
+        // Run init with AGENTS.MD update enabled
         init_with_options(
             temp.path(),
             true,
@@ -22151,6 +22238,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
 
@@ -22311,6 +22399,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
         assert!(result.hook_installed);
@@ -22336,6 +22425,7 @@ mod tests {
             false,
             false,
             false,
+            false, // install_bn_agent
         )
         .unwrap();
         assert!(!result.hook_installed);
