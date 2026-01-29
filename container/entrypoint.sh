@@ -206,9 +206,15 @@ if [ $AGENT_EXIT -ne 0 ]; then
     exit $AGENT_EXIT
 fi
 
-# Skip auto-merge if disabled
+# Skip auto-merge if disabled or workspace is read-only
 if [ "$BN_AUTO_MERGE" != "true" ]; then
     echo "⏭️  Auto-merge disabled, skipping merge step"
+    exit 0
+fi
+
+# Skip auto-merge for read-only workspace (can't modify branches)
+if [ "${BN_READONLY_WORKSPACE:-false}" = "true" ]; then
+    echo "⏭️  Read-only workspace mode, skipping merge step"
     exit 0
 fi
 
