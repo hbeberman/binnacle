@@ -65,8 +65,16 @@ BN_AGENT_TYPE="${BN_AGENT_TYPE:-worker}"
 BN_MERGE_TARGET="${BN_MERGE_TARGET:-main}"
 BN_INITIAL_PROMPT="${BN_INITIAL_PROMPT:-Run bn ready to see available tasks, pick one, and complete it. Call bn goodbye when done.}"
 BN_AUTO_MERGE="${BN_AUTO_MERGE:-false}"
+BN_READONLY_WORKSPACE="${BN_READONLY_WORKSPACE:-false}"
 
 cd /workspace
+
+# Display readonly mode status at startup
+if [ "$BN_READONLY_WORKSPACE" = "true" ]; then
+    echo "📖 Read-only workspace mode enabled"
+    echo "   - Git hooks will not be configured"
+    echo "   - Auto-merge will be skipped"
+fi
 
 # Pre-populate GitHub SSH host keys to avoid interactive prompt
 # Uses official GitHub SSH keys from https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
@@ -123,9 +131,14 @@ fi
 # Configure git hooks path so commit-msg hook adds co-author trailer
 # The hooks/ directory in the repo contains the commit-msg hook that adds
 # "Co-authored-by: binnacle-bot <noreply@binnacle.bot>" when BN_AGENT_SESSION=1
-if [ -d "hooks" ]; then
-    git config core.hooksPath hooks
-    echo "🪝 Git hooks configured (core.hooksPath = hooks)"
+# Skip in readonly mode as hooks may modify the repository
+if [ "$BN_READONLY_WORKSPACE" != "true" ]; then
+    if [ -d "hooks" ]; then
+        git config core.hooksPath hooks
+        echo "🪝 Git hooks configured (core.hooksPath = hooks)"
+    fi
+else
+    echo "⏭️  Skipping git hooks setup (readonly mode)"
 fi
 
 # Mark this as an agent session for the commit-msg hook
