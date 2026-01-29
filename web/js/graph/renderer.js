@@ -23,6 +23,7 @@ const STABLE_FRAMES_REQUIRED = 60;
 const NEW_BADGE_DURATION_MS = 10000; // NEW badge fades after 10 seconds
 const NEW_BADGE_FADE_IN_MS = 300; // NEW badge fade-in duration
 const NEW_BADGE_FADE_OUT_MS = 2000; // NEW badge fade-out duration
+const FRAME_BUDGET_MS = 14; // Skip physics if previous frame exceeded this budget
 
 // Easing functions for smooth animations
 /**
@@ -49,6 +50,7 @@ let isAnimating = false;
 let physicsSettled = false; // Explicit state: true when physics is stable and can be skipped
 let animationTime = 0;
 let stableFrameCount = 0;
+let lastFrameTime = 0; // Track last frame time for deltaTime calculation
 
 // Spatial hash for physics optimization
 let spatialHash = null;
@@ -472,6 +474,7 @@ function scheduleRender() {
 export function startAnimation() {
     stableFrameCount = 0;
     physicsSettled = false; // Resume physics when animation restarts
+    lastFrameTime = 0; // Reset frame time tracking
     
     if (!isAnimating) {
         isAnimating = true;
@@ -954,6 +957,10 @@ function animate() {
     
     animationTime = performance.now();
     
+    // Calculate deltaTime and check frame budget
+    const deltaTime = lastFrameTime > 0 ? animationTime - lastFrameTime : 0;
+    const previousFrameSlow = deltaTime > FRAME_BUDGET_MS;
+    
     // Update canvas size if needed
     resizeCanvas();
     
@@ -991,8 +998,8 @@ function animate() {
     // Focus lock logic (takes priority over auto-follow)
     updateFocusedNode();
     
-    // Apply physics simulation (skip if physics has settled)
-    if (!physicsSettled) {
+    // Apply physics simulation (skip if physics has settled OR if previous frame was slow)
+    if (!physicsSettled && !previousFrameSlow) {
         applyPhysics();
     }
     
@@ -1031,6 +1038,9 @@ function animate() {
             stableFrameCount = 0;
         }
     }
+    
+    // Track frame time for next frame's deltaTime calculation
+    lastFrameTime = performance.now();
     
     animationFrameId = requestAnimationFrame(animate);
 }
