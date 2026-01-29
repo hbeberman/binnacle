@@ -2,7 +2,7 @@
  * Tests for family-reveal.js
  */
 
-import { findFamilyRoot, collectDescendants } from './family-reveal.js';
+import { findFamilyRoot, collectDescendants, computeDepths } from './family-reveal.js';
 
 // Simple test helpers
 function test(name, fn) {
@@ -337,6 +337,193 @@ test('collectDescendants: works from intermediate node', () => {
     
     const descendants = collectDescendants('bn-parent');
     assertSetEquals(descendants, new Set(['bn-parent', 'bn-child']));
+});
+
+// computeDepths tests
+test('computeDepths: root has depth 0', () => {
+    setupMocks();
+    mockNodes.set('bn-root', { id: 'bn-root', type: 'doc', doc_type: 'prd' });
+    
+    const descendants = new Set(['bn-root']);
+    const depthMap = computeDepths('bn-root', descendants);
+    
+    assertEquals(depthMap.get('bn-root'), 0);
+    assertEquals(depthMap.size, 1);
+});
+
+test('computeDepths: immediate children have depth 1', () => {
+    setupMocks();
+    mockNodes.set('bn-root', { id: 'bn-root', type: 'doc', doc_type: 'prd' });
+    mockNodes.set('bn-child1', { id: 'bn-child1', type: 'task' });
+    mockNodes.set('bn-child2', { id: 'bn-child2', type: 'task' });
+    mockEdges = [
+        { source: 'bn-child1', target: 'bn-root', edge_type: 'child_of' },
+        { source: 'bn-child2', target: 'bn-root', edge_type: 'child_of' }
+    ];
+    
+    const descendants = new Set(['bn-root', 'bn-child1', 'bn-child2']);
+    const depthMap = computeDepths('bn-root', descendants);
+    
+    assertEquals(depthMap.get('bn-root'), 0);
+    assertEquals(depthMap.get('bn-child1'), 1);
+    assertEquals(depthMap.get('bn-child2'), 1);
+});
+
+test('computeDepths: multi-level hierarchy has correct depths', () => {
+    setupMocks();
+    // Tree: root(0) -> child1(1) -> grandchild1(2)
+    //                -> child2(1)
+    mockNodes.set('bn-root', { id: 'bn-root', type: 'doc', doc_type: 'prd' });
+    mockNodes.set('bn-child1', { id: 'bn-child1', type: 'task' });
+    mockNodes.set('bn-child2', { id: 'bn-child2', type: 'task' });
+    mockNodes.set('bn-grandchild1', { id: 'bn-grandchild1', type: 'task' });
+    mockEdges = [
+        { source: 'bn-child1', target: 'bn-root', edge_type: 'child_of' },
+        { source: 'bn-child2', target: 'bn-root', edge_type: 'child_of' },
+        { source: 'bn-grandchild1', target: 'bn-child1', edge_type: 'child_of' }
+    ];
+    
+    const descendants = new Set(['bn-root', 'bn-child1', 'bn-child2', 'bn-grandchild1']);
+    const depthMap = computeDepths('bn-root', descendants);
+    
+    assertEquals(depthMap.get('bn-root'), 0);
+    assertEquals(depthMap.get('bn-child1'), 1);
+    assertEquals(depthMap.get('bn-child2'), 1);
+    assertEquals(depthMap.get('bn-grandchild1'), 2);
+});
+
+test('computeDepths: deep tree has correct depth calculation', () => {
+    setupMocks();
+    // Deep tree: root(0) -> n1(1) -> n2(2) -> n3(3) -> n4(4)
+    mockNodes.set('bn-root', { id: 'bn-root', type: 'milestone' });
+    mockNodes.set('bn-n1', { id: 'bn-n1', type: 'task' });
+    mockNodes.set('bn-n2', { id: 'bn-n2', type: 'task' });
+    mockNodes.set('bn-n3', { id: 'bn-n3', type: 'task' });
+    mockNodes.set('bn-n4', { id: 'bn-n4', type: 'task' });
+    mockEdges = [
+        { source: 'bn-n1', target: 'bn-root', edge_type: 'child_of' },
+        { source: 'bn-n2', target: 'bn-n1', edge_type: 'child_of' },
+        { source: 'bn-n3', target: 'bn-n2', edge_type: 'child_of' },
+        { source: 'bn-n4', target: 'bn-n3', edge_type: 'child_of' }
+    ];
+    
+    const descendants = new Set(['bn-root', 'bn-n1', 'bn-n2', 'bn-n3', 'bn-n4']);
+    const depthMap = computeDepths('bn-root', descendants);
+    
+    assertEquals(depthMap.get('bn-root'), 0);
+    assertEquals(depthMap.get('bn-n1'), 1);
+    assertEquals(depthMap.get('bn-n2'), 2);
+    assertEquals(depthMap.get('bn-n3'), 3);
+    assertEquals(depthMap.get('bn-n4'), 4);
+});
+
+test('computeDepths: complex tree structure has correct depths', () => {
+    setupMocks();
+    // Complex tree:
+    //       root(0)
+    //      /      \
+    //    c1(1)    c2(1)
+    //   /  \        \
+    //  gc1(2) gc2(2) gc3(2)
+    mockNodes.set('bn-root', { id: 'bn-root', type: 'doc', doc_type: 'prd' });
+    mockNodes.set('bn-c1', { id: 'bn-c1', type: 'task' });
+    mockNodes.set('bn-c2', { id: 'bn-c2', type: 'task' });
+    mockNodes.set('bn-gc1', { id: 'bn-gc1', type: 'task' });
+    mockNodes.set('bn-gc2', { id: 'bn-gc2', type: 'task' });
+    mockNodes.set('bn-gc3', { id: 'bn-gc3', type: 'task' });
+    mockEdges = [
+        { source: 'bn-c1', target: 'bn-root', edge_type: 'child_of' },
+        { source: 'bn-c2', target: 'bn-root', edge_type: 'child_of' },
+        { source: 'bn-gc1', target: 'bn-c1', edge_type: 'child_of' },
+        { source: 'bn-gc2', target: 'bn-c1', edge_type: 'child_of' },
+        { source: 'bn-gc3', target: 'bn-c2', edge_type: 'child_of' }
+    ];
+    
+    const descendants = new Set(['bn-root', 'bn-c1', 'bn-c2', 'bn-gc1', 'bn-gc2', 'bn-gc3']);
+    const depthMap = computeDepths('bn-root', descendants);
+    
+    assertEquals(depthMap.get('bn-root'), 0);
+    assertEquals(depthMap.get('bn-c1'), 1);
+    assertEquals(depthMap.get('bn-c2'), 1);
+    assertEquals(depthMap.get('bn-gc1'), 2);
+    assertEquals(depthMap.get('bn-gc2'), 2);
+    assertEquals(depthMap.get('bn-gc3'), 2);
+});
+
+test('computeDepths: handles cycles without infinite loop', () => {
+    setupMocks();
+    // Cycle: root -> child1 -> child2 -> child1 (cycle back)
+    mockNodes.set('bn-root', { id: 'bn-root', type: 'doc', doc_type: 'prd' });
+    mockNodes.set('bn-child1', { id: 'bn-child1', type: 'task' });
+    mockNodes.set('bn-child2', { id: 'bn-child2', type: 'task' });
+    mockEdges = [
+        { source: 'bn-child1', target: 'bn-root', edge_type: 'child_of' },
+        { source: 'bn-child2', target: 'bn-child1', edge_type: 'child_of' },
+        { source: 'bn-child1', target: 'bn-child2', edge_type: 'child_of' }  // Cycle
+    ];
+    
+    const descendants = new Set(['bn-root', 'bn-child1', 'bn-child2']);
+    const depthMap = computeDepths('bn-root', descendants);
+    
+    // Should assign depths via first visit (BFS)
+    assertEquals(depthMap.get('bn-root'), 0);
+    assertEquals(depthMap.get('bn-child1'), 1);
+    assertEquals(depthMap.get('bn-child2'), 2);
+    assertEquals(depthMap.size, 3);
+});
+
+test('computeDepths: only computes depth for nodes in descendants set', () => {
+    setupMocks();
+    // Tree has more nodes than descendants set
+    mockNodes.set('bn-root', { id: 'bn-root', type: 'doc', doc_type: 'prd' });
+    mockNodes.set('bn-child1', { id: 'bn-child1', type: 'task' });
+    mockNodes.set('bn-child2', { id: 'bn-child2', type: 'task' });
+    mockNodes.set('bn-grandchild', { id: 'bn-grandchild', type: 'task' });
+    mockEdges = [
+        { source: 'bn-child1', target: 'bn-root', edge_type: 'child_of' },
+        { source: 'bn-child2', target: 'bn-root', edge_type: 'child_of' },
+        { source: 'bn-grandchild', target: 'bn-child1', edge_type: 'child_of' }
+    ];
+    
+    // Only include root and child1 in descendants
+    const descendants = new Set(['bn-root', 'bn-child1']);
+    const depthMap = computeDepths('bn-root', descendants);
+    
+    assertEquals(depthMap.get('bn-root'), 0);
+    assertEquals(depthMap.get('bn-child1'), 1);
+    assertEquals(depthMap.has('bn-child2'), false);
+    assertEquals(depthMap.has('bn-grandchild'), false);
+    assertEquals(depthMap.size, 2);
+});
+
+test('computeDepths: ignores non-child_of edges', () => {
+    setupMocks();
+    mockNodes.set('bn-root', { id: 'bn-root', type: 'doc', doc_type: 'prd' });
+    mockNodes.set('bn-child', { id: 'bn-child', type: 'task' });
+    mockNodes.set('bn-dep', { id: 'bn-dep', type: 'task' });
+    mockEdges = [
+        { source: 'bn-child', target: 'bn-root', edge_type: 'child_of' },
+        { source: 'bn-dep', target: 'bn-root', edge_type: 'depends_on' }
+    ];
+    
+    const descendants = new Set(['bn-root', 'bn-child', 'bn-dep']);
+    const depthMap = computeDepths('bn-root', descendants);
+    
+    assertEquals(depthMap.get('bn-root'), 0);
+    assertEquals(depthMap.get('bn-child'), 1);
+    // bn-dep should not have a depth since it's not connected via child_of
+    assertEquals(depthMap.has('bn-dep'), false);
+    assertEquals(depthMap.size, 2);
+});
+
+test('computeDepths: returns empty map for empty descendants set', () => {
+    setupMocks();
+    mockNodes.set('bn-root', { id: 'bn-root', type: 'doc', doc_type: 'prd' });
+    
+    const descendants = new Set();
+    const depthMap = computeDepths('bn-root', descendants);
+    
+    assertEquals(depthMap.size, 0);
 });
 
 console.log('\nAll tests completed!');
