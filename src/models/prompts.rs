@@ -5,12 +5,12 @@
 
 /// Prompt for worker agents that pick tasks from `bn ready` and work on them.
 /// Used by: `containeragent.sh auto`
-pub const WORKER_PROMPT: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Run `bn ready` to find available tasks and bugs. IMPORTANT: Prioritize queued items first (items with "queued": true in the JSON output) - these have been explicitly marked as high priority by an operator. Among queued items, pick by priority (lower number = higher priority). If no queued items exist, pick the highest priority non-queued item. Claim your chosen item with `bn task update ID --status in_progress` or `bn bug update ID --status in_progress`, and start working immediately. Remember to mark it complete when you finish. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
+pub const WORKER_PROMPT: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Run `bn ready` to find available tasks and bugs. IMPORTANT: Prioritize queued items first (items with "queued": true in the JSON output) - these have been explicitly marked as high priority by an operator. Among queued items, pick by priority (lower number = higher priority). If no queued items exist, pick the highest priority non-queued item. Claim your chosen item with `bn task update ID --status in_progress` or `bn bug update ID --status in_progress`, and start working immediately. CRITICAL: When you finish, close the item with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
 
 /// Template for "do" agents that work on a specific task described by the user.
 /// The `{description}` placeholder should be replaced with the task description.
 /// Used by: `containeragent.sh do "description"`
-pub const DO_PROMPT_TEMPLATE: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md. Then work on the following: {description}. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
+pub const DO_PROMPT_TEMPLATE: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md. Then work on the following: {description}. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work. CRITICAL: If you created or claimed a task/bug, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
 
 /// Prompt for PRD writer/planner agents that convert ideas into PRDs.
 /// Used by: `containeragent.sh prd`
@@ -65,11 +65,12 @@ Do NOT decompose:
 CRITICAL - Always check the graph for latest state:
 When answering questions about bugs, tasks, or ideas (even ones you created earlier in this session), ALWAYS run `bn show <id>` to check the current state. Never assume an entity is still open just because you created it - another agent or human may have closed it. The graph is the source of truth, not your session memory.
 
-Run `bn goodbye "session complete"` to gracefully terminate your agent session when the user is done."#;
+CRITICAL - Close tasks/bugs before goodbye:
+If you created or claimed any task/bug during this session, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "session complete"` to gracefully terminate your agent session when the user is done."#;
 
 /// Prompt for free agents with general binnacle access.
 /// Used by: `containeragent.sh free`
-pub const FREE_PROMPT: &str = r#"You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
+pub const FREE_PROMPT: &str = r#"You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. CRITICAL: If you created or claimed a task/bug, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
 
 /// Generate a "do" prompt with the given task description.
 pub fn do_prompt(description: &str) -> String {
