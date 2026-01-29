@@ -119,6 +119,7 @@ Agent Types:
   do "desc"           Work on custom task described in the argument
   prd                 Find open ideas and render them into PRDs
   buddy               Ask what bn operation to perform (insert bugs/tasks/ideas)
+  ask                 Interactive Q&A for exploring the codebase (read-only)
   free                General purpose with binnacle orientation
 
 Examples:
@@ -128,6 +129,7 @@ Examples:
   ./agent.sh --loop do "fix the login bug"
   ./agent.sh prd
   ./agent.sh buddy
+  ./agent.sh ask
   ./agent.sh free
   BN_MCP_LIFECYCLE=false ./agent.sh auto
 EOF
@@ -193,6 +195,12 @@ case "$AGENT_TYPE" in
         PROMPT=$(emit_template buddy)
         [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
         TOOLS=("${TOOLS_BUDDY[@]}")
+        ;;
+    ask)
+        echo "Launching Ask Agent"
+        PROMPT=$(emit_template ask-agent)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
+        TOOLS=("${TOOLS_ASK[@]}")
         ;;
     free)
         echo "Launching Free Agent"
