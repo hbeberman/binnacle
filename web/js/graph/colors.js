@@ -92,99 +92,140 @@ export function getNodeColor(node) {
     }
 }
 
+// Cache for edge styles to avoid expensive getComputedStyle calls
+const edgeStyleCache = new Map();
+
+/**
+ * Invalidate the edge style cache (call when theme changes)
+ */
+function invalidateEdgeStyleCache() {
+    edgeStyleCache.clear();
+}
+
 /**
  * Get the edge style based on edge type using CSS variables
  * @param {string} edgeType - Edge type
  * @returns {Object} Style object with color, dashed, lineWidth, and optional animated
  */
 export function getEdgeStyle(edgeType) {
+    // Return cached value if available
+    if (edgeStyleCache.has(edgeType)) {
+        return edgeStyleCache.get(edgeType);
+    }
+    
+    // Cache miss - compute and cache
     const styles = getComputedStyle(document.documentElement);
+    let style;
     
     switch (edgeType) {
         case 'depends_on':
         case 'blocks':
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-blocking').trim() || '#e85d5d',
                 dashed: false,
                 lineWidth: 2
             };
+            break;
         
         case 'related_to':
         case 'caused_by':
         case 'duplicates':
         case 'supersedes':
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-informational').trim() || '#7a8fa3',
                 dashed: true,
                 lineWidth: 1.5
             };
+            break;
         
         case 'fixes':
         case 'tests':
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-fixes').trim() || '#5cb85c',
                 dashed: false,
                 lineWidth: 2
             };
+            break;
         
         case 'parent_of':
         case 'child_of':
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-hierarchy').trim() || '#9b6ed8',
                 dashed: false,
                 lineWidth: 2
             };
+            break;
         
         case 'queued':
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-queued').trim() || '#20b2aa',
                 dashed: true,
                 lineWidth: 2
             };
+            break;
         
         case 'working_on':
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-agent').trim() || '#f0c040',
                 dashed: true,
                 lineWidth: 3,
                 animated: true  // Enable marching ants animation
             };
+            break;
         
         case 'worked_on':
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-agent-past').trim() || '#6b7a8a',
                 dashed: false,
                 lineWidth: 2
             };
+            break;
         
         case 'pinned':
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-pinned').trim() || '#5cb85c',
                 dashed: false,
                 lineWidth: 3
             };
+            break;
         
         case 'documents':
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-documents').trim() || '#4a90e2',
                 dashed: true,
                 lineWidth: 2
             };
+            break;
         
         case 'impacts':
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-impacts').trim() || '#e85d5d',
                 dashed: true,
                 lineWidth: 2
             };
+            break;
         
         default:
-            return {
+            style = {
                 color: styles.getPropertyValue('--edge-default').trim() || '#3a4d66',
                 dashed: false,
                 lineWidth: 2
             };
+            break;
     }
+    
+    edgeStyleCache.set(edgeType, style);
+    return style;
+}
+
+// Cache for edge category colors
+const edgeCategoryColorCache = new Map();
+
+/**
+ * Invalidate the edge category color cache (call when theme changes)
+ */
+function invalidateEdgeCategoryColorCache() {
+    edgeCategoryColorCache.clear();
 }
 
 /**
@@ -193,30 +234,62 @@ export function getEdgeStyle(edgeType) {
  * @returns {string} CSS color string
  */
 export function getEdgeCategoryColor(category) {
+    // Return cached value if available
+    if (edgeCategoryColorCache.has(category)) {
+        return edgeCategoryColorCache.get(category);
+    }
+    
+    // Cache miss - compute and cache
     const styles = getComputedStyle(document.documentElement);
+    let color;
     
     switch (category) {
         case 'blocking':
-            return styles.getPropertyValue('--edge-blocking').trim() || '#e85d5d';
+            color = styles.getPropertyValue('--edge-blocking').trim() || '#e85d5d';
+            break;
         case 'informational':
-            return styles.getPropertyValue('--edge-informational').trim() || '#7a8fa3';
+            color = styles.getPropertyValue('--edge-informational').trim() || '#7a8fa3';
+            break;
         case 'fixes':
-            return styles.getPropertyValue('--edge-fixes').trim() || '#5cb85c';
+            color = styles.getPropertyValue('--edge-fixes').trim() || '#5cb85c';
+            break;
         case 'hierarchy':
-            return styles.getPropertyValue('--edge-hierarchy').trim() || '#9b6ed8';
+            color = styles.getPropertyValue('--edge-hierarchy').trim() || '#9b6ed8';
+            break;
         case 'queued':
-            return styles.getPropertyValue('--edge-queued').trim() || '#20b2aa';
+            color = styles.getPropertyValue('--edge-queued').trim() || '#20b2aa';
+            break;
         case 'agent':
-            return styles.getPropertyValue('--edge-agent').trim() || '#f0c040';
+            color = styles.getPropertyValue('--edge-agent').trim() || '#f0c040';
+            break;
         case 'pinned':
-            return styles.getPropertyValue('--edge-pinned').trim() || '#5cb85c';
+            color = styles.getPropertyValue('--edge-pinned').trim() || '#5cb85c';
+            break;
         case 'documents':
-            return styles.getPropertyValue('--edge-documents').trim() || '#4a90e2';
+            color = styles.getPropertyValue('--edge-documents').trim() || '#4a90e2';
+            break;
         case 'impacts':
-            return styles.getPropertyValue('--edge-impacts').trim() || '#e85d5d';
+            color = styles.getPropertyValue('--edge-impacts').trim() || '#e85d5d';
+            break;
         default:
-            return styles.getPropertyValue('--edge-default').trim() || '#3a4d66';
+            color = styles.getPropertyValue('--edge-default').trim() || '#3a4d66';
+            break;
     }
+    
+    edgeCategoryColorCache.set(category, color);
+    return color;
+}
+
+// Cache for CSS colors to avoid expensive getComputedStyle calls every frame
+let cssColorsCache = null;
+
+/**
+ * Invalidate the CSS colors cache (call when theme changes)
+ */
+export function invalidateCSSColorsCache() {
+    cssColorsCache = null;
+    invalidateEdgeStyleCache();
+    invalidateEdgeCategoryColorCache();
 }
 
 /**
@@ -224,8 +297,14 @@ export function getEdgeCategoryColor(category) {
  * @returns {Object} Object with commonly used color variables
  */
 export function getCSSColors() {
+    // Return cached value if available
+    if (cssColorsCache !== null) {
+        return cssColorsCache;
+    }
+    
+    // Cache miss - compute and cache
     const styles = getComputedStyle(document.documentElement);
-    return {
+    cssColorsCache = {
         bgPrimary: styles.getPropertyValue('--bg-primary').trim() || '#1a2332',
         bgSecondary: styles.getPropertyValue('--bg-secondary').trim() || '#243447',
         textPrimary: styles.getPropertyValue('--text-primary').trim() || '#e8edf3',
@@ -233,6 +312,8 @@ export function getCSSColors() {
         accentBlue: styles.getPropertyValue('--accent-blue').trim() || '#4a90e2',
         queueColor: styles.getPropertyValue('--queue-color').trim() || '#20b2aa'
     };
+    
+    return cssColorsCache;
 }
 
 // Export color constants for direct access if needed
