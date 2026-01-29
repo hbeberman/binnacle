@@ -1706,6 +1706,12 @@ pub enum SystemCommands {
         yes: bool,
     },
 
+    /// Re-run full interactive initialization (global + repo)
+    ///
+    /// Use this to reconfigure global binnacle setup (skills files, MCP configs,
+    /// Copilot CLI installation) or if you want to change previous answers.
+    Reinit,
+
     /// Data store management (import/export/inspect)
     Store {
         #[command(subcommand)]

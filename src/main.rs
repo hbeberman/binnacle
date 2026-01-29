@@ -1073,6 +1073,10 @@ fn run_command(
                 };
                 output(&result, human);
             }
+            SystemCommands::Reinit => {
+                let result = commands::init_reinit(repo_path)?;
+                output(&result, human);
+            }
             SystemCommands::Store { command } => match command {
                 StoreCommands::Show => {
                     let result = commands::system_store_show(repo_path)?;
@@ -2977,6 +2981,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "yes": yes,
                 }),
             ),
+            SystemCommands::Reinit => ("system reinit".to_string(), serde_json::json!({})),
             SystemCommands::Store { command } => match command {
                 StoreCommands::Show => ("system store show".to_string(), serde_json::json!({})),
                 StoreCommands::Export { output, format } => (

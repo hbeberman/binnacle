@@ -172,6 +172,42 @@ fn prompt_yes_no(prompt: &str, default_yes: bool) -> bool {
     }
 }
 
+/// Global initialization marker file structure.
+#[derive(Serialize, Deserialize)]
+struct GlobalInitMarker {
+    version: String,
+    initialized_at: String,
+}
+
+/// Check if global initialization has already been completed.
+fn is_global_init_done() -> bool {
+    if let Some(data_dir) = dirs::data_local_dir() {
+        let marker_path = data_dir.join("binnacle").join("initialized");
+        marker_path.exists()
+    } else {
+        false
+    }
+}
+
+/// Mark global initialization as complete.
+fn mark_global_init_done() -> Result<()> {
+    if let Some(data_dir) = dirs::data_local_dir() {
+        let binnacle_dir = data_dir.join("binnacle");
+        fs::create_dir_all(&binnacle_dir)?;
+
+        let marker = GlobalInitMarker {
+            version: "1".to_string(),
+            initialized_at: Utc::now().to_rfc3339(),
+        };
+
+        let marker_path = binnacle_dir.join("initialized");
+        let toml_content = toml::to_string(&marker)
+            .map_err(|e| Error::InvalidInput(format!("Failed to serialize marker: {}", e)))?;
+        fs::write(&marker_path, toml_content)?;
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 pub struct InitResult {
     pub initialized: bool,
@@ -244,7 +280,81 @@ impl Output for InitResult {
 }
 
 /// Initialize binnacle for the current repository with interactive prompts.
+/// Skips global initialization prompts if already done (marker file exists).
 pub fn init(repo_path: &Path) -> Result<InitResult> {
+    let global_init_done = is_global_init_done();
+
+    // Repo-local prompts (always shown)
+    let update_agents_md = prompt_yes_no("Add binnacle reference to AGENTS.md?", true);
+    let create_copilot_prompts = prompt_yes_no(
+        "Create Copilot workflow agents at .github/agents/ and .github/instructions/?",
+        false,
+    );
+    let install_hook = prompt_yes_no("Install commit-msg hook for co-author attribution?", true);
+    let write_mcp_vscode = prompt_yes_no("Write VS Code MCP config to .vscode/mcp.json?", false);
+
+    // Global prompts (only if not already initialized)
+    let (
+        create_claude_skills,
+        create_codex_skills,
+        write_mcp_copilot,
+        install_copilot,
+        install_bn_agent,
+    ) = if global_init_done {
+        (false, false, false, false, false)
+    } else {
+        let create_claude_skills = prompt_yes_no(
+            "Create Claude Code skills file at ~/.claude/skills/binnacle/SKILL.md?",
+            true,
+        );
+        let create_codex_skills = prompt_yes_no(
+            "Create Codex skills file at ~/.codex/skills/binnacle/SKILL.md?",
+            true,
+        );
+        let write_mcp_copilot = prompt_yes_no(
+            "Write GitHub Copilot CLI MCP config to ~/.copilot/mcp-config.json?",
+            false,
+        );
+        let install_copilot = prompt_yes_no(
+            "Install GitHub Copilot CLI with binnacle-preferred version?",
+            true,
+        );
+        let install_bn_agent =
+            prompt_yes_no("Install bn-agent script to ~/.local/bin/bn-agent?", true);
+        (
+            create_claude_skills,
+            create_codex_skills,
+            write_mcp_copilot,
+            install_copilot,
+            install_bn_agent,
+        )
+    };
+
+    let result = init_with_options(
+        repo_path,
+        update_agents_md,
+        create_claude_skills,
+        create_codex_skills,
+        create_copilot_prompts,
+        install_hook,
+        write_mcp_vscode,
+        write_mcp_copilot,
+        install_copilot,
+        install_bn_agent,
+    )?;
+
+    // Mark global init as done if we just did it
+    if !global_init_done {
+        mark_global_init_done()?;
+    }
+
+    Ok(result)
+}
+
+/// Re-run full interactive initialization (global + repo).
+/// Always prompts for all options regardless of marker file state.
+/// Updates/creates the marker file on success.
+pub fn init_reinit(repo_path: &Path) -> Result<InitResult> {
     // Prompt for AGENTS.md update (default Yes)
     let update_agents_md = prompt_yes_no("Add binnacle reference to AGENTS.md?", true);
 
@@ -287,7 +397,7 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
     // Prompt for bn-agent installation (default Yes)
     let install_bn_agent = prompt_yes_no("Install bn-agent script to ~/.local/bin/bn-agent?", true);
 
-    init_with_options(
+    let result = init_with_options(
         repo_path,
         update_agents_md,
         create_claude_skills,
@@ -298,7 +408,12 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         write_mcp_copilot,
         install_copilot,
         install_bn_agent,
-    )
+    )?;
+
+    // Always update marker file on successful reinit
+    mark_global_init_done()?;
+
+    Ok(result)
 }
 
 /// Initialize binnacle for the current repository without interactive prompts.

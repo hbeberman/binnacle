@@ -2531,3 +2531,37 @@ fn test_copilot_version_with_config_override() {
         .unwrap();
     assert_eq!(v120["is_active"], false);
 }
+
+// ============================================================================
+// bn system reinit Tests
+// ============================================================================
+
+#[test]
+fn test_system_reinit_runs_full_init() {
+    let temp = TestEnv::new();
+
+    // Run reinit (should prompt for everything)
+    let output = bn_in(&temp)
+        .args(["system", "reinit"])
+        .write_stdin("n\nn\nn\nn\nn\nn\nn\nn\nn\n") // All prompts (global + repo)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json_from_mixed_output(&output);
+    assert_eq!(json["initialized"], true);
+}
+
+#[test]
+fn test_system_reinit_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "reinit"])
+        .write_stdin("n\nn\nn\nn\nn\nn\nn\nn\nn\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Initialized binnacle"));
+}
