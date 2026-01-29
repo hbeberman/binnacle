@@ -1023,6 +1023,7 @@ fn run_command(
                 write_mcp_all,
                 install_copilot,
                 install_bn_agent,
+                build_container,
                 yes,
             } => {
                 // Expand --write-mcp-all into individual MCP flags
@@ -1042,6 +1043,7 @@ fn run_command(
                         write_mcp_copilot,
                         install_copilot,
                         install_bn_agent,
+                        build_container,
                     )?
                 } else if write_agents_md
                     || write_claude_skills
@@ -1053,6 +1055,7 @@ fn run_command(
                     || write_mcp_all
                     || install_copilot
                     || install_bn_agent
+                    || build_container
                 {
                     // Flags provided without -y: use flags as the options
                     commands::init_non_interactive(
@@ -1066,6 +1069,7 @@ fn run_command(
                         write_mcp_copilot,
                         install_copilot,
                         install_bn_agent,
+                        build_container,
                     )?
                 } else {
                     // Interactive mode (default)
@@ -2964,6 +2968,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 write_mcp_all,
                 install_copilot,
                 install_bn_agent,
+                build_container,
                 yes,
             } => (
                 "system init".to_string(),
@@ -2978,6 +2983,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "write_mcp_all": write_mcp_all,
                     "install_copilot": install_copilot,
                     "install_bn_agent": install_bn_agent,
+                    "build_container": build_container,
                     "yes": yes,
                 }),
             ),
