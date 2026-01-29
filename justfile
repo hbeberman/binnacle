@@ -92,7 +92,7 @@ dev-gui:
     @echo "Starting GUI in development mode..."
     cargo run --features gui -- gui --dev
 
-gui nobuild="":
+gui nobuild="" tunnel="":
     #!/usr/bin/env bash
     set -e
     export BN_GUI_PORT="${BN_GUI_PORT:-3030}"
@@ -103,6 +103,12 @@ gui nobuild="":
     REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
     REPO_HASH="$(echo "$REPO_ROOT" | sha256sum | cut -c1-8)"
     GUI_BIN="$RUNTIME_DIR/bn-gui-$REPO_HASH"
+    
+    # Build tunnel flags if requested
+    TUNNEL_FLAGS=""
+    if [ -n "{{tunnel}}" ]; then
+        TUNNEL_FLAGS="--tunnel"
+    fi
     
     # Helper to stop existing GUI for this repo
     stop_gui() {
@@ -124,7 +130,7 @@ gui nobuild="":
             stop_gui
             cp ~/.local/bin/bn "$GUI_BIN"
             echo "Starting GUI immediately with existing binary..."
-            "$GUI_BIN" gui serve --host 0.0.0.0 --replace &
+            "$GUI_BIN" gui serve --host 0.0.0.0 --replace $TUNNEL_FLAGS &
             GUI_PID=$!
             echo "GUI started (pid: $GUI_PID), building new version in background..."
             
@@ -133,7 +139,7 @@ gui nobuild="":
                 echo "Build complete, restarting GUI with new binary..."
                 stop_gui
                 cp ~/.local/bin/bn "$GUI_BIN"
-                "$GUI_BIN" gui serve --host 0.0.0.0 --replace
+                "$GUI_BIN" gui serve --host 0.0.0.0 --replace $TUNNEL_FLAGS
             else
                 echo "Build failed, keeping existing GUI running"
                 wait $GUI_PID
@@ -144,13 +150,13 @@ gui nobuild="":
             just install
             stop_gui
             cp ~/.local/bin/bn "$GUI_BIN"
-            "$GUI_BIN" gui serve --host 0.0.0.0 --replace
+            "$GUI_BIN" gui serve --host 0.0.0.0 --replace $TUNNEL_FLAGS
         fi
     else
         echo "Skipping build (using existing binary)..."
         stop_gui
         cp ~/.local/bin/bn "$GUI_BIN"
-        "$GUI_BIN" gui serve --host 0.0.0.0 --replace
+        "$GUI_BIN" gui serve --host 0.0.0.0 --replace $TUNNEL_FLAGS
     fi
 
 # Run clippy with strict warnings
