@@ -18734,6 +18734,7 @@ pub fn container_run(
     name: Option<String>,
     merge_target: &str,
     no_merge: bool,
+    readonly_workspace: bool,
     cpus: Option<f64>,
     memory: Option<&str>,
     shell: bool,
@@ -18878,9 +18879,15 @@ pub fn container_run(
 
     // Add mounts
     args.push("--mount".to_string());
+    let workspace_mount_options = if readonly_workspace {
+        "rbind:ro"
+    } else {
+        "rbind:rw"
+    };
     args.push(format!(
-        "type=bind,src={},dst=/workspace,options=rbind:rw",
-        worktree_abs.display()
+        "type=bind,src={},dst=/workspace,options={}",
+        worktree_abs.display(),
+        workspace_mount_options
     ));
 
     args.push("--mount".to_string());
@@ -18959,6 +18966,11 @@ pub fn container_run(
     if no_merge {
         args.push("--env".to_string());
         args.push("BN_NO_MERGE=true".to_string());
+    }
+
+    if readonly_workspace {
+        args.push("--env".to_string());
+        args.push("BN_READONLY_WORKSPACE=true".to_string());
     }
 
     // Pass pre-assigned agent ID and name

@@ -2016,6 +2016,10 @@ pub enum ContainerCommands {
         #[arg(long)]
         no_merge: bool,
 
+        /// Mount workspace as read-only (sets BN_READONLY_WORKSPACE=true)
+        #[arg(long)]
+        readonly_workspace: bool,
+
         /// CPU limit (e.g., 1.5 for 1.5 CPUs, 0.5 for half a CPU)
         #[arg(long)]
         cpus: Option<f64>,
