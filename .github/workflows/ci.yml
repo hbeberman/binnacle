@@ -117,6 +117,38 @@ jobs:
       - name: Run zizmor
         uses: zizmorcore/zizmor-action@135698455da5c3b3e55f73f4419e481ab68cdd95 # v0.4.1
 
+  version-sync:
+    name: Version Sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    # Skip for PRs from forks (security: defense in depth)
+    if: github.event_name == 'push' || (github.event.pull_request.head.repo != null && github.event.pull_request.head.repo.full_name == github.repository)
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Check version sync
+        run: |
+          cargo_version=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          readme_count=$(grep -c "$cargo_version" README.md || true)
+          
+          echo "Cargo.toml version: $cargo_version"
+          echo "README.md occurrences: $readme_count"
+          
+          if [ "$readme_count" -lt 2 ]; then
+            echo "❌ Version sync check failed!"
+            echo "Cargo.toml version is $cargo_version but README.md doesn't reference it enough times."
+            echo "Expected at least 2 occurrences (wget and cargo install lines)."
+            echo "Current count: $readme_count"
+            exit 1
+          fi
+          
+          echo "✅ Version $cargo_version is synced in README.md ($readme_count occurrences)"
+
   gui-check:
     name: GUI Check
     runs-on: ubuntu-latest
