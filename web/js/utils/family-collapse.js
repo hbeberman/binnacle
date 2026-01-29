@@ -7,6 +7,7 @@
 
 import * as state from '../state.js';
 import { clearRevealAnimations } from './reveal-animation.js';
+import { startAnimation } from '../graph/renderer.js';
 
 // Fade-out animation constants
 const FADE_OUT_DURATION_MS = 300;
@@ -44,6 +45,11 @@ export function collapseFamilyReveal() {
     const now = performance.now();
     for (const nodeId of nodesToFadeOut) {
         fadeOutAnimations.set(nodeId, now);
+    }
+    
+    // Start animation loop to render the fade-out effect
+    if (nodesToFadeOut.size > 0) {
+        startAnimation();
     }
     
     // Clear family reveal state (this will trigger filter update)
