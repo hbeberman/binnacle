@@ -213,17 +213,11 @@ impl TunnelManager {
         let tunnel_id = Self::get_or_create_tunnel_id()?;
 
         // Spawn devtunnel with stdout piped for URL extraction
-        // --allow-anonymous enables access without Microsoft account
-        // Using --tunnel-id ensures we use the persistent tunnel
+        // --allow-anonymous (-a) enables access without Microsoft account
+        // Tunnel ID is a positional argument after 'host'
+        // Port is specified with -p or --port-numbers
         let mut child = Command::new("devtunnel")
-            .args([
-                "host",
-                "--tunnel-id",
-                &tunnel_id,
-                "--port",
-                &port_str,
-                "--allow-anonymous",
-            ])
+            .args(["host", &tunnel_id, "-p", &port_str, "--allow-anonymous"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
