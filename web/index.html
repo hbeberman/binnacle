@@ -319,6 +319,7 @@
         import { findFamilyRoot, collectDescendants, computeDepths } from './js/utils/family-reveal.js';
         import { computeSpawnPositions } from './js/utils/spawn-position.js';
         import { animateProgressiveReveal, clearRevealAnimations } from './js/utils/reveal-animation.js';
+        import { collapseFamilyReveal } from './js/utils/family-collapse.js';
         
         // Get container element
         const container = document.getElementById('app-container');
@@ -646,9 +647,19 @@
             onNodeClick: async (node) => {
                 console.log('Node clicked:', node);
                 
+                // Check if we're switching to a different family
+                const currentFamilyReveal = State.get('ui.familyReveal') || { active: false, rootId: null };
+                const currentRootId = currentFamilyReveal.rootId;
+                
                 // Family reveal: find root and collect descendants
                 const rootId = findFamilyRoot(node.id);
                 if (rootId) {
+                    // If clicking a different family, collapse the old one first
+                    if (currentFamilyReveal.active && rootId !== currentRootId) {
+                        console.log(`[FamilyReveal] Switching from family ${currentRootId} to ${rootId}`);
+                        collapseFamilyReveal();
+                    }
+                    
                     const descendants = collectDescendants(rootId);
                     console.log(`Family reveal: root=${rootId}, descendants=${descendants.size}`);
                     
@@ -686,7 +697,11 @@
                     animateProgressiveReveal(rootId, descendants, depthMap, existingNodes);
                 } else {
                     console.log('Family reveal: no root found, clearing state');
-                    // No root found - clear reveal state
+                    // No root found - collapse any active reveal
+                    if (currentFamilyReveal.active) {
+                        collapseFamilyReveal();
+                    }
+                    // Clear reveal state
                     State.set('ui.familyReveal', {
                         active: false,
                         rootId: null,
@@ -701,8 +716,8 @@
             },
             onCanvasClick: () => {
                 console.log('Canvas clicked (empty space)');
-                // Clear family reveal animations
-                clearRevealAnimations();
+                // Collapse family reveal if active
+                collapseFamilyReveal();
                 // Hide info panel when clicking on empty space
                 hideInfoPanel(infoPanel);
             },
@@ -728,8 +743,8 @@
                 }
             },
             onEscape: () => {
-                // Clear family reveal animations
-                clearRevealAnimations();
+                // Collapse family reveal if active
+                collapseFamilyReveal();
                 // Hide info panel when Escape is pressed
                 hideInfoPanel(infoPanel);
             }
