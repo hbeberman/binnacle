@@ -143,6 +143,7 @@ Agent Types:
 
 Options:
   --host              Force host execution (even for 'auto')
+  --container         Force container execution (for 'buddy' or 'prd')
   --once              Run once and exit (disable default looping)
   --cpus LIMIT        CPU limit for container mode
   --memory LIMIT      Memory limit for container mode
@@ -160,6 +161,8 @@ Examples:
   bn-agent --once auto                # Run auto worker once and exit
   bn-agent do "fix the login bug"    # Run custom task on host
   bn-agent prd                        # Run PRD writer on host
+  bn-agent --container buddy          # Run buddy in container
+  bn-agent --container prd            # Run PRD writer in container
   bn-agent --cpus 2 --memory 4g auto # Container with resource limits
 EOF
     exit 1
@@ -170,6 +173,7 @@ EOF
 
 # Parse global options
 FORCE_HOST=false
+FORCE_CONTAINER=false
 ONCE_MODE=false
 CPUS=""
 MEMORY=""
@@ -181,6 +185,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --host)
             FORCE_HOST=true
+            shift
+            ;;
+        --container)
+            FORCE_CONTAINER=true
             shift
             ;;
         --once)
@@ -224,10 +232,19 @@ shift
 
 # Determine execution mode: container or host
 # Default: auto → container, everything else → host
-# Can be overridden with --host flag
+# Can be overridden with --host or --container flag
 USE_CONTAINER=false
 if [[ "$AGENT_TYPE" == "auto" && "$FORCE_HOST" == "false" ]]; then
     USE_CONTAINER=true
+fi
+# Allow buddy and prd to run in container mode when --container is specified
+if [[ ("$AGENT_TYPE" == "buddy" || "$AGENT_TYPE" == "prd") && "$FORCE_CONTAINER" == "true" ]]; then
+    USE_CONTAINER=true
+fi
+# Validate conflicting flags
+if [[ "$FORCE_HOST" == "true" && "$FORCE_CONTAINER" == "true" ]]; then
+    echo "Error: Cannot specify both --host and --container flags"
+    exit 1
 fi
 
 # Helper function to safely emit templates with error handling
