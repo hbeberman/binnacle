@@ -1,8 +1,8 @@
 //! Devtunnel manager for creating public URLs
 //!
 //! This module provides `TunnelManager` for spawning and managing Azure Dev Tunnels.
-//! When started, devtunnel creates a temporary public URL that proxies traffic
-//! to the local GUI server.
+//! When started, devtunnel creates a persistent tunnel with a stable URL that
+//! persists across restarts.
 //!
 //! Requires: `devtunnel user login` (one-time authentication before first use)
 
@@ -111,10 +111,81 @@ impl TunnelManager {
             .unwrap_or(false)
     }
 
+    /// Get or create a persistent tunnel ID
+    ///
+    /// Looks for an existing persistent tunnel named "binnacle-gui" or creates one.
+    /// The tunnel ID is stable across restarts, providing a consistent URL.
+    ///
+    /// # Returns
+    /// The tunnel ID string, or an error if creation/lookup fails
+    fn get_or_create_tunnel_id() -> Result<String, TunnelError> {
+        // First, try to list existing tunnels and find one named "binnacle-gui"
+        let output = Command::new("devtunnel")
+            .args(["list", "--output", "json"])
+            .output()
+            .map_err(TunnelError::SpawnFailed)?;
+
+        if output.status.success() {
+            // Parse JSON to find existing tunnel
+            if let Ok(tunnels) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+                && let Some(tunnels_array) = tunnels.as_array()
+            {
+                for tunnel in tunnels_array {
+                    if let Some(name) = tunnel.get("tunnelName").and_then(|n| n.as_str())
+                        && name == "binnacle-gui"
+                        && let Some(id) = tunnel.get("tunnelId").and_then(|i| i.as_str())
+                    {
+                        eprintln!("[devtunnel] Reusing existing tunnel: {}", id);
+                        return Ok(id.to_string());
+                    }
+                }
+            }
+        }
+
+        // No existing tunnel found, create a new persistent one
+        eprintln!("[devtunnel] Creating new persistent tunnel...");
+        let output = Command::new("devtunnel")
+            .args(["create", "--name", "binnacle-gui", "--allow-anonymous"])
+            .output()
+            .map_err(TunnelError::SpawnFailed)?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(TunnelError::Internal(format!(
+                "Failed to create tunnel: {}",
+                stderr
+            )));
+        }
+
+        // Parse the tunnel ID from the output
+        // devtunnel create outputs the tunnel ID in the response
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Ok(tunnel_info) = serde_json::from_str::<serde_json::Value>(&stdout)
+            && let Some(id) = tunnel_info.get("tunnelId").and_then(|i| i.as_str())
+        {
+            eprintln!("[devtunnel] Created new tunnel: {}", id);
+            return Ok(id.to_string());
+        }
+
+        // Fallback: try to parse from text output
+        for line in stdout.lines() {
+            if (line.contains("Tunnel ID:") || line.contains("tunnelId"))
+                && let Some(id) = line.split_whitespace().last()
+            {
+                return Ok(id.trim().to_string());
+            }
+        }
+
+        Err(TunnelError::Internal(
+            "Could not extract tunnel ID from devtunnel create output".to_string(),
+        ))
+    }
+
     /// Start a tunnel to the given local port
     ///
     /// Spawns devtunnel and waits for it to provide a public URL.
     /// The tunnel proxies traffic from the public URL to `http://localhost:<port>`.
+    /// Uses a persistent tunnel ID to maintain the same URL across restarts.
     ///
     /// # Arguments
     /// * `port` - Local port to tunnel to
@@ -139,10 +210,21 @@ impl TunnelManager {
 
         let port_str = port.to_string();
 
+        // Get or create a persistent tunnel ID
+        let tunnel_id = Self::get_or_create_tunnel_id()?;
+
         // Spawn devtunnel with stdout piped for URL extraction
         // --allow-anonymous enables access without Microsoft account
+        // Using --tunnel-id ensures we use the persistent tunnel
         let mut child = Command::new("devtunnel")
-            .args(["host", "--port-numbers", &port_str, "--allow-anonymous"])
+            .args([
+                "host",
+                "--tunnel-id",
+                &tunnel_id,
+                "--port",
+                &port_str,
+                "--allow-anonymous",
+            ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
