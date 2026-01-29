@@ -58,6 +58,7 @@ export {
     getNodeColor,
     getEdgeStyle,
     getCSSColors,
+    invalidateCSSColorsCache,
     TASK_STATUS_COLORS,
     BUG_STATUS_COLORS,
     IDEA_STATUS_COLORS,
