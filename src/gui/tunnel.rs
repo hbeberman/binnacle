@@ -121,7 +121,7 @@ impl TunnelManager {
     fn get_or_create_tunnel_id() -> Result<String, TunnelError> {
         // First, try to list existing tunnels
         let output = Command::new("devtunnel")
-            .args(["list", "--output", "json"])
+            .args(["list", "--json"])
             .output()
             .map_err(TunnelError::SpawnFailed)?;
 
@@ -144,7 +144,7 @@ impl TunnelManager {
         // No existing tunnel found, create a new persistent one
         eprintln!("[devtunnel] Creating new persistent tunnel...");
         let output = Command::new("devtunnel")
-            .args(["create", "--allow-anonymous", "--output", "json"])
+            .args(["create", "--allow-anonymous", "--json"])
             .output()
             .map_err(TunnelError::SpawnFailed)?;
 
