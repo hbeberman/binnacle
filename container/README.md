@@ -164,6 +164,23 @@ bn container run ../agent-worktree --no-merge
 bn container run ../agent-worktree --name my-agent
 ```
 
+**Alternative: Using `bn-agent` with `--container` flag**
+
+For `buddy` and `prd` agent types, you can use the `bn-agent` command with the `--container` flag to run them in container mode with read-only workspace mounts:
+
+```bash
+# Run buddy agent in container (interactive task/bug/idea creation)
+bn-agent --container buddy
+
+# Run PRD agent in container (research and planning)
+bn-agent --container prd
+
+# Container mode with resource limits
+bn-agent --container --cpus 2 --memory 4g buddy
+```
+
+This approach automatically handles container setup and uses read-only workspace mounts, making it ideal for interactive agents that don't need to modify code.
+
 ### List Containers
 
 ```bash
