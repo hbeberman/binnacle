@@ -56,11 +56,13 @@ git init
 bn system init
 
 # Use some tools!
-bn-agent buddy # Run your helpful binnacle assistant to interact with the graph
-bn-agent prd # Run the PRD agent to plan features
-bn gui # Host a local GUI session
-bn gui --tunnel # Host a GUI session with a sharable (r/o) devtunnel URL
-bn-agent auto # Loop a container of a worker agent
+bn-agent buddy                  # Run your helpful binnacle assistant to interact with the graph
+bn-agent --container buddy      # Run buddy in container mode (isolated, read-only workspace)
+bn-agent prd                    # Run the PRD agent to plan features
+bn-agent --container prd        # Run PRD agent in container mode
+bn gui                          # Host a local GUI session
+bn gui --tunnel                 # Host a GUI session with a sharable (r/o) devtunnel URL
+bn-agent auto                   # Loop a container of a worker agent
 ```
 
 ## Build Prerequisites
@@ -138,13 +140,16 @@ This prevents unexpected behavior from automatic Copilot updates mid-workflow.
 ## Running Agents
 
 ```bash
-./agent.sh auto                 # pick highest priority task and work on it
-./agent.sh --loop auto          # keep going until queue is empty
-./agent.sh buddy                # helper for adding tasks interactively
-./agent.sh ask                  # interactive Q&A for exploring the codebase (read-only)
+bn-agent auto                    # pick highest priority task and work on it
+bn-agent --once auto             # run once without looping
+bn-agent buddy                   # helper for adding tasks interactively
+bn-agent --container buddy       # run buddy in container mode (isolated)
+bn-agent prd                     # plan features and create PRDs
+bn-agent --container prd         # run PRD agent in container mode
+bn-agent qa                      # interactive Q&A for exploring the codebase (read-only)
 ```
 
-**Note:** `agent.sh` automatically resolves the Copilot binary via `bn system copilot path` and runs it with `--no-auto-update` to prevent mid-workflow updates. Install a pinned version with `bn system copilot install --upstream` before running agents.
+**Note:** `bn-agent` automatically resolves the Copilot binary via `bn system copilot path` and runs it with `--no-auto-update` to prevent mid-workflow updates. Install a pinned version with `bn system copilot install --upstream` before running agents.
 
 ### Containerized Agents (Quick Start)
 
