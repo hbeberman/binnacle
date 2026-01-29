@@ -1,0 +1,373 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2016  # Backticks in prompts are intentional literals
+# Unified Agent Launcher - combines agent.sh and containeragent.sh functionality
+set -e
+
+# Ensure ~/.local/bin is first in PATH to use latest 'just install' binary
+export PATH="$HOME/.local/bin:$PATH"
+
+# Blocked commands - agents should not terminate each other
+# Note: bn goodbye is allowed - agents SHOULD terminate themselves gracefully when done
+BLOCKED_TOOLS=(
+    --deny-tool "shell(bn agent kill:*)"
+    # Block MCP lifecycle tools to force shell usage for proper agent termination
+    --deny-tool "binnacle(binnacle-orient)"
+    --deny-tool "binnacle(binnacle-goodbye)"
+)
+
+# Tool permission sets (using arrays to properly handle arguments with spaces)
+TOOLS_FULL=(
+    --allow-tool "write"
+    --allow-tool "shell(bn:*)"
+    --allow-tool "shell(./target/release/bn)"
+    --allow-tool "shell(./target/debug/bn)"
+    --allow-tool "shell(cargo run)"
+    --allow-tool "shell(cargo fmt)"
+    --allow-tool "shell(cargo clippy)"
+    --allow-tool "shell(cargo test)"
+    --allow-tool "shell(cargo build)"
+    --allow-tool "shell(cargo check)"
+    --allow-tool "shell(cargo audit)"
+    --allow-tool "shell(rustc:*)"
+    --allow-tool "shell(sleep)"
+    --allow-tool "shell(wait)"
+    --allow-tool "shell(git add)"
+    --allow-tool "shell(git commit)"
+    --allow-tool "shell(git:*)"
+    --allow-tool "shell(just:*)"
+    --allow-tool "shell(jq:*)"
+    --allow-tool "shell(sed:*)"
+    --allow-tool "shell(cp:*)"
+    --allow-tool "shell(lsof:*)"
+    --allow-tool "shell(rm:*)"
+    --allow-tool "shell(mkdir:*)"
+    --allow-tool "shell(xargs:*)"
+    --allow-tool "shell(find:*)"
+    --allow-tool "shell(printf:*)"
+    --allow-tool "shell(curl:*)"
+    --allow-tool "shell(awk:*)"
+    --allow-tool "shell(pgrep:*)"
+    --allow-tool "shell(node:*)"
+    --allow-tool "binnacle"
+)
+
+TOOLS_PRD=(
+    --allow-tool "write"
+    --allow-tool "shell(bn:*)"
+    --allow-tool "shell(./target/release/bn)"
+    --allow-tool "shell(./target/debug/bn)"
+    --allow-tool "shell(git add)"
+    --allow-tool "shell(git commit)"
+    --allow-tool "shell(git:*)"
+    --allow-tool "shell(jq:*)"
+    --allow-tool "binnacle"
+)
+
+TOOLS_BUDDY=(
+    --allow-tool "shell(bn:*)"
+    --allow-tool "shell(./target/release/bn)"
+    --allow-tool "shell(./target/debug/bn)"
+    --allow-tool "shell(git add)"
+    --allow-tool "shell(git commit)"
+    --allow-tool "shell(git:*)"
+    --allow-tool "shell(jq:*)"
+    --allow-tool "binnacle"
+)
+
+usage() {
+    cat << 'EOF'
+Usage: bn-agent [OPTIONS] <agent-type> [args]
+
+Agent Types:
+  auto        Pick from 'bn ready' - runs in CONTAINER by default
+  do "desc"   Work on custom task - runs on HOST
+  prd         Render ideas into PRDs - runs on HOST
+  buddy       Quick entry for bugs/tasks/ideas - runs on HOST
+  free        General purpose with binnacle - runs on HOST
+
+Options:
+  --host              Force host execution (even for 'auto')
+  --once              Run once and exit (disable default looping)
+  --cpus LIMIT        CPU limit for container mode
+  --memory LIMIT      Memory limit for container mode
+  --merge-target BRANCH  Branch to merge into (container mode, default: main)
+  --no-merge          Disable auto-merge on exit (container mode)
+  --name NAME         Container name (container mode)
+
+Environment Variables:
+  BN_MCP_LIFECYCLE    Control MCP lifecycle prompts (default: true)
+                      Set to "false" to disable MCP orient/goodbye guidance
+
+Examples:
+  bn-agent auto                       # Run auto worker in container (loops by default)
+  bn-agent --host auto                # Run auto worker on host
+  bn-agent --once auto                # Run auto worker once and exit
+  bn-agent do "fix the login bug"    # Run custom task on host
+  bn-agent prd                        # Run PRD writer on host
+  bn-agent --cpus 2 --memory 4g auto # Container with resource limits
+EOF
+    exit 1
+}
+
+# Require at least one argument
+[[ $# -lt 1 ]] && usage
+
+# Parse global options
+FORCE_HOST=false
+ONCE_MODE=false
+CPUS=""
+MEMORY=""
+MERGE_TARGET="main"
+NO_MERGE=""
+NAME=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --host)
+            FORCE_HOST=true
+            shift
+            ;;
+        --once)
+            ONCE_MODE=true
+            shift
+            ;;
+        --cpus)
+            CPUS="$2"
+            shift 2
+            ;;
+        --memory)
+            MEMORY="$2"
+            shift 2
+            ;;
+        --merge-target)
+            MERGE_TARGET="$2"
+            shift 2
+            ;;
+        --no-merge)
+            NO_MERGE="true"
+            shift
+            ;;
+        --name)
+            NAME="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            # First non-option argument is the agent type
+            break
+            ;;
+    esac
+done
+
+[[ $# -lt 1 ]] && usage
+
+AGENT_TYPE="$1"
+shift
+
+# Determine execution mode: container or host
+# Default: auto → container, everything else → host
+# Can be overridden with --host flag
+USE_CONTAINER=false
+if [[ "$AGENT_TYPE" == "auto" && "$FORCE_HOST" == "false" ]]; then
+    USE_CONTAINER=true
+fi
+
+# Helper function to safely emit templates with error handling
+emit_template() {
+    local template="$1"
+    local output
+    if ! output=$(bn system emit "$template" -H 2>&1); then
+        echo "❌ Failed to emit template: $template" >&2
+        echo "   Error: $output" >&2
+        exit 1
+    fi
+    echo "$output"
+}
+
+# Check if MCP lifecycle prompts should be added (default: true)
+BN_MCP_LIFECYCLE="${BN_MCP_LIFECYCLE:-true}"
+
+# Build prompt based on agent type
+case "$AGENT_TYPE" in
+    auto)
+        PROMPT=$(emit_template auto-worker)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
+        TOOLS=("${TOOLS_FULL[@]}")
+        ;;
+    do)
+        [[ $# -lt 1 ]] && { echo "Error: 'do' requires a description argument"; usage; }
+        [[ $# -gt 1 ]] && { echo "Error: Too many arguments. Did you forget to quote the description?"; echo "  Try: bn-agent do \"$*\""; exit 1; }
+        DESC="$1"
+        PROMPT=$(emit_template do-agent | awk -v desc="$DESC" '{gsub(/{description}/, desc); print}')
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
+        TOOLS=("${TOOLS_FULL[@]}")
+        ;;
+    prd)
+        PROMPT=$(emit_template prd-writer)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle-planner)
+        TOOLS=("${TOOLS_PRD[@]}")
+        ;;
+    buddy)
+        PROMPT=$(emit_template buddy)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
+        TOOLS=("${TOOLS_BUDDY[@]}")
+        ;;
+    free)
+        PROMPT=$(emit_template free)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
+        TOOLS=("${TOOLS_FULL[@]}")
+        ;;
+    *)
+        echo "Error: Unknown agent type '$AGENT_TYPE'"
+        usage
+        ;;
+esac
+
+# Run agent in appropriate mode
+if [[ "$USE_CONTAINER" == "true" ]]; then
+    # Container mode
+    echo "Launching agent in CONTAINER mode (agent type: $AGENT_TYPE)"
+    
+    # Build the bn container run command
+    CMD=(bn container run .)
+    
+    # Add container options
+    [[ -n "$CPUS" ]] && CMD+=(--cpus "$CPUS")
+    [[ -n "$MEMORY" ]] && CMD+=(--memory "$MEMORY")
+    [[ -n "$NAME" ]] && CMD+=(--name "$NAME")
+    CMD+=(--merge-target "$MERGE_TARGET")
+    [[ -n "$NO_MERGE" ]] && CMD+=(--no-merge)
+    
+    # Add the prompt
+    CMD+=(--prompt "$PROMPT")
+    
+    # Loop-by-default unless --once specified
+    if [[ "$ONCE_MODE" == "true" ]]; then
+        echo "Running once (no loop)"
+        exec "${CMD[@]}"
+    else
+        echo "Loop mode enabled - agent will restart on exit"
+        # Track consecutive Ctrl+C presses for clean exit
+        SIGINT_COUNT=0
+        LAST_SIGINT=0
+        
+        handle_sigint() {
+            local now
+            now=$(date +%s)
+            # If Ctrl+C pressed twice within 2 seconds, exit
+            if [[ $((now - LAST_SIGINT)) -le 2 ]]; then
+                SIGINT_COUNT=$((SIGINT_COUNT + 1))
+            else
+                SIGINT_COUNT=1
+            fi
+            LAST_SIGINT=$now
+            
+            if [[ $SIGINT_COUNT -ge 2 ]]; then
+                echo ""
+                echo "Ctrl+C pressed twice - exiting"
+                exit 0
+            fi
+            echo ""
+            echo "(Press Ctrl+C again within 2 seconds to exit)"
+        }
+        
+        trap handle_sigint INT
+        
+        while true; do
+            # Reset SIGINT count at start of each iteration
+            SIGINT_COUNT=0
+            "${CMD[@]}" || true
+            echo ""
+            echo "Agent exited. Restarting in 3 seconds... (Ctrl+C twice to stop)"
+            sleep 3
+        done
+    fi
+else
+    # Host mode
+    echo "Launching agent in HOST mode (agent type: $AGENT_TYPE)"
+    
+    # Export BN_AGENT_SESSION so child processes (including git hooks) know they're running under an agent
+    export BN_AGENT_SESSION=1
+    
+    # Create a marker file in .git directory so commit hooks can detect agent activity
+    GIT_DIR=$(git rev-parse --git-dir 2>/dev/null) || GIT_DIR=""
+    BN_AGENT_MARKER=""
+    if [[ -n "$GIT_DIR" ]]; then
+        BN_AGENT_MARKER="$GIT_DIR/bn-agent-session"
+        echo "$$" > "$BN_AGENT_MARKER"
+        
+        # Clean up marker file on exit
+        cleanup_marker() {
+            [[ -n "$BN_AGENT_MARKER" ]] && rm -f "$BN_AGENT_MARKER"
+        }
+        trap cleanup_marker EXIT
+    fi
+    
+    # Resolve copilot binary path using bn system copilot path
+    COPILOT_JSON=$(bn system copilot path 2>&1) || {
+        echo "❌ Failed to resolve copilot binary path" >&2
+        echo "   Error: $COPILOT_JSON" >&2
+        exit 1
+    }
+    
+    COPILOT_PATH=$(echo "$COPILOT_JSON" | jq -r '.path')
+    COPILOT_EXISTS=$(echo "$COPILOT_JSON" | jq -r '.exists')
+    COPILOT_VERSION=$(echo "$COPILOT_JSON" | jq -r '.version')
+    COPILOT_SOURCE=$(echo "$COPILOT_JSON" | jq -r '.source')
+    
+    if [[ "$COPILOT_EXISTS" != "true" ]]; then
+        echo "❌ Copilot $COPILOT_VERSION ($COPILOT_SOURCE) not found at: $COPILOT_PATH" >&2
+        echo "   Run 'bn system copilot install' to install it" >&2
+        exit 1
+    fi
+    
+    # Common copilot flags for all agent types
+    COPILOT_FLAGS=(
+        --allow-all-urls  # Allow network requests without prompting
+        --no-auto-update  # Prevent automatic updates during execution
+    )
+    
+    # Loop-by-default unless --once specified
+    if [[ "$ONCE_MODE" == "true" ]]; then
+        echo "Running once (no loop)"
+        exec "$COPILOT_PATH" "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT"
+    else
+        echo "Loop mode enabled - agent will restart on exit"
+        # Track consecutive Ctrl+C presses for clean exit
+        SIGINT_COUNT=0
+        LAST_SIGINT=0
+        
+        handle_sigint() {
+            local now
+            now=$(date +%s)
+            # If Ctrl+C pressed twice within 2 seconds, exit
+            if [[ $((now - LAST_SIGINT)) -le 2 ]]; then
+                SIGINT_COUNT=$((SIGINT_COUNT + 1))
+            else
+                SIGINT_COUNT=1
+            fi
+            LAST_SIGINT=$now
+            
+            if [[ $SIGINT_COUNT -ge 2 ]]; then
+                echo ""
+                echo "Ctrl+C pressed twice - exiting"
+                exit 0
+            fi
+            echo ""
+            echo "(Press Ctrl+C again within 2 seconds to exit)"
+        }
+        
+        trap handle_sigint INT
+        
+        while true; do
+            # Reset SIGINT count at start of each iteration
+            SIGINT_COUNT=0
+            "$COPILOT_PATH" "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT" || true
+            echo ""
+            echo "Agent exited. Restarting in 3 seconds... (Ctrl+C twice to stop)"
+            sleep 3
+        done
+    fi
+fi
