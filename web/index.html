@@ -318,6 +318,7 @@
         import { gatherSelectionContext, formatContextAsMarkdown, formatContextAsJSON } from './js/utils/selection-context.js';
         import { findFamilyRoot, collectDescendants, computeDepths } from './js/utils/family-reveal.js';
         import { computeSpawnPositions } from './js/utils/spawn-position.js';
+        import { animateProgressiveReveal, clearRevealAnimations } from './js/utils/reveal-animation.js';
         
         // Get container element
         const container = document.getElementById('app-container');
@@ -642,7 +643,7 @@
         
         // Initialize graph
         graph.init(canvas, {
-            onNodeClick: (node) => {
+            onNodeClick: async (node) => {
                 console.log('Node clicked:', node);
                 
                 // Family reveal: find root and collect descendants
@@ -679,6 +680,10 @@
                         revealedNodeIds: descendants,
                         spawnPositions: spawnPositions  // Store positions for use during graph rebuild
                     });
+                    
+                    // Start progressive reveal animation
+                    // This runs asynchronously and animates nodes fading in by depth
+                    animateProgressiveReveal(rootId, descendants, depthMap, existingNodes);
                 } else {
                     console.log('Family reveal: no root found, clearing state');
                     // No root found - clear reveal state
@@ -696,6 +701,8 @@
             },
             onCanvasClick: () => {
                 console.log('Canvas clicked (empty space)');
+                // Clear family reveal animations
+                clearRevealAnimations();
                 // Hide info panel when clicking on empty space
                 hideInfoPanel(infoPanel);
             },
@@ -721,6 +728,8 @@
                 }
             },
             onEscape: () => {
+                // Clear family reveal animations
+                clearRevealAnimations();
                 // Hide info panel when Escape is pressed
                 hideInfoPanel(infoPanel);
             }
