@@ -316,6 +316,7 @@
         import { mountConnectionStatus } from './js/components/connection-status.js';
         import { mountActivityLog } from './js/components/activity-log.js';
         import { gatherSelectionContext, formatContextAsMarkdown, formatContextAsJSON } from './js/utils/selection-context.js';
+        import { findFamilyRoot, collectDescendants } from './js/utils/family-reveal.js';
         
         // Get container element
         const container = document.getElementById('app-container');
@@ -642,6 +643,29 @@
         graph.init(canvas, {
             onNodeClick: (node) => {
                 console.log('Node clicked:', node);
+                
+                // Family reveal: find root and collect descendants
+                const rootId = findFamilyRoot(node.id);
+                if (rootId) {
+                    const descendants = collectDescendants(rootId);
+                    console.log(`Family reveal: root=${rootId}, descendants=${descendants.size}`);
+                    
+                    // Update family reveal state
+                    State.set('ui.familyReveal', {
+                        active: true,
+                        rootId: rootId,
+                        revealedNodeIds: descendants
+                    });
+                } else {
+                    console.log('Family reveal: no root found, clearing state');
+                    // No root found - clear reveal state
+                    State.set('ui.familyReveal', {
+                        active: false,
+                        rootId: null,
+                        revealedNodeIds: new Set()
+                    });
+                }
+                
                 // Show info panel for the clicked node in compact mode
                 updateInfoPanelContent(infoPanel, node, [], [], []);
                 showInfoPanel(infoPanel);
