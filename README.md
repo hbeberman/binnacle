@@ -28,13 +28,13 @@ export PATH=$HOME/.local/bin:$PATH
 
 ### Download Binnacle
 ```bash
-wget https://github.com/hbeberman/binnacle/releases/download/v0.0.1-alpha.7/bn-x86_64-unknown-linux-gnu.tar.gz
+wget https://github.com/hbeberman/binnacle/releases/download/v0.0.1-alpha.8/bn-x86_64-unknown-linux-gnu.tar.gz
 tar -xf bn-x86_64-unknown-linux-gnu.tar.gz
 install -m 755 bn ~/.local/bin/
 rm bn bn-x86_64-unknown-linux-gnu.tar.gz
 install 755 bn ~/.local/bin/bn
 # or
-cargo install binnacle@=0.0.1-alpha.7
+cargo install binnacle@=0.0.1-alpha.8
 ```
 
 ### Setup Copilot
