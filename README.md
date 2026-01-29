@@ -61,7 +61,6 @@ bn-agent prd # Run the PRD agent to plan features
 bn gui # Host a local GUI session
 bn gui --tunnel # Host a GUI session with a sharable (r/o) devtunnel URL
 bn-agent auto # Loop a container of a worker agent
-bn-agent qa # Q&A with binnacle
 ```
 
 ## Build Prerequisites
