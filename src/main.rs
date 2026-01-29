@@ -1544,7 +1544,7 @@ fn run_gui(
     // Start tunnel if enabled
     let _tunnel_manager = if tunnel {
         println!("Starting devtunnel...");
-        let manager = TunnelManager::start(actual_port)
+        let manager = TunnelManager::start(actual_port, &actual_repo_path)
             .map_err(|e| binnacle::Error::Other(format!("Failed to start tunnel: {}", e)))?;
 
         if let Some(public_url) = manager.public_url() {

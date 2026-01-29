@@ -7,7 +7,9 @@
 //! Requires: `devtunnel user login` (one-time authentication before first use)
 
 use regex::Regex;
+use sha2::{Digest, Sha256};
 use std::io::{self, BufRead, BufReader};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -82,6 +84,30 @@ pub struct TunnelManager {
 }
 
 impl TunnelManager {
+    /// Compute a stable identifier for a repository
+    ///
+    /// Uses SHA256 hash of the canonical repo path to create a unique tag.
+    /// This ensures each repo gets its own tunnel.
+    ///
+    /// # Arguments
+    /// * `repo_path` - Path to the repository root
+    ///
+    /// # Returns
+    /// A short hash string (8 chars) identifying this repo
+    fn compute_repo_id(repo_path: &Path) -> Result<String, TunnelError> {
+        let canonical = repo_path.canonicalize().map_err(|e| {
+            TunnelError::Internal(format!("Could not canonicalize repo path: {}", e))
+        })?;
+
+        let mut hasher = Sha256::new();
+        hasher.update(canonical.to_string_lossy().as_bytes());
+        let hash = hasher.finalize();
+        let hash_hex = format!("{:x}", hash);
+
+        // Use first 8 chars for a compact identifier
+        Ok(hash_hex[..8].to_string())
+    }
+
     /// Check if devtunnel is available in PATH
     ///
     /// # Returns
@@ -189,41 +215,55 @@ impl TunnelManager {
         Ok(())
     }
 
-    /// Get or create a persistent tunnel ID
+    /// Get or create a persistent tunnel ID for this repository
     ///
-    /// Looks for an existing persistent tunnel or creates one.
-    /// The tunnel ID is stable across restarts, providing a consistent URL.
+    /// Each repository gets its own tunnel based on a stable identifier computed from
+    /// the repo path. This allows multiple repos to have GUI tunnels simultaneously
+    /// without port conflicts.
+    ///
+    /// # Arguments
+    /// * `repo_path` - Path to the repository root
     ///
     /// # Returns
     /// The tunnel ID string, or an error if creation/lookup fails
-    fn get_or_create_tunnel_id() -> Result<String, TunnelError> {
-        // First, try to list existing tunnels
+    fn get_or_create_tunnel_id(repo_path: &Path) -> Result<String, TunnelError> {
+        let repo_id = Self::compute_repo_id(repo_path)?;
+        let tunnel_description = format!("binnacle-{}", repo_id);
+
+        // List existing tunnels to find one for this repo
         let output = Command::new("devtunnel")
             .args(["list", "--json"])
             .output()
             .map_err(TunnelError::SpawnFailed)?;
 
         if output.status.success() {
-            // Parse JSON to find existing tunnel
-            // Output format is: {"tunnels": [{"tunnelId": "...", ...}, ...]}
+            // Parse JSON to find tunnel matching this repo
             if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
                 && let Some(tunnels_array) = json.get("tunnels").and_then(|t| t.as_array())
-                && !tunnels_array.is_empty()
             {
-                // Reuse the first available tunnel
-                if let Some(tunnel) = tunnels_array.first()
-                    && let Some(id) = tunnel.get("tunnelId").and_then(|i| i.as_str())
-                {
-                    eprintln!("[devtunnel] Reusing existing tunnel: {}", id);
-                    return Ok(id.to_string());
+                // Look for a tunnel with our repo identifier in the description or tunnelId
+                for tunnel in tunnels_array {
+                    if let Some(desc) = tunnel.get("description").and_then(|d| d.as_str())
+                        && desc == tunnel_description
+                        && let Some(id) = tunnel.get("tunnelId").and_then(|i| i.as_str())
+                    {
+                        eprintln!("[devtunnel] Reusing tunnel for repo {}: {}", repo_id, id);
+                        return Ok(id.to_string());
+                    }
                 }
             }
         }
 
-        // No existing tunnel found, create a new persistent one
-        eprintln!("[devtunnel] Creating new persistent tunnel...");
+        // No existing tunnel for this repo, create a new one
+        eprintln!("[devtunnel] Creating new tunnel for repo {}...", repo_id);
         let output = Command::new("devtunnel")
-            .args(["create", "--allow-anonymous", "--json"])
+            .args([
+                "create",
+                "--allow-anonymous",
+                "--description",
+                &tunnel_description,
+                "--json",
+            ])
             .output()
             .map_err(TunnelError::SpawnFailed)?;
 
@@ -236,23 +276,13 @@ impl TunnelManager {
         }
 
         // Parse the tunnel ID from the output
-        // Output format is: {"tunnel": {"tunnelId": "...", ...}}
         let stdout = String::from_utf8_lossy(&output.stdout);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout)
             && let Some(tunnel) = json.get("tunnel")
             && let Some(id) = tunnel.get("tunnelId").and_then(|i| i.as_str())
         {
-            eprintln!("[devtunnel] Created new tunnel: {}", id);
+            eprintln!("[devtunnel] Created tunnel for repo {}: {}", repo_id, id);
             return Ok(id.to_string());
-        }
-
-        // Fallback: try to parse from text output
-        for line in stdout.lines() {
-            if (line.contains("Tunnel ID:") || line.contains("tunnelId"))
-                && let Some(id) = line.split_whitespace().last()
-            {
-                return Ok(id.trim().to_string());
-            }
         }
 
         Err(TunnelError::Internal(
@@ -264,10 +294,12 @@ impl TunnelManager {
     ///
     /// Spawns devtunnel and waits for it to provide a public URL.
     /// The tunnel proxies traffic from the public URL to `http://localhost:<port>`.
-    /// Uses a persistent tunnel ID to maintain the same URL across restarts.
+    /// Uses a persistent tunnel ID unique to this repository to maintain the same URL
+    /// across restarts and avoid conflicts with other repositories.
     ///
     /// # Arguments
     /// * `port` - Local port to tunnel to
+    /// * `repo_path` - Path to the repository root (used to identify the tunnel)
     ///
     /// # Returns
     /// A `TunnelManager` instance on success, or a `TunnelError` on failure
@@ -278,7 +310,7 @@ impl TunnelManager {
     /// - `SpawnFailed` if the process cannot be started
     /// - `UrlTimeout` if no URL is provided within the timeout
     /// - `ProcessExited` if devtunnel exits unexpectedly
-    pub fn start(port: u16) -> Result<Self, TunnelError> {
+    pub fn start(port: u16, repo_path: &Path) -> Result<Self, TunnelError> {
         if !Self::check_devtunnel() {
             return Err(TunnelError::DevtunnelNotFound);
         }
@@ -287,8 +319,8 @@ impl TunnelManager {
             return Err(TunnelError::NotAuthenticated);
         }
 
-        // Get or create a persistent tunnel ID
-        let tunnel_id = Self::get_or_create_tunnel_id()?;
+        // Get or create a persistent tunnel ID for this repository
+        let tunnel_id = Self::get_or_create_tunnel_id(repo_path)?;
 
         // Configure ports: remove existing ports and add target port
         // This avoids "batch update not supported" error when hosting
@@ -662,5 +694,33 @@ mod tests {
             ports[1].get("portNumber").and_then(|n| n.as_u64()),
             Some(3030)
         );
+    }
+
+    #[test]
+    fn test_compute_repo_id() {
+        use std::env;
+
+        // Test that compute_repo_id produces stable identifiers
+        let temp_dir = env::temp_dir();
+
+        // Should succeed with valid path
+        let result = TunnelManager::compute_repo_id(&temp_dir);
+        assert!(result.is_ok());
+
+        let id = result.unwrap();
+        // Should be 8 hex characters
+        assert_eq!(id.len(), 8);
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Should be stable - calling twice with same path produces same ID
+        let id2 = TunnelManager::compute_repo_id(&temp_dir).unwrap();
+        assert_eq!(id, id2);
+
+        // Different paths should produce different IDs
+        let different_path = temp_dir.join("subdir");
+        if different_path.exists() || std::fs::create_dir(&different_path).is_ok() {
+            let id3 = TunnelManager::compute_repo_id(&different_path).unwrap();
+            assert_ne!(id, id3);
+        }
     }
 }
