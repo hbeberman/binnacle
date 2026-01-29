@@ -14,6 +14,7 @@ import { drawNodeShapePath } from './shapes.js';
 import { getNodeColor, getEdgeStyle, getCSSColors } from './colors.js';
 import { worldToScreen, screenToWorld, getZoom, centerOn, panToNode } from './transform.js';
 import * as camera from './camera.js';
+import { SpatialHash } from './spatial-hash.js';
 
 // Animation constants
 const AGENT_DEPARTURE_FADE_MS = 5000;
@@ -47,6 +48,9 @@ let animationFrameId = null;
 let isAnimating = false;
 let animationTime = 0;
 let stableFrameCount = 0;
+
+// Spatial hash for physics optimization
+let spatialHash = null;
 
 // Graph data (cached for rendering)
 let graphNodes = [];
@@ -483,17 +487,23 @@ function applyPhysics() {
         node.fy = 0;
     }
     
-    // Node-node repulsion (all pairs)
-    for (let i = 0; i < visibleNodes.length; i++) {
-        for (let j = i + 1; j < visibleNodes.length; j++) {
-            const a = visibleNodes[i];
-            const b = visibleNodes[j];
-            
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
+    // Rebuild spatial hash for current frame
+    if (!spatialHash) {
+        spatialHash = new SpatialHash(150); // 150px cell size
+    }
+    spatialHash.rebuild(visibleNodes);
+    
+    // Node-node repulsion using spatial hash (O(n log n) instead of O(n²))
+    const repulsionCutoff = 200; // Skip nodes beyond 200px
+    for (const node of visibleNodes) {
+        const nearby = spatialHash.getNearbyForRepulsion(node, repulsionCutoff);
+        
+        for (const other of nearby) {
+            const dx = other.x - node.x;
+            const dy = other.y - node.y;
             const distSq = dx * dx + dy * dy;
             
-            // Skip if nodes are at exactly the same position
+            // Skip if nodes are at exactly the same position (already filtered in getNearbyForRepulsion)
             if (distSq === 0) continue;
             
             const dist = Math.sqrt(distSq);
@@ -501,10 +511,9 @@ function applyPhysics() {
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
             
-            a.fx -= fx;
-            a.fy -= fy;
-            b.fx += fx;
-            b.fy += fy;
+            // Apply force to current node (other node will get its turn)
+            node.fx -= fx;
+            node.fy -= fy;
         }
     }
     
