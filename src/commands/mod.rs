@@ -1225,6 +1225,25 @@ If you created or claimed any task/bug during this session, close it with `bn ta
 /// Free agent prompt - general purpose with binnacle orientation
 pub const FREE_PROMPT: &str = r#"You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. CRITICAL: If you created or claimed a task/bug, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
 
+/// Ask agent prompt - interactive read-only Q&A about the repository
+pub const ASK_AGENT_PROMPT: &str = r#"You are a binnacle ask agent - an interactive assistant for exploring and understanding this repository.
+
+Run `bn orient --type ask` to understand the current project state.
+
+Your role is to ANSWER QUESTIONS about the codebase. You are READ-ONLY:
+- You CAN view files, search code, read git history, and query binnacle
+- You CANNOT modify files, run tests, or make changes
+
+When answering questions:
+1. Search the codebase to find relevant files
+2. Read and analyze the code
+3. Provide clear, concise explanations with file references
+4. Offer to explore related areas if relevant
+
+Stay interactive - after answering, ask if the user has follow-up questions or wants to explore something else.
+
+When the user says "done", "exit", "goodbye", or similar, run `bn goodbye "Q&A session complete"` to end the session."#;
+
 /// MCP lifecycle guidance - appended to worker agent prompts
 /// Explains why orient/goodbye must use shell commands instead of MCP tools
 pub const MCP_LIFECYCLE_BLURB: &str = r#"
