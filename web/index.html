@@ -41,6 +41,7 @@
     <link rel="stylesheet" href="/css/components/agent-cards.css">
     <link rel="stylesheet" href="/css/components/activity-log.css">
     <link rel="stylesheet" href="/css/components/summarize-chat.css">
+    <link rel="stylesheet" href="/css/components/repo-info-pill.css">
     
     <style>
         /* Additional layout styles for the full app */
@@ -235,6 +236,11 @@
                 <h1 class="header-title">
                     🧭 Binnacle 
                     <span class="version-badge" id="version-badge">v0.0.0</span>
+                    <span class="repo-info-pill" id="repo-info-pill" style="display: none;">
+                        <span class="repo-name" id="repo-name"></span>
+                        <span class="separator">@</span>
+                        <span class="branch-name" id="branch-name"></span>
+                    </span>
                     <span class="follow-badge" id="follow-badge" title="Click to pan to agent">Following</span>
                     <div id="connection-status-container"></div>
                 </h1>
@@ -967,6 +973,28 @@
             }
         }
         
+        // Fetch repo info (repo name and current branch)
+        async function fetchRepoInfo() {
+            try {
+                const response = await fetch('/api/config');
+                if (response.ok) {
+                    const data = await response.json();
+                    const pill = document.getElementById('repo-info-pill');
+                    const repoNameEl = document.getElementById('repo-name');
+                    const branchNameEl = document.getElementById('branch-name');
+                    
+                    if (pill && repoNameEl && branchNameEl && data.repo_name && data.branch) {
+                        repoNameEl.textContent = data.repo_name;
+                        branchNameEl.textContent = data.branch;
+                        pill.style.display = 'inline-flex';
+                        pill.title = `Repository: ${data.repo_name} (${data.branch})`;
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to fetch repo info:', error);
+            }
+        }
+        
         // Update follow badge based on state
         function updateFollowBadge() {
             const followBadge = document.getElementById('follow-badge');
@@ -1055,6 +1083,9 @@
             
             // Fetch version
             await fetchVersion();
+            
+            // Fetch repo info
+            await fetchRepoInfo();
             
             // Initialize follow badge
             initializeFollowBadge();
