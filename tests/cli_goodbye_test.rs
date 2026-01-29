@@ -8,32 +8,20 @@
 //!
 //! Note: Tests use --dry-run to avoid actually terminating processes.
 
+mod common;
+
 use assert_cmd::Command;
+use common::TestEnv;
 use predicates::prelude::*;
-use tempfile::TempDir;
 
-/// Get a Command for the bn binary, running in a temp directory.
-/// Clears BN_AGENT_ID and BN_CONTAINER_MODE to prevent interference from the outer environment
-/// (e.g., when tests are run inside an agent session or container).
-/// Sets BN_DATA_DIR to a temporary directory to prevent polluting host's binnacle data.
-fn bn_in(dir: &TempDir) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
-    cmd.current_dir(dir.path());
-    // Set isolated data directory to prevent polluting host's binnacle data
-    let temp_dir = tempfile::tempdir().unwrap();
-    cmd.env("BN_DATA_DIR", temp_dir.path());
-    cmd.env_remove("BN_AGENT_ID");
-    cmd.env_remove("BN_CONTAINER_MODE");
-
-    std::mem::forget(temp_dir); // Intentionally leak to keep path valid
-    cmd
+/// Get a Command for the bn binary in a TestEnv.
+fn bn_in(env: &TestEnv) -> Command {
+    env.bn()
 }
 
-/// Initialize binnacle in a temp directory and return the temp dir.
-fn init_binnacle() -> TempDir {
-    let temp = TempDir::new().unwrap();
-    bn_in(&temp).args(["system", "init"]).assert().success();
-    temp
+/// Initialize binnacle and return a TestEnv.
+fn init_binnacle() -> TestEnv {
+    TestEnv::init()
 }
 
 // === bn goodbye Tests ===
@@ -146,9 +134,9 @@ fn test_goodbye_removes_agent_from_registry() {
 
 #[test]
 fn test_goodbye_help() {
-    let temp = TempDir::new().unwrap();
+    let env = TestEnv::new();
 
-    bn_in(&temp)
+    bn_in(&env)
         .args(["goodbye", "--help"])
         .assert()
         .success()
@@ -219,9 +207,9 @@ fn test_goodbye_json_includes_warning_field() {
 
 #[test]
 fn test_goodbye_force_flag_documented_in_help() {
-    let temp = TempDir::new().unwrap();
+    let env = TestEnv::new();
 
-    bn_in(&temp)
+    bn_in(&env)
         .args(["goodbye", "--help"])
         .assert()
         .success()
