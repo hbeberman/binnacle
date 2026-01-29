@@ -77,6 +77,50 @@ elif [ -n "$expected_section" ]; then
     fi
 fi
 
+# Check version sync between Cargo.toml and README
+echo "  → Checking version sync..."
+
+# Check if Cargo.toml is being modified
+if git diff --cached --name-only | grep -q '^Cargo.toml$'; then
+    # Get the old and new version from Cargo.toml
+    old_cargo_version=$(git show HEAD:Cargo.toml 2>/dev/null | grep '^version' | head -1 | sed 's/version = "\(.*\)"/\1/' || echo "")
+    new_cargo_version=$(git show :Cargo.toml | grep '^version' | head -1 | sed 's/version = "\(.*\)"/\1/')
+    
+    # Only check if version actually changed
+    if [ "$old_cargo_version" != "$new_cargo_version" ]; then
+        # Check if README.md is also being modified and staged
+        if ! git diff --cached --name-only | grep -q '^README.md$'; then
+            echo ""
+            echo "❌ Version sync check failed!"
+            echo "   Cargo.toml version changed from $old_cargo_version to $new_cargo_version"
+            echo "   but README.md is not staged with matching changes."
+            echo ""
+            echo "   Update README.md quickstart section to match Cargo.toml version and stage it."
+            exit 1
+        fi
+        
+        # Check if the new version appears in staged README.md
+        readme_version_count=$(git show :README.md | grep -c "$new_cargo_version" || true)
+        
+        if [ "$readme_version_count" -lt 2 ]; then
+            echo ""
+            echo "❌ Version sync check failed!"
+            echo "   Cargo.toml version is $new_cargo_version but README.md doesn't reference it enough times."
+            echo "   Expected at least 2 occurrences (wget and cargo install lines)."
+            echo "   Current count: $readme_version_count"
+            echo ""
+            echo "   Update README.md quickstart section to match Cargo.toml version."
+            exit 1
+        fi
+        
+        echo "  ✓ Version $new_cargo_version is synced in README.md ($readme_version_count occurrences)"
+    else
+        echo "  ✓ Cargo.toml version unchanged, skipping version sync check"
+    fi
+else
+    echo "  ✓ Cargo.toml not modified, skipping version sync check"
+fi
+
 # Run cargo audit for security vulnerabilities
 echo "  → Running security audit..."
 if ! command -v cargo-audit &> /dev/null; then
