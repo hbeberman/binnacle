@@ -144,7 +144,7 @@ impl TunnelManager {
         // No existing tunnel found, create a new persistent one
         eprintln!("[devtunnel] Creating new persistent tunnel...");
         let output = Command::new("devtunnel")
-            .args(["create", "--allow-anonymous"])
+            .args(["create", "--allow-anonymous", "--output", "json"])
             .output()
             .map_err(TunnelError::SpawnFailed)?;
 
