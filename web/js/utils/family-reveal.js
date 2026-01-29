@@ -46,3 +46,39 @@ export function findFamilyRoot(nodeId) {
     
     return lastMilestone; // May be null
 }
+
+/**
+ * Collect all descendants from a root node via BFS traversal
+ * @param {string} rootId - Root node ID to start traversal from
+ * @returns {Set<string>} Set of all descendant node IDs (including root)
+ */
+export function collectDescendants(rootId) {
+    const descendants = new Set();
+    const queue = [rootId];
+    const edges = getEdges();
+    
+    while (queue.length > 0) {
+        const current = queue.shift();
+        
+        // Skip if already visited (cycle detection)
+        if (descendants.has(current)) {
+            continue;
+        }
+        
+        descendants.add(current);
+        
+        // Find all children (nodes with child_of edge pointing to current)
+        const childEdges = edges.filter(e => 
+            e.edge_type === 'child_of' && e.target === current
+        );
+        
+        // Add children to queue
+        for (const edge of childEdges) {
+            if (!descendants.has(edge.source)) {
+                queue.push(edge.source);
+            }
+        }
+    }
+    
+    return descendants;
+}
