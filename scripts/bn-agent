@@ -6,6 +6,49 @@ set -e
 # Ensure ~/.local/bin is first in PATH to use latest 'just install' binary
 export PATH="$HOME/.local/bin:$PATH"
 
+# Dependency checking - fail fast with clear remediation hints
+check_dependencies() {
+    local missing_deps=()
+    local error_msg=""
+    
+    # Check for bn binary
+    if ! command -v bn &>/dev/null; then
+        missing_deps+=("bn")
+        error_msg+="  ❌ bn: Binnacle CLI not found\n"
+        error_msg+="     Install: See README.md for installation instructions\n"
+        error_msg+="     Or build from source: cargo install --path .\n\n"
+    fi
+    
+    # Check for jq
+    if ! command -v jq &>/dev/null; then
+        missing_deps+=("jq")
+        error_msg+="  ❌ jq: JSON processor not found\n"
+        error_msg+="     Install on Ubuntu/Debian: sudo apt-get install jq\n"
+        error_msg+="     Install on macOS: brew install jq\n"
+        error_msg+="     Install on Fedora: sudo dnf install jq\n\n"
+    fi
+    
+    # Check for GitHub Copilot CLI (using bn system copilot path)
+    if ! bn system copilot path &>/dev/null; then
+        missing_deps+=("copilot")
+        error_msg+="  ❌ GitHub Copilot CLI: Not found or not configured\n"
+        error_msg+="     Install: bn system copilot install\n"
+        error_msg+="     Or manually: See https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line\n\n"
+    fi
+    
+    # Report all missing dependencies
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        echo "❌ Missing required dependencies:" >&2
+        echo "" >&2
+        echo -e "$error_msg" >&2
+        echo "Please install the missing dependencies and try again." >&2
+        exit 1
+    fi
+}
+
+# Run dependency checks before processing arguments
+check_dependencies
+
 # Blocked commands - agents should not terminate each other
 # Note: bn goodbye is allowed - agents SHOULD terminate themselves gracefully when done
 BLOCKED_TOOLS=(
@@ -230,24 +273,38 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
     # Container mode
     echo "Launching agent in CONTAINER mode (agent type: $AGENT_TYPE)"
     
-    # Check for container availability (fail fast, no fallback)
+    # Check for container infrastructure dependencies (fail fast, no fallback)
+    echo "Checking container infrastructure..."
+    
+    # Check for ctr command
     if ! command -v ctr &>/dev/null; then
         echo "❌ Container infrastructure not available" >&2
-        echo "   Required: containerd (ctr command)" >&2
         echo "" >&2
-        echo "   Run 'bn container --help' for setup instructions" >&2
+        echo "   Missing: containerd (ctr command)" >&2
+        echo "" >&2
+        echo "   Installation:" >&2
+        echo "     Ubuntu/Debian: sudo apt-get install containerd" >&2
+        echo "     macOS: brew install containerd" >&2
+        echo "     Fedora: sudo dnf install containerd" >&2
+        echo "" >&2
+        echo "   For rootless containerd setup, run: bn container --help" >&2
         exit 1
     fi
     
-    # Verify binnacle worker image exists
+    # Verify containerd is actually running
     if ! bn container list --quiet &>/dev/null; then
-        echo "❌ Failed to query containerd" >&2
-        echo "   Is containerd running?" >&2
+        echo "❌ Containerd is not running or not accessible" >&2
         echo "" >&2
-        echo "   Rootless: Check if \$XDG_RUNTIME_DIR/containerd/containerd.sock exists" >&2
-        echo "   System:   Check 'sudo systemctl status containerd'" >&2
+        echo "   Troubleshooting:" >&2
+        echo "     • Rootless: Check if \$XDG_RUNTIME_DIR/containerd/containerd.sock exists" >&2
+        echo "     • System:   Run 'sudo systemctl status containerd'" >&2
+        echo "     • Check logs: journalctl -u containerd -n 20" >&2
+        echo "" >&2
+        echo "   For setup help, run: bn container --help" >&2
         exit 1
     fi
+    
+    echo "✓ Container infrastructure ready"
     
     # Build the bn container run command
     CMD=(bn container run .)
