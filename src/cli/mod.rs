@@ -1820,6 +1820,8 @@ pub enum EmitTemplate {
     McpLifecycle,
     /// MCP lifecycle guidance for planner agents (orient only, no goodbye)
     McpLifecyclePlanner,
+    /// bn-agent unified agent launcher script
+    BnAgent,
 }
 
 /// Store management subcommands

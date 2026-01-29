@@ -1129,6 +1129,7 @@ fn run_command(
                     EmitTemplate::McpCopilot => commands::MCP_COPILOT_CONFIG,
                     EmitTemplate::McpLifecycle => commands::MCP_LIFECYCLE_BLURB,
                     EmitTemplate::McpLifecyclePlanner => commands::MCP_LIFECYCLE_BLURB_PLANNER,
+                    EmitTemplate::BnAgent => commands::BN_AGENT_SCRIPT,
                 };
                 if human {
                     println!("{}", content.trim());
@@ -3031,6 +3032,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     EmitTemplate::McpCopilot => "mcp-copilot",
                     EmitTemplate::McpLifecycle => "mcp-lifecycle",
                     EmitTemplate::McpLifecyclePlanner => "mcp-lifecycle-planner",
+                    EmitTemplate::BnAgent => "bn-agent",
                 };
                 (
                     "system emit".to_string(),
