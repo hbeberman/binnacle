@@ -57,11 +57,11 @@ function testCollapseWithNoActiveReveal() {
     console.log('✅ Passed');
 }
 
-// Test: Collapse clears reveal state
+// Test: Collapse clears reveal state after animation
 function testCollapseClearsRevealState() {
     setup();
     
-    console.log('Test: Collapse clears reveal state');
+    console.log('Test: Collapse clears reveal state after animation');
     
     // Set up active reveal
     state.set('ui.familyReveal', {
@@ -74,13 +74,22 @@ function testCollapseClearsRevealState() {
     // Call collapse
     collapseFamilyReveal();
     
-    // Reveal state should be cleared
-    const familyReveal = state.get('ui.familyReveal');
-    console.assert(familyReveal.active === false, 'Family reveal should be inactive');
-    console.assert(familyReveal.rootId === null, 'Root ID should be null');
-    console.assert(familyReveal.revealedNodeIds.size === 0, 'Revealed nodes should be empty');
+    // Active flag should be cleared immediately
+    let familyReveal = state.get('ui.familyReveal');
+    console.assert(familyReveal.active === false, 'Family reveal should be inactive immediately');
     
-    console.log('✅ Passed');
+    // But rootId and revealedNodeIds should still be present (for animation)
+    console.assert(familyReveal.rootId === 'bn-root', 'Root ID should be preserved during animation');
+    console.assert(familyReveal.revealedNodeIds.size === 3, 'Revealed nodes should be preserved during animation');
+    
+    // After 300ms, state should be fully cleared
+    setTimeout(() => {
+        const finalState = state.get('ui.familyReveal');
+        console.assert(finalState.active === false, 'Family reveal should still be inactive');
+        console.assert(finalState.rootId === null, 'Root ID should be null after animation');
+        console.assert(finalState.revealedNodeIds.size === 0, 'Revealed nodes should be empty after animation');
+        console.log('✅ Passed');
+    }, 350);  // Wait slightly longer than animation duration
 }
 
 // Test: Nodes that don't pass filters fade out
