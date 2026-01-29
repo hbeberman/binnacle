@@ -2522,8 +2522,9 @@ fn parse_agent_type(s: &str) -> Result<AgentType> {
         "worker" => Ok(AgentType::Worker),
         "planner" => Ok(AgentType::Planner),
         "buddy" => Ok(AgentType::Buddy),
+        "ask" => Ok(AgentType::Ask),
         _ => Err(Error::InvalidInput(format!(
-            "Invalid agent type '{}'. Must be one of: worker, planner, buddy",
+            "Invalid agent type '{}'. Must be one of: worker, planner, buddy, ask",
             s
         ))),
     }
@@ -13647,7 +13648,7 @@ impl Output for AgentScalingConfigs {
 }
 
 /// Valid agent types for scaling configuration.
-pub const VALID_AGENT_TYPES: &[&str] = &["worker", "planner", "buddy"];
+pub const VALID_AGENT_TYPES: &[&str] = &["worker", "planner", "buddy", "ask"];
 
 /// Get agent scaling configuration for all types.
 /// Reads from config.kdl first, falls back to SQLite for migration.
@@ -16778,6 +16779,7 @@ pub struct AgentTypeCounts {
     pub worker: usize,
     pub planner: usize,
     pub buddy: usize,
+    pub ask: usize,
 }
 
 #[derive(Serialize, Debug)]
@@ -16963,17 +16965,23 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
         .iter()
         .filter(|a| a.agent_type == AgentType::Buddy && a.goodbye_at.is_none())
         .count();
+    let current_ask_count = agents
+        .iter()
+        .filter(|a| a.agent_type == AgentType::Ask && a.goodbye_at.is_none())
+        .count();
 
     let current_counts = AgentTypeCounts {
         worker: current_worker_count,
         planner: current_planner_count,
         buddy: current_buddy_count,
+        ask: current_ask_count,
     };
 
     // Get scaling configuration for each type
     let worker_scaling = config_get_agent_scaling_for_type(repo_path, "worker")?;
     let planner_scaling = config_get_agent_scaling_for_type(repo_path, "planner")?;
     let buddy_scaling = config_get_agent_scaling_for_type(repo_path, "buddy")?;
+    let ask_scaling = config_get_agent_scaling_for_type(repo_path, "ask")?;
 
     // Get ready work count for work-aware worker scaling
     let ready_result = ready(repo_path, false, false)?;
@@ -16987,14 +16995,16 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
         work_count.clamp(worker_scaling.min as usize, worker_scaling.max as usize)
     };
 
-    // Planners and buddies: just maintain minimum (not work-aware)
+    // Planners, buddies, and ask agents: just maintain minimum (not work-aware)
     let desired_planner_count = planner_scaling.min as usize;
     let desired_buddy_count = buddy_scaling.min as usize;
+    let desired_ask_count = ask_scaling.min as usize;
 
     let desired_counts = AgentTypeCounts {
         worker: desired_worker_count,
         planner: desired_planner_count,
         buddy: desired_buddy_count,
+        ask: desired_ask_count,
     };
 
     // Helper function to select agents to stop (prefer idle, then oldest)
