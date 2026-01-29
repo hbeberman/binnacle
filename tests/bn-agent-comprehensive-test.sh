@@ -66,7 +66,7 @@ fi
 
 # Test 4: Agent type validation
 section "Test 4: Agent Type Validation"
-AGENT_TYPES=("auto" "do" "prd" "buddy" "free")
+AGENT_TYPES=("auto" "do" "prd" "buddy" "qa" "free")
 for agent_type in "${AGENT_TYPES[@]}"; do
     # Just validate the script accepts the agent type (will fail on copilot execution, but that's OK)
     # We're testing argument parsing, not full execution
@@ -146,6 +146,12 @@ if "$BN_AGENT" --once free 2>&1 | grep -q "HOST mode"; then
     pass "'free' defaults to HOST mode"
 else
     fail "'free' does not default to HOST mode"
+fi
+
+if "$BN_AGENT" --once qa 2>&1 | grep -q "HOST mode"; then
+    pass "'qa' defaults to HOST mode"
+else
+    fail "'qa' does not default to HOST mode"
 fi
 
 if "$BN_AGENT" --once do "test" 2>&1 | grep -q "HOST mode"; then
@@ -292,7 +298,8 @@ fi
 section "Test 13: Tool Permissions Configuration"
 if grep -q "TOOLS_FULL" "$BN_AGENT" && \
    grep -q "TOOLS_PRD" "$BN_AGENT" && \
-   grep -q "TOOLS_BUDDY" "$BN_AGENT"; then
+   grep -q "TOOLS_BUDDY" "$BN_AGENT" && \
+   grep -q "TOOLS_QA" "$BN_AGENT"; then
     pass "Tool permission sets defined"
 else
     fail "Tool permission sets not defined"
@@ -370,7 +377,7 @@ echo -e "${GREEN}All tests passed!${NC}"
 echo ""
 echo "Test Coverage:"
 echo "  ✓ Script validation and help"
-echo "  ✓ All agent types (auto, do, prd, buddy, free)"
+echo "  ✓ All agent types (auto, do, prd, buddy, qa, free)"
 echo "  ✓ Mode selection (container vs host)"
 echo "  ✓ Container infrastructure checking"
 echo "  ✓ All command-line options"
