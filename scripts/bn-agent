@@ -438,6 +438,7 @@ else
     COPILOT_FLAGS=(
         --allow-all-urls  # Allow network requests without prompting
         --no-auto-update  # Prevent automatic updates during execution
+        --staff           # Enable staff mode for LSP support
     )
     
     # Loop-by-default unless --once specified
