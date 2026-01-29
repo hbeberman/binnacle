@@ -1804,6 +1804,8 @@ pub enum EmitTemplate {
     Buddy,
     /// Free agent prompt (general purpose with binnacle)
     Free,
+    /// Ask agent prompt (read-only interactive Q&A)
+    AskAgent,
     /// Claude Desktop MCP configuration JSON
     McpClaude,
     /// VS Code MCP configuration JSON
