@@ -113,13 +113,13 @@ impl TunnelManager {
 
     /// Get or create a persistent tunnel ID
     ///
-    /// Looks for an existing persistent tunnel named "binnacle-gui" or creates one.
+    /// Looks for an existing persistent tunnel or creates one.
     /// The tunnel ID is stable across restarts, providing a consistent URL.
     ///
     /// # Returns
     /// The tunnel ID string, or an error if creation/lookup fails
     fn get_or_create_tunnel_id() -> Result<String, TunnelError> {
-        // First, try to list existing tunnels and find one named "binnacle-gui"
+        // First, try to list existing tunnels
         let output = Command::new("devtunnel")
             .args(["list", "--output", "json"])
             .output()
@@ -129,15 +129,14 @@ impl TunnelManager {
             // Parse JSON to find existing tunnel
             if let Ok(tunnels) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
                 && let Some(tunnels_array) = tunnels.as_array()
+                && !tunnels_array.is_empty()
             {
-                for tunnel in tunnels_array {
-                    if let Some(name) = tunnel.get("tunnelName").and_then(|n| n.as_str())
-                        && name == "binnacle-gui"
-                        && let Some(id) = tunnel.get("tunnelId").and_then(|i| i.as_str())
-                    {
-                        eprintln!("[devtunnel] Reusing existing tunnel: {}", id);
-                        return Ok(id.to_string());
-                    }
+                // Reuse the first available tunnel
+                if let Some(tunnel) = tunnels_array.first()
+                    && let Some(id) = tunnel.get("tunnelId").and_then(|i| i.as_str())
+                {
+                    eprintln!("[devtunnel] Reusing existing tunnel: {}", id);
+                    return Ok(id.to_string());
                 }
             }
         }
@@ -145,7 +144,7 @@ impl TunnelManager {
         // No existing tunnel found, create a new persistent one
         eprintln!("[devtunnel] Creating new persistent tunnel...");
         let output = Command::new("devtunnel")
-            .args(["create", "--name", "binnacle-gui", "--allow-anonymous"])
+            .args(["create", "--allow-anonymous"])
             .output()
             .map_err(TunnelError::SpawnFailed)?;
 
