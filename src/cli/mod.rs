@@ -1701,6 +1701,10 @@ pub enum SystemCommands {
         #[arg(long)]
         install_bn_agent: bool,
 
+        /// Build binnacle container image if not already built
+        #[arg(long)]
+        build_container: bool,
+
         /// Skip interactive prompts (use flags to control what gets written)
         #[arg(long, short = 'y')]
         yes: bool,

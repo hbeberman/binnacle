@@ -221,6 +221,7 @@ pub struct InitResult {
     pub mcp_copilot_config_created: bool,
     pub copilot_installed: bool,
     pub bn_agent_installed: bool,
+    pub container_built: bool,
 }
 
 impl Output for InitResult {
@@ -275,6 +276,9 @@ impl Output for InitResult {
         if self.bn_agent_installed {
             lines.push("Installed bn-agent script to ~/.local/bin/bn-agent".to_string());
         }
+        if self.container_built {
+            lines.push("Built binnacle container image".to_string());
+        }
         lines.join("\n")
     }
 }
@@ -300,8 +304,9 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         write_mcp_copilot,
         install_copilot,
         install_bn_agent,
+        build_container,
     ) = if global_init_done {
-        (false, false, false, false, false)
+        (false, false, false, false, false, false)
     } else {
         let create_claude_skills = prompt_yes_no(
             "Create Claude Code skills file at ~/.claude/skills/binnacle/SKILL.md?",
@@ -321,12 +326,17 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         );
         let install_bn_agent =
             prompt_yes_no("Install bn-agent script to ~/.local/bin/bn-agent?", true);
+        let build_container = prompt_yes_no(
+            "Build binnacle container image if not already built?",
+            false,
+        );
         (
             create_claude_skills,
             create_codex_skills,
             write_mcp_copilot,
             install_copilot,
             install_bn_agent,
+            build_container,
         )
     };
 
@@ -341,6 +351,7 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         write_mcp_copilot,
         install_copilot,
         install_bn_agent,
+        build_container,
     )?;
 
     // Mark global init as done if we just did it
@@ -397,6 +408,12 @@ pub fn init_reinit(repo_path: &Path) -> Result<InitResult> {
     // Prompt for bn-agent installation (default Yes)
     let install_bn_agent = prompt_yes_no("Install bn-agent script to ~/.local/bin/bn-agent?", true);
 
+    // Prompt for container build (default No - optional feature)
+    let build_container = prompt_yes_no(
+        "Build binnacle container image if not already built?",
+        false,
+    );
+
     let result = init_with_options(
         repo_path,
         update_agents_md,
@@ -408,6 +425,7 @@ pub fn init_reinit(repo_path: &Path) -> Result<InitResult> {
         write_mcp_copilot,
         install_copilot,
         install_bn_agent,
+        build_container,
     )?;
 
     // Always update marker file on successful reinit
@@ -430,6 +448,7 @@ pub fn init_non_interactive(
     write_mcp_copilot: bool,
     install_copilot: bool,
     install_bn_agent: bool,
+    build_container: bool,
 ) -> Result<InitResult> {
     init_with_options(
         repo_path,
@@ -442,6 +461,7 @@ pub fn init_non_interactive(
         write_mcp_copilot,
         install_copilot,
         install_bn_agent,
+        build_container,
     )
 }
 
@@ -459,6 +479,7 @@ fn init_with_options(
     write_mcp_copilot: bool,
     install_copilot: bool,
     install_bn_agent: bool,
+    build_container: bool,
 ) -> Result<InitResult> {
     let already_exists = Storage::exists(repo_path)?;
     let storage = if already_exists {
@@ -544,6 +565,31 @@ fn init_with_options(
         false
     };
 
+    // Build container image if requested and not already present
+    let container_built = if build_container {
+        let image_name = "localhost/binnacle-worker:latest";
+        if !container_image_exists(image_name) {
+            eprintln!("📦 Building binnacle container image...");
+            match container_build("latest", false) {
+                Ok(result) => {
+                    if !result.success {
+                        eprintln!("Warning: Failed to build container: {:?}", result.error);
+                    }
+                    result.success
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to build container: {}", e);
+                    false
+                }
+            }
+        } else {
+            eprintln!("Container image already exists, skipping build.");
+            false
+        }
+    } else {
+        false
+    };
+
     Ok(InitResult {
         initialized: !already_exists,
         storage_path: storage.root().to_string_lossy().to_string(),
@@ -556,6 +602,7 @@ fn init_with_options(
         mcp_copilot_config_created,
         copilot_installed,
         bn_agent_installed,
+        container_built,
     })
 }
 
@@ -19737,6 +19784,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
         assert!(result.initialized);
@@ -19758,6 +19806,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
         assert!(!result.initialized);
@@ -22144,6 +22193,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
         assert!(result.initialized);
@@ -22178,6 +22228,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
         assert!(result.initialized);
@@ -22214,6 +22265,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
         assert!(result.initialized);
@@ -22243,6 +22295,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
         let result = init_with_options(
@@ -22256,6 +22309,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
 
@@ -22288,6 +22342,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
         assert!(!result.initialized); // binnacle already exists
@@ -22323,6 +22378,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
         assert!(result.initialized);
@@ -22354,6 +22410,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
 
@@ -22515,6 +22572,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
         assert!(result.hook_installed);
@@ -22541,6 +22599,7 @@ mod tests {
             false,
             false,
             false, // install_bn_agent
+            false, // build_container
         )
         .unwrap();
         assert!(!result.hook_installed);
