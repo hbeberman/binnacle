@@ -174,6 +174,13 @@ const createDefaultState = () => ({
         infoPanelOpen: false,
         infoPanelTab: 'details',  // 'details', 'activity', 'commits'
         
+        // Family reveal state
+        familyReveal: {
+            active: false,           // Is a family currently revealed?
+            rootId: null,            // The PRD/milestone root
+            revealedNodeIds: new Set()  // Nodes revealed by this action
+        },
+        
         // Toast notifications
         toasts: []
     },
