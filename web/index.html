@@ -6,6 +6,16 @@
     <title>Binnacle - Agent Navigation Graph</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>">
     
+    <!-- Import map for bare module specifiers (required for dev mode) -->
+    <script type="importmap">
+    {
+        "imports": {
+            "marked": "/node_modules/marked/lib/marked.esm.js",
+            "highlight.js": "/node_modules/highlight.js/es/index.js"
+        }
+    }
+    </script>
+    
     <!-- Base styles and theme -->
     <link rel="stylesheet" href="/css/main.css">
     <link rel="stylesheet" href="/css/themes/dark.css">
