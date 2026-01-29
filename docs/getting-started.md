@@ -26,6 +26,13 @@ The binary installs to `~/.cargo/bin/bn`. Make sure this is in your PATH.
 
 This tutorial demonstrates binnacle's agent workflow by creating a simple web-based tic-tac-toe game.
 
+> ⚠️ **Important: Use a Separate Repository Clone**  
+> When working with binnacle-tracked projects, it's recommended to use a separate clone of your repository for agent work. This isolates agent-driven development from your main working directory and prevents conflicts with uncommitted changes or active work-in-progress.
+>
+> If you're contributing to binnacle itself or tracking an existing repo with binnacle, consider maintaining separate clones:
+> - One for your manual development work
+> - One dedicated to agent-driven task execution
+
 ### Step 1: Create a New Project
 
 ```bash
