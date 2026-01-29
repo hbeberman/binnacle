@@ -318,8 +318,14 @@ function filterVisibleNodes() {
     const hideCompleted = state.get('ui.hideCompleted');
     const nodeFilters = state.get('ui.nodeTypeFilters') || {};
     const searchQuery = (state.get('ui.searchQuery') || '').toLowerCase().trim();
+    const familyReveal = state.get('ui.familyReveal') || { active: false, revealedNodeIds: new Set() };
     
     visibleNodes = graphNodes.filter(node => {
+        // Always include nodes revealed by family reveal
+        if (familyReveal.active && familyReveal.revealedNodeIds.has(node.id)) {
+            return true;
+        }
+        
         // Apply node type filter
         if (nodeFilters[node.type] === false) return false;
         
