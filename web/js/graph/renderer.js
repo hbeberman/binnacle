@@ -18,7 +18,7 @@ import { SpatialHash } from './spatial-hash.js';
 
 // Animation constants
 const AGENT_DEPARTURE_FADE_MS = 5000;
-const STABLE_THRESHOLD = 0.01;
+const STABLE_THRESHOLD = 0.005; // Lowered from 0.01 for more sensitive auto-pause
 const STABLE_FRAMES_REQUIRED = 60;
 const NEW_BADGE_DURATION_MS = 10000; // NEW badge fades after 10 seconds
 const NEW_BADGE_FADE_IN_MS = 300; // NEW badge fade-in duration
@@ -46,6 +46,7 @@ let canvas = null;
 let ctx = null;
 let animationFrameId = null;
 let isAnimating = false;
+let physicsSettled = false; // Explicit state: true when physics is stable and can be skipped
 let animationTime = 0;
 let stableFrameCount = 0;
 
@@ -109,10 +110,23 @@ export function init(canvasElement, callbacks = {}) {
     state.subscribe('entities.*', onEntitiesChanged);
     state.subscribe('edges', onEdgesChanged);
     state.subscribe('ui.viewport', scheduleRender);
-    state.subscribe('ui.hideCompleted', scheduleRender);
+    state.subscribe('ui.hideCompleted', () => {
+        physicsSettled = false; // Resume physics on filter change
+        scheduleRender();
+    });
     state.subscribe('ui.searchQuery', scheduleRender);
-    state.subscribe('ui.nodeTypeFilters', scheduleRender);
-    state.subscribe('ui.edgeTypeFilters', scheduleRender);
+    state.subscribe('ui.nodeTypeFilters', () => {
+        physicsSettled = false; // Resume physics on filter change
+        scheduleRender();
+    });
+    state.subscribe('ui.edgeTypeFilters', () => {
+        physicsSettled = false; // Resume physics on filter change
+        scheduleRender();
+    });
+    state.subscribe('ui.edgePhysicsFilters', () => {
+        physicsSettled = false; // Resume physics on physics filter change
+        scheduleRender();
+    });
     state.subscribe('ui.selectedNode', onSelectionChanged);
     state.subscribe('ui.selectedNodes', onMultiSelectionChanged);
     state.subscribe('ui.boxSelection', scheduleRender);
@@ -457,6 +471,7 @@ function scheduleRender() {
  */
 export function startAnimation() {
     stableFrameCount = 0;
+    physicsSettled = false; // Resume physics when animation restarts
     
     if (!isAnimating) {
         isAnimating = true;
@@ -964,8 +979,10 @@ function animate() {
     // Focus lock logic (takes priority over auto-follow)
     updateFocusedNode();
     
-    // Apply physics simulation
-    applyPhysics();
+    // Apply physics simulation (skip if physics has settled)
+    if (!physicsSettled) {
+        applyPhysics();
+    }
     
     // Render the graph
     render();
@@ -994,6 +1011,7 @@ function animate() {
         if (isStable) {
             stableFrameCount++;
             if (stableFrameCount >= STABLE_FRAMES_REQUIRED) {
+                physicsSettled = true; // Mark physics as settled - skip applyPhysics() in future frames
                 isAnimating = false;
                 return;
             }
@@ -1891,6 +1909,7 @@ export function setHoveredNode(node) {
 export function setDraggedNode(node) {
     if (draggedNode !== node) {
         draggedNode = node;
+        physicsSettled = false; // Resume physics on node drag
         scheduleRender();
     }
 }
