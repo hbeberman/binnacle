@@ -581,8 +581,14 @@ function applyPhysics() {
         // Skip dragged nodes
         if (node === draggedNode) continue;
         
-        node.vx = (node.vx + node.fx) * physics.damping;
-        node.vy = (node.vy + node.fy) * physics.damping;
+        // Apply damping to existing velocity BEFORE adding forces
+        // This prevents oscillation by reducing momentum before new forces are applied
+        node.vx *= physics.damping;
+        node.vy *= physics.damping;
+        
+        // Add forces to velocity
+        node.vx += node.fx;
+        node.vy += node.fy;
         
         // Max velocity (queue nodes move slower)
         const maxVelocity = node.type === 'queue' ? 0.9 : 3.0;
@@ -592,6 +598,12 @@ function applyPhysics() {
             node.vx *= scale;
             node.vy *= scale;
         }
+        
+        // Apply minimum velocity threshold to stop micro-movements
+        // This prevents perpetual vibration when forces are near equilibrium
+        const minVelocity = 0.01;
+        if (Math.abs(node.vx) < minVelocity) node.vx = 0;
+        if (Math.abs(node.vy) < minVelocity) node.vy = 0;
         
         node.x += node.vx;
         node.y += node.vy;
