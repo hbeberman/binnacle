@@ -660,6 +660,15 @@
                 // Family reveal: find root and collect descendants
                 const rootId = findFamilyRoot(node.id);
                 if (rootId) {
+                    // If clicking within the same family, keep reveal active and just update info panel
+                    if (currentFamilyReveal.active && rootId === currentRootId) {
+                        console.log(`[FamilyReveal] Same family click (${rootId}), keeping reveal active`);
+                        // Just update info panel and return - no need to re-reveal
+                        updateInfoPanelContent(infoPanel, node, [], [], []);
+                        showInfoPanel(infoPanel);
+                        return;
+                    }
+                    
                     // If clicking a different family, collapse the old one first
                     if (currentFamilyReveal.active && rootId !== currentRootId) {
                         console.log(`[FamilyReveal] Switching from family ${currentRootId} to ${rootId}`);
