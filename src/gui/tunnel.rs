@@ -111,6 +111,84 @@ impl TunnelManager {
             .unwrap_or(false)
     }
 
+    /// Configure tunnel ports for hosting
+    ///
+    /// Devtunnel doesn't support batch port updates when hosting, so we need to
+    /// manage ports explicitly: delete existing ports and create the target port
+    /// using `port create`, then host without the `-p` flag.
+    ///
+    /// # Arguments
+    /// * `tunnel_id` - The tunnel ID to configure
+    /// * `target_port` - The port to configure for hosting
+    fn configure_tunnel_port(tunnel_id: &str, target_port: u16) -> Result<(), TunnelError> {
+        // Get current port configuration
+        let output = Command::new("devtunnel")
+            .args(["show", tunnel_id, "--json"])
+            .output()
+            .map_err(TunnelError::SpawnFailed)?;
+
+        if !output.status.success() {
+            // Tunnel might not exist yet, that's OK - create port directly
+            return Self::create_port(tunnel_id, target_port);
+        }
+
+        // Parse ports from the tunnel info
+        let mut has_target_port = false;
+        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            && let Some(tunnel) = json.get("tunnel")
+            && let Some(ports) = tunnel.get("ports").and_then(|p| p.as_array())
+        {
+            for port in ports {
+                if let Some(port_num) = port.get("portNumber").and_then(|n| n.as_u64()) {
+                    if port_num as u16 == target_port {
+                        has_target_port = true;
+                    } else {
+                        eprintln!(
+                            "[devtunnel] Removing existing port {} from tunnel",
+                            port_num
+                        );
+                        let result = Command::new("devtunnel")
+                            .args(["port", "delete", tunnel_id, "-p", &port_num.to_string()])
+                            .output();
+
+                        if let Err(e) = result {
+                            eprintln!(
+                                "[devtunnel] Warning: failed to delete port {}: {}",
+                                port_num, e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Create the target port if it doesn't exist
+        if !has_target_port {
+            Self::create_port(tunnel_id, target_port)?;
+        }
+
+        Ok(())
+    }
+
+    /// Create a port on the tunnel
+    fn create_port(tunnel_id: &str, port: u16) -> Result<(), TunnelError> {
+        eprintln!("[devtunnel] Adding port {} to tunnel", port);
+        let output = Command::new("devtunnel")
+            .args(["port", "create", tunnel_id, "-p", &port.to_string()])
+            .output()
+            .map_err(TunnelError::SpawnFailed)?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(TunnelError::Internal(format!(
+                "Failed to create port {}: {}",
+                port, stderr
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Get or create a persistent tunnel ID
     ///
     /// Looks for an existing persistent tunnel or creates one.
@@ -209,17 +287,19 @@ impl TunnelManager {
             return Err(TunnelError::NotAuthenticated);
         }
 
-        let port_str = port.to_string();
-
         // Get or create a persistent tunnel ID
         let tunnel_id = Self::get_or_create_tunnel_id()?;
+
+        // Configure ports: remove existing ports and add target port
+        // This avoids "batch update not supported" error when hosting
+        Self::configure_tunnel_port(&tunnel_id, port)?;
 
         // Spawn devtunnel with stdout piped for URL extraction
         // --allow-anonymous (-a) enables access without Microsoft account
         // Tunnel ID is a positional argument after 'host'
-        // Port is specified with -p or --port-numbers
+        // Port is NOT specified here - it's pre-configured via port create
         let mut child = Command::new("devtunnel")
-            .args(["host", &tunnel_id, "-p", &port_str, "--allow-anonymous"])
+            .args(["host", &tunnel_id, "--allow-anonymous"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -547,5 +627,40 @@ mod tests {
             .and_then(|i| i.as_str())
             .unwrap();
         assert_eq!(tunnel_id, "spiffy-book-vxhm9q1.use");
+    }
+
+    #[test]
+    fn test_devtunnel_show_json_format_with_ports() {
+        // Test that we correctly parse the devtunnel show --json output format
+        // The format includes a ports array with portNumber values
+        let json_output = r#"{
+            "tunnel": {
+                "tunnelId": "new-ant-s921gtm.use",
+                "hostConnections": 0,
+                "ports": [
+                    {"portNumber": 22, "protocol": "auto"},
+                    {"portNumber": 3030, "protocol": "auto"}
+                ]
+            }
+        }"#;
+
+        let json: serde_json::Value = serde_json::from_str(json_output).unwrap();
+
+        // Verify we can extract ports correctly
+        let ports = json
+            .get("tunnel")
+            .and_then(|t| t.get("ports"))
+            .and_then(|p| p.as_array())
+            .unwrap();
+
+        assert_eq!(ports.len(), 2);
+        assert_eq!(
+            ports[0].get("portNumber").and_then(|n| n.as_u64()),
+            Some(22)
+        );
+        assert_eq!(
+            ports[1].get("portNumber").and_then(|n| n.as_u64()),
+            Some(3030)
+        );
     }
 }
