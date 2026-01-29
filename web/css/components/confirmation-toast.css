@@ -1,0 +1,110 @@
+/* Confirmation Toast Component
+ * Modal toast for confirming actions with Confirm/Cancel buttons
+ */
+
+/* ==========================================================================
+   Overlay Container
+   ========================================================================== */
+
+.confirmation-toast-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: fadeIn 0.15s ease;
+}
+
+.confirmation-toast-overlay.hidden {
+    display: none;
+}
+
+/* ==========================================================================
+   Toast Container
+   ========================================================================== */
+
+.confirmation-toast {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    min-width: 320px;
+    max-width: 500px;
+    padding: 1.5rem;
+    animation: slideInDown 0.2s ease;
+}
+
+/* ==========================================================================
+   Content
+   ========================================================================== */
+
+.confirmation-toast-message {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin-bottom: 1.25rem;
+}
+
+/* ==========================================================================
+   Actions
+   ========================================================================== */
+
+.confirmation-toast-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+}
+
+.confirmation-toast-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    transition: all 0.15s ease;
+}
+
+.confirmation-toast-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-hover);
+}
+
+.confirmation-toast-btn.primary {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: #ffffff;
+}
+
+.confirmation-toast-btn.primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+/* ==========================================================================
+   Animations
+   ========================================================================== */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

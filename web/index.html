@@ -42,6 +42,7 @@
     <link rel="stylesheet" href="/css/components/activity-log.css">
     <link rel="stylesheet" href="/css/components/summarize-chat.css">
     <link rel="stylesheet" href="/css/components/repo-info-pill.css">
+    <link rel="stylesheet" href="/css/components/confirmation-toast.css">
     
     <style>
         /* Additional layout styles for the full app */
@@ -326,6 +327,7 @@
         import { computeSpawnPositions } from './js/utils/spawn-position.js';
         import { animateProgressiveReveal, clearRevealAnimations } from './js/utils/reveal-animation.js';
         import { collapseFamilyReveal } from './js/utils/family-collapse.js';
+        import { showConfirmationToast } from './js/components/confirmation-toast.js';
         
         // Get container element
         const container = document.getElementById('app-container');
@@ -648,6 +650,44 @@
         const recentlyCompletedPane = createRecentlyCompletedPane();
         document.getElementById('recently-completed-container').appendChild(recentlyCompletedPane);
         
+        // Helper function to perform family reveal
+        function performFamilyReveal(node, rootId, descendants, existingNodesArray, existingNodes) {
+            // Compute depth map for wave-based positioning
+            const depthMap = computeDepths(rootId, descendants);
+            
+            // Get edges for position calculation
+            const edges = State.get('edges') || [];
+            
+            // Compute spawn positions for newly revealed nodes
+            const spawnPositions = computeSpawnPositions(depthMap, existingNodes, edges);
+            
+            // Apply positions to newly revealed nodes (nodes not in existing)
+            for (const [nodeId, position] of spawnPositions.entries()) {
+                if (!existingNodes.has(nodeId)) {
+                    // This is a newly revealed node - it will get positioned when the graph rebuilds
+                    // The position will be picked up by getInitialPositionForNewNode
+                    // For now, we'll let the normal graph rebuild handle it
+                    console.log(`Spawn position for ${nodeId}: (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`);
+                }
+            }
+            
+            // Update family reveal state
+            State.set('ui.familyReveal', {
+                active: true,
+                rootId: rootId,
+                revealedNodeIds: descendants,
+                spawnPositions: spawnPositions  // Store positions for use during graph rebuild
+            });
+            
+            // Start progressive reveal animation
+            // This runs asynchronously and animates nodes fading in by depth
+            animateProgressiveReveal(rootId, descendants, depthMap, existingNodes);
+            
+            // Show info panel for the clicked node
+            updateInfoPanelContent(infoPanel, node, [], [], []);
+            showInfoPanel(infoPanel);
+        }
+        
         // Initialize graph
         graph.init(canvas, {
             onNodeClick: async (node) => {
@@ -678,38 +718,37 @@
                     const descendants = collectDescendants(rootId);
                     console.log(`Family reveal: root=${rootId}, descendants=${descendants.size}`);
                     
-                    // Compute depth map for wave-based positioning
-                    const depthMap = computeDepths(rootId, descendants);
-                    
-                    // Get existing nodes and edges for position calculation
+                    // Count how many descendants are currently hidden
                     const existingNodesArray = graph.getNodes();
                     const existingNodes = new Map(existingNodesArray.map(n => [n.id, n]));
-                    const edges = State.get('edges') || [];
+                    const hiddenCount = Array.from(descendants).filter(id => !existingNodes.has(id)).length;
                     
-                    // Compute spawn positions for newly revealed nodes
-                    const spawnPositions = computeSpawnPositions(depthMap, existingNodes, edges);
-                    
-                    // Apply positions to newly revealed nodes (nodes not in existing)
-                    for (const [nodeId, position] of spawnPositions.entries()) {
-                        if (!existingNodes.has(nodeId)) {
-                            // This is a newly revealed node - it will get positioned when the graph rebuilds
-                            // The position will be picked up by getInitialPositionForNewNode
-                            // For now, we'll let the normal graph rebuild handle it
-                            console.log(`Spawn position for ${nodeId}: (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`);
-                        }
+                    // Large family warning: if 50+ nodes will be revealed, show confirmation
+                    if (hiddenCount > 50) {
+                        console.log(`[FamilyReveal] Large family detected (${hiddenCount} hidden nodes), showing confirmation`);
+                        
+                        showConfirmationToast(
+                            `This will reveal ${hiddenCount} nodes. Continue?`,
+                            {
+                                onConfirm: () => {
+                                    console.log('[FamilyReveal] User confirmed large family reveal');
+                                    performFamilyReveal(node, rootId, descendants, existingNodesArray, existingNodes);
+                                },
+                                onCancel: () => {
+                                    console.log('[FamilyReveal] User cancelled large family reveal');
+                                    // Info pane still opens, but no reveal
+                                    updateInfoPanelContent(infoPanel, node, [], [], []);
+                                    showInfoPanel(infoPanel);
+                                }
+                            }
+                        );
+                        
+                        // Return early - don't reveal until user confirms
+                        return;
                     }
                     
-                    // Update family reveal state
-                    State.set('ui.familyReveal', {
-                        active: true,
-                        rootId: rootId,
-                        revealedNodeIds: descendants,
-                        spawnPositions: spawnPositions  // Store positions for use during graph rebuild
-                    });
-                    
-                    // Start progressive reveal animation
-                    // This runs asynchronously and animates nodes fading in by depth
-                    animateProgressiveReveal(rootId, descendants, depthMap, existingNodes);
+                    // Small family or user confirmed - proceed with reveal
+                    performFamilyReveal(node, rootId, descendants, existingNodesArray, existingNodes);
                 } else {
                     console.log('Family reveal: no root found, clearing state');
                     // No root found - collapse any active reveal
@@ -723,11 +762,11 @@
                         revealedNodeIds: new Set(),
                         spawnPositions: new Map()
                     });
+                    
+                    // Show info panel for node with no family root
+                    updateInfoPanelContent(infoPanel, node, [], [], []);
+                    showInfoPanel(infoPanel);
                 }
-                
-                // Show info panel for the clicked node in compact mode
-                updateInfoPanelContent(infoPanel, node, [], [], []);
-                showInfoPanel(infoPanel);
             },
             onCanvasClick: () => {
                 console.log('Canvas clicked (empty space)');
