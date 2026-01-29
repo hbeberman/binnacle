@@ -1157,6 +1157,8 @@ pub enum AgentType {
     Planner,
     /// Buddy agents assist humans with code review, questions, and guidance
     Buddy,
+    /// Ask agents provide read-only Q&A assistance for exploring the repository
+    Ask,
 }
 
 /// Health status for an agent, including stuck detection.
