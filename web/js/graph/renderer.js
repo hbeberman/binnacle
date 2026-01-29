@@ -1757,7 +1757,12 @@ function drawEdge(fromNode, toNode, edge) {
     const midX = (p1.x + p2.x) / 2;
     const midY = (p1.y + p2.y) / 2;
     const headLength = 10 * zoom;
-    const screenAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+    let screenAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+    
+    // Reverse arrow direction for child_of edges (parent → child)
+    if (edge.edge_type === 'child_of') {
+        screenAngle += Math.PI;
+    }
     
     // Draw arrow head at midpoint
     ctx.beginPath();
