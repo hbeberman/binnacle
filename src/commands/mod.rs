@@ -2766,6 +2766,43 @@ pub fn install_bn_agent_script() -> Result<bool> {
     Ok(true)
 }
 
+/// Detect Copilot session GUID from filesystem.
+/// Looks for ~/.copilot/session-state/<GUID>/ directory.
+/// Returns None if not running in a Copilot session or if directory doesn't exist.
+fn detect_copilot_session_guid() -> Option<String> {
+    let home_dir = dirs::home_dir()?;
+    let session_state_dir = home_dir.join(".copilot").join("session-state");
+
+    if !session_state_dir.exists() {
+        return None;
+    }
+
+    // Find the first directory entry (should be only one active session)
+    // Copilot session GUIDs are UUIDs like: 3a10d0f6-a8b5-4698-915e-8faaf69c49df
+    if let Ok(entries) = fs::read_dir(&session_state_dir) {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type()
+                && file_type.is_dir()
+                && let Some(name) = entry.file_name().to_str()
+            {
+                // Validate it looks like a UUID (8-4-4-4-12 hex digits)
+                let parts: Vec<&str> = name.split('-').collect();
+                if parts.len() == 5
+                    && parts[0].len() == 8
+                    && parts[1].len() == 4
+                    && parts[2].len() == 4
+                    && parts[3].len() == 4
+                    && parts[4].len() == 12
+                {
+                    return Some(name.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
 /// Orient an AI agent to this project.
 /// If allow_init is true, auto-initializes binnacle if not already initialized.
 /// If allow_init is false and binnacle is not initialized, returns NotInitialized error.
@@ -2799,6 +2836,9 @@ pub fn orient(
 
     // Check for MCP session mode (for MCP wrapper invocation)
     let mcp_session_id = std::env::var("BN_MCP_SESSION").ok();
+
+    // Detect Copilot session GUID from filesystem
+    let copilot_session_guid = detect_copilot_session_guid();
 
     // Check for explicit agent ID (for container/external agent management)
     let env_agent_id = std::env::var("BN_AGENT_ID").ok();
@@ -2865,6 +2905,10 @@ pub fn orient(
             if purpose.is_some() {
                 existing_agent.purpose = purpose;
             }
+            // Update Copilot session GUID if detected
+            if copilot_session_guid.is_some() {
+                existing_agent.copilot_session_guid = copilot_session_guid.clone();
+            }
             let id = existing_agent.id.clone();
             storage.update_agent(&existing_agent)?;
             let _ = storage.touch_agent(existing_agent.pid);
@@ -2895,6 +2939,11 @@ pub fn orient(
                 agent.mcp_session_id = Some(sid.clone());
             }
 
+            // Set Copilot session GUID if detected
+            if copilot_session_guid.is_some() {
+                agent.copilot_session_guid = copilot_session_guid.clone();
+            }
+
             let id = agent.id.clone();
             storage.register_agent(&agent)?;
             id
@@ -2903,6 +2952,10 @@ pub fn orient(
             existing_agent.agent_type = agent_type.clone();
             if purpose.is_some() {
                 existing_agent.purpose = purpose;
+            }
+            // Update Copilot session GUID if detected
+            if copilot_session_guid.is_some() {
+                existing_agent.copilot_session_guid = copilot_session_guid.clone();
             }
             let id = existing_agent.id.clone();
             storage.update_agent(&existing_agent)?;
@@ -2915,6 +2968,10 @@ pub fn orient(
             existing_agent.agent_type = agent_type.clone();
             if purpose.is_some() {
                 existing_agent.purpose = purpose;
+            }
+            // Update Copilot session GUID if detected
+            if copilot_session_guid.is_some() {
+                existing_agent.copilot_session_guid = copilot_session_guid.clone();
             }
             let id = existing_agent.id.clone();
             storage.update_agent(&existing_agent)?;
@@ -2937,6 +2994,11 @@ pub fn orient(
             // Set MCP session ID if provided
             if let Some(ref sid) = mcp_session_id {
                 agent.mcp_session_id = Some(sid.clone());
+            }
+
+            // Set Copilot session GUID if detected
+            if copilot_session_guid.is_some() {
+                agent.copilot_session_guid = copilot_session_guid.clone();
             }
 
             let id = agent.id.clone();
