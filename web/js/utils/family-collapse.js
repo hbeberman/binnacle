@@ -52,14 +52,20 @@ export function collapseFamilyReveal() {
         startAnimation();
     }
     
-    // Clear family reveal state (this will trigger filter update)
-    // Nodes that don't pass filters will be hidden after fade-out completes
-    state.set('ui.familyReveal', {
-        active: false,
-        rootId: null,
-        revealedNodeIds: new Set(),
-        spawnPositions: new Map()
-    });
+    // Deactivate family reveal immediately (stops filter bypass)
+    // But keep rootId and revealedNodeIds until animation completes
+    state.set('ui.familyReveal.active', false);
+    
+    // Schedule full cleanup after fade-out animation completes
+    setTimeout(() => {
+        console.log('[FamilyCollapse] Fade-out complete, clearing reveal state');
+        state.set('ui.familyReveal', {
+            active: false,
+            rootId: null,
+            revealedNodeIds: new Set(),
+            spawnPositions: new Map()
+        });
+    }, FADE_OUT_DURATION_MS);
 }
 
 /**
