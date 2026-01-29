@@ -14,16 +14,12 @@ import { drawNodeShapePath } from './shapes.js';
 import { getNodeColor, getEdgeStyle, getCSSColors } from './colors.js';
 import { worldToScreen, screenToWorld, getZoom, centerOn, panToNode } from './transform.js';
 import * as camera from './camera.js';
-import { SpatialHash } from './spatial-hash.js';
 
 // Animation constants
 const AGENT_DEPARTURE_FADE_MS = 5000;
-const STABLE_THRESHOLD = 0.005; // Lowered from 0.01 for more sensitive auto-pause
-const STABLE_FRAMES_REQUIRED = 60;
 const NEW_BADGE_DURATION_MS = 10000; // NEW badge fades after 10 seconds
 const NEW_BADGE_FADE_IN_MS = 300; // NEW badge fade-in duration
 const NEW_BADGE_FADE_OUT_MS = 2000; // NEW badge fade-out duration
-const FRAME_BUDGET_MS = 14; // Skip physics if previous frame exceeded this budget
 
 // Easing functions for smooth animations
 /**
@@ -47,17 +43,10 @@ let canvas = null;
 let ctx = null;
 let animationFrameId = null;
 let isAnimating = false;
-let physicsSettled = false; // Explicit state: true when physics is stable and can be skipped
 let animationTime = 0;
-let stableFrameCount = 0;
-let lastFrameTime = 0; // Track last frame time for deltaTime calculation
-
-// Spatial hash for physics optimization
-let spatialHash = null;
 
 // Graph data (cached for rendering)
 let graphNodes = [];
-let graphNodeMap = new Map(); // node ID -> node object (for O(1) lookup)
 let graphEdges = [];
 let visibleNodes = [];
 let visibleNodeIds = new Set();
@@ -112,23 +101,10 @@ export function init(canvasElement, callbacks = {}) {
     state.subscribe('entities.*', onEntitiesChanged);
     state.subscribe('edges', onEdgesChanged);
     state.subscribe('ui.viewport', scheduleRender);
-    state.subscribe('ui.hideCompleted', () => {
-        physicsSettled = false; // Resume physics on filter change
-        scheduleRender();
-    });
+    state.subscribe('ui.hideCompleted', scheduleRender);
     state.subscribe('ui.searchQuery', scheduleRender);
-    state.subscribe('ui.nodeTypeFilters', () => {
-        physicsSettled = false; // Resume physics on filter change
-        scheduleRender();
-    });
-    state.subscribe('ui.edgeTypeFilters', () => {
-        physicsSettled = false; // Resume physics on filter change
-        scheduleRender();
-    });
-    state.subscribe('ui.edgePhysicsFilters', () => {
-        physicsSettled = false; // Resume physics on physics filter change
-        scheduleRender();
-    });
+    state.subscribe('ui.nodeTypeFilters', scheduleRender);
+    state.subscribe('ui.edgeTypeFilters', scheduleRender);
     state.subscribe('ui.selectedNode', onSelectionChanged);
     state.subscribe('ui.selectedNodes', onMultiSelectionChanged);
     state.subscribe('ui.boxSelection', scheduleRender);
@@ -312,9 +288,6 @@ function buildGraphNodes() {
         }
     });
     
-    // Build node map for O(1) lookup during rendering
-    graphNodeMap = new Map(graphNodes.map(node => [node.id, node]));
-    
     // Clean up status tracking for removed agents
     const currentAgentIds = new Set(agents.map(a => a.id));
     for (const agentId of previousAgentStatuses.keys()) {
@@ -472,10 +445,6 @@ function scheduleRender() {
  * Start the animation loop
  */
 export function startAnimation() {
-    stableFrameCount = 0;
-    physicsSettled = false; // Resume physics when animation restarts
-    lastFrameTime = 0; // Reset frame time tracking
-    
     if (!isAnimating) {
         isAnimating = true;
         animationFrameId = requestAnimationFrame(animate);
@@ -505,23 +474,17 @@ function applyPhysics() {
         node.fy = 0;
     }
     
-    // Rebuild spatial hash for current frame
-    if (!spatialHash) {
-        spatialHash = new SpatialHash(150); // 150px cell size
-    }
-    spatialHash.rebuild(visibleNodes);
-    
-    // Node-node repulsion using spatial hash (O(n log n) instead of O(n²))
-    const repulsionCutoff = 200; // Skip nodes beyond 200px
-    for (const node of visibleNodes) {
-        const nearby = spatialHash.getNearbyForRepulsion(node, repulsionCutoff);
-        
-        for (const other of nearby) {
-            const dx = other.x - node.x;
-            const dy = other.y - node.y;
+    // Node-node repulsion (all pairs)
+    for (let i = 0; i < visibleNodes.length; i++) {
+        for (let j = i + 1; j < visibleNodes.length; j++) {
+            const a = visibleNodes[i];
+            const b = visibleNodes[j];
+            
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
             const distSq = dx * dx + dy * dy;
             
-            // Skip if nodes are at exactly the same position (already filtered in getNearbyForRepulsion)
+            // Skip if nodes are at exactly the same position
             if (distSq === 0) continue;
             
             const dist = Math.sqrt(distSq);
@@ -529,9 +492,10 @@ function applyPhysics() {
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
             
-            // Apply force to current node (other node will get its turn)
-            node.fx -= fx;
-            node.fy -= fy;
+            a.fx -= fx;
+            a.fy -= fy;
+            b.fx += fx;
+            b.fy += fy;
         }
     }
     
@@ -584,14 +548,8 @@ function applyPhysics() {
         // Skip dragged nodes
         if (node === draggedNode) continue;
         
-        // Apply damping to existing velocity BEFORE adding forces
-        // This prevents oscillation by reducing momentum before new forces are applied
-        node.vx *= physics.damping;
-        node.vy *= physics.damping;
-        
-        // Add forces to velocity
-        node.vx += node.fx;
-        node.vy += node.fy;
+        node.vx = (node.vx + node.fx) * physics.damping;
+        node.vy = (node.vy + node.fy) * physics.damping;
         
         // Max velocity (queue nodes move slower)
         const maxVelocity = node.type === 'queue' ? 0.9 : 3.0;
@@ -601,12 +559,6 @@ function applyPhysics() {
             node.vx *= scale;
             node.vy *= scale;
         }
-        
-        // Apply minimum velocity threshold to stop micro-movements
-        // This prevents perpetual vibration when forces are near equilibrium
-        const minVelocity = 0.01;
-        if (Math.abs(node.vx) < minVelocity) node.vx = 0;
-        if (Math.abs(node.vy) < minVelocity) node.vy = 0;
         
         node.x += node.vx;
         node.y += node.vy;
@@ -957,10 +909,6 @@ function animate() {
     
     animationTime = performance.now();
     
-    // Calculate deltaTime and check frame budget
-    const deltaTime = lastFrameTime > 0 ? animationTime - lastFrameTime : 0;
-    const previousFrameSlow = deltaTime > FRAME_BUDGET_MS;
-    
     // Update canvas size if needed
     resizeCanvas();
     
@@ -998,49 +946,11 @@ function animate() {
     // Focus lock logic (takes priority over auto-follow)
     updateFocusedNode();
     
-    // Apply physics simulation (skip if physics has settled OR if previous frame was slow)
-    if (!physicsSettled && !previousFrameSlow) {
-        applyPhysics();
-    }
+    // Apply physics simulation
+    applyPhysics();
     
     // Render the graph
     render();
-    
-    // Check for stability to pause animation
-    const hasAnimatedNodes = visibleNodes.some(node =>
-        (node.status === 'in_progress' && node.type !== 'queue' && node.type !== 'agent' && node.type !== 'doc') ||
-        (node.type === 'agent' && node.status === 'active') ||
-        (node._departing && node.type === 'agent')
-    );
-    
-    const hasAnimatedEdges = graphEdges.some(edge => {
-        const edgeFilters = state.get('ui.edgeTypeFilters') || {};
-        if (edgeFilters[edge.edge_type] === false) return false;
-        if (!visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) return false;
-        const style = getEdgeStyle(edge.edge_type);
-        return style.animated;
-    });
-    
-    if (!hasAnimatedNodes && !hasAnimatedEdges) {
-        const isStable = visibleNodes.every(node => {
-            const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
-            return speed < STABLE_THRESHOLD;
-        });
-        
-        if (isStable) {
-            stableFrameCount++;
-            if (stableFrameCount >= STABLE_FRAMES_REQUIRED) {
-                physicsSettled = true; // Mark physics as settled - skip applyPhysics() in future frames
-                isAnimating = false;
-                return;
-            }
-        } else {
-            stableFrameCount = 0;
-        }
-    }
-    
-    // Track frame time for next frame's deltaTime calculation
-    lastFrameTime = performance.now();
     
     animationFrameId = requestAnimationFrame(animate);
 }
@@ -1143,8 +1053,8 @@ function render() {
     for (const edge of graphEdges) {
         if (edgeFilters[edge.edge_type] === false) continue;
         
-        const fromNode = graphNodeMap.get(edge.from);
-        const toNode = graphNodeMap.get(edge.to);
+        const fromNode = graphNodes.find(n => n.id === edge.from);
+        const toNode = graphNodes.find(n => n.id === edge.to);
         
         if (!fromNode || !toNode) continue;
         if (!visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) continue;
@@ -1188,24 +1098,25 @@ function renderEmptyState(message) {
  * @param {Object} node - Node to draw
  */
 function drawNode(node) {
-    const isHovered = node === hoveredNode;
-    const isDragging = node === draggedNode;
-    const isSelected = selectedNodes.includes(node.id);
-    const isMultiSelect = selectedNodes.length > 1;
     const zoom = getZoom();
     
     // Transform to screen coordinates
     const screenPos = worldToScreen(node.x, node.y, canvas);
     const radius = node.radius * zoom;
     
-    // Viewport culling: skip nodes outside visible area with margin
+    // Viewport culling: skip nodes outside visible area
     const margin = 100; // px margin to avoid pop-in
     if (screenPos.x + radius < -margin ||
         screenPos.x - radius > canvas.width + margin ||
         screenPos.y + radius < -margin ||
         screenPos.y - radius > canvas.height + margin) {
-        return; // Node is outside viewport, skip drawing
+        return; // Node is off-screen, skip drawing
     }
+    
+    const isHovered = node === hoveredNode;
+    const isDragging = node === draggedNode;
+    const isSelected = selectedNodes.includes(node.id);
+    const isMultiSelect = selectedNodes.length > 1;
     
     // Get node color
     const color = getNodeColor(node);
@@ -1788,12 +1699,7 @@ function drawEdge(fromNode, toNode, edge) {
     const midX = (p1.x + p2.x) / 2;
     const midY = (p1.y + p2.y) / 2;
     const headLength = 10 * zoom;
-    let screenAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-    
-    // Reverse arrow direction for child_of edges (parent → child)
-    if (edge.edge_type === 'child_of') {
-        screenAngle += Math.PI;
-    }
+    const screenAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
     
     // Draw arrow head at midpoint
     ctx.beginPath();
@@ -1945,7 +1851,6 @@ export function setHoveredNode(node) {
 export function setDraggedNode(node) {
     if (draggedNode !== node) {
         draggedNode = node;
-        physicsSettled = false; // Resume physics on node drag
         scheduleRender();
     }
 }
@@ -1982,8 +1887,8 @@ export function findNodeAtPosition(screenX, screenY) {
  * @returns {number} Distance to edge, or Infinity if invalid
  */
 function distanceToEdge(px, py, edge) {
-    const fromNode = graphNodeMap.get(edge.from);
-    const toNode = graphNodeMap.get(edge.to);
+    const fromNode = graphNodes.find(n => n.id === edge.from);
+    const toNode = graphNodes.find(n => n.id === edge.to);
     if (!fromNode || !toNode) return Infinity;
     
     // Calculate edge endpoints at node boundaries
@@ -2109,7 +2014,7 @@ export function highlightNode(nodeId) {
     startAnimation(); // Ensure animation loop is running
     
     // Optionally pan to the node if it's not in view
-    const node = graphNodeMap.get(nodeId);
+    const node = graphNodes.find(n => n.id === nodeId);
     if (node) {
         panToNode(node);
     }
