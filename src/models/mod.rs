@@ -1243,6 +1243,12 @@ pub struct Agent {
     /// Used for tracking containerized agent lifecycles.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub container_id: Option<String>,
+
+    /// Copilot session GUID for session recovery.
+    /// Extracted from ~/.copilot/session-state/<GUID>/ directory.
+    /// Enables reanimating dormant/failed agents by identifying their Copilot session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copilot_session_guid: Option<String>,
 }
 
 fn agent_entity_type() -> String {
@@ -1288,6 +1294,7 @@ impl Agent {
             current_action: None,
             goodbye_at: None,
             container_id: None,
+            copilot_session_guid: None,
         }
     }
 
@@ -1318,6 +1325,7 @@ impl Agent {
             current_action: None,
             goodbye_at: None,
             container_id: None,
+            copilot_session_guid: None,
         }
     }
 
@@ -1347,6 +1355,7 @@ impl Agent {
             current_action: None,
             goodbye_at: None,
             container_id: None,
+            copilot_session_guid: None,
         }
     }
 
@@ -1377,6 +1386,7 @@ impl Agent {
             current_action: None,
             goodbye_at: None,
             container_id: None,
+            copilot_session_guid: None,
         }
     }
 
