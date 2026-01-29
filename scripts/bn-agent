@@ -117,6 +117,18 @@ TOOLS_BUDDY=(
     --allow-tool "binnacle"
 )
 
+TOOLS_QA=(
+    --allow-tool "shell(bn:*)"
+    --allow-tool "shell(./target/release/bn)"
+    --allow-tool "shell(./target/debug/bn)"
+    --allow-tool "shell(git log)"
+    --allow-tool "shell(git show)"
+    --allow-tool "shell(git diff)"
+    --allow-tool "shell(git:*)"
+    --allow-tool "shell(jq:*)"
+    --allow-tool "binnacle"
+)
+
 usage() {
     cat << 'EOF'
 Usage: bn-agent [OPTIONS] <agent-type> [args]
@@ -126,6 +138,7 @@ Agent Types:
   do "desc"   Work on custom task - runs on HOST
   prd         Render ideas into PRDs - runs on HOST
   buddy       Quick entry for bugs/tasks/ideas - runs on HOST
+  qa          Interactive Q&A about the repository (read-only) - runs on HOST
   free        General purpose with binnacle - runs on HOST
 
 Options:
@@ -261,6 +274,11 @@ case "$AGENT_TYPE" in
         PROMPT=$(emit_template free)
         [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
         TOOLS=("${TOOLS_FULL[@]}")
+        ;;
+    qa)
+        PROMPT=$(emit_template ask-agent)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
+        TOOLS=("${TOOLS_QA[@]}")
         ;;
     *)
         echo "Error: Unknown agent type '$AGENT_TYPE'"
