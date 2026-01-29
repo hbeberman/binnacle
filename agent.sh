@@ -74,6 +74,35 @@ TOOLS_BUDDY=(
     --allow-tool "binnacle"
 )
 
+TOOLS_ASK=(
+    # bn read-only commands
+    --allow-tool "shell(bn orient)"
+    --allow-tool "shell(bn ready)"
+    --allow-tool "shell(bn blocked)"
+    --allow-tool "shell(bn task list)"
+    --allow-tool "shell(bn task show)"
+    --allow-tool "shell(bn test list)"
+    --allow-tool "shell(bn test show)"
+    --allow-tool "shell(bn bug list)"
+    --allow-tool "shell(bn bug show)"
+    --allow-tool "shell(bn idea list)"
+    --allow-tool "shell(bn idea show)"
+    --allow-tool "shell(bn queue show)"
+    --allow-tool "shell(bn link list)"
+    --allow-tool "shell(bn log)"
+    --allow-tool "shell(bn show)"
+    --allow-tool "shell(bn goodbye)"
+    # Git read-only
+    --allow-tool "shell(git log)"
+    --allow-tool "shell(git show)"
+    --allow-tool "shell(git diff)"
+    --allow-tool "shell(git blame)"
+    --allow-tool "shell(git status)"
+    --allow-tool "shell(git branch)"
+    # File exploration (read-only via copilot's view/grep/glob)
+    --allow-tool "binnacle"
+)
+
 usage() {
     cat << 'EOF'
 Usage: ./agent.sh [--loop] <agent-type> [args]
