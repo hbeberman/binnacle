@@ -230,6 +230,25 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
     # Container mode
     echo "Launching agent in CONTAINER mode (agent type: $AGENT_TYPE)"
     
+    # Check for container availability (fail fast, no fallback)
+    if ! command -v ctr &>/dev/null; then
+        echo "❌ Container infrastructure not available" >&2
+        echo "   Required: containerd (ctr command)" >&2
+        echo "" >&2
+        echo "   Run 'bn container --help' for setup instructions" >&2
+        exit 1
+    fi
+    
+    # Verify binnacle worker image exists
+    if ! bn container list --quiet &>/dev/null; then
+        echo "❌ Failed to query containerd" >&2
+        echo "   Is containerd running?" >&2
+        echo "" >&2
+        echo "   Rootless: Check if \$XDG_RUNTIME_DIR/containerd/containerd.sock exists" >&2
+        echo "   System:   Check 'sudo systemctl status containerd'" >&2
+        exit 1
+    fi
+    
     # Build the bn container run command
     CMD=(bn container run .)
     
