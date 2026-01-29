@@ -440,9 +440,36 @@ pub async fn start_server(
 
 /// Get configuration info (project name, readonly mode, etc.)
 async fn get_config(State(state): State<AppState>) -> Json<serde_json::Value> {
+    // Get current git branch
+    let branch = std::process::Command::new("git")
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("HEAD")
+        .current_dir(&state.repo_path)
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        });
+
+    // Get repo name from path
+    let repo_name = state
+        .repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string());
+
     Json(serde_json::json!({
         "project_name": state.project_name,
-        "readonly": state.readonly
+        "readonly": state.readonly,
+        "repo_name": repo_name,
+        "branch": branch
     }))
 }
 
