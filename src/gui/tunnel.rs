@@ -127,8 +127,9 @@ impl TunnelManager {
 
         if output.status.success() {
             // Parse JSON to find existing tunnel
-            if let Ok(tunnels) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
-                && let Some(tunnels_array) = tunnels.as_array()
+            // Output format is: {"tunnels": [{"tunnelId": "...", ...}, ...]}
+            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+                && let Some(tunnels_array) = json.get("tunnels").and_then(|t| t.as_array())
                 && !tunnels_array.is_empty()
             {
                 // Reuse the first available tunnel
@@ -157,10 +158,11 @@ impl TunnelManager {
         }
 
         // Parse the tunnel ID from the output
-        // devtunnel create outputs the tunnel ID in the response
+        // Output format is: {"tunnel": {"tunnelId": "...", ...}}
         let stdout = String::from_utf8_lossy(&output.stdout);
-        if let Ok(tunnel_info) = serde_json::from_str::<serde_json::Value>(&stdout)
-            && let Some(id) = tunnel_info.get("tunnelId").and_then(|i| i.as_str())
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout)
+            && let Some(tunnel) = json.get("tunnel")
+            && let Some(id) = tunnel.get("tunnelId").and_then(|i| i.as_str())
         {
             eprintln!("[devtunnel] Created new tunnel: {}", id);
             return Ok(id.to_string());
@@ -497,5 +499,53 @@ mod tests {
 
         // Should not panic
         manager.shutdown();
+    }
+
+    #[test]
+    fn test_devtunnel_list_json_format() {
+        // Test that we correctly parse the devtunnel list --json output format
+        // The format is {"tunnels": [{"tunnelId": "...", ...}, ...]}
+        let json_output = r#"{
+            "tunnels": [
+                {"tunnelId": "test-tunnel-abc.use", "hostConnections": 0},
+                {"tunnelId": "other-tunnel.usw2", "hostConnections": 1}
+            ]
+        }"#;
+
+        let json: serde_json::Value = serde_json::from_str(json_output).unwrap();
+
+        // Verify we can extract tunnel ID correctly
+        let tunnels_array = json.get("tunnels").and_then(|t| t.as_array()).unwrap();
+        assert_eq!(tunnels_array.len(), 2);
+
+        let first_tunnel_id = tunnels_array
+            .first()
+            .and_then(|t| t.get("tunnelId"))
+            .and_then(|i| i.as_str())
+            .unwrap();
+        assert_eq!(first_tunnel_id, "test-tunnel-abc.use");
+    }
+
+    #[test]
+    fn test_devtunnel_create_json_format() {
+        // Test that we correctly parse the devtunnel create --json output format
+        // The format is {"tunnel": {"tunnelId": "...", ...}}
+        let json_output = r#"{
+            "tunnel": {
+                "tunnelId": "spiffy-book-vxhm9q1.use",
+                "hostConnections": 0,
+                "clientConnections": 0
+            }
+        }"#;
+
+        let json: serde_json::Value = serde_json::from_str(json_output).unwrap();
+
+        // Verify we can extract tunnel ID correctly
+        let tunnel_id = json
+            .get("tunnel")
+            .and_then(|t| t.get("tunnelId"))
+            .and_then(|i| i.as_str())
+            .unwrap();
+        assert_eq!(tunnel_id, "spiffy-book-vxhm9q1.use");
     }
 }
