@@ -15,6 +15,7 @@ import { getNodeColor, getEdgeStyle, getCSSColors } from './colors.js';
 import { worldToScreen, screenToWorld, getZoom, centerOn, panToNode } from './transform.js';
 import * as camera from './camera.js';
 import { getRevealOpacity } from '../utils/reveal-animation.js';
+import { getFadeOutOpacity } from '../utils/family-collapse.js';
 
 // Animation constants
 const AGENT_DEPARTURE_FADE_MS = 5000;
@@ -1141,10 +1142,16 @@ function drawNode(node) {
     // Calculate opacity (for dimmed/fading nodes)
     let opacity = 1.0;
     
-    // Check for reveal animation opacity
+    // Check for reveal animation opacity (fade-in)
     const revealOpacity = getRevealOpacity(node.id);
     if (revealOpacity !== null) {
         opacity = revealOpacity;
+    }
+    
+    // Check for collapse animation opacity (fade-out)
+    const fadeOutOpacity = getFadeOutOpacity(node.id);
+    if (fadeOutOpacity !== null) {
+        opacity = Math.min(opacity, fadeOutOpacity);
     }
     
     // Check for departing agent fade

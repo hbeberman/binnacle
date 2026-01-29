@@ -8,6 +8,7 @@
  */
 
 import { createClickableId } from '../utils/clickable-ids.js';
+import { collapseFamilyReveal } from '../utils/family-collapse.js';
 
 /**
  * Format a date timestamp for display
@@ -215,6 +216,8 @@ export function initializeInfoPanel(panel, options = {}) {
         if (panel.classList.contains('expanded')) {
             collapseInfoPanel(panel);
         } else {
+            // Collapse family reveal before hiding panel
+            collapseFamilyReveal();
             hideInfoPanel(panel);
             onClose();
         }
