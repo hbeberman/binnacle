@@ -52,6 +52,7 @@ tempfile = "3"
 
 # Configuration file format
 kdl = "6"
+toml = "0.8"
 
 # Archive/compression
 tar = "0.4"
