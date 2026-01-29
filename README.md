@@ -87,6 +87,7 @@ This prevents unexpected behavior from automatic Copilot updates mid-workflow.
 ./agent.sh auto                 # pick highest priority task and work on it
 ./agent.sh --loop auto          # keep going until queue is empty
 ./agent.sh buddy                # helper for adding tasks interactively
+./agent.sh ask                  # interactive Q&A for exploring the codebase (read-only)
 ```
 
 **Note:** `agent.sh` automatically resolves the Copilot binary via `bn system copilot path` and runs it with `--no-auto-update` to prevent mid-workflow updates. Install a pinned version with `bn system copilot install --upstream` before running agents.
