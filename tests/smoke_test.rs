@@ -13,8 +13,14 @@ use predicates::prelude::*;
 use common::TestEnv;
 
 /// Get a Command for the bn binary with test isolation.
+///
+/// IMPORTANT: Sets BN_DATA_DIR to a temporary directory to prevent tests from
+/// writing to the host's real binnacle data/archive directories.
 fn bn() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    // Set isolated data directory to prevent polluting host's binnacle data
+    let temp_dir = tempfile::tempdir().unwrap();
+    cmd.env("BN_DATA_DIR", temp_dir.path());
     // Clear container mode to prevent tests from polluting production /binnacle
     cmd.env_remove("BN_CONTAINER_MODE");
     cmd.env_remove("BN_AGENT_ID");
@@ -22,6 +28,8 @@ fn bn() -> Command {
     cmd.env_remove("BN_AGENT_TYPE");
     cmd.env_remove("BN_MCP_SESSION");
     cmd.env_remove("BN_AGENT_SESSION");
+
+    std::mem::forget(temp_dir); // Intentionally leak to keep path valid
     cmd
 }
 

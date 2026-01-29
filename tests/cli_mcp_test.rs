@@ -288,12 +288,16 @@ fn test_mcp_serve_starts() {
 
 #[test]
 fn test_mcp_help() {
-    Command::new(env!("CARGO_BIN_EXE_bn"))
-        .args(["mcp", "--help"])
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    // Set isolated data directory to prevent polluting host's binnacle data
+    let temp_dir = tempfile::tempdir().unwrap();
+    cmd.env("BN_DATA_DIR", temp_dir.path());
+    cmd.args(["mcp", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("serve"))
         .stdout(predicate::str::contains("manifest"));
+    std::mem::forget(temp_dir); // Keep temp directory alive
 }
 
 // === Timeout Tests ===

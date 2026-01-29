@@ -4,10 +4,11 @@ use std::process::Command;
 use std::time::Duration;
 use tempfile::TempDir;
 
-// Helper to setup a test repository
-fn setup_test_repo() -> TempDir {
-    let temp = TempDir::new().unwrap();
-    let repo_path = temp.path();
+// Helper to setup a test repository with isolated data directory
+fn setup_test_repo() -> (TempDir, TempDir) {
+    let repo_temp = TempDir::new().unwrap();
+    let data_temp = TempDir::new().unwrap();
+    let repo_path = repo_temp.path();
 
     // Initialize git repo
     Command::new("git")
@@ -28,20 +29,21 @@ fn setup_test_repo() -> TempDir {
         .output()
         .expect("Failed to set git user.email");
 
-    // Initialize binnacle
+    // Initialize binnacle with isolated data directory
     let bn = env!("CARGO_BIN_EXE_bn");
     Command::new(bn)
         .args(["system", "init"])
         .current_dir(repo_path)
+        .env("BN_DATA_DIR", data_temp.path())
         .output()
         .expect("Failed to init binnacle");
 
-    temp
+    (repo_temp, data_temp)
 }
 
 #[test]
 fn test_summarize_endpoints_exist() {
-    let temp = setup_test_repo();
+    let (temp, data_temp) = setup_test_repo();
     let repo_path = temp.path();
 
     // Start GUI server in readonly mode on a high port
@@ -50,6 +52,7 @@ fn test_summarize_endpoints_exist() {
     let mut child = Command::new(bn)
         .args(["gui", "serve", "--port", &port.to_string(), "--readonly"])
         .current_dir(repo_path)
+        .env("BN_DATA_DIR", data_temp.path())
         .spawn()
         .expect("Failed to start GUI server");
 

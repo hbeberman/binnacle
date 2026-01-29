@@ -10,27 +10,41 @@ mod gui_enabled {
     use assert_cmd::Command;
 
     /// Helper to create an isolated bn command (without TestEnv).
-    /// Clears container mode and agent env vars to prevent test data leaking into production.
+    /// Sets a temporary data directory to prevent test data leaking into production.
     fn bn_isolated() -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        // Set isolated data directory to prevent polluting host's binnacle data
+        // Note: TempDir is dropped immediately, but the path is captured in the env var
+        // For simple commands like --help this is fine. For commands that need the dir,
+        // use TestEnv instead.
+        let temp_dir = tempfile::tempdir().unwrap();
+        cmd.env("BN_DATA_DIR", temp_dir.path());
         cmd.env_remove("BN_CONTAINER_MODE");
         cmd.env_remove("BN_AGENT_ID");
         cmd.env_remove("BN_AGENT_NAME");
         cmd.env_remove("BN_AGENT_TYPE");
         cmd.env_remove("BN_MCP_SESSION");
         cmd.env_remove("BN_AGENT_SESSION");
-        cmd.env_remove("BN_DATA_DIR");
+
+        // Keep temp_dir alive until the end of this function
+        // so the path exists when the command runs
+        std::mem::forget(temp_dir); // Intentionally leak to keep path valid
         cmd
     }
 
     /// Helper to get storage dir with the same environment as bn_isolated().
     /// This ensures the test creates files where the isolated command will look for them.
     fn get_storage_dir_isolated(repo_path: &std::path::Path) -> std::path::PathBuf {
-        // Temporarily clear BN_DATA_DIR to match bn_isolated() environment
-        let original = std::env::var("BN_DATA_DIR").ok();
+        // Use a temporary directory to match bn_isolated() environment
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().to_path_buf();
+
+        let original_data_dir = std::env::var("BN_DATA_DIR").ok();
+        let original_container = std::env::var("BN_CONTAINER_MODE").ok();
+
         // SAFETY: This is a test helper, single-threaded test execution
         unsafe {
-            std::env::remove_var("BN_DATA_DIR");
+            std::env::set_var("BN_DATA_DIR", &temp_path);
             std::env::remove_var("BN_CONTAINER_MODE");
         }
 
@@ -38,11 +52,18 @@ mod gui_enabled {
 
         // Restore original environment
         // SAFETY: This is a test helper, single-threaded test execution
-        if let Some(val) = original {
-            unsafe {
+        unsafe {
+            if let Some(val) = original_data_dir {
                 std::env::set_var("BN_DATA_DIR", val);
+            } else {
+                std::env::remove_var("BN_DATA_DIR");
+            }
+            if let Some(val) = original_container {
+                std::env::set_var("BN_CONTAINER_MODE", val);
             }
         }
+
+        std::mem::forget(temp_dir); // Keep temp directory alive
 
         result
     }
@@ -731,15 +752,20 @@ mod gui_disabled {
     use assert_cmd::Command;
 
     /// Helper to create an isolated bn command (without TestEnv).
+    /// Sets a temporary data directory to prevent test data leaking into production.
     fn bn_isolated() -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+        // Set isolated data directory to prevent polluting host's binnacle data
+        let temp_dir = tempfile::tempdir().unwrap();
+        cmd.env("BN_DATA_DIR", temp_dir.path());
         cmd.env_remove("BN_CONTAINER_MODE");
         cmd.env_remove("BN_AGENT_ID");
         cmd.env_remove("BN_AGENT_NAME");
         cmd.env_remove("BN_AGENT_TYPE");
         cmd.env_remove("BN_MCP_SESSION");
         cmd.env_remove("BN_AGENT_SESSION");
-        cmd.env_remove("BN_DATA_DIR");
+
+        std::mem::forget(temp_dir); // Intentionally leak to keep path valid
         cmd
     }
 

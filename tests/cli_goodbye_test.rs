@@ -15,11 +15,17 @@ use tempfile::TempDir;
 /// Get a Command for the bn binary, running in a temp directory.
 /// Clears BN_AGENT_ID and BN_CONTAINER_MODE to prevent interference from the outer environment
 /// (e.g., when tests are run inside an agent session or container).
+/// Sets BN_DATA_DIR to a temporary directory to prevent polluting host's binnacle data.
 fn bn_in(dir: &TempDir) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(dir.path());
+    // Set isolated data directory to prevent polluting host's binnacle data
+    let temp_dir = tempfile::tempdir().unwrap();
+    cmd.env("BN_DATA_DIR", temp_dir.path());
     cmd.env_remove("BN_AGENT_ID");
     cmd.env_remove("BN_CONTAINER_MODE");
+
+    std::mem::forget(temp_dir); // Intentionally leak to keep path valid
     cmd
 }
 
