@@ -9,6 +9,61 @@ Task tracker for AI agents. Stores data outside your repo so it doesn't pollute 
 > [!WARNING]
 > Early alpha. Things *will* break.
 
+## Quickstart to using binnacle
+### System Pereqs
+```bash
+#Install the following
+jq
+buildah
+containerd
+npm
+
+# Setup your path
+# Ensure ~/.local/bin is in your path if it isnt already
+export PATH=$HOME/.local/bin:$PATH
+
+# Devtunnels (Optional - but cool)
+# Setup devtunnels and login following https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started?tabs=linux
+```
+
+### Download Binnacle
+```bash
+wget https://github.com/hbeberman/binnacle/releases/download/v0.0.1-alpha.7/bn-x86_64-unknown-linux-gnu.tar.gz
+tar -xf bn-x86_64-unknown-linux-gnu.tar.gz
+install -m 755 bn ~/.local/bin/
+rm bn bn-x86_64-unknown-linux-gnu.tar.gz
+install 755 bn ~/.local/bin/bn
+# or
+cargo install binnacle@=0.0.1-alpha.7
+```
+
+### Setup Copilot
+```bash
+# More info on https://github.com/github/copilot-cli
+npm install -g @github/copilot
+# Launch copilot and login so bn can use it for agents
+copilot
+```
+
+### Hello Binnacle
+```
+# Setup a git repo for binnacle to work in (or navigate to an existing one)
+mkdir hello
+cd hello
+git init
+
+# Setup binnacle configs and pull a pinned version of copilot-cli
+bn system init
+
+# Use some tools!
+bn-agent buddy # Run your helpful binnacle assistant to interact with the graph
+bn-agent prd # Run the PRD agent to plan features
+bn gui # Host a local GUI session
+bn gui --tunnel # Host a GUI session with a sharable (r/o) devtunnel URL
+bn-agent auto # Loop a container of a worker agent
+bn-agent ask # Q&A with binnacle
+```
+
 ## Build Prerequisites
 
 ### Rust Toolchain
