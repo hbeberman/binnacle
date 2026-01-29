@@ -14,6 +14,7 @@ import { drawNodeShapePath } from './shapes.js';
 import { getNodeColor, getEdgeStyle, getCSSColors } from './colors.js';
 import { worldToScreen, screenToWorld, getZoom, centerOn, panToNode } from './transform.js';
 import * as camera from './camera.js';
+import { getRevealOpacity } from '../utils/reveal-animation.js';
 
 // Animation constants
 const AGENT_DEPARTURE_FADE_MS = 5000;
@@ -1139,12 +1140,20 @@ function drawNode(node) {
     
     // Calculate opacity (for dimmed/fading nodes)
     let opacity = 1.0;
+    
+    // Check for reveal animation opacity
+    const revealOpacity = getRevealOpacity(node.id);
+    if (revealOpacity !== null) {
+        opacity = revealOpacity;
+    }
+    
+    // Check for departing agent fade
     if (node._departing && node.type === 'agent') {
         const departureTime = departingAgents.get(node.id);
         if (departureTime) {
             const elapsed = performance.now() - departureTime;
             const progress = Math.min(elapsed / AGENT_DEPARTURE_FADE_MS, 1.0);
-            opacity = 1.0 - progress;
+            opacity = Math.min(opacity, 1.0 - progress);
         }
     }
     ctx.globalAlpha = opacity;
