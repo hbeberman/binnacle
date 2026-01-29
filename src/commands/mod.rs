@@ -326,10 +326,8 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
         );
         let install_bn_agent =
             prompt_yes_no("Install bn-agent script to ~/.local/bin/bn-agent?", true);
-        let build_container = prompt_yes_no(
-            "Build binnacle container image if not already built?",
-            false,
-        );
+        let build_container =
+            prompt_yes_no("Build binnacle container image if not already built?", true);
         (
             create_claude_skills,
             create_codex_skills,
@@ -408,11 +406,9 @@ pub fn init_reinit(repo_path: &Path) -> Result<InitResult> {
     // Prompt for bn-agent installation (default Yes)
     let install_bn_agent = prompt_yes_no("Install bn-agent script to ~/.local/bin/bn-agent?", true);
 
-    // Prompt for container build (default No - optional feature)
-    let build_container = prompt_yes_no(
-        "Build binnacle container image if not already built?",
-        false,
-    );
+    // Prompt for container build (default Yes)
+    let build_container =
+        prompt_yes_no("Build binnacle container image if not already built?", true);
 
     let result = init_with_options(
         repo_path,
