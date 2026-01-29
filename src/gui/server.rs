@@ -383,12 +383,12 @@ pub async fn start_server(
     // Add asset service based on dev mode
     if dev {
         // Development mode: serve from filesystem
-        let web_dir = {
+        let (web_dir, project_root) = {
             let mut current = repo_path;
             loop {
                 let web_path = current.join("web");
                 if web_path.exists() && web_path.is_dir() {
-                    break Some(web_path);
+                    break Some((web_path, current.to_path_buf()));
                 }
                 current = match current.parent() {
                     Some(p) => p,
@@ -401,12 +401,18 @@ pub async fn start_server(
             let cwd = std::env::current_dir().ok()?;
             let web_path = cwd.join("web");
             if web_path.exists() && web_path.is_dir() {
-                Some(web_path)
+                Some((web_path, cwd))
             } else {
                 None
             }
         })
         .ok_or("Could not find web/ directory (use --dev only during development)")?;
+
+        // Serve node_modules for import map resolution (dev mode only)
+        let node_modules_dir = project_root.join("node_modules");
+        if node_modules_dir.exists() {
+            app = app.nest_service("/node_modules", ServeDir::new(&node_modules_dir));
+        }
 
         app = app.fallback_service(ServeDir::new(&web_dir));
     } else {
