@@ -172,6 +172,16 @@ check:
 test:
     cargo test --all-features
 
+# Run shell-based tests (bn-agent script tests)
+test-shell:
+    bash tests/run-shell-tests.sh
+
+# Run all tests (cargo + shell)
+test-all: test test-shell
+    @echo ""
+    @echo "✓ All tests passed!"
+
+
 # Run the development build (explicitly uses ./target, not system bn)
 # Usage: just dev orient, just dev task list, just dev --help
 dev *args:
