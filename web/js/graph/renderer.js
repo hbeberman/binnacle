@@ -1188,6 +1188,15 @@ function drawNode(node) {
     const screenPos = worldToScreen(node.x, node.y, canvas);
     const radius = node.radius * zoom;
     
+    // Viewport culling: skip nodes outside visible area with margin
+    const margin = 100; // px margin to avoid pop-in
+    if (screenPos.x + radius < -margin ||
+        screenPos.x - radius > canvas.width + margin ||
+        screenPos.y + radius < -margin ||
+        screenPos.y - radius > canvas.height + margin) {
+        return; // Node is outside viewport, skip drawing
+    }
+    
     // Get node color
     const color = getNodeColor(node);
     
