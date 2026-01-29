@@ -50,6 +50,7 @@ let stableFrameCount = 0;
 
 // Graph data (cached for rendering)
 let graphNodes = [];
+let graphNodeMap = new Map(); // node ID -> node object (for O(1) lookup)
 let graphEdges = [];
 let visibleNodes = [];
 let visibleNodeIds = new Set();
@@ -290,6 +291,9 @@ function buildGraphNodes() {
             };
         }
     });
+    
+    // Build node map for O(1) lookup during rendering
+    graphNodeMap = new Map(graphNodes.map(node => [node.id, node]));
     
     // Clean up status tracking for removed agents
     const currentAgentIds = new Set(agents.map(a => a.id));
@@ -1090,8 +1094,8 @@ function render() {
     for (const edge of graphEdges) {
         if (edgeFilters[edge.edge_type] === false) continue;
         
-        const fromNode = graphNodes.find(n => n.id === edge.from);
-        const toNode = graphNodes.find(n => n.id === edge.to);
+        const fromNode = graphNodeMap.get(edge.from);
+        const toNode = graphNodeMap.get(edge.to);
         
         if (!fromNode || !toNode) continue;
         if (!visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) continue;
@@ -1914,8 +1918,8 @@ export function findNodeAtPosition(screenX, screenY) {
  * @returns {number} Distance to edge, or Infinity if invalid
  */
 function distanceToEdge(px, py, edge) {
-    const fromNode = graphNodes.find(n => n.id === edge.from);
-    const toNode = graphNodes.find(n => n.id === edge.to);
+    const fromNode = graphNodeMap.get(edge.from);
+    const toNode = graphNodeMap.get(edge.to);
     if (!fromNode || !toNode) return Infinity;
     
     // Calculate edge endpoints at node boundaries
@@ -2041,7 +2045,7 @@ export function highlightNode(nodeId) {
     startAnimation(); // Ensure animation loop is running
     
     // Optionally pan to the node if it's not in view
-    const node = graphNodes.find(n => n.id === nodeId);
+    const node = graphNodeMap.get(nodeId);
     if (node) {
         panToNode(node);
     }
