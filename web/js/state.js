@@ -178,7 +178,8 @@ const createDefaultState = () => ({
         familyReveal: {
             active: false,           // Is a family currently revealed?
             rootId: null,            // The PRD/milestone root
-            revealedNodeIds: new Set()  // Nodes revealed by this action
+            revealedNodeIds: new Set(),  // Nodes revealed by this action
+            spawnPositions: new Map()   // Computed spawn positions for revealed nodes
         },
         
         // Toast notifications

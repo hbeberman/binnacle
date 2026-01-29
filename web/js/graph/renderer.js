@@ -149,6 +149,16 @@ export function resizeCanvas() {
  * @returns {Object} { x, y } position in world coordinates
  */
 function getInitialPositionForNewNode(nodeId, existingNodes) {
+    // Check if this node has a spawn position from family reveal
+    const familyReveal = state.get('ui.familyReveal');
+    if (familyReveal && familyReveal.active && familyReveal.spawnPositions) {
+        const spawnPos = familyReveal.spawnPositions.get(nodeId);
+        if (spawnPos) {
+            console.log(`Using spawn position for ${nodeId}: (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)})`);
+            return { x: spawnPos.x, y: spawnPos.y };
+        }
+    }
+    
     // Get all edges from state
     const edges = state.get('edges') || [];
     

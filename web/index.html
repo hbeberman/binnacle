@@ -316,7 +316,8 @@
         import { mountConnectionStatus } from './js/components/connection-status.js';
         import { mountActivityLog } from './js/components/activity-log.js';
         import { gatherSelectionContext, formatContextAsMarkdown, formatContextAsJSON } from './js/utils/selection-context.js';
-        import { findFamilyRoot, collectDescendants } from './js/utils/family-reveal.js';
+        import { findFamilyRoot, collectDescendants, computeDepths } from './js/utils/family-reveal.js';
+        import { computeSpawnPositions } from './js/utils/spawn-position.js';
         
         // Get container element
         const container = document.getElementById('app-container');
@@ -650,11 +651,33 @@
                     const descendants = collectDescendants(rootId);
                     console.log(`Family reveal: root=${rootId}, descendants=${descendants.size}`);
                     
+                    // Compute depth map for wave-based positioning
+                    const depthMap = computeDepths(rootId, descendants);
+                    
+                    // Get existing nodes and edges for position calculation
+                    const existingNodesArray = graph.getNodes();
+                    const existingNodes = new Map(existingNodesArray.map(n => [n.id, n]));
+                    const edges = State.get('edges') || [];
+                    
+                    // Compute spawn positions for newly revealed nodes
+                    const spawnPositions = computeSpawnPositions(depthMap, existingNodes, edges);
+                    
+                    // Apply positions to newly revealed nodes (nodes not in existing)
+                    for (const [nodeId, position] of spawnPositions.entries()) {
+                        if (!existingNodes.has(nodeId)) {
+                            // This is a newly revealed node - it will get positioned when the graph rebuilds
+                            // The position will be picked up by getInitialPositionForNewNode
+                            // For now, we'll let the normal graph rebuild handle it
+                            console.log(`Spawn position for ${nodeId}: (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`);
+                        }
+                    }
+                    
                     // Update family reveal state
                     State.set('ui.familyReveal', {
                         active: true,
                         rootId: rootId,
-                        revealedNodeIds: descendants
+                        revealedNodeIds: descendants,
+                        spawnPositions: spawnPositions  // Store positions for use during graph rebuild
                     });
                 } else {
                     console.log('Family reveal: no root found, clearing state');
@@ -662,7 +685,8 @@
                     State.set('ui.familyReveal', {
                         active: false,
                         rootId: null,
-                        revealedNodeIds: new Set()
+                        revealedNodeIds: new Set(),
+                        spawnPositions: new Map()
                     });
                 }
                 
