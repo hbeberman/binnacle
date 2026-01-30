@@ -8,8 +8,8 @@ use binnacle::cli::TmuxCommands;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
     CopilotCommands, DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands,
-    LinkCommands, LogCommands, McpCommands, MilestoneCommands, MissionCommands, QueueCommands,
-    SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
+    IssueCommands, LinkCommands, LogCommands, McpCommands, MilestoneCommands, MissionCommands,
+    QueueCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -364,6 +364,86 @@ fn run_command(
             }
             BugCommands::Delete { id } => {
                 let result = commands::bug_delete(repo_path, &id)?;
+                output(&result, human);
+            }
+        },
+
+        Some(Commands::Issue { command }) => match command {
+            IssueCommands::Create {
+                title,
+                short_name,
+                priority,
+                tag,
+                assignee,
+                description,
+                queue,
+            } => {
+                let result = commands::issue_create_with_queue(
+                    repo_path,
+                    title,
+                    short_name,
+                    description,
+                    priority,
+                    tag,
+                    assignee,
+                    queue,
+                )?;
+                output(&result, human);
+            }
+            IssueCommands::List {
+                status,
+                priority,
+                tag,
+                all,
+            } => {
+                let result = commands::issue_list(
+                    repo_path,
+                    status.as_deref(),
+                    priority,
+                    tag.as_deref(),
+                    all,
+                )?;
+                output(&result, human);
+            }
+            IssueCommands::Show { id } => {
+                let result = commands::issue_show(repo_path, &id)?;
+                output(&result, human);
+            }
+            IssueCommands::Update {
+                id,
+                title,
+                short_name,
+                description,
+                priority,
+                status,
+                add_tag,
+                remove_tag,
+                assignee,
+            } => {
+                let result = commands::issue_update(
+                    repo_path,
+                    &id,
+                    title,
+                    short_name,
+                    description,
+                    priority,
+                    status.as_deref(),
+                    add_tag,
+                    remove_tag,
+                    assignee,
+                )?;
+                output(&result, human);
+            }
+            IssueCommands::Close { id, reason } => {
+                let result = commands::issue_close(repo_path, &id, reason)?;
+                output(&result, human);
+            }
+            IssueCommands::Reopen { id } => {
+                let result = commands::issue_reopen(repo_path, &id)?;
+                output(&result, human);
+            }
+            IssueCommands::Delete { id } => {
+                let result = commands::issue_delete(repo_path, &id)?;
                 output(&result, human);
             }
         },
@@ -2707,6 +2787,83 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             }
             BugCommands::Delete { id } => {
                 ("bug delete".to_string(), serde_json::json!({ "id": id }))
+            }
+        },
+
+        Some(Commands::Issue { command }) => match command {
+            IssueCommands::Create {
+                title,
+                short_name,
+                priority,
+                tag,
+                assignee,
+                description,
+                queue,
+            } => (
+                "issue create".to_string(),
+                serde_json::json!({
+                    "title": title,
+                    "short_name": short_name,
+                    "priority": priority,
+                    "tag": tag,
+                    "assignee": assignee,
+                    "description": description,
+                    "queue": queue,
+                }),
+            ),
+            IssueCommands::List {
+                status,
+                priority,
+                tag,
+                all,
+            } => (
+                "issue list".to_string(),
+                serde_json::json!({
+                    "status": status,
+                    "priority": priority,
+                    "tag": tag,
+                    "all": all,
+                }),
+            ),
+            IssueCommands::Show { id } => {
+                ("issue show".to_string(), serde_json::json!({ "id": id }))
+            }
+            IssueCommands::Update {
+                id,
+                title,
+                short_name,
+                description,
+                priority,
+                status,
+                add_tag,
+                remove_tag,
+                assignee,
+            } => (
+                "issue update".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "title": title,
+                    "short_name": short_name,
+                    "description": description,
+                    "priority": priority,
+                    "status": status,
+                    "add_tag": add_tag,
+                    "remove_tag": remove_tag,
+                    "assignee": assignee,
+                }),
+            ),
+            IssueCommands::Close { id, reason } => (
+                "issue close".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "reason": reason,
+                }),
+            ),
+            IssueCommands::Reopen { id } => {
+                ("issue reopen".to_string(), serde_json::json!({ "id": id }))
+            }
+            IssueCommands::Delete { id } => {
+                ("issue delete".to_string(), serde_json::json!({ "id": id }))
             }
         },
 
