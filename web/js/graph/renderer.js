@@ -154,6 +154,15 @@ function getInitialPositionForNewNode(nodeId, existingNodes) {
     // Check if this node has a spawn position from family reveal
     const familyReveal = state.get('ui.familyReveal');
     if (familyReveal && familyReveal.active && familyReveal.spawnPositions) {
+        // Ensure spawnPositions is a Map (defensive check)
+        if (!(familyReveal.spawnPositions instanceof Map)) {
+            console.warn('[Renderer] familyReveal.spawnPositions is not a Map, converting:', familyReveal.spawnPositions);
+            const spawnMap = new Map(Object.entries(familyReveal.spawnPositions || {}));
+            familyReveal.spawnPositions = spawnMap;
+            // Persist the conversion back to state
+            state.set('ui.familyReveal.spawnPositions', spawnMap);
+        }
+        
         const spawnPos = familyReveal.spawnPositions.get(nodeId);
         if (spawnPos) {
             console.log(`Using spawn position for ${nodeId}: (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)})`);
@@ -335,7 +344,10 @@ function filterVisibleNodes() {
     // Ensure revealedNodeIds is a Set (defensive check)
     if (familyReveal.revealedNodeIds && !(familyReveal.revealedNodeIds instanceof Set)) {
         console.warn('[Renderer] familyReveal.revealedNodeIds is not a Set, converting:', familyReveal.revealedNodeIds);
-        familyReveal.revealedNodeIds = new Set(familyReveal.revealedNodeIds);
+        const revealedSet = new Set(familyReveal.revealedNodeIds);
+        familyReveal.revealedNodeIds = revealedSet;
+        // Persist the conversion back to state to prevent repeated conversions
+        state.set('ui.familyReveal.revealedNodeIds', revealedSet);
     }
     
     visibleNodes = graphNodes.filter(node => {
