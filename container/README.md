@@ -9,7 +9,7 @@ Run AI agents in isolated containers with full access to the binnacle task graph
 git worktree add ../agent-worktree -b agent-feature
 
 # 2. Build the worker image
-bn container build
+bn container build worker
 
 # 3. Run the container (interactive mode)
 bn container run ../agent-worktree
@@ -85,6 +85,154 @@ The container worker provides:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## Container Definitions
+
+Binnacle uses a **layered configuration system** for container definitions. This allows projects to customize their container setup while maintaining backward compatibility with the embedded defaults.
+
+### Directory Structure
+
+Container definitions are stored in `.binnacle/containers/`:
+
+```
+.binnacle/
+└── containers/
+    ├── config.kdl           # Container definitions (required)
+    └── worker/              # Per-definition directories
+        ├── Containerfile    # Image build instructions
+        ├── entrypoint.sh    # Container entry point
+        └── git-wrapper.sh   # Git hook enforcement
+```
+
+Each container definition can have its own directory with a `Containerfile` and supporting files.
+
+### config.kdl Format
+
+The `config.kdl` file uses [KDL](https://kdl.dev/) syntax to define containers:
+
+```kdl
+// Basic container definition
+container "worker" {
+    description "AI agent worker with binnacle task tracking"
+    
+    // Default resource limits
+    defaults {
+        cpus 4
+        memory "8g"
+    }
+    
+    // Mount configuration
+    mounts {
+        mount "workspace" target="/workspace" mode="rw"
+        mount "cargo-cache" source="~/.cargo" target="/usr/local/cargo/registry" mode="rw" optional=#true
+        mount "rustup-cache" source="~/.rustup" target="/usr/local/rustup" mode="ro" optional=#true
+    }
+}
+```
+
+### Container Definition Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `description` | No | Human-readable description |
+| `parent` | No | Parent definition to inherit from |
+| `entrypoint` | No | Entrypoint chaining mode (`replace`, `before`, `after`) |
+| `defaults` | No | Default resource limits (`cpus`, `memory`) |
+| `mounts` | No | List of mount configurations |
+
+### Mount Configuration
+
+Mounts define how host directories are mapped into the container:
+
+```kdl
+mounts {
+    mount "name" target="/container/path" mode="rw"
+    mount "name" source="/host/path" target="/container/path" mode="ro"
+    mount "name" source="~/.config" target="/config" mode="rw" optional=#true
+}
+```
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `target` | Yes | Path inside the container (must be absolute) |
+| `source` | No | Host path (supports `~`, `$HOME`, relative paths) |
+| `mode` | No | `rw` (read-write, default) or `ro` (read-only) |
+| `optional` | No | Skip mount if source doesn't exist (`#true`/`#false`) |
+
+**Special mount sources:**
+- `"workspace"` - Automatically mapped to the mounted worktree
+- `"binnacle"` - Mapped to binnacle data directory
+
+**Path resolution:**
+- `~/.cargo` or `$HOME/.cargo` - Expands to user's home directory
+- `/absolute/path` - Used as-is
+- `relative/path` - Resolved relative to repository root
+
+### Definition Inheritance (Parent Chains)
+
+Containers can inherit from parent definitions:
+
+```kdl
+// Base definition
+container "base" {
+    description "Common development tools"
+    mounts {
+        mount "workspace" target="/workspace" mode="rw"
+    }
+}
+
+// Child definition inheriting from base
+container "rust-dev" {
+    parent "base"
+    description "Rust development environment"
+    
+    entrypoint mode="after"  // Run after parent's entrypoint
+    
+    mounts {
+        mount "cargo-cache" source="~/.cargo" target="/cargo" mode="rw"
+    }
+}
+```
+
+**Entrypoint modes:**
+- `replace` (default) - Child's entrypoint replaces parent's
+- `before` - Child runs first, then exec's parent's entrypoint
+- `after` - Parent runs first, then child's runs
+
+### Definition Sources
+
+Definitions are loaded from multiple sources in priority order:
+
+1. **Project-level** (`.binnacle/containers/config.kdl`) - Highest priority
+2. **Host-level** (`~/.local/share/binnacle/<hash>/containers/config.kdl`)
+3. **Embedded** (compiled-in fallback) - Lowest priority
+
+When the same name exists in multiple sources, use `--project` or `--host` to specify which to use:
+
+```bash
+bn container build worker --project   # Use project-level definition
+bn container build worker --host      # Use host-level definition
+```
+
+### Validation Tiers
+
+Definitions are validated at three stages:
+
+1. **Parse-time**: KDL syntax, schema, reserved names, cycle detection
+2. **Build-time**: Parent references, Containerfile existence
+3. **Run-time**: Mount source existence, image availability
+
+**Reserved names:** The name `binnacle` is reserved and cannot be used for custom definitions.
+
+### Listing Definitions
+
+```bash
+# List all available definitions
+bn container list-definitions -H
+
+# JSON output for scripting
+bn container list-definitions
+```
+
 ## Commands
 
 ### Build the Worker Image
@@ -92,11 +240,17 @@ The container worker provides:
 The `bn container build` command automatically packs the currently running `bn` binary into the container image. This means you can build directly from an installed `bn`:
 
 ```bash
-# Build using the currently running bn binary
-bn container build
+# Build a specific definition
+bn container build worker
 
-# Or with a custom tag
-bn container build --tag v1.0
+# Build with a custom tag
+bn container build worker --tag v1.0
+
+# Build all definitions in dependency order
+bn container build --all
+
+# Skip mount validation (useful in CI)
+bn container build worker --skip-mount-validation
 ```
 
 For development builds using the justfile:
@@ -461,6 +615,100 @@ Uses `--net-host` for network access (required for AI agent API calls). The cont
 ### User Identity
 
 The container uses `nss_wrapper` with `LD_PRELOAD` to provide user identity without modifying system files. This satisfies tools like `git` and Node.js `os.userInfo()` that call `getpwuid()`.
+
+## Migration Guide
+
+### From Embedded Defaults to Custom Definitions
+
+If you've been using the embedded container defaults and want to customize your setup:
+
+**1. Create the container directory structure:**
+
+```bash
+mkdir -p .binnacle/containers/worker
+```
+
+**2. Create a `config.kdl` file:**
+
+```bash
+cat > .binnacle/containers/config.kdl << 'EOF'
+// Custom container definition for your project
+container "worker" {
+    description "Custom worker for my-project"
+    
+    defaults {
+        cpus 4
+        memory "8g"
+    }
+    
+    mounts {
+        mount "workspace" target="/workspace" mode="rw"
+        // Add custom mounts as needed:
+        // mount "data" source="/path/to/data" target="/data" mode="ro"
+    }
+}
+EOF
+```
+
+**3. Copy or create a Containerfile:**
+
+```bash
+# Copy the default as a starting point
+curl -o .binnacle/containers/worker/Containerfile \
+  https://raw.githubusercontent.com/hbeberman/binnacle/main/.binnacle/containers/worker/Containerfile
+```
+
+**4. Customize as needed and build:**
+
+```bash
+bn container build worker
+```
+
+### Common Customizations
+
+**Adding additional packages:**
+
+Edit `.binnacle/containers/worker/Containerfile`:
+
+```dockerfile
+# Add after the dnf install line
+RUN dnf install -y your-package
+```
+
+**Adding language-specific caches:**
+
+Edit `.binnacle/containers/config.kdl`:
+
+```kdl
+container "worker" {
+    // ... existing config ...
+    
+    mounts {
+        mount "workspace" target="/workspace" mode="rw"
+        
+        // Python virtual environments
+        mount "venv" source=".venv" target="/workspace/.venv" mode="rw" optional=#true
+        
+        // Go modules cache
+        mount "gomod" source="~/go/pkg/mod" target="/go/pkg/mod" mode="rw" optional=#true
+    }
+}
+```
+
+**Creating a project-specific dev container:**
+
+```kdl
+container "dev" {
+    parent "worker"
+    description "Development container with extra debugging tools"
+    
+    entrypoint mode="after"
+    
+    mounts {
+        mount "debug-config" source=".debug/" target="/debug" mode="ro" optional=#true
+    }
+}
+```
 
 ## Related
 
