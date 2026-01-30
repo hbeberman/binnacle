@@ -227,6 +227,62 @@ impl TmuxCommand {
             .flag_with_value("-t", target)
             .arg(new_name)
     }
+
+    /// Check if a session exists.
+    ///
+    /// # Arguments
+    /// * `session_name` - Name of the session to check
+    ///
+    /// # Example
+    /// ```
+    /// use binnacle::tmux::command::TmuxCommand;
+    /// let cmd = TmuxCommand::has_session("my-session");
+    /// assert_eq!(cmd.build(), "tmux has-session -t my-session");
+    /// ```
+    pub fn has_session(session_name: &str) -> Self {
+        Self::new("has-session").flag_with_value("-t", session_name)
+    }
+
+    /// Attach to an existing session.
+    ///
+    /// # Arguments
+    /// * `session_name` - Name of the session to attach to
+    ///
+    /// # Example
+    /// ```
+    /// use binnacle::tmux::command::TmuxCommand;
+    /// let cmd = TmuxCommand::attach_session("my-session");
+    /// assert_eq!(cmd.build(), "tmux attach-session -t my-session");
+    /// ```
+    pub fn attach_session(session_name: &str) -> Self {
+        Self::new("attach-session").flag_with_value("-t", session_name)
+    }
+
+    /// Get an environment variable from a session.
+    ///
+    /// # Arguments
+    /// * `target` - Target session
+    /// * `name` - Environment variable name
+    ///
+    /// # Example
+    /// ```
+    /// use binnacle::tmux::command::TmuxCommand;
+    /// let cmd = TmuxCommand::show_environment(Some("my-session"), "BINNACLE_REPO_HASH");
+    /// assert_eq!(cmd.build(), "tmux show-environment -t my-session BINNACLE_REPO_HASH");
+    /// ```
+    pub fn show_environment(target: Option<&str>, name: &str) -> Self {
+        let mut cmd = Self::new("show-environment");
+        if let Some(t) = target {
+            cmd = cmd.flag_with_value("-t", t);
+        }
+        cmd = cmd.arg(name);
+        cmd
+    }
+
+    /// Get the arguments as a Vec for execution.
+    pub fn args(&self) -> &[String] {
+        &self.args
+    }
 }
 
 #[cfg(test)]
@@ -460,5 +516,39 @@ mod tests {
     fn test_rename_window_with_spaces() {
         let cmd = TmuxCommand::rename_window("dev:1", "my window");
         assert_eq!(cmd.build(), "tmux rename-window -t dev:1 my window");
+    }
+
+    #[test]
+    fn test_has_session() {
+        let cmd = TmuxCommand::has_session("my-session");
+        assert_eq!(cmd.build(), "tmux has-session -t my-session");
+    }
+
+    #[test]
+    fn test_attach_session() {
+        let cmd = TmuxCommand::attach_session("my-session");
+        assert_eq!(cmd.build(), "tmux attach-session -t my-session");
+    }
+
+    #[test]
+    fn test_show_environment_with_target() {
+        let cmd = TmuxCommand::show_environment(Some("my-session"), "BINNACLE_REPO_HASH");
+        assert_eq!(
+            cmd.build(),
+            "tmux show-environment -t my-session BINNACLE_REPO_HASH"
+        );
+    }
+
+    #[test]
+    fn test_show_environment_without_target() {
+        let cmd = TmuxCommand::show_environment(None, "PATH");
+        assert_eq!(cmd.build(), "tmux show-environment PATH");
+    }
+
+    #[test]
+    fn test_args_accessor() {
+        let cmd = TmuxCommand::new_session("test", true, None);
+        let args = cmd.args();
+        assert_eq!(args, &["tmux", "new-session", "-d", "-s", "test"]);
     }
 }
