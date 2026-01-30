@@ -2374,6 +2374,33 @@ fn get_copilot_data_dir() -> Result<PathBuf> {
     Ok(base_dir.join("utils").join("copilot"))
 }
 
+/// Get a binnacle-specific temp directory that doesn't rely on /tmp.
+///
+/// Uses ~/.local/share/binnacle/tmp/ which is more likely to have sufficient
+/// disk space compared to /tmp which may have tight quotas on some systems.
+///
+/// The directory is created if it doesn't exist.
+fn get_binnacle_temp_dir() -> Result<PathBuf> {
+    let base_dir = if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
+        PathBuf::from(override_dir)
+    } else {
+        dirs::data_local_dir()
+            .ok_or_else(|| Error::Other("Could not determine local data directory".to_string()))?
+            .join("binnacle")
+    };
+
+    let temp_dir = base_dir.join("tmp");
+    fs::create_dir_all(&temp_dir).map_err(|e| {
+        Error::Other(format!(
+            "Failed to create temp directory {}: {}",
+            temp_dir.display(),
+            e
+        ))
+    })?;
+
+    Ok(temp_dir)
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CopilotPathResult {
     pub version: String,
@@ -20290,14 +20317,16 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     // reference in the manifest, allowing ctr to import it with the correct name.
     // OCI archives require annotations that buildah doesn't always include.
     eprintln!("📤 Exporting image to docker archive...");
-    let temp_archive = "/tmp/binnacle-worker.tar";
+    let temp_dir = get_binnacle_temp_dir()?;
+    let temp_archive = temp_dir.join("binnacle-worker.tar");
+    let temp_archive_str = temp_archive.to_string_lossy();
     let image_ref = format!("localhost/binnacle-worker:{}", tag);
 
     let push_output = Command::new("buildah")
         .args([
             "push",
             &image_ref,
-            &format!("docker-archive:{}:{}", temp_archive, image_ref),
+            &format!("docker-archive:{}:{}", temp_archive_str, image_ref),
         ])
         .output()?;
 
@@ -20312,12 +20341,18 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     let mode = detect_containerd_mode();
     warn_system_containerd_mode(&mode);
     let import_output = ctr_command(&mode)
-        .args(["-n", "binnacle", "images", "import", temp_archive])
+        .args([
+            "-n",
+            "binnacle",
+            "images",
+            "import",
+            temp_archive_str.as_ref(),
+        ])
         .output()?;
 
     // Clean up temp file
     eprintln!("🧹 Cleaning up...");
-    let _ = fs::remove_file(temp_archive);
+    let _ = fs::remove_file(&temp_archive);
 
     if !import_output.status.success() {
         let stderr = String::from_utf8_lossy(&import_output.stderr);
@@ -20433,13 +20468,15 @@ fn build_definition_container(
     // Use docker-archive format (not oci-archive) because it embeds the full image
     // reference in the manifest, allowing ctr to import it with the correct name.
     eprintln!("📤 Exporting image to docker archive...");
-    let temp_archive = format!("/tmp/binnacle-{}.tar", def_name);
+    let temp_dir = get_binnacle_temp_dir()?;
+    let temp_archive = temp_dir.join(format!("binnacle-{}.tar", def_name));
+    let temp_archive_str = temp_archive.to_string_lossy();
 
     let push_output = Command::new("buildah")
         .args([
             "push",
             &image_ref,
-            &format!("docker-archive:{}:{}", temp_archive, image_ref),
+            &format!("docker-archive:{}:{}", temp_archive_str, image_ref),
         ])
         .output()?;
 
@@ -20454,7 +20491,13 @@ fn build_definition_container(
     let mode = detect_containerd_mode();
     warn_system_containerd_mode(&mode);
     let import_output = ctr_command(&mode)
-        .args(["-n", "binnacle", "images", "import", &temp_archive])
+        .args([
+            "-n",
+            "binnacle",
+            "images",
+            "import",
+            temp_archive_str.as_ref(),
+        ])
         .output()?;
 
     // Clean up temp file
