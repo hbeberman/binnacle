@@ -264,6 +264,7 @@ async function fetchAllData(baseUrl, onStateChange) {
     const [
         tasksData,
         bugsData,
+        issuesData,
         ideasData,
         milestonesData,
         readyData,
@@ -276,6 +277,7 @@ async function fetchAllData(baseUrl, onStateChange) {
     ] = await Promise.all([
         fetchJson(`${baseUrl}/api/tasks`),
         fetchJson(`${baseUrl}/api/bugs`),
+        fetchJson(`${baseUrl}/api/issues`),
         fetchJson(`${baseUrl}/api/ideas`),
         fetchJson(`${baseUrl}/api/milestones`),
         fetchJson(`${baseUrl}/api/ready`),
@@ -290,6 +292,7 @@ async function fetchAllData(baseUrl, onStateChange) {
     // Normalize and set entities
     state.setEntities('tasks', normalizeItems(tasksData?.tasks, 'task'));
     state.setEntities('bugs', normalizeItems(bugsData?.bugs, 'bug'));
+    state.setEntities('issues', normalizeItems(issuesData?.issues, 'issue'));
     state.setEntities('ideas', normalizeItems(ideasData?.ideas, 'idea'));
     state.setEntities('tests', normalizeItems(testsData?.tests, 'test'));
     state.setEntities('docs', normalizeItems(docsData?.docs, 'doc'));
@@ -430,6 +433,7 @@ function countEntities() {
     return (
         state.getTasks().length +
         state.getBugs().length +
+        state.getIssues().length +
         state.getIdeas().length +
         state.getTests().length +
         state.getDocs().length +

@@ -202,9 +202,34 @@ export function drawDocPath(ctx, cx, cy, radius) {
 }
 
 /**
+ * Draw a question mark badge path for issue nodes (rounded rect with ?)
+ * @param {CanvasRenderingContext2D} ctx - Canvas context
+ * @param {number} cx - Center X coordinate
+ * @param {number} cy - Center Y coordinate
+ * @param {number} radius - Overall radius
+ */
+export function drawQuestionMarkPath(ctx, cx, cy, radius) {
+    const w = radius * 0.9;   // Width
+    const h = radius * 1.1;   // Height (slightly taller)
+    const corner = radius * 0.2;  // Corner radius
+    
+    // Draw rounded rectangle background
+    ctx.moveTo(cx - w + corner, cy - h);
+    ctx.lineTo(cx + w - corner, cy - h);
+    ctx.quadraticCurveTo(cx + w, cy - h, cx + w, cy - h + corner);
+    ctx.lineTo(cx + w, cy + h - corner);
+    ctx.quadraticCurveTo(cx + w, cy + h, cx + w - corner, cy + h);
+    ctx.lineTo(cx - w + corner, cy + h);
+    ctx.quadraticCurveTo(cx - w, cy + h, cx - w, cy + h - corner);
+    ctx.lineTo(cx - w, cy - h + corner);
+    ctx.quadraticCurveTo(cx - w, cy - h, cx - w + corner, cy - h);
+    ctx.closePath();
+}
+
+/**
  * Draw the appropriate shape path based on node type
  * @param {CanvasRenderingContext2D} ctx - Canvas context
- * @param {string} nodeType - Node type (task, bug, idea, queue, agent, doc, milestone)
+ * @param {string} nodeType - Node type (task, bug, issue, idea, queue, agent, doc, milestone)
  * @param {number} cx - Center X coordinate
  * @param {number} cy - Center Y coordinate
  * @param {number} radius - Shape radius
@@ -219,6 +244,9 @@ export function drawNodeShapePath(ctx, nodeType, cx, cy, radius) {
             break;
         case 'bug':
             drawSquarePath(ctx, cx, cy, radius);
+            break;
+        case 'issue':
+            drawQuestionMarkPath(ctx, cx, cy, radius);
             break;
         case 'idea':
             drawCloudPath(ctx, cx, cy, radius);

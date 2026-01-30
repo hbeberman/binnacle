@@ -342,6 +342,7 @@ pub async fn start_server(
         .route("/api/config", get(get_config))
         .route("/api/tasks", get(get_tasks))
         .route("/api/bugs", get(get_bugs))
+        .route("/api/issues", get(get_issues))
         .route("/api/ideas", get(get_ideas))
         .route("/api/milestones", get(get_milestones))
         .route("/api/ready", get(get_ready))
@@ -491,6 +492,16 @@ async fn get_bugs(State(state): State<AppState>) -> Result<Json<serde_json::Valu
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({ "bugs": bugs })))
+}
+
+/// Get all issues
+async fn get_issues(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+    let issues = storage
+        .list_issues(None, None, None, true) // Include closed issues for GUI
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({ "issues": issues })))
 }
 
 /// Get all ideas

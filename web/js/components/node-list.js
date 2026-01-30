@@ -55,6 +55,11 @@ function renderNodeList(container, options = {}) {
         allNodes.push({ ...b, nodeType: 'bug' });
     });
     
+    // Issues
+    (state.getIssues() || []).forEach(i => {
+        allNodes.push({ ...i, nodeType: 'issue' });
+    });
+    
     // Ideas
     (state.getIdeas() || []).forEach(i => {
         allNodes.push({ ...i, nodeType: 'idea' });
@@ -78,14 +83,17 @@ function renderNodeList(container, options = {}) {
     // Apply hideCompleted filter
     if (hideCompleted) {
         allNodes = allNodes.filter(node => {
-            // Keep non-tasks/bugs/ideas/milestones
-            if (!['task', 'bug', 'idea', 'milestone'].includes(node.nodeType)) {
+            // Keep non-tasks/bugs/issues/ideas/milestones
+            if (!['task', 'bug', 'issue', 'idea', 'milestone'].includes(node.nodeType)) {
                 return true;
             }
             
             // Filter out completed statuses
             if (node.nodeType === 'idea') {
                 return node.status !== 'promoted' && node.status !== 'wilted';
+            }
+            if (node.nodeType === 'issue') {
+                return !['resolved', 'closed', 'wont_fix', 'by_design', 'no_repro'].includes(node.status);
             }
             return node.status !== 'done' && node.status !== 'cancelled';
         });
@@ -122,6 +130,16 @@ function renderNodeList(container, options = {}) {
                 columns.blocked.push(node);
             } else {
                 // pending or other statuses go in pending
+                columns.pending.push(node);
+            }
+        } else if (node.nodeType === 'issue') {
+            // Issues have their own status workflow
+            if (['resolved', 'closed', 'wont_fix', 'by_design', 'no_repro'].includes(node.status)) {
+                columns.done.push(node);
+            } else if (node.status === 'investigating') {
+                columns.in_progress.push(node);
+            } else {
+                // open, triage go in pending
                 columns.pending.push(node);
             }
         } else if (node.nodeType === 'idea') {
@@ -250,6 +268,8 @@ function renderNodeCard(node, readyIds, _options) {
         case 'task':
         case 'bug':
             return renderTaskBugCard(node, readyIds);
+        case 'issue':
+            return renderIssueCard(node);
         case 'idea':
             return renderIdeaCard(node);
         case 'test':
@@ -289,6 +309,42 @@ function renderTaskBugCard(node, readyIds) {
             <span class="badge badge-priority-${node.priority ?? 2}">P${node.priority ?? 2}</span>
             <span class="badge badge-id">${node.id}</span>
             ${(node.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
+        </div>
+    </div>`;
+}
+
+/**
+ * Render issue card
+ */
+function renderIssueCard(issue) {
+    const isClosed = ['resolved', 'closed', 'wont_fix', 'by_design', 'no_repro'].includes(issue.status);
+    const isInvestigating = issue.status === 'investigating';
+    const statusLabel = issue.status === 'open' ? '❓ Open'
+        : issue.status === 'triage' ? '🔍 Triage'
+        : issue.status === 'investigating' ? '🔬 Investigating'
+        : issue.status === 'resolved' ? '✅ Resolved'
+        : issue.status === 'closed' ? '✓ Closed'
+        : issue.status === 'wont_fix' ? '⛔ Won\'t Fix'
+        : issue.status === 'by_design' ? '🎨 By Design'
+        : issue.status === 'no_repro' ? '🔎 No Repro'
+        : issue.status;
+    
+    return `
+    <div class="node-card ${isClosed ? 'card-closed' : ''} ${isInvestigating ? 'card-in-progress' : ''}" data-node-id="${issue.id}">
+        ${isClosed ? `<div class="closed-banner">${statusLabel}</div>` : ''}
+        ${isInvestigating ? `<div class="in-progress-banner">🔬 Investigating</div>` : ''}
+        <div class="card-header">
+            <div class="card-title">❓ ${escapeHtml(issue.title)}</div>
+            <div class="card-actions">
+                <button class="card-jump-btn" data-node-id="${issue.id}" title="Jump to graph">🎯</button>
+            </div>
+        </div>
+        ${issue.description ? `<div class="card-description">${escapeHtml(issue.description)}</div>` : ''}
+        <div class="card-meta">
+            <span class="badge badge-priority-${issue.priority ?? 2}">P${issue.priority ?? 2}</span>
+            <span class="badge">${statusLabel}</span>
+            <span class="badge badge-id">${issue.id}</span>
+            ${(issue.tags || []).map(tag => `<span class="badge badge-tag">${escapeHtml(tag)}</span>`).join('')}
         </div>
     </div>`;
 }

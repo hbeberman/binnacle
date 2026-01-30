@@ -20,6 +20,18 @@ const BUG_STATUS_COLORS = {
     'done': '#8fbc8f'
 };
 
+// Issue colors (orange/amber tones for investigation workflow)
+const ISSUE_STATUS_COLORS = {
+    'open': '#f5a623',
+    'triage': '#ffb84d',
+    'investigating': '#ff9500',
+    'resolved': '#7ed321',
+    'closed': '#8fbc8f',
+    'wont_fix': '#9b9b9b',
+    'by_design': '#a8a8a8',
+    'no_repro': '#c0c0c0'
+};
+
 // Idea colors (white tones for fluffy cloud appearance)
 const IDEA_STATUS_COLORS = {
     'pending': '#ffffff',
@@ -70,6 +82,9 @@ export function getNodeColor(node) {
         
         case 'bug':
             return BUG_STATUS_COLORS[status] || '#e07878';
+        
+        case 'issue':
+            return ISSUE_STATUS_COLORS[status] || '#f5a623';
         
         case 'idea':
             return IDEA_STATUS_COLORS[status] || '#ffffff';
@@ -320,6 +335,7 @@ export function getCSSColors() {
 export {
     TASK_STATUS_COLORS,
     BUG_STATUS_COLORS,
+    ISSUE_STATUS_COLORS,
     IDEA_STATUS_COLORS,
     MILESTONE_STATUS_COLORS,
     AGENT_STATUS_COLORS,
