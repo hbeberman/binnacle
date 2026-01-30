@@ -164,7 +164,7 @@ sudo systemctl enable --now containerd
 git worktree add ../agent-work -b agent-feature
 
 # 3. Build the container image
-bn container build
+bn container build binnacle
 
 # 4. Run the container
 bn container run ../agent-work
