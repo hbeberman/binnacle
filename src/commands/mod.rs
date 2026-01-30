@@ -14372,6 +14372,10 @@ pub struct StoreExportResult {
     pub output_path: String,
     pub size_bytes: u64,
     pub task_count: usize,
+    pub bug_count: usize,
+    pub idea_count: usize,
+    pub doc_count: usize,
+    pub milestone_count: usize,
     pub test_count: usize,
     pub commit_count: usize,
 }
@@ -14392,6 +14396,10 @@ impl Output for StoreExportResult {
             let size_kb = self.size_bytes as f64 / 1024.0;
             lines.push(format!("  Size: {:.1} KB", size_kb));
             lines.push(format!("  Tasks: {}", self.task_count));
+            lines.push(format!("  Bugs: {}", self.bug_count));
+            lines.push(format!("  Ideas: {}", self.idea_count));
+            lines.push(format!("  Docs: {}", self.doc_count));
+            lines.push(format!("  Milestones: {}", self.milestone_count));
             lines.push(format!("  Tests: {}", self.test_count));
             lines.push(format!("  Commits: {}", self.commit_count));
         } else {
@@ -14410,6 +14418,10 @@ struct ExportManifest {
     source_repo: String,
     binnacle_version: String,
     task_count: usize,
+    bug_count: usize,
+    idea_count: usize,
+    doc_count: usize,
+    milestone_count: usize,
     test_count: usize,
     commit_count: usize,
     checksums: std::collections::HashMap<String, String>,
@@ -14474,8 +14486,12 @@ pub fn system_store_export(
         }
     }
 
-    // Count tasks, tests, and commits
+    // Count tasks, bugs, ideas, docs, milestones, tests, and commits
     let tasks = storage.list_tasks(None, None, None)?;
+    let bugs = storage.list_bugs(None, None, None, None, true)?; // Include all for export
+    let ideas = storage.list_ideas(None, None)?;
+    let docs = storage.list_docs(None, None, None, None)?;
+    let milestones = storage.list_milestones(None, None, None)?;
     let tests = storage.list_tests(None)?;
     let commit_count = storage.count_commit_links()?;
 
@@ -14501,6 +14517,10 @@ pub fn system_store_export(
         source_repo: repo_path.to_string_lossy().to_string(),
         binnacle_version: env!("CARGO_PKG_VERSION").to_string(),
         task_count: tasks.len(),
+        bug_count: bugs.len(),
+        idea_count: ideas.len(),
+        doc_count: docs.len(),
+        milestone_count: milestones.len(),
         test_count: tests.len(),
         commit_count,
         checksums: checksums.clone(),
@@ -14573,6 +14593,10 @@ pub fn system_store_export(
         output_path: output.to_string(),
         size_bytes,
         task_count: tasks.len(),
+        bug_count: bugs.len(),
+        idea_count: ideas.len(),
+        doc_count: docs.len(),
+        milestone_count: milestones.len(),
         test_count: tests.len(),
         commit_count,
     })
@@ -14586,6 +14610,10 @@ pub struct CommitArchiveResult {
     pub commit_hash: String,
     pub size_bytes: u64,
     pub task_count: usize,
+    pub bug_count: usize,
+    pub idea_count: usize,
+    pub doc_count: usize,
+    pub milestone_count: usize,
     pub test_count: usize,
     pub commit_count: usize,
     /// Reason why archive was skipped (if `created` is false)
@@ -14601,11 +14629,15 @@ impl Output for CommitArchiveResult {
     fn to_human(&self) -> String {
         if self.created {
             format!(
-                "Created archive for commit {}:\n  Path: {}\n  Size: {} bytes\n  Tasks: {}, Tests: {}, Commits: {}",
+                "Created archive for commit {}:\n  Path: {}\n  Size: {} bytes\n  Tasks: {}, Bugs: {}, Ideas: {}, Docs: {}, Milestones: {}, Tests: {}, Commits: {}",
                 &self.commit_hash[..7.min(self.commit_hash.len())],
                 self.output_path,
                 self.size_bytes,
                 self.task_count,
+                self.bug_count,
+                self.idea_count,
+                self.doc_count,
+                self.milestone_count,
                 self.test_count,
                 self.commit_count
             )
@@ -14635,6 +14667,10 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
         commit_hash: commit_hash.to_string(),
         size_bytes: 0,
         task_count: 0,
+        bug_count: 0,
+        idea_count: 0,
+        doc_count: 0,
+        milestone_count: 0,
         test_count: 0,
         commit_count: 0,
         skipped_reason: Some(reason.to_string()),
@@ -14650,6 +14686,10 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
                 commit_hash: commit_hash.to_string(),
                 size_bytes: 0,
                 task_count: 0,
+                bug_count: 0,
+                idea_count: 0,
+                doc_count: 0,
+                milestone_count: 0,
                 test_count: 0,
                 commit_count: 0,
                 skipped_reason: None, // Not configured is the default, no special reason
@@ -14724,6 +14764,10 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
         commit_hash: commit_hash.to_string(),
         size_bytes: result.size_bytes,
         task_count: result.task_count,
+        bug_count: result.bug_count,
+        idea_count: result.idea_count,
+        doc_count: result.doc_count,
+        milestone_count: result.milestone_count,
         test_count: result.test_count,
         commit_count: result.commit_count,
         skipped_reason: None,
@@ -27449,6 +27493,10 @@ mod tests {
             source_repo: "/path/to/repo".to_string(),
             binnacle_version: "0.0.1".to_string(),
             task_count: 10,
+            bug_count: 2,
+            idea_count: 3,
+            doc_count: 1,
+            milestone_count: 4,
             test_count: 5,
             commit_count: 3,
             checksums,
@@ -27460,7 +27508,7 @@ mod tests {
 
         // Expected schema fingerprint for ExportManifest
         // If this fails, you've changed the archive schema - see comment above!
-        let expected = "binnacle_version|checksums|checksums.tasks.jsonl|commit_count|exported_at|format|source_repo|task_count|test_count|version";
+        let expected = "binnacle_version|bug_count|checksums|checksums.tasks.jsonl|commit_count|doc_count|exported_at|format|idea_count|milestone_count|source_repo|task_count|test_count|version";
         assert_eq!(
             fp, expected,
             "ExportManifest schema changed! Update expected fingerprint if intentional. \
