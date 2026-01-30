@@ -1232,6 +1232,7 @@ container "base" {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_discover_definitions_host_only() {
         use std::fs;
         use tempfile::TempDir;

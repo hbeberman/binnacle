@@ -32,42 +32,6 @@ mod gui_enabled {
         cmd
     }
 
-    /// Helper to get storage dir with the same environment as bn_isolated().
-    /// This ensures the test creates files where the isolated command will look for them.
-    fn get_storage_dir_isolated(repo_path: &std::path::Path) -> std::path::PathBuf {
-        // Use a temporary directory to match bn_isolated() environment
-        let temp_dir = tempfile::tempdir().unwrap();
-        let temp_path = temp_dir.path().to_path_buf();
-
-        let original_data_dir = std::env::var("BN_DATA_DIR").ok();
-        let original_container = std::env::var("BN_CONTAINER_MODE").ok();
-
-        // SAFETY: This is a test helper, single-threaded test execution
-        unsafe {
-            std::env::set_var("BN_DATA_DIR", &temp_path);
-            std::env::remove_var("BN_CONTAINER_MODE");
-        }
-
-        let result = binnacle::storage::get_storage_dir(repo_path).unwrap();
-
-        // Restore original environment
-        // SAFETY: This is a test helper, single-threaded test execution
-        unsafe {
-            if let Some(val) = original_data_dir {
-                std::env::set_var("BN_DATA_DIR", val);
-            } else {
-                std::env::remove_var("BN_DATA_DIR");
-            }
-            if let Some(val) = original_container {
-                std::env::set_var("BN_CONTAINER_MODE", val);
-            }
-        }
-
-        std::mem::forget(temp_dir); // Keep temp directory alive
-
-        result
-    }
-
     #[test]
     fn test_gui_help() {
         let mut cmd = bn_isolated();
@@ -234,28 +198,35 @@ mod gui_enabled {
             .stdout(predicates::str::contains(r#""status":"not_running""#));
     }
 
+    /// Helper to find the storage directory created by bn (finds the hash directory in data_path).
+    /// This is needed because the command may compute a different hash than expected due to
+    /// path differences (e.g., canonicalization, git root detection).
+    fn find_storage_dir_in_data_path(data_path: &std::path::Path) -> std::path::PathBuf {
+        let entries = std::fs::read_dir(data_path).expect("Should be able to read data_path");
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // Hash directories are 12 characters long
+            if path.is_dir() && path.file_name().is_some_and(|n| n.len() == 12) {
+                return path;
+            }
+        }
+        panic!("No hash directory found in data_path: {:?}", data_path);
+    }
+
     #[test]
     fn test_gui_status_with_stale_pid_file() {
-        let temp = tempfile::tempdir().unwrap();
+        let env = TestEnv::new();
 
         // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        env.bn().args(["system", "init", "-y"]).assert().success();
 
-        // Create a stale PID file manually (PID that doesn't exist)
-        // First we need to find the storage directory
-        let storage_dir = get_storage_dir_isolated(temp.path());
+        // Find the storage dir that was created and add a stale PID file
+        let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Status should detect the stale PID
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("status");
-        let output = cmd.assert().success();
+        let output = env.bn().args(["gui", "status"]).assert().success();
         let stdout = String::from_utf8_lossy(&output.get_output().stdout);
         // Should show not_running or stale status
         assert!(
@@ -267,25 +238,20 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_stop_cleans_stale_pid_file() {
-        let temp = tempfile::tempdir().unwrap();
+        let env = TestEnv::new();
 
         // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        env.bn().args(["system", "init", "-y"]).assert().success();
 
-        // Create a stale PID file manually
-        let storage_dir = get_storage_dir_isolated(temp.path());
+        // Find the storage dir that was created
+        let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Stop should clean up the stale PID file
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("stop");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "stop"])
+            .assert()
             .success()
             .stdout(predicates::str::contains("not_running"));
 
@@ -298,25 +264,20 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_stop_cleans_stale_pid_file_human() {
-        let temp = tempfile::tempdir().unwrap();
+        let env = TestEnv::new();
 
         // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        env.bn().args(["system", "init", "-y"]).assert().success();
 
-        // Create a stale PID file manually
-        let storage_dir = get_storage_dir_isolated(temp.path());
+        // Find the storage dir and create a stale PID file
+        let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Stop should clean up the stale PID file and report it
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("stop").arg("-H");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "stop", "-H"])
+            .assert()
             .success()
             .stdout(predicates::str::contains("not running"));
 
@@ -532,25 +493,20 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_kill_cleans_stale_pid_file() {
-        let temp = tempfile::tempdir().unwrap();
+        let env = TestEnv::new();
 
         // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        env.bn().args(["system", "init", "-y"]).assert().success();
 
-        // Create a stale PID file manually
-        let storage_dir = get_storage_dir_isolated(temp.path());
+        // Find the storage dir and create a stale PID file
+        let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Kill should clean up the stale PID file
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "kill"])
+            .assert()
             .success()
             .stdout(predicates::str::contains("not_running"));
 
@@ -620,25 +576,20 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_kill_cleans_stale_pid_file_human() {
-        let temp = tempfile::tempdir().unwrap();
+        let env = TestEnv::new();
 
         // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        env.bn().args(["system", "init", "-y"]).assert().success();
 
-        // Create a stale PID file manually
-        let storage_dir = get_storage_dir_isolated(temp.path());
+        // Find the storage dir and create a stale PID file
+        let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Kill should clean up the stale PID file (human-readable)
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill").arg("-H");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "kill", "-H"])
+            .assert()
             .success()
             .stdout(predicates::str::contains("not running"))
             .stdout(predicates::str::contains("cleaned up stale"));
@@ -675,25 +626,18 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_kill_json_output_structure_stale_pid() {
-        let temp = tempfile::tempdir().unwrap();
+        let env = TestEnv::new();
 
         // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        env.bn().args(["system", "init", "-y"]).assert().success();
 
-        // Create a stale PID file manually
-        let storage_dir = get_storage_dir_isolated(temp.path());
+        // Find the storage dir and create a stale PID file
+        let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Verify JSON structure when stale PID file exists
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill");
-        let output = cmd.assert().success();
+        let output = env.bn().args(["gui", "kill"]).assert().success();
         let stdout = String::from_utf8_lossy(&output.get_output().stdout);
         let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
 
@@ -703,25 +647,20 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_kill_force_cleans_stale_pid_file() {
-        let temp = tempfile::tempdir().unwrap();
+        let env = TestEnv::new();
 
         // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        env.bn().args(["system", "init", "-y"]).assert().success();
 
-        // Create a stale PID file manually
-        let storage_dir = get_storage_dir_isolated(temp.path());
+        // Find the storage dir and create a stale PID file
+        let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
 
         // Kill --force should also clean up the stale PID file
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill").arg("--force");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "kill", "--force"])
+            .assert()
             .success()
             .stdout(predicates::str::contains("not_running"));
 
