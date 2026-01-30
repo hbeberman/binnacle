@@ -389,7 +389,23 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
         while true; do
             # Reset SIGINT count at start of each iteration
             SIGINT_COUNT=0
+            START_TIME=$(date +%s)
             "${CMD[@]}" || true
+            END_TIME=$(date +%s)
+            DURATION=$((END_TIME - START_TIME))
+            
+            # If command failed in less than 5 seconds, it's likely a setup error (missing image, etc.)
+            # Don't loop - exit with error so user can fix the issue
+            if [[ $DURATION -lt 5 ]]; then
+                echo ""
+                echo "❌ Agent failed immediately (in ${DURATION}s). This usually means:"
+                echo "   • Missing container image: run 'bn container build worker'"
+                echo "   • Container infrastructure issue: run 'bn container --help'"
+                echo ""
+                echo "Fix the issue and try again. Not restarting to avoid loop."
+                exit 1
+            fi
+            
             echo ""
             echo "Agent exited. Restarting in 3 seconds... (Ctrl+C twice to stop)"
             sleep 3
@@ -476,7 +492,20 @@ else
         while true; do
             # Reset SIGINT count at start of each iteration
             SIGINT_COUNT=0
+            START_TIME=$(date +%s)
             "$COPILOT_PATH" "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT" || true
+            END_TIME=$(date +%s)
+            DURATION=$((END_TIME - START_TIME))
+            
+            # If command failed in less than 5 seconds, it's likely a setup error
+            # Don't loop - exit with error so user can fix the issue
+            if [[ $DURATION -lt 5 ]]; then
+                echo ""
+                echo "❌ Agent failed immediately (in ${DURATION}s). Check the error above."
+                echo "Fix the issue and try again. Not restarting to avoid loop."
+                exit 1
+            fi
+            
             echo ""
             echo "Agent exited. Restarting in 3 seconds... (Ctrl+C twice to stop)"
             sleep 3
