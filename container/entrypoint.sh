@@ -157,6 +157,8 @@ cat > "$LSP_CONFIG" << 'EOF'
 }
 EOF
 echo "🔧 LSP configuration written to $LSP_CONFIG"
+echo "📋 Configured language servers:"
+jq -r '.lspServers | keys[] as $k | "   - \($k): \(.[$k].command)"' "$LSP_CONFIG"
 
 # Configure git hooks path so commit-msg hook adds co-author trailer
 # The hooks/ directory in the repo contains the commit-msg hook that adds
