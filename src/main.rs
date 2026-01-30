@@ -1367,7 +1367,18 @@ fn run_command(
                 tag,
                 no_cache,
                 skip_mount_validation,
+                project,
+                host,
             } => {
+                // Convert flags to source preference
+                let source_preference = if project {
+                    binnacle::container::SourcePreference::Project
+                } else if host {
+                    binnacle::container::SourcePreference::Host
+                } else {
+                    binnacle::container::SourcePreference::None
+                };
+
                 let result = commands::container_build(
                     repo_path,
                     definition.as_deref(),
@@ -1375,6 +1386,7 @@ fn run_command(
                     &tag,
                     no_cache,
                     skip_mount_validation,
+                    source_preference,
                 )?;
                 output(&result, human);
             }
@@ -1389,7 +1401,19 @@ fn run_command(
                 memory,
                 shell,
                 prompt,
+                definition,
+                project,
+                host,
             } => {
+                // Convert flags to source preference
+                let source_preference = if project {
+                    binnacle::container::SourcePreference::Project
+                } else if host {
+                    binnacle::container::SourcePreference::Host
+                } else {
+                    binnacle::container::SourcePreference::None
+                };
+
                 let result = commands::container_run(
                     repo_path,
                     &worktree_path,
@@ -1402,6 +1426,8 @@ fn run_command(
                     memory.as_deref(),
                     shell,
                     prompt.as_deref(),
+                    definition.as_deref(),
+                    source_preference,
                 )?;
                 output(&result, human);
             }
@@ -3275,6 +3301,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 tag,
                 no_cache,
                 skip_mount_validation,
+                project,
+                host,
             } => (
                 "container build".to_string(),
                 serde_json::json!({
@@ -3282,7 +3310,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "all": all,
                     "tag": tag,
                     "no_cache": no_cache,
-                    "skip_mount_validation": skip_mount_validation
+                    "skip_mount_validation": skip_mount_validation,
+                    "project": project,
+                    "host": host
                 }),
             ),
             ContainerCommands::Run {
@@ -3296,6 +3326,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 memory,
                 shell,
                 prompt,
+                definition,
+                project,
+                host,
             } => (
                 "container run".to_string(),
                 serde_json::json!({
@@ -3308,7 +3341,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "cpus": cpus,
                     "memory": memory,
                     "shell": shell,
-                    "prompt": prompt.is_some()
+                    "prompt": prompt.is_some(),
+                    "definition": definition,
+                    "project": project,
+                    "host": host
                 }),
             ),
             ContainerCommands::Stop { name, all } => (

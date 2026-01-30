@@ -2037,6 +2037,14 @@ pub enum ContainerCommands {
         /// Skip mount validation (useful for CI environments)
         #[arg(long)]
         skip_mount_validation: bool,
+
+        /// Use project-level definition (.binnacle/containers/) when name conflicts exist
+        #[arg(long, conflicts_with = "host")]
+        project: bool,
+
+        /// Use host-level definition (~/.local/share/binnacle/<hash>/containers/) when name conflicts exist
+        #[arg(long, conflicts_with = "project")]
+        host: bool,
     },
 
     /// Run a worker container in headed (interactive) mode
@@ -2079,6 +2087,18 @@ pub enum ContainerCommands {
         /// Custom initial prompt for the AI agent
         #[arg(long)]
         prompt: Option<String>,
+
+        /// Container definition to use (default: first in config.kdl or embedded binnacle)
+        #[arg(long)]
+        definition: Option<String>,
+
+        /// Use project-level definition (.binnacle/containers/) when name conflicts exist
+        #[arg(long, conflicts_with = "host")]
+        project: bool,
+
+        /// Use host-level definition (~/.local/share/binnacle/<hash>/containers/) when name conflicts exist
+        #[arg(long, conflicts_with = "project")]
+        host: bool,
     },
 
     /// Stop a running binnacle container
