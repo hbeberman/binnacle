@@ -1493,20 +1493,11 @@ fn run_command(
             }
         },
         None => {
-            // Default: show status summary
-            match commands::status(repo_path) {
-                Ok(summary) => output(&summary, human),
-                Err(binnacle::Error::NotInitialized) => {
-                    if human {
-                        println!("Binnacle - Not initialized.");
-                        println!(
-                            "Run `bn system init` to initialize, then `bn task create \"Title\"` to add tasks."
-                        );
-                    } else {
-                        println!(r#"{{"initialized": false, "tasks": [], "ready": []}}"#);
-                    }
-                }
-                Err(e) => return Err(e),
+            // Show welcome message when no command is given
+            if human {
+                println!("Welcome to Binnacle, run bn --help for more info!");
+            } else {
+                println!(r#"{{"message":"Welcome to Binnacle, run bn --help for more info!"}}"#);
             }
         }
     }
