@@ -272,7 +272,7 @@ pub fn parse_config_kdl(doc: &KdlDocument) -> Result<HashMap<String, ContainerDe
         // Validate reserved name
         if def.name == RESERVED_NAME {
             return Err(Error::Other(format!(
-                "Container name '{}' is reserved and cannot be used",
+                "Container name '{}' is reserved and cannot be used. Please choose a different name (e.g., 'worker', 'dev', 'agent').",
                 RESERVED_NAME
             )));
         }
@@ -1070,11 +1070,13 @@ container "binnacle" {
         let result = parse_config_kdl(&doc);
 
         assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("reserved and cannot be used"));
+        // Verify suggestion is included
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("reserved and cannot be used")
+            err_msg.contains("Please choose a different name"),
+            "Error message should include suggestion: {}",
+            err_msg
         );
     }
 

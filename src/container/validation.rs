@@ -107,7 +107,7 @@ pub fn validate_parse(definitions: &HashMap<String, ContainerDefinition>) -> Val
         // Check reserved name
         if name == RESERVED_NAME {
             result.add_error(format!(
-                "Container name '{}' is reserved and cannot be used",
+                "Container name '{}' is reserved and cannot be used. Please choose a different name (e.g., 'worker', 'dev', 'agent').",
                 RESERVED_NAME
             ));
         }
@@ -426,6 +426,13 @@ mod tests {
         let result = validate_parse(&defs);
         assert!(!result.is_ok());
         assert!(result.errors.iter().any(|e| e.contains("reserved")));
+        // Verify suggestion is included
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("Please choose a different name"))
+        );
     }
 
     #[test]
