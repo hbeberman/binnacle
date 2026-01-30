@@ -1594,6 +1594,10 @@ pub enum GraphCommands {
         /// Include descriptions in output
         #[arg(long)]
         verbose: bool,
+
+        /// Continue traversing past the first PRD doc to the true graph root
+        #[arg(long)]
+        no_stop_at_prd: bool,
     },
 
     /// Find sibling and cousin tasks through shared parents

@@ -567,6 +567,14 @@ impl McpServer {
             cmd_args.push("--verbose".to_string());
         }
 
+        if args
+            .get("no_stop_at_prd")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            cmd_args.push("--no-stop-at-prd".to_string());
+        }
+
         self.execute_bn_command(cwd, &cmd_args)
     }
 
@@ -868,6 +876,10 @@ fn get_tool_definitions() -> Vec<ToolDef> {
                     "verbose": {
                         "type": "boolean",
                         "description": "Include descriptions"
+                    },
+                    "no_stop_at_prd": {
+                        "type": "boolean",
+                        "description": "Continue traversing past the first PRD doc to the true graph root"
                     }
                 },
                 "required": ["id"]
