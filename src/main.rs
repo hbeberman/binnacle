@@ -1199,12 +1199,68 @@ fn run_command(
                 // Check tmux binary first
                 binnacle::tmux::check_tmux_binary()?;
                 match command {
-                    TmuxCommands::Save { name: _ } => {
-                        // Stub implementation
-                        eprintln!("tmux save not yet implemented");
-                        return Err(binnacle::Error::Other(
-                            "tmux save not yet implemented".to_string(),
-                        ));
+                    TmuxCommands::Save {
+                        name,
+                        project,
+                        user,
+                    } => {
+                        // Capture current tmux session
+                        let layout = binnacle::tmux::save::capture_session()?;
+
+                        // Use provided name or session name
+                        let layout_name = name.clone().unwrap_or_else(|| layout.name.clone());
+
+                        // Determine save location
+                        let save_path = tmux_save_path(repo_path, &layout_name, project, user)?;
+
+                        // Check for existing file and warn
+                        if save_path.exists() {
+                            let metadata = std::fs::metadata(&save_path).map_err(|e| {
+                                binnacle::Error::Other(format!(
+                                    "Failed to read file metadata: {}",
+                                    e
+                                ))
+                            })?;
+                            let modified = metadata
+                                .modified()
+                                .map(|t| {
+                                    use std::time::SystemTime;
+                                    let duration = t.duration_since(SystemTime::UNIX_EPOCH).ok()?;
+                                    chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
+                                })
+                                .ok()
+                                .flatten();
+
+                            eprintln!("Warning: Layout file already exists:");
+                            eprintln!("  Path: {}", save_path.display());
+                            if let Some(mod_time) = modified {
+                                eprintln!("  Modified: {}", mod_time.format("%Y-%m-%d %H:%M:%S"));
+                            }
+                            eprintln!();
+                            eprint!("Overwrite? [y/N] ");
+                            use std::io::{self, BufRead};
+                            let stdin = io::stdin();
+                            let mut handle = stdin.lock();
+                            let mut response = String::new();
+                            handle.read_line(&mut response).map_err(|e| {
+                                binnacle::Error::Other(format!("Failed to read input: {}", e))
+                            })?;
+
+                            if !response.trim().eq_ignore_ascii_case("y") {
+                                eprintln!("Cancelled.");
+                                return Ok(());
+                            }
+                        }
+
+                        // Save layout
+                        binnacle::tmux::save::save_layout_to_file(&layout, &save_path)?;
+
+                        let result = commands::TmuxSaveResult {
+                            saved: true,
+                            path: save_path.display().to_string(),
+                            layout_name,
+                        };
+                        output(&result, human);
                     }
                     TmuxCommands::Load { name: _ } => {
                         // Stub implementation
@@ -2127,6 +2183,37 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     Ok(())
+}
+
+/// Determine save path for tmux layout based on flags.
+#[cfg(feature = "tmux")]
+fn tmux_save_path(
+    repo_path: &Path,
+    layout_name: &str,
+    project: bool,
+    user: bool,
+) -> Result<PathBuf, binnacle::Error> {
+    let filename = format!("{}.kdl", layout_name);
+
+    if project {
+        // Project-level: .binnacle/tmux/ in repo
+        Ok(repo_path.join(".binnacle").join("tmux").join(filename))
+    } else if user {
+        // User-level: ~/.config/binnacle/tmux/
+        let config_dir = dirs::config_dir()
+            .ok_or_else(|| binnacle::Error::Other("Failed to find config directory".to_string()))?;
+        Ok(config_dir.join("binnacle").join("tmux").join(filename))
+    } else {
+        // Session-level (default): ~/.local/share/binnacle/<hash>/tmux/
+        let data_dir = dirs::data_local_dir()
+            .ok_or_else(|| binnacle::Error::Other("Failed to find data directory".to_string()))?;
+        let repo_hash = binnacle::storage::compute_repo_hash(repo_path)?;
+        Ok(data_dir
+            .join("binnacle")
+            .join(&repo_hash)
+            .join("tmux")
+            .join(filename))
+    }
 }
 
 /// Serialize command to extract name and arguments for logging.
@@ -3121,9 +3208,13 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             },
             #[cfg(feature = "tmux")]
             SystemCommands::Tmux { command } => match command {
-                TmuxCommands::Save { name } => (
+                TmuxCommands::Save {
+                    name,
+                    project,
+                    user,
+                } => (
                     "system tmux save".to_string(),
-                    serde_json::json!({ "name": name }),
+                    serde_json::json!({ "name": name, "project": project, "user": user }),
                 ),
                 TmuxCommands::Load { name } => (
                     "system tmux load".to_string(),

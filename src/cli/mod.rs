@@ -1801,6 +1801,12 @@ pub enum TmuxCommands {
     Save {
         /// Layout name (default: current session name)
         name: Option<String>,
+        /// Save to project-level (.binnacle/tmux/)
+        #[arg(long, conflicts_with = "user")]
+        project: bool,
+        /// Save to user-level (~/.config/binnacle/tmux/)
+        #[arg(long)]
+        user: bool,
     },
     /// Load a tmux layout from a KDL file
     Load {

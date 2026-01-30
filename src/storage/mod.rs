@@ -5190,6 +5190,26 @@ pub fn get_storage_dir(repo_path: &Path) -> Result<PathBuf> {
     get_storage_dir_with_base(repo_path, &base_dir)
 }
 
+/// Compute the repository hash used for storage paths.
+pub fn compute_repo_hash(repo_path: &Path) -> Result<String> {
+    // In container mode, use pre-computed hash if provided
+    if std::env::var("BN_CONTAINER_MODE").is_ok()
+        && let Ok(hash) = std::env::var("BN_STORAGE_HASH")
+    {
+        return Ok(hash);
+    }
+
+    let canonical = repo_path
+        .canonicalize()
+        .map_err(|e| Error::Other(format!("Could not canonicalize repo path: {}", e)))?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    let hash = hasher.finalize();
+    let hash_hex = format!("{:x}", hash);
+    Ok(hash_hex[..12].to_string())
+}
+
 /// Get the storage directory for a repository with an explicit base directory.
 ///
 /// This is the DI-friendly variant used by tests to avoid env var manipulation.

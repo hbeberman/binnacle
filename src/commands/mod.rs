@@ -2127,6 +2127,26 @@ pub struct HooksUninstallResult {
     pub post_commit_removed: bool,
 }
 
+/// Result of tmux save command
+#[cfg(feature = "tmux")]
+#[derive(Debug, Serialize)]
+pub struct TmuxSaveResult {
+    pub saved: bool,
+    pub path: String,
+    pub layout_name: String,
+}
+
+#[cfg(feature = "tmux")]
+impl Output for TmuxSaveResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Saved layout '{}' to {}", self.layout_name, self.path)
+    }
+}
+
 impl Output for HooksUninstallResult {
     fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
