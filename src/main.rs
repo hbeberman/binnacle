@@ -997,6 +997,25 @@ fn run_command(
                 )?;
                 output(&result, human);
             }
+            GraphCommands::Context {
+                id,
+                lineage_depth,
+                peer_depth,
+                descendant_depth,
+                include_closed,
+                verbose,
+            } => {
+                let result = commands::graph_context(
+                    repo_path,
+                    &id,
+                    lineage_depth,
+                    peer_depth,
+                    descendant_depth,
+                    include_closed,
+                    verbose,
+                )?;
+                output(&result, human);
+            }
         },
         Some(Commands::Search { command }) => match command {
             SearchCommands::Link {
@@ -3328,6 +3347,24 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "id": id,
                     "depth": depth,
                     "all": all,
+                    "include_closed": include_closed,
+                    "verbose": verbose,
+                }),
+            ),
+            GraphCommands::Context {
+                id,
+                lineage_depth,
+                peer_depth,
+                descendant_depth,
+                include_closed,
+                verbose,
+            } => (
+                "graph context".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "lineage_depth": lineage_depth,
+                    "peer_depth": peer_depth,
+                    "descendant_depth": descendant_depth,
                     "include_closed": include_closed,
                     "verbose": verbose,
                 }),
