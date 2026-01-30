@@ -575,6 +575,10 @@ pub enum BugCommands {
         /// Add to work queue immediately after creation
         #[arg(short = 'q', long)]
         queue: bool,
+
+        /// Parent issue ID (creates child_of link automatically)
+        #[arg(long)]
+        parent: Option<String>,
     },
 
     /// List bugs

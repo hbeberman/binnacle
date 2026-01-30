@@ -280,6 +280,7 @@ fn run_command(
                 reproduction_steps,
                 affected_component,
                 queue,
+                parent,
             } => {
                 let result = commands::bug_create_with_queue(
                     repo_path,
@@ -293,6 +294,7 @@ fn run_command(
                     reproduction_steps,
                     affected_component,
                     queue,
+                    parent,
                 )?;
                 output(&result, human);
             }
@@ -2706,6 +2708,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 reproduction_steps,
                 affected_component,
                 queue,
+                parent,
             } => (
                 "bug create".to_string(),
                 serde_json::json!({
@@ -2719,6 +2722,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "reproduction_steps": reproduction_steps,
                     "affected_component": affected_component,
                     "queue": queue,
+                    "parent": parent,
                 }),
             ),
             BugCommands::List {
