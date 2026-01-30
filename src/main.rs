@@ -1196,14 +1196,14 @@ fn run_command(
             },
             #[cfg(feature = "tmux")]
             SystemCommands::Tmux { command } => {
-                // Check tmux binary first
-                binnacle::tmux::check_tmux_binary()?;
                 match command {
                     TmuxCommands::Save {
                         name,
                         project,
                         user,
                     } => {
+                        // Check tmux binary first - only Save and Load need it
+                        binnacle::tmux::check_tmux_binary()?;
                         // Capture current tmux session
                         let layout = binnacle::tmux::save::capture_session()?;
 
@@ -1263,6 +1263,8 @@ fn run_command(
                         output(&result, human);
                     }
                     TmuxCommands::Load { name } => {
+                        // Check tmux binary first - Load needs tmux to create sessions
+                        binnacle::tmux::check_tmux_binary()?;
                         use binnacle::tmux::command::TmuxCommand;
                         use binnacle::tmux::layout::{ResolvedLayout, find_layout, load_layout};
                         use std::process::Command;
@@ -1437,6 +1439,82 @@ fn run_command(
                             };
                             output(&result, human);
                         }
+                    }
+                    TmuxCommands::List => {
+                        use binnacle::tmux::layout::{list_layouts, load_layout};
+
+                        let layouts = list_layouts(repo_path)?;
+                        let summaries: Vec<commands::TmuxLayoutSummary> = layouts
+                            .iter()
+                            .map(|discovered| {
+                                // Try to load layout to get window/pane counts
+                                let (window_count, pane_count) = match load_layout(discovered) {
+                                    Ok(layout) => {
+                                        let windows = layout.windows.len();
+                                        let panes: usize =
+                                            layout.windows.iter().map(|w| w.panes.len()).sum();
+                                        (windows, panes)
+                                    }
+                                    Err(_) => (0, 0), // If we can't parse, show 0
+                                };
+                                commands::TmuxLayoutSummary {
+                                    name: discovered.name.clone(),
+                                    source: discovered.source.to_string(),
+                                    path: discovered.path.display().to_string(),
+                                    window_count,
+                                    pane_count,
+                                }
+                            })
+                            .collect();
+
+                        let result = commands::TmuxListResult { layouts: summaries };
+                        output(&result, human);
+                    }
+                    TmuxCommands::Show { name } => {
+                        use binnacle::tmux::layout::{find_layout, load_layout};
+                        use binnacle::tmux::schema::Size;
+
+                        // Find the layout
+                        let discovered = find_layout(&name, repo_path)?.ok_or_else(|| {
+                            binnacle::Error::Other(format!(
+                                "Layout '{}' not found. Searched in:\n  - {}\n  - Session storage\n  - User config",
+                                name,
+                                repo_path.join(".binnacle/tmux").display()
+                            ))
+                        })?;
+
+                        // Load and parse the layout
+                        let layout = load_layout(&discovered)?;
+
+                        // Convert to detail structs
+                        let windows: Vec<commands::TmuxWindowDetail> = layout
+                            .windows
+                            .into_iter()
+                            .map(|w| commands::TmuxWindowDetail {
+                                name: w.name,
+                                panes: w
+                                    .panes
+                                    .into_iter()
+                                    .map(|p| commands::TmuxPaneDetail {
+                                        split: p.split.map(|s| format!("{:?}", s).to_lowercase()),
+                                        size: p.size.map(|s| match s {
+                                            Size::Percentage(v) => format!("{}%", v),
+                                            Size::Lines(v) => format!("{}", v),
+                                        }),
+                                        dir: p.dir.map(|d| d.display().to_string()),
+                                        command: p.command,
+                                    })
+                                    .collect(),
+                            })
+                            .collect();
+
+                        let result = commands::TmuxShowResult {
+                            name: layout.name,
+                            source: discovered.source.to_string(),
+                            path: discovered.path.display().to_string(),
+                            windows,
+                        };
+                        output(&result, human);
                     }
                 }
             }
@@ -3404,6 +3482,11 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 ),
                 TmuxCommands::Load { name } => (
                     "system tmux load".to_string(),
+                    serde_json::json!({ "name": name }),
+                ),
+                TmuxCommands::List => ("system tmux list".to_string(), serde_json::json!({})),
+                TmuxCommands::Show { name } => (
+                    "system tmux show".to_string(),
                     serde_json::json!({ "name": name }),
                 ),
             },

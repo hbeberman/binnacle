@@ -2208,6 +2208,119 @@ impl Output for TmuxLoadResult {
     }
 }
 
+/// Layout summary for tmux list command
+#[cfg(feature = "tmux")]
+#[derive(Debug, Serialize)]
+pub struct TmuxLayoutSummary {
+    /// Layout name
+    pub name: String,
+    /// Source (project, session, user)
+    pub source: String,
+    /// Path to the layout file
+    pub path: String,
+    /// Number of windows in the layout
+    pub window_count: usize,
+    /// Total number of panes across all windows
+    pub pane_count: usize,
+}
+
+/// Result of tmux list command
+#[cfg(feature = "tmux")]
+#[derive(Debug, Serialize)]
+pub struct TmuxListResult {
+    /// All discovered layouts
+    pub layouts: Vec<TmuxLayoutSummary>,
+}
+
+#[cfg(feature = "tmux")]
+impl Output for TmuxListResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.layouts.is_empty() {
+            return "No layouts found.\n\nTo create a layout, save your current tmux session:\n  bn system tmux save [name]".to_string();
+        }
+
+        let mut out = String::from("Available layouts:\n\n");
+        for layout in &self.layouts {
+            out.push_str(&format!(
+                "  {} ({}) - {} window(s), {} pane(s)\n    {}\n",
+                layout.name, layout.source, layout.window_count, layout.pane_count, layout.path
+            ));
+        }
+        out
+    }
+}
+
+/// Window details for tmux show command
+#[cfg(feature = "tmux")]
+#[derive(Debug, Serialize)]
+pub struct TmuxWindowDetail {
+    pub name: String,
+    pub panes: Vec<TmuxPaneDetail>,
+}
+
+/// Pane details for tmux show command
+#[cfg(feature = "tmux")]
+#[derive(Debug, Serialize)]
+pub struct TmuxPaneDetail {
+    pub split: Option<String>,
+    pub size: Option<String>,
+    pub dir: Option<String>,
+    pub command: Option<String>,
+}
+
+/// Result of tmux show command
+#[cfg(feature = "tmux")]
+#[derive(Debug, Serialize)]
+pub struct TmuxShowResult {
+    /// Layout name
+    pub name: String,
+    /// Source (project, session, user)
+    pub source: String,
+    /// Path to the layout file
+    pub path: String,
+    /// Windows in the layout
+    pub windows: Vec<TmuxWindowDetail>,
+}
+
+#[cfg(feature = "tmux")]
+impl Output for TmuxShowResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut out = format!("Layout: {} ({})\n", self.name, self.source);
+        out.push_str(&format!("Path: {}\n\n", self.path));
+
+        for (i, window) in self.windows.iter().enumerate() {
+            out.push_str(&format!("Window {}: {}\n", i + 1, window.name));
+            for (j, pane) in window.panes.iter().enumerate() {
+                out.push_str(&format!("  Pane {}:", j + 1));
+
+                if let Some(split) = &pane.split {
+                    out.push_str(&format!(" split={}", split));
+                }
+                if let Some(size) = &pane.size {
+                    out.push_str(&format!(" size={}", size));
+                }
+                out.push('\n');
+
+                if let Some(dir) = &pane.dir {
+                    out.push_str(&format!("    dir: {}\n", dir));
+                }
+                if let Some(cmd) = &pane.command {
+                    out.push_str(&format!("    command: {}\n", cmd));
+                }
+            }
+        }
+        out
+    }
+}
+
 impl Output for HooksUninstallResult {
     fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
