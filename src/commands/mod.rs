@@ -2784,6 +2784,10 @@ pub struct OrientResult {
     pub total_milestones: usize,
     /// Number of open milestones (pending, in_progress)
     pub open_milestones_count: usize,
+    /// Total number of issues
+    pub total_issues: usize,
+    /// Number of open issues (open, triage, investigating)
+    pub open_issues_count: usize,
 }
 
 /// Queue info for orient output.
@@ -2854,9 +2858,12 @@ impl Output for OrientResult {
         // In progress
         lines.push(format!("  In progress: {}", self.in_progress_count));
 
-        // Folded secondary sections: Ideas, Milestones, Queue
+        // Folded secondary sections: Issues, Ideas, Milestones, Queue
         let mut secondary = Vec::new();
 
+        if self.total_issues > 0 {
+            secondary.push(format!("{} issues", self.open_issues_count));
+        }
         if self.total_ideas > 0 {
             secondary.push(format!("{} ideas", self.open_ideas_count));
         }
@@ -3330,6 +3337,19 @@ pub fn orient(
         .filter(|m| matches!(m.status, TaskStatus::Pending | TaskStatus::InProgress))
         .count();
 
+    // Get issues stats
+    let all_issues = storage.list_issues(None, None, None, true)?; // Include all for total
+    let total_issues = all_issues.len();
+    let open_issues_count = all_issues
+        .iter()
+        .filter(|i| {
+            matches!(
+                i.status,
+                IssueStatus::Open | IssueStatus::Triage | IssueStatus::Investigating
+            )
+        })
+        .count();
+
     Ok(OrientResult {
         ready: true, // Always true when orient succeeds - store is ready to use
         just_initialized,
@@ -3348,6 +3368,8 @@ pub fn orient(
         open_ideas_count,
         total_milestones,
         open_milestones_count,
+        total_issues,
+        open_issues_count,
     })
 }
 
