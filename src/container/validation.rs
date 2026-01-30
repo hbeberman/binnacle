@@ -8,6 +8,7 @@
 //!
 //! Each tier returns a `ValidationResult` with errors (blocking) and warnings (informational).
 
+use super::errors;
 use crate::{Error, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -106,39 +107,31 @@ pub fn validate_parse(definitions: &HashMap<String, ContainerDefinition>) -> Val
     for (name, def) in definitions {
         // Check reserved name
         if name == RESERVED_NAME {
-            result.add_error(format!(
-                "Container name '{}' is reserved and cannot be used. Please choose a different name (e.g., 'worker', 'dev', 'agent').",
-                RESERVED_NAME
-            ));
+            result.add_error(errors::reserved_name(RESERVED_NAME));
         }
 
         // Check name consistency
         if name != &def.name {
-            result.add_error(format!(
-                "Container name mismatch: key '{}' != definition name '{}'",
-                name, def.name
-            ));
+            result.add_error(errors::name_mismatch(name, &def.name));
         }
 
         // Schema validation: name must not be empty
         if def.name.is_empty() {
-            result.add_error("Container name cannot be empty".to_string());
+            result.add_error(errors::empty_name());
         }
 
         // Schema validation: name should be valid identifier-like
         if !is_valid_container_name(&def.name) {
-            result.add_error(format!(
-                "Container name '{}' contains invalid characters (use alphanumeric, hyphens, underscores)",
-                def.name
-            ));
+            result.add_error(errors::invalid_name_characters(&def.name));
         }
 
         // Validate mount targets are absolute paths
         for mount in &def.mounts {
             if !mount.target.starts_with('/') {
-                result.add_error(format!(
-                    "Container '{}': mount '{}' target must be an absolute path, got '{}'",
-                    name, mount.name, mount.target
+                result.add_error(errors::mount_target_not_absolute(
+                    name,
+                    &mount.name,
+                    &mount.target,
                 ));
             }
         }
@@ -169,11 +162,9 @@ fn detect_parent_cycles(definitions: &HashMap<String, ContainerDefinition>) -> R
 
         while let Some(current_name) = current {
             if !visited.insert(current_name.to_string()) {
-                // Found a cycle
-                return Err(Error::Other(format!(
-                    "Circular parent dependency detected: {} is part of a cycle",
-                    current_name
-                )));
+                // Found a cycle - collect the cycle for a better error message
+                let cycle_refs: Vec<&str> = visited.iter().map(|s| s.as_str()).collect();
+                return Err(Error::Other(errors::circular_dependency(&cycle_refs)));
             }
 
             current = definitions
@@ -226,9 +217,13 @@ pub fn validate_build(definitions: &[DefinitionWithSource], repo_path: &Path) ->
         if let Some(parent_name) = &def.parent
             && !def_map.contains_key(parent_name.as_str())
         {
-            result.add_error(format!(
-                "Container '{}' references undefined parent '{}'",
-                def.name, parent_name
+            result.add_error(errors::missing_parent(
+                &def.name,
+                parent_name,
+                &[
+                    ".binnacle/containers/",
+                    "~/.local/share/binnacle/<hash>/containers/",
+                ],
             ));
         }
 
@@ -237,10 +232,9 @@ pub fn validate_build(definitions: &[DefinitionWithSource], repo_path: &Path) ->
         if let Some(path) = containerfile_path
             && !path.exists()
         {
-            result.add_warning(format!(
-                "Container '{}': Containerfile not found at {}",
-                def.name,
-                path.display()
+            result.add_warning(errors::missing_containerfile(
+                &def.name,
+                &path.display().to_string(),
             ));
         }
     }
@@ -310,25 +304,25 @@ pub fn validate_run(
                         }
 
                         if !resolved.as_os_str().is_empty() && !resolved.exists() {
+                            let resolved_str = resolved.display().to_string();
                             if mount.optional {
-                                result.add_warning(format!(
-                                    "Skipping optional mount '{}': source path does not exist: {}",
-                                    mount.name,
-                                    resolved.display()
+                                result.add_warning(errors::optional_mount_skipped(
+                                    &mount.name,
+                                    &resolved_str,
                                 ));
                             } else {
-                                result.add_error(format!(
-                                    "Mount '{}' source path does not exist: {}",
-                                    mount.name,
-                                    resolved.display()
+                                result.add_error(errors::mount_source_not_found(
+                                    &mount.name,
+                                    &resolved_str,
                                 ));
                             }
                         }
                     }
                     Err(e) => {
-                        result.add_error(format!(
-                            "Failed to resolve mount '{}' source '{}': {}",
-                            mount.name, source, e
+                        result.add_error(errors::mount_resolve_failed(
+                            &mount.name,
+                            source,
+                            &e.to_string(),
                         ));
                     }
                 }
@@ -425,13 +419,23 @@ mod tests {
 
         let result = validate_parse(&defs);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("reserved")));
+        // The new error format uses "bn: error: config: reserved container name"
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("reserved container name")),
+            "Error should mention reserved container name: {:?}",
+            result.errors
+        );
         // Verify suggestion is included
         assert!(
             result
                 .errors
                 .iter()
-                .any(|e| e.contains("Please choose a different name"))
+                .any(|e| e.contains("Choose a different name")),
+            "Error should include suggestion: {:?}",
+            result.errors
         );
     }
 
@@ -442,11 +446,12 @@ mod tests {
 
         let result = validate_parse(&defs);
         assert!(!result.is_ok());
+        // The new error format uses "bn: error: config: empty container name"
         assert!(
             result
                 .errors
                 .iter()
-                .any(|e| e.contains("empty") || e.contains("invalid"))
+                .any(|e| e.contains("empty container name") || e.contains("invalid container name"))
         );
     }
 
@@ -460,11 +465,12 @@ mod tests {
 
         let result = validate_parse(&defs);
         assert!(!result.is_ok());
+        // The new error format uses "bn: error: config: invalid container name"
         assert!(
             result
                 .errors
                 .iter()
-                .any(|e| e.contains("invalid characters"))
+                .any(|e| e.contains("invalid container name"))
         );
     }
 
@@ -488,7 +494,15 @@ mod tests {
 
         let result = validate_parse(&defs);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("Circular")));
+        // The new error format uses "bn: error: config: circular dependency detected"
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("circular dependency")),
+            "Error should mention circular dependency: {:?}",
+            result.errors
+        );
     }
 
     #[test]
@@ -498,7 +512,15 @@ mod tests {
 
         let result = validate_parse(&defs);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("Circular")));
+        // The new error format uses "bn: error: config: circular dependency detected"
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("circular dependency")),
+            "Error should mention circular dependency: {:?}",
+            result.errors
+        );
     }
 
     #[test]
@@ -510,7 +532,15 @@ mod tests {
 
         let result = validate_parse(&defs);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("Circular")));
+        // The new error format uses "bn: error: config: circular dependency detected"
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("circular dependency")),
+            "Error should mention circular dependency: {:?}",
+            result.errors
+        );
     }
 
     #[test]
@@ -536,7 +566,12 @@ mod tests {
 
         let result = validate_parse(&defs);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("absolute path")));
+        // The new error format uses "bn: error: config: mount target must be absolute path"
+        assert!(
+            result.errors.iter().any(|e| e.contains("absolute path")),
+            "Error should mention absolute path: {:?}",
+            result.errors
+        );
     }
 
     // ========================================
@@ -554,7 +589,15 @@ mod tests {
 
         let result = validate_build(&definitions, std::path::Path::new("/repo"));
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("undefined parent")));
+        // The new error format uses "bn: error: build: parent container not found"
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("parent container not found")),
+            "Error should mention parent not found: {:?}",
+            result.errors
+        );
     }
 
     #[test]
@@ -615,7 +658,15 @@ mod tests {
 
         let result = validate_run(&def, std::path::Path::new("/repo"), false);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("does not exist")));
+        // The new error format uses "bn: error: mount: source path not found"
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("source path not found")),
+            "Error should mention source path not found: {:?}",
+            result.errors
+        );
     }
 
     #[test]
@@ -638,11 +689,14 @@ mod tests {
         let result = validate_run(&def, std::path::Path::new("/repo"), false);
         assert!(result.is_ok(), "Expected no errors: {:?}", result.errors);
         assert!(result.has_warnings());
+        // The new warning format uses "bn: warning: mount: skipping optional mount"
         assert!(
             result
                 .warnings
                 .iter()
-                .any(|w| w.contains("Skipping optional"))
+                .any(|w| w.contains("skipping optional mount")),
+            "Warning should mention skipping optional mount: {:?}",
+            result.warnings
         );
     }
 
