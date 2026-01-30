@@ -3,6 +3,9 @@
 //! This module provides tmux session save/load functionality using KDL configuration.
 //! It is feature-gated behind the `tmux` feature flag.
 
+pub mod parser;
+pub mod schema;
+
 use crate::{Error, Result};
 use std::process::Command;
 
