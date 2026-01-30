@@ -473,7 +473,7 @@ fn test_status_not_initialized() {
     bn_in(&temp)
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"initialized\": false"));
+        .stdout(predicate::str::contains("Welcome to Binnacle"));
 }
 
 #[test]
@@ -489,10 +489,11 @@ fn test_status_with_tasks() {
         .assert()
         .success();
 
+    // Running bn with no args shows welcome message
     bn_in(&temp)
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"ready\""));
+        .stdout(predicate::str::contains("Welcome to Binnacle"));
 }
 
 #[test]
@@ -504,12 +505,13 @@ fn test_status_human_readable() {
         .assert()
         .success();
 
+    // Running bn -H with no args shows welcome message
     bn_in(&temp)
         .arg("-H")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Binnacle"))
-        .stdout(predicate::str::contains("task"));
+        .stdout(predicate::str::contains("Welcome to Binnacle"))
+        .stdout(predicate::str::contains("--help"));
 }
 
 // === Dependency Tests ===
