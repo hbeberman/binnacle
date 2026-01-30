@@ -93,6 +93,75 @@ impl std::str::FromStr for MountMode {
     }
 }
 
+/// Resolve mount source path to an absolute path.
+///
+/// # Resolution Rules
+/// - Special values ("workspace", "binnacle"): Return as-is (handled at runtime)
+/// - Absolute paths (starting with '/'): Return as-is
+/// - Home expansion ('~' or '$HOME'): Expand to user's home directory
+/// - Relative paths: Resolve from repo_root
+///
+/// # Arguments
+/// - `source`: The mount source path from config
+/// - `repo_root`: The repository root directory (for relative path resolution)
+///
+/// # Returns
+/// - Resolved absolute path, or original value for special mount names
+pub fn resolve_mount_source(source: &str, repo_root: &Path) -> Result<PathBuf> {
+    // Special mount names - return as-is
+    if source == "workspace" || source == "binnacle" {
+        return Ok(PathBuf::from(source));
+    }
+
+    // Absolute paths - return as-is
+    if source.starts_with('/') {
+        return Ok(PathBuf::from(source));
+    }
+
+    // Home expansion - handle both ~ and $HOME
+    if let Some(expanded) = expand_home(source)? {
+        return Ok(expanded);
+    }
+
+    // Relative paths - resolve from repo root
+    let resolved = repo_root.join(source);
+    Ok(resolved)
+}
+
+/// Expand home directory in path.
+/// Returns Some(path) if expansion occurred, None otherwise.
+fn expand_home(path: &str) -> Result<Option<PathBuf>> {
+    if path.starts_with("~/") || path == "~" {
+        let home = dirs::home_dir().ok_or_else(|| {
+            Error::Other("Cannot expand ~ because home directory is not set".to_string())
+        })?;
+
+        if path == "~" {
+            return Ok(Some(home));
+        }
+
+        // Replace ~ with home directory
+        let rest = &path[2..]; // Skip "~/"
+        return Ok(Some(home.join(rest)));
+    }
+
+    if path.starts_with("$HOME/") || path == "$HOME" {
+        let home = dirs::home_dir().ok_or_else(|| {
+            Error::Other("Cannot expand $HOME because home directory is not set".to_string())
+        })?;
+
+        if path == "$HOME" {
+            return Ok(Some(home));
+        }
+
+        // Replace $HOME with home directory
+        let rest = &path[6..]; // Skip "$HOME/"
+        return Ok(Some(home.join(rest)));
+    }
+
+    Ok(None)
+}
+
 /// Parse config.kdl document into a map of container definitions
 pub fn parse_config_kdl(doc: &KdlDocument) -> Result<HashMap<String, ContainerDefinition>> {
     let mut definitions = HashMap::new();
@@ -749,5 +818,72 @@ container "rust-dev" {
             .filter(|d| d.definition.name == "rust-dev")
             .count();
         assert_eq!(rust_dev_count, 2);
+    }
+
+    #[test]
+    fn test_resolve_mount_source_special_workspace() {
+        let repo_root = Path::new("/repo");
+        let result = super::resolve_mount_source("workspace", repo_root).unwrap();
+        assert_eq!(result, PathBuf::from("workspace"));
+    }
+
+    #[test]
+    fn test_resolve_mount_source_special_binnacle() {
+        let repo_root = Path::new("/repo");
+        let result = super::resolve_mount_source("binnacle", repo_root).unwrap();
+        assert_eq!(result, PathBuf::from("binnacle"));
+    }
+
+    #[test]
+    fn test_resolve_mount_source_absolute() {
+        let repo_root = Path::new("/repo");
+        let result = super::resolve_mount_source("/usr/local/bin", repo_root).unwrap();
+        assert_eq!(result, PathBuf::from("/usr/local/bin"));
+    }
+
+    #[test]
+    fn test_resolve_mount_source_relative() {
+        let repo_root = Path::new("/repo");
+        let result = super::resolve_mount_source("data/cache", repo_root).unwrap();
+        assert_eq!(result, PathBuf::from("/repo/data/cache"));
+    }
+
+    #[test]
+    fn test_resolve_mount_source_tilde() {
+        let repo_root = Path::new("/repo");
+        let result = super::resolve_mount_source("~/.cargo", repo_root).unwrap();
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(result, home.join(".cargo"));
+    }
+
+    #[test]
+    fn test_resolve_mount_source_tilde_only() {
+        let repo_root = Path::new("/repo");
+        let result = super::resolve_mount_source("~", repo_root).unwrap();
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(result, home);
+    }
+
+    #[test]
+    fn test_resolve_mount_source_home_env() {
+        let repo_root = Path::new("/repo");
+        let result = super::resolve_mount_source("$HOME/.config", repo_root).unwrap();
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(result, home.join(".config"));
+    }
+
+    #[test]
+    fn test_resolve_mount_source_home_env_only() {
+        let repo_root = Path::new("/repo");
+        let result = super::resolve_mount_source("$HOME", repo_root).unwrap();
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(result, home);
+    }
+
+    #[test]
+    fn test_resolve_mount_source_relative_with_dots() {
+        let repo_root = Path::new("/repo");
+        let result = super::resolve_mount_source("../sibling/data", repo_root).unwrap();
+        assert_eq!(result, PathBuf::from("/repo/../sibling/data"));
     }
 }
