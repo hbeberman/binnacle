@@ -14438,9 +14438,13 @@ struct ExportManifest {
     source_repo: String,
     binnacle_version: String,
     task_count: usize,
+    #[serde(default)]
     bug_count: usize,
+    #[serde(default)]
     idea_count: usize,
+    #[serde(default)]
     doc_count: usize,
+    #[serde(default)]
     milestone_count: usize,
     test_count: usize,
     commit_count: usize,
@@ -14865,6 +14869,12 @@ pub struct StoreImportResult {
     pub tasks_skipped: usize,
     pub tests_imported: usize,
     pub commits_imported: usize,
+    pub bugs_imported: usize,
+    pub ideas_imported: usize,
+    pub docs_imported: usize,
+    pub milestones_imported: usize,
+    pub queues_imported: usize,
+    pub agents_imported: usize,
     pub collisions: usize,
     pub id_remappings: std::collections::HashMap<String, String>,
 }
@@ -14895,6 +14905,12 @@ impl Output for StoreImportResult {
             ));
             lines.push(format!("  Tests: {}", self.tests_imported));
             lines.push(format!("  Commits: {}", self.commits_imported));
+            lines.push(format!("  Bugs: {}", self.bugs_imported));
+            lines.push(format!("  Ideas: {}", self.ideas_imported));
+            lines.push(format!("  Docs: {}", self.docs_imported));
+            lines.push(format!("  Milestones: {}", self.milestones_imported));
+            lines.push(format!("  Queues: {}", self.queues_imported));
+            lines.push(format!("  Agents: {}", self.agents_imported));
 
             if self.collisions > 0 {
                 lines.push(String::new());
@@ -15093,6 +15109,11 @@ pub fn system_store_import(
     let mut manifest: Option<ExportManifest> = None;
     let mut tasks_jsonl: Option<Vec<u8>> = None;
     let mut bugs_jsonl: Option<Vec<u8>> = None;
+    let mut ideas_jsonl: Option<Vec<u8>> = None;
+    let mut docs_jsonl: Option<Vec<u8>> = None;
+    let mut milestones_jsonl: Option<Vec<u8>> = None;
+    let mut queues_jsonl: Option<Vec<u8>> = None;
+    let mut agents_jsonl: Option<Vec<u8>> = None;
     let mut edges_jsonl: Option<Vec<u8>> = None;
     let mut commits_jsonl: Option<Vec<u8>> = None;
     let mut test_results_jsonl: Option<Vec<u8>> = None;
@@ -15114,6 +15135,16 @@ pub fn system_store_import(
                     tasks_jsonl = Some(data);
                 } else if path_str.ends_with("bugs.jsonl") {
                     bugs_jsonl = Some(data);
+                } else if path_str.ends_with("ideas.jsonl") {
+                    ideas_jsonl = Some(data);
+                } else if path_str.ends_with("docs.jsonl") {
+                    docs_jsonl = Some(data);
+                } else if path_str.ends_with("milestones.jsonl") {
+                    milestones_jsonl = Some(data);
+                } else if path_str.ends_with("queues.jsonl") {
+                    queues_jsonl = Some(data);
+                } else if path_str.ends_with("agents.jsonl") {
+                    agents_jsonl = Some(data);
                 } else if path_str.ends_with("edges.jsonl") {
                     edges_jsonl = Some(data);
                 } else if path_str.ends_with("commits.jsonl") {
@@ -15217,6 +15248,12 @@ pub fn system_store_import(
             tasks_skipped: 0,
             tests_imported: 0,
             commits_imported: 0,
+            bugs_imported: 0,
+            ideas_imported: 0,
+            docs_imported: 0,
+            milestones_imported: 0,
+            queues_imported: 0,
+            agents_imported: 0,
             collisions,
             id_remappings,
         });
@@ -15324,6 +15361,7 @@ pub fn system_store_import(
     }
 
     // Import bugs
+    let mut bugs_imported = 0;
     if let Some(bugs_data) = bugs_jsonl {
         let storage_root = storage.root();
         let bugs_file = storage_root.join("bugs.jsonl");
@@ -15335,6 +15373,107 @@ pub fn system_store_import(
             .open(&bugs_file)?;
 
         file.write_all(&bugs_data)?;
+
+        // Count bugs
+        let bugs_str = String::from_utf8_lossy(&bugs_data);
+        bugs_imported = bugs_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+    // Import ideas
+    let mut ideas_imported = 0;
+    if let Some(ideas_data) = ideas_jsonl {
+        let storage_root = storage.root();
+        let ideas_file = storage_root.join("ideas.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&ideas_file)?;
+
+        file.write_all(&ideas_data)?;
+
+        // Count ideas
+        let ideas_str = String::from_utf8_lossy(&ideas_data);
+        ideas_imported = ideas_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Import docs
+    let mut docs_imported = 0;
+    if let Some(docs_data) = docs_jsonl {
+        let storage_root = storage.root();
+        let docs_file = storage_root.join("docs.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&docs_file)?;
+
+        file.write_all(&docs_data)?;
+
+        // Count docs
+        let docs_str = String::from_utf8_lossy(&docs_data);
+        docs_imported = docs_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Import milestones
+    let mut milestones_imported = 0;
+    if let Some(milestones_data) = milestones_jsonl {
+        let storage_root = storage.root();
+        let milestones_file = storage_root.join("milestones.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&milestones_file)?;
+
+        file.write_all(&milestones_data)?;
+
+        // Count milestones
+        let milestones_str = String::from_utf8_lossy(&milestones_data);
+        milestones_imported = milestones_str
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count();
+    }
+
+    // Import queues
+    let mut queues_imported = 0;
+    if let Some(queues_data) = queues_jsonl {
+        let storage_root = storage.root();
+        let queues_file = storage_root.join("queues.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&queues_file)?;
+
+        file.write_all(&queues_data)?;
+
+        // Count queues
+        let queues_str = String::from_utf8_lossy(&queues_data);
+        queues_imported = queues_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Import agents
+    let mut agents_imported = 0;
+    if let Some(agents_data) = agents_jsonl {
+        let storage_root = storage.root();
+        let agents_file = storage_root.join("agents.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&agents_file)?;
+
+        file.write_all(&agents_data)?;
+
+        // Count agents
+        let agents_str = String::from_utf8_lossy(&agents_data);
+        agents_imported = agents_str.lines().filter(|l| !l.trim().is_empty()).count();
     }
 
     // Import test results
@@ -15369,6 +15508,12 @@ pub fn system_store_import(
         tasks_skipped: 0,
         tests_imported,
         commits_imported,
+        bugs_imported,
+        ideas_imported,
+        docs_imported,
+        milestones_imported,
+        queues_imported,
+        agents_imported,
         collisions,
         id_remappings,
     })
@@ -15429,6 +15574,41 @@ fn system_store_import_from_folder(
         None
     };
 
+    let ideas_file = folder_path.join("ideas.jsonl");
+    let ideas_jsonl = if ideas_file.exists() {
+        Some(fs::read(&ideas_file)?)
+    } else {
+        None
+    };
+
+    let docs_file = folder_path.join("docs.jsonl");
+    let docs_jsonl = if docs_file.exists() {
+        Some(fs::read(&docs_file)?)
+    } else {
+        None
+    };
+
+    let milestones_file = folder_path.join("milestones.jsonl");
+    let milestones_jsonl = if milestones_file.exists() {
+        Some(fs::read(&milestones_file)?)
+    } else {
+        None
+    };
+
+    let queues_file = folder_path.join("queues.jsonl");
+    let queues_jsonl = if queues_file.exists() {
+        Some(fs::read(&queues_file)?)
+    } else {
+        None
+    };
+
+    let agents_file = folder_path.join("agents.jsonl");
+    let agents_jsonl = if agents_file.exists() {
+        Some(fs::read(&agents_file)?)
+    } else {
+        None
+    };
+
     // Check if already initialized for replace mode
     let storage = Storage::open(repo_path);
     let is_initialized = storage.is_ok();
@@ -15480,7 +15660,7 @@ fn system_store_import_from_folder(
     let collisions = id_remappings.len();
     let input_path_str = folder_path.display().to_string();
 
-    // Count tests and commits for dry-run (without importing)
+    // Count all entity types for dry-run (without importing)
     let tests_count = test_results_jsonl
         .as_ref()
         .map(|data| {
@@ -15501,6 +15681,66 @@ fn system_store_import_from_folder(
         })
         .unwrap_or(0);
 
+    let bugs_count = bugs_jsonl
+        .as_ref()
+        .map(|data| {
+            String::from_utf8_lossy(data)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+
+    let ideas_count = ideas_jsonl
+        .as_ref()
+        .map(|data| {
+            String::from_utf8_lossy(data)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+
+    let docs_count = docs_jsonl
+        .as_ref()
+        .map(|data| {
+            String::from_utf8_lossy(data)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+
+    let milestones_count = milestones_jsonl
+        .as_ref()
+        .map(|data| {
+            String::from_utf8_lossy(data)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+
+    let queues_count = queues_jsonl
+        .as_ref()
+        .map(|data| {
+            String::from_utf8_lossy(data)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+
+    let agents_count = agents_jsonl
+        .as_ref()
+        .map(|data| {
+            String::from_utf8_lossy(data)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+
     // If dry run, return early
     if dry_run {
         return Ok(StoreImportResult {
@@ -15512,6 +15752,12 @@ fn system_store_import_from_folder(
             tasks_skipped: 0,
             tests_imported: tests_count,
             commits_imported: commits_count,
+            bugs_imported: bugs_count,
+            ideas_imported: ideas_count,
+            docs_imported: docs_count,
+            milestones_imported: milestones_count,
+            queues_imported: queues_count,
+            agents_imported: agents_count,
             collisions,
             id_remappings,
         });
@@ -15619,6 +15865,7 @@ fn system_store_import_from_folder(
     }
 
     // Import bugs
+    let mut bugs_imported = 0;
     if let Some(bugs_data) = bugs_jsonl {
         let storage_root = storage.root();
         let bugs_file = storage_root.join("bugs.jsonl");
@@ -15630,6 +15877,107 @@ fn system_store_import_from_folder(
             .open(&bugs_file)?;
 
         file.write_all(&bugs_data)?;
+
+        // Count bugs
+        let bugs_str = String::from_utf8_lossy(&bugs_data);
+        bugs_imported = bugs_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+    // Import ideas
+    let mut ideas_imported = 0;
+    if let Some(ideas_data) = ideas_jsonl {
+        let storage_root = storage.root();
+        let ideas_file = storage_root.join("ideas.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&ideas_file)?;
+
+        file.write_all(&ideas_data)?;
+
+        // Count ideas
+        let ideas_str = String::from_utf8_lossy(&ideas_data);
+        ideas_imported = ideas_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Import docs
+    let mut docs_imported = 0;
+    if let Some(docs_data) = docs_jsonl {
+        let storage_root = storage.root();
+        let docs_file = storage_root.join("docs.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&docs_file)?;
+
+        file.write_all(&docs_data)?;
+
+        // Count docs
+        let docs_str = String::from_utf8_lossy(&docs_data);
+        docs_imported = docs_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Import milestones
+    let mut milestones_imported = 0;
+    if let Some(milestones_data) = milestones_jsonl {
+        let storage_root = storage.root();
+        let milestones_file = storage_root.join("milestones.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&milestones_file)?;
+
+        file.write_all(&milestones_data)?;
+
+        // Count milestones
+        let milestones_str = String::from_utf8_lossy(&milestones_data);
+        milestones_imported = milestones_str
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count();
+    }
+
+    // Import queues
+    let mut queues_imported = 0;
+    if let Some(queues_data) = queues_jsonl {
+        let storage_root = storage.root();
+        let queues_file = storage_root.join("queues.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&queues_file)?;
+
+        file.write_all(&queues_data)?;
+
+        // Count queues
+        let queues_str = String::from_utf8_lossy(&queues_data);
+        queues_imported = queues_str.lines().filter(|l| !l.trim().is_empty()).count();
+    }
+
+    // Import agents
+    let mut agents_imported = 0;
+    if let Some(agents_data) = agents_jsonl {
+        let storage_root = storage.root();
+        let agents_file = storage_root.join("agents.jsonl");
+
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&agents_file)?;
+
+        file.write_all(&agents_data)?;
+
+        // Count agents
+        let agents_str = String::from_utf8_lossy(&agents_data);
+        agents_imported = agents_str.lines().filter(|l| !l.trim().is_empty()).count();
     }
 
     // Import test results
@@ -15664,6 +16012,12 @@ fn system_store_import_from_folder(
         tasks_skipped: 0,
         tests_imported,
         commits_imported,
+        bugs_imported,
+        ideas_imported,
+        docs_imported,
+        milestones_imported,
+        queues_imported,
+        agents_imported,
         collisions,
         id_remappings,
     })
