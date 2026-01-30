@@ -593,8 +593,8 @@ pub struct Doc {
     pub supersedes: Option<String>,
 }
 
-/// Maximum compressed+encoded content size (7.5KB)
-pub const DOC_CONTENT_MAX_SIZE: usize = 7680;
+/// Maximum compressed+encoded content size (32KB)
+pub const DOC_CONTENT_MAX_SIZE: usize = 32768;
 
 impl Doc {
     /// Create a new doc with the given ID and title.
@@ -2809,9 +2809,9 @@ mod tests {
     #[test]
     fn test_doc_content_size_limit() {
         let mut doc = super::Doc::new("bn-abc1".to_string(), "Test Doc".to_string());
-        // Create content that will compress to more than 5KB
+        // Create content that will compress to more than 32KB
         // Note: Random data doesn't compress well, so this should exceed the limit
-        let large_content = (0..50_000)
+        let large_content = (0..200_000)
             .map(|i| format!("line{:06}\n", i))
             .collect::<String>();
         let result = doc.set_content(&large_content);
