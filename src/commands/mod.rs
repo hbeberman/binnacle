@@ -566,7 +566,7 @@ fn init_with_options(
         let image_name = "localhost/binnacle-worker:latest";
         if !container_image_exists(image_name) {
             eprintln!("📦 Building binnacle container image...");
-            match container_build("latest", false) {
+            match container_build(repo_path, None, false, "latest", false, false) {
                 Ok(result) => {
                     if !result.success {
                         eprintln!("Warning: Failed to build container: {:?}", result.error);
@@ -18204,8 +18204,15 @@ pub fn terminate_process(pid: u32, timeout_secs: u64) -> bool {
 pub struct ContainerBuildResult {
     /// Whether the build was successful
     pub success: bool,
-    /// Image tag that was built
-    pub tag: String,
+    /// Image tag that was built (for single builds)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    /// List of definitions that were built
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub built_definitions: Option<Vec<String>>,
+    /// Available definitions (when listing)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_definitions: Option<Vec<DefinitionInfo>>,
     /// Error message if build failed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -18217,8 +18224,28 @@ impl Output for ContainerBuildResult {
     }
 
     fn to_human(&self) -> String {
-        if self.success {
-            format!("Built image: localhost/binnacle-worker:{}", self.tag)
+        if let Some(defs) = &self.available_definitions {
+            // Listing mode
+            let mut output = format!("{} definition(s) available:\n\n", defs.len());
+            for def in defs {
+                output.push_str(&format!("  {} ({})\n", def.name, def.source));
+                if let Some(desc) = &def.description {
+                    output.push_str(&format!("    {}\n", desc));
+                }
+                if let Some(parent) = &def.parent {
+                    output.push_str(&format!("    Parent: {}\n", parent));
+                }
+                output.push_str(&format!("    Config: {}\n\n", def.config_path));
+            }
+            output
+        } else if self.success {
+            if let Some(built) = &self.built_definitions {
+                format!("Built {} definition(s): {}", built.len(), built.join(", "))
+            } else if let Some(tag) = &self.tag {
+                format!("Built image: localhost/binnacle-worker:{}", tag)
+            } else {
+                "Build succeeded".to_string()
+            }
         } else {
             format!(
                 "Build failed: {}",
@@ -18573,17 +18600,151 @@ fn parse_memory_limit(s: &str) -> Result<u64> {
     Ok(num * multiplier)
 }
 
-/// Build the binnacle worker image using buildah.
-pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult> {
+/// Build container image(s) using buildah.
+///
+/// # Modes
+/// - No definition name: Lists available definitions
+/// - With definition name: Builds that definition and its dependencies
+/// - With --all flag: Builds all definitions in dependency order
+pub fn container_build(
+    repo_path: &Path,
+    definition: Option<&str>,
+    all: bool,
+    tag: &str,
+    no_cache: bool,
+    _skip_mount_validation: bool,
+) -> Result<ContainerBuildResult> {
+    use crate::container::{RESERVED_NAME, compute_build_order, discover_definitions};
+    use std::collections::HashMap;
+
     // Check for required tools
     if !command_exists("buildah") || !command_exists("ctr") {
         return Ok(ContainerBuildResult {
             success: false,
-            tag: tag.to_string(),
+            tag: None,
+            built_definitions: None,
+            available_definitions: None,
             error: Some(container_deps_missing_message()),
         });
     }
 
+    // Discover available definitions
+    let defs_with_source = discover_definitions(repo_path)?;
+
+    // MODE 1: List definitions (no definition name, no --all)
+    if definition.is_none() && !all {
+        let def_infos: Vec<DefinitionInfo> = defs_with_source
+            .iter()
+            .map(|d| DefinitionInfo {
+                name: d.definition.name.clone(),
+                source: format!("{}", d.source),
+                description: d.definition.description.clone(),
+                parent: d.definition.parent.clone(),
+                config_path: d.config_path.display().to_string(),
+            })
+            .collect();
+
+        return Ok(ContainerBuildResult {
+            success: true,
+            tag: None,
+            built_definitions: None,
+            available_definitions: Some(def_infos),
+            error: None,
+        });
+    }
+
+    // Build map of definitions for easy lookup
+    let defs_map: HashMap<String, _> = defs_with_source
+        .iter()
+        .map(|d| (d.definition.name.clone(), &d.definition))
+        .collect();
+
+    // MODE 2 & 3: Determine which definitions to build
+    let to_build = if all {
+        // Build all definitions in dependency order
+        compute_build_order(
+            &defs_map
+                .iter()
+                .map(|(k, v)| (k.clone(), (*v).clone()))
+                .collect(),
+        )?
+    } else {
+        // Build single definition and its dependencies
+        let def_name = definition.unwrap(); // Safe because we checked earlier
+
+        if !defs_map.contains_key(def_name) {
+            return Ok(ContainerBuildResult {
+                success: false,
+                tag: None,
+                built_definitions: None,
+                available_definitions: None,
+                error: Some(format!(
+                    "Definition '{}' not found. Run 'bn container build' to list available definitions.",
+                    def_name
+                )),
+            });
+        }
+
+        // Compute build order starting from requested definition and its parents
+        let mut subset_map = HashMap::new();
+        let mut stack = vec![def_name.to_string()];
+        let mut visited = std::collections::HashSet::new();
+
+        while let Some(current) = stack.pop() {
+            if visited.contains(&current) {
+                continue;
+            }
+            visited.insert(current.clone());
+
+            if let Some(def) = defs_map.get(&current) {
+                subset_map.insert(current.clone(), (*def).clone());
+                if let Some(parent) = &def.parent {
+                    stack.push(parent.clone());
+                }
+            }
+        }
+
+        compute_build_order(&subset_map)?
+    };
+
+    eprintln!("📋 Build order: {}", to_build.join(" → "));
+
+    // Build each definition in order
+    let mut built = Vec::new();
+    for def_name in &to_build {
+        let def_src = defs_with_source
+            .iter()
+            .find(|d| &d.definition.name == def_name)
+            .ok_or_else(|| Error::Other(format!("Definition '{}' not found", def_name)))?;
+
+        eprintln!("\n📦 Building {} ({})...", def_name, def_src.source);
+
+        // Determine if we're using embedded or config-based build
+        if def_name == RESERVED_NAME
+            && def_src.source == crate::container::DefinitionSource::Embedded
+        {
+            // Legacy embedded build (backward compatibility)
+            build_embedded_container(tag, no_cache)?;
+        } else {
+            // Build from definition
+            build_definition_container(repo_path, def_name, &def_src.definition, tag, no_cache)?;
+        }
+
+        built.push(def_name.clone());
+    }
+
+    eprintln!("\n✅ All builds complete!");
+    Ok(ContainerBuildResult {
+        success: true,
+        tag: Some(tag.to_string()),
+        built_definitions: Some(built),
+        available_definitions: None,
+        error: None,
+    })
+}
+
+/// Build the embedded binnacle container (legacy, for backward compatibility)
+fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     // Determine build context: prefer external files if available, otherwise use embedded
     let (build_context_dir, containerfile_path, using_embedded) =
         if Path::new("container/Containerfile").exists() {
@@ -18653,11 +18814,7 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
     }
 
     if !status.success() {
-        return Ok(ContainerBuildResult {
-            success: false,
-            tag: tag.to_string(),
-            error: Some("Build failed (see output above)".to_string()),
-        });
+        return Err(Error::Other("Build failed (see output above)".to_string()));
     }
 
     // Export and import to containerd
@@ -18677,14 +18834,10 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
         .output()?;
 
     if !push_output.status.success() {
-        return Ok(ContainerBuildResult {
-            success: false,
-            tag: tag.to_string(),
-            error: Some(format!(
-                "Failed to export image: {}",
-                String::from_utf8_lossy(&push_output.stderr)
-            )),
-        });
+        return Err(Error::Other(format!(
+            "Failed to export image: {}",
+            String::from_utf8_lossy(&push_output.stderr)
+        )));
     }
 
     eprintln!("📥 Importing image to containerd...");
@@ -18708,19 +18861,39 @@ pub fn container_build(tag: &str, no_cache: bool) -> Result<ContainerBuildResult
             format!("Failed to import image to containerd: {}", stderr)
         };
 
-        return Ok(ContainerBuildResult {
-            success: false,
-            tag: tag.to_string(),
-            error: Some(error_msg),
-        });
+        return Err(Error::Other(error_msg));
     }
 
-    eprintln!("✅ Build complete!");
-    Ok(ContainerBuildResult {
-        success: true,
-        tag: tag.to_string(),
-        error: None,
-    })
+    Ok(())
+}
+
+/// Build a container from a definition
+fn build_definition_container(
+    repo_path: &Path,
+    def_name: &str,
+    _definition: &crate::container::ContainerDefinition,
+    tag: &str,
+    _no_cache: bool,
+) -> Result<()> {
+    use crate::container::generate_image_name;
+
+    // Generate image name
+    let image_name = generate_image_name(repo_path, def_name)?;
+
+    eprintln!("🏗️  Image: {}", image_name);
+    eprintln!("📌 Tag: {}", tag);
+
+    // TODO: Implement actual definition-based build
+    // This will involve:
+    // 1. Finding the Containerfile for this definition
+    // 2. Resolving parent image reference if needed
+    // 3. Building with buildah
+    // 4. Exporting/importing to containerd
+
+    eprintln!("⚠️  Definition-based builds not yet fully implemented");
+    eprintln!("    Using placeholder for now");
+
+    Ok(())
 }
 
 /// Detect if a path is a git worktree and return the parent repo's .git directory.

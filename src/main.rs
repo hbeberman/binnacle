@@ -1282,8 +1282,21 @@ fn run_command(
             }
         },
         Some(Commands::Container { command }) => match command {
-            ContainerCommands::Build { tag, no_cache } => {
-                let result = commands::container_build(&tag, no_cache)?;
+            ContainerCommands::Build {
+                definition,
+                all,
+                tag,
+                no_cache,
+                skip_mount_validation,
+            } => {
+                let result = commands::container_build(
+                    repo_path,
+                    definition.as_deref(),
+                    all,
+                    &tag,
+                    no_cache,
+                    skip_mount_validation,
+                )?;
                 output(&result, human);
             }
             ContainerCommands::Run {
@@ -3140,9 +3153,21 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         },
 
         Some(Commands::Container { command }) => match command {
-            ContainerCommands::Build { tag, no_cache } => (
+            ContainerCommands::Build {
+                definition,
+                all,
+                tag,
+                no_cache,
+                skip_mount_validation,
+            } => (
                 "container build".to_string(),
-                serde_json::json!({ "tag": tag, "no_cache": no_cache }),
+                serde_json::json!({
+                    "definition": definition,
+                    "all": all,
+                    "tag": tag,
+                    "no_cache": no_cache,
+                    "skip_mount_validation": skip_mount_validation
+                }),
             ),
             ContainerCommands::Run {
                 worktree_path,
