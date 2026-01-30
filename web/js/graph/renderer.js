@@ -332,9 +332,15 @@ function filterVisibleNodes() {
     const searchQuery = (state.get('ui.searchQuery') || '').toLowerCase().trim();
     const familyReveal = state.get('ui.familyReveal') || { active: false, revealedNodeIds: new Set() };
     
+    // Ensure revealedNodeIds is a Set (defensive check)
+    if (familyReveal.revealedNodeIds && !(familyReveal.revealedNodeIds instanceof Set)) {
+        console.warn('[Renderer] familyReveal.revealedNodeIds is not a Set, converting:', familyReveal.revealedNodeIds);
+        familyReveal.revealedNodeIds = new Set(familyReveal.revealedNodeIds);
+    }
+    
     visibleNodes = graphNodes.filter(node => {
         // Always include nodes revealed by family reveal
-        if (familyReveal.active && familyReveal.revealedNodeIds.has(node.id)) {
+        if (familyReveal.active && familyReveal.revealedNodeIds && familyReveal.revealedNodeIds.has(node.id)) {
             return true;
         }
         
