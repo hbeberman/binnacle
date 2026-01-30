@@ -784,3 +784,112 @@ fn test_container_mode_requires_bn_agent_id_for_orient() {
     cmd.args(["orient", "--type", "worker"]);
     cmd.assert().success();
 }
+
+// === Container Definition Tests ===
+
+#[test]
+fn test_container_list_definitions_embedded_fallback() {
+    // Test that list-definitions returns embedded fallback when no config files exist
+    let env = TestEnv::new();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("\"name\":\"binnacle\""))
+        .stdout(predicate::str::contains("\"source\":\"embedded\""));
+}
+
+#[test]
+fn test_container_list_definitions_human_readable() {
+    // Test human-readable output
+    let env = TestEnv::new();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions", "-H"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("binnacle (embedded)"))
+        .stdout(predicate::str::contains("Embedded binnacle container"));
+}
+
+#[test]
+fn test_container_list_definitions_with_project_config() {
+    // Test listing definitions when project-level config exists
+    let env = TestEnv::new();
+
+    // Create project-level container config
+    let containers_dir = env.repo_path().join(".binnacle").join("containers");
+    fs::create_dir_all(&containers_dir).unwrap();
+    fs::write(
+        containers_dir.join("config.kdl"),
+        r#"
+container "base" {
+    description "Fedora base with common dev tools"
+    
+    defaults {
+        cpus 2
+        memory "4g"
+    }
+}
+
+container "rust-dev" {
+    parent "base"
+    description "Rust development environment"
+    entrypoint mode="before"
+}
+"#,
+    )
+    .unwrap();
+
+    // List definitions in JSON format
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("\"name\":\"base\""))
+        .stdout(predicate::str::contains("\"name\":\"rust-dev\""))
+        .stdout(predicate::str::contains("\"source\":\"project\""))
+        .stdout(predicate::str::contains("\"count\":2"));
+
+    // List definitions in human-readable format
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions", "-H"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("base (project)"))
+        .stdout(predicate::str::contains("rust-dev (project)"))
+        .stdout(predicate::str::contains("Parent: base"))
+        .stdout(predicate::str::contains("2 container definition(s) found"));
+}
+
+#[test]
+fn test_container_list_definitions_shows_config_path() {
+    // Verify config path is shown in output
+    let env = TestEnv::new();
+
+    // Create project-level container config
+    let containers_dir = env.repo_path().join(".binnacle").join("containers");
+    fs::create_dir_all(&containers_dir).unwrap();
+    fs::write(
+        containers_dir.join("config.kdl"),
+        r#"
+container "test" {
+    description "Test container"
+}
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions", "-H"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Config:"))
+        .stdout(predicate::str::contains(".binnacle/containers/config.kdl"));
+}

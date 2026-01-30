@@ -1321,6 +1321,10 @@ fn run_command(
                 let result = commands::container_list(all, quiet)?;
                 output(&result, human);
             }
+            ContainerCommands::ListDefinitions => {
+                let result = commands::container_list_definitions(repo_path)?;
+                output(&result, human);
+            }
         },
         Some(Commands::Serve { interval, dry_run }) => {
             commands::serve(repo_path, interval, dry_run, human)?;
@@ -3173,6 +3177,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             ContainerCommands::List { all, quiet } => (
                 "container list".to_string(),
                 serde_json::json!({ "all": all, "quiet": quiet }),
+            ),
+            ContainerCommands::ListDefinitions => (
+                "container list-definitions".to_string(),
+                serde_json::json!({}),
             ),
         },
 

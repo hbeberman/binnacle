@@ -19461,6 +19461,82 @@ pub fn container_list(all: bool, _quiet: bool) -> Result<ContainerListResult> {
     })
 }
 
+/// Information about a container definition
+#[derive(Serialize)]
+pub struct DefinitionInfo {
+    /// Name of the container definition
+    pub name: String,
+    /// Source of the definition (project, host, embedded)
+    pub source: String,
+    /// Description of the definition
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Parent container name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// Config file path
+    pub config_path: String,
+}
+
+/// Result of listing container definitions
+#[derive(Serialize)]
+pub struct ContainerListDefinitionsResult {
+    /// List of container definitions
+    pub definitions: Vec<DefinitionInfo>,
+    /// Total count
+    pub count: usize,
+}
+
+impl Output for ContainerListDefinitionsResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.definitions.is_empty() {
+            return "No container definitions found".to_string();
+        }
+
+        let mut lines = vec![format!("{} container definition(s) found:\n", self.count)];
+
+        for def in &self.definitions {
+            lines.push(format!("  {} ({})", def.name, def.source));
+            if let Some(desc) = &def.description {
+                lines.push(format!("    Description: {}", desc));
+            }
+            if let Some(parent) = &def.parent {
+                lines.push(format!("    Parent: {}", parent));
+            }
+            lines.push(format!("    Config: {}", def.config_path));
+            lines.push(String::new());
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// List all container definitions from all sources
+pub fn container_list_definitions(repo_path: &Path) -> Result<ContainerListDefinitionsResult> {
+    use crate::container::discover_definitions;
+
+    let defs_with_source = discover_definitions(repo_path)?;
+
+    let definitions = defs_with_source
+        .into_iter()
+        .map(|d| DefinitionInfo {
+            name: d.definition.name,
+            source: d.source.to_string(),
+            description: d.definition.description,
+            parent: d.definition.parent,
+            config_path: d.config_path.display().to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    let count = definitions.len();
+
+    Ok(ContainerListDefinitionsResult { definitions, count })
+}
+
 // === Sync Command ===
 
 /// Result of the sync operation.

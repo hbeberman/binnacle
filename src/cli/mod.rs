@@ -2057,6 +2057,12 @@ pub enum ContainerCommands {
         #[arg(long)]
         quiet: bool,
     },
+
+    /// List all container definitions
+    ///
+    /// Shows container definitions from all sources (project-level, user-level, embedded)
+    /// with their origin, description, and parent chain.
+    ListDefinitions,
 }
 
 #[cfg(test)]
