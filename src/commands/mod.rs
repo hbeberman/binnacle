@@ -5061,6 +5061,73 @@ fn remove_task_from_queues(storage: &mut Storage, task_id: &str) -> Result<Vec<S
     remove_entity_from_queues(storage, task_id)
 }
 
+/// Check if any parent issues should be auto-resolved when a bug is closed.
+///
+/// When a bug is closed, this function:
+/// 1. Finds all parent issues via child_of edges (where bug is the child/source)
+/// 2. For each parent issue, checks if ALL child bugs are now closed
+/// 3. If yes and the issue is not already in a terminal state, transitions it to `resolved`
+/// 4. Returns the list of issue IDs that were auto-resolved
+fn check_and_auto_resolve_parent_issues(
+    storage: &mut Storage,
+    bug_id: &str,
+) -> Result<Vec<String>> {
+    use crate::models::EdgeType;
+
+    let mut auto_resolved = Vec::new();
+
+    // Find parent issues via child_of edges where this bug is the source (child)
+    let child_of_edges = storage.list_edges(Some(EdgeType::ChildOf), Some(bug_id), None)?;
+
+    for edge in child_of_edges {
+        let parent_id = &edge.target;
+
+        // Check if the parent is an issue
+        let issue = match storage.get_issue(parent_id) {
+            Ok(issue) => issue,
+            Err(_) => continue, // Parent is not an issue, skip
+        };
+
+        // Skip if issue is already in a terminal state
+        if matches!(
+            issue.status,
+            IssueStatus::Resolved
+                | IssueStatus::Closed
+                | IssueStatus::WontFix
+                | IssueStatus::ByDesign
+                | IssueStatus::NoRepro
+        ) {
+            continue;
+        }
+
+        // Find all child bugs of this issue via child_of edges (where issue is the target)
+        let child_edges = storage.list_edges(Some(EdgeType::ChildOf), None, Some(parent_id))?;
+
+        // Check if all child bugs are closed
+        let all_children_closed = child_edges.iter().all(|child_edge| {
+            let child_id = &child_edge.source;
+            // Try to get as bug - if it's a bug, check if closed
+            match storage.get_bug(child_id) {
+                Ok(bug) => {
+                    matches!(bug.status, TaskStatus::Done | TaskStatus::Cancelled)
+                }
+                Err(_) => true, // Not a bug (could be task or other entity), consider it "done"
+            }
+        });
+
+        if all_children_closed {
+            // Auto-resolve the issue
+            let mut issue = issue;
+            issue.status = IssueStatus::Resolved;
+            issue.core.updated_at = Utc::now();
+            storage.update_issue(&issue)?;
+            auto_resolved.push(parent_id.clone());
+        }
+    }
+
+    Ok(auto_resolved)
+}
+
 fn promote_partial_tasks(storage: &mut Storage) -> Result<Vec<String>> {
     let mut promoted = Vec::new();
 
@@ -6165,6 +6232,9 @@ pub struct BugClosed {
     pub hint: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub removed_from_queues: Vec<String>,
+    /// Issues that were auto-resolved because all their child bugs are now closed
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub auto_resolved_issues: Vec<String>,
 }
 
 impl Output for BugClosed {
@@ -6181,6 +6251,12 @@ impl Output for BugClosed {
             output.push_str(&format!(
                 "\nRemoved from queue(s): {}",
                 self.removed_from_queues.join(", ")
+            ));
+        }
+        if !self.auto_resolved_issues.is_empty() {
+            output.push_str(&format!(
+                "\nAuto-resolved parent issue(s): {}",
+                self.auto_resolved_issues.join(", ")
             ));
         }
         if let Some(hint) = &self.hint {
@@ -6247,6 +6323,9 @@ pub fn bug_close(
     // Auto-remove bug from any queues it's in
     let removed_from_queues = remove_task_from_queues(&mut storage, id)?;
 
+    // Check if any parent issues should be auto-resolved
+    let auto_resolved_issues = check_and_auto_resolve_parent_issues(&mut storage, id)?;
+
     // Generate warnings for incomplete deps, missing commits, no commits, and uncommitted changes
     let mut warnings = Vec::new();
     if !incomplete_deps.is_empty() {
@@ -6286,6 +6365,7 @@ pub fn bug_close(
         warning,
         hint,
         removed_from_queues,
+        auto_resolved_issues,
     })
 }
 
@@ -9865,6 +9945,10 @@ fn validate_entity_exists(storage: &Storage, id: &str) -> Result<()> {
     if storage.get_bug(id).is_ok() {
         return Ok(());
     }
+    // Try issue
+    if storage.get_issue(id).is_ok() {
+        return Ok(());
+    }
     // Try milestone
     if storage.get_milestone(id).is_ok() {
         return Ok(());
@@ -9898,6 +9982,8 @@ fn get_entity_type(storage: &Storage, id: &str) -> Option<&'static str> {
         Some("task")
     } else if storage.get_bug(id).is_ok() {
         Some("bug")
+    } else if storage.get_issue(id).is_ok() {
+        Some("issue")
     } else if storage.get_milestone(id).is_ok() {
         Some("milestone")
     } else if storage.get_test(id).is_ok() {
@@ -26672,6 +26758,160 @@ mod tests {
         assert_eq!(result.bug.status, TaskStatus::Done);
         assert!(result.bug.closed_at.is_some());
         assert_eq!(result.bug.closed_reason, Some("Fixed".to_string()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_bug_close_auto_resolves_parent_issue_when_all_children_closed() {
+        let temp = setup();
+
+        // Create an issue
+        let issue = issue_create(
+            temp.path(),
+            "Parent Issue".to_string(),
+            None,
+            Some("Investigation needed".to_string()),
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create two bugs as children of the issue
+        let bug1 = bug_create(
+            temp.path(),
+            "Bug 1".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let bug2 = bug_create(
+            temp.path(),
+            "Bug 2".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Link bugs to issue via child_of
+        link_add(temp.path(), &bug1.id, &issue.id, "child_of", None, false).unwrap();
+        link_add(temp.path(), &bug2.id, &issue.id, "child_of", None, false).unwrap();
+
+        // Verify issue is initially open
+        let parent = issue_show(temp.path(), &issue.id).unwrap();
+        assert_eq!(parent.status, IssueStatus::Open);
+
+        // Close first bug - should NOT auto-resolve since bug2 is still open
+        let result1 = bug_close(temp.path(), &bug1.id, Some("Fixed".to_string()), false).unwrap();
+        assert!(result1.auto_resolved_issues.is_empty());
+
+        // Verify issue is still open
+        let parent = issue_show(temp.path(), &issue.id).unwrap();
+        assert_eq!(parent.status, IssueStatus::Open);
+
+        // Close second bug - should auto-resolve the issue
+        let result2 = bug_close(temp.path(), &bug2.id, Some("Fixed".to_string()), false).unwrap();
+        assert_eq!(result2.auto_resolved_issues.len(), 1);
+        assert_eq!(result2.auto_resolved_issues[0], issue.id);
+
+        // Verify issue is now resolved
+        let parent = issue_show(temp.path(), &issue.id).unwrap();
+        assert_eq!(parent.status, IssueStatus::Resolved);
+    }
+
+    #[test]
+    #[serial]
+    fn test_bug_close_no_auto_resolve_when_no_parent_issue() {
+        let temp = setup();
+
+        // Create a bug without a parent issue
+        let bug = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Close the bug - no auto-resolution should happen
+        let result = bug_close(temp.path(), &bug.id, Some("Fixed".to_string()), false).unwrap();
+        assert!(result.auto_resolved_issues.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn test_bug_close_no_auto_resolve_when_parent_issue_already_resolved() {
+        let temp = setup();
+
+        // Create an issue
+        let issue = issue_create(
+            temp.path(),
+            "Parent Issue".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Manually resolve the issue
+        issue_update(
+            temp.path(),
+            &issue.id,
+            None,             // title
+            None,             // short_name
+            None,             // description
+            None,             // priority
+            Some("resolved"), // status
+            vec![],           // add_tags
+            vec![],           // remove_tags
+            None,             // assignee
+        )
+        .unwrap();
+
+        // Create a bug as child of the issue
+        let bug = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &bug.id, &issue.id, "child_of", None, false).unwrap();
+
+        // Close the bug - should not auto-resolve since issue is already resolved
+        let result = bug_close(temp.path(), &bug.id, Some("Fixed".to_string()), false).unwrap();
+        assert!(result.auto_resolved_issues.is_empty());
+
+        // Verify issue is still resolved (not changed)
+        let parent = issue_show(temp.path(), &issue.id).unwrap();
+        assert_eq!(parent.status, IssueStatus::Resolved);
     }
 
     #[test]
