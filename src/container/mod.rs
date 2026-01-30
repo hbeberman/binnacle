@@ -162,6 +162,100 @@ fn expand_home(path: &str) -> Result<Option<PathBuf>> {
     Ok(None)
 }
 
+/// Result of mount validation
+#[derive(Debug, Clone)]
+pub struct ValidatedMount {
+    pub mount: Mount,
+    pub resolved_source: PathBuf,
+}
+
+/// Validate mounts and resolve their source paths.
+///
+/// # Behavior
+/// - Required mounts (optional=false): Error if source path doesn't exist
+/// - Optional mounts (optional=true): Skip with warning if source path doesn't exist
+///
+/// # Arguments
+/// - `mounts`: The list of mounts from container definition
+/// - `repo_root`: The repository root directory (for relative path resolution)
+///
+/// # Returns
+/// - List of validated mounts with resolved source paths
+/// - Skips optional mounts that don't exist (logs warning)
+/// - Errors on missing required mounts
+///
+/// # Example
+/// ```
+/// use binnacle::container::{Mount, MountMode, validate_mounts};
+/// use std::path::Path;
+///
+/// let mounts = vec![
+///     Mount {
+///         name: "workspace".to_string(),
+///         source: Some("workspace".to_string()),
+///         target: "/workspace".to_string(),
+///         mode: MountMode::ReadWrite,
+///         optional: false,
+///     },
+///     Mount {
+///         name: "cache".to_string(),
+///         source: Some("~/.cargo".to_string()),
+///         target: "/cargo-cache".to_string(),
+///         mode: MountMode::ReadOnly,
+///         optional: true,
+///     },
+/// ];
+///
+/// let repo_root = Path::new("/repo");
+/// let validated = validate_mounts(&mounts, repo_root).unwrap();
+/// // Optional cache mount will be skipped with warning if ~/.cargo doesn't exist
+/// // Required workspace mount will error if it doesn't exist
+/// ```
+pub fn validate_mounts(mounts: &[Mount], repo_root: &Path) -> Result<Vec<ValidatedMount>> {
+    let mut validated = Vec::new();
+
+    for mount in mounts {
+        // Resolve the source path (if source is specified)
+        let resolved_source = if let Some(source) = &mount.source {
+            resolve_mount_source(source, repo_root)?
+        } else {
+            // No source means special mount (like workspace/binnacle) - handled at runtime
+            PathBuf::from("")
+        };
+
+        // Check if the source path exists (skip special mounts like "workspace"/"binnacle")
+        let is_special_mount = resolved_source.to_string_lossy() == "workspace"
+            || resolved_source.to_string_lossy() == "binnacle";
+
+        if !is_special_mount && !resolved_source.as_os_str().is_empty() && !resolved_source.exists()
+        {
+            if mount.optional {
+                // Optional mount missing - log warning and skip
+                eprintln!(
+                    "warning: Skipping optional mount '{}': source path does not exist: {}",
+                    mount.name,
+                    resolved_source.display()
+                );
+                continue;
+            } else {
+                // Required mount missing - error
+                return Err(Error::Other(format!(
+                    "Mount '{}' source path does not exist: {}",
+                    mount.name,
+                    resolved_source.display()
+                )));
+            }
+        }
+
+        validated.push(ValidatedMount {
+            mount: mount.clone(),
+            resolved_source,
+        });
+    }
+
+    Ok(validated)
+}
+
 /// Parse config.kdl document into a map of container definitions
 pub fn parse_config_kdl(doc: &KdlDocument) -> Result<HashMap<String, ContainerDefinition>> {
     let mut definitions = HashMap::new();
@@ -1299,5 +1393,182 @@ container "rust-dev" {
         assert!(base_idx < left_idx);
         assert!(base_idx < right_idx);
         assert!(left_idx < bottom_idx);
+    }
+
+    #[test]
+    fn test_validate_mounts_special_mounts() {
+        use tempfile::TempDir;
+        let temp = TempDir::new().unwrap();
+
+        let mounts = vec![
+            Mount {
+                name: "workspace".to_string(),
+                source: Some("workspace".to_string()),
+                target: "/workspace".to_string(),
+                mode: MountMode::ReadWrite,
+                optional: false,
+            },
+            Mount {
+                name: "binnacle".to_string(),
+                source: Some("binnacle".to_string()),
+                target: "/binnacle".to_string(),
+                mode: MountMode::ReadWrite,
+                optional: false,
+            },
+        ];
+
+        let result = super::validate_mounts(&mounts, temp.path()).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].resolved_source, PathBuf::from("workspace"));
+        assert_eq!(result[1].resolved_source, PathBuf::from("binnacle"));
+    }
+
+    #[test]
+    fn test_validate_mounts_required_missing_fails() {
+        use tempfile::TempDir;
+        let temp = TempDir::new().unwrap();
+
+        let mounts = vec![Mount {
+            name: "required".to_string(),
+            source: Some("/nonexistent/path".to_string()),
+            target: "/target".to_string(),
+            mode: MountMode::ReadWrite,
+            optional: false,
+        }];
+
+        let result = super::validate_mounts(&mounts, temp.path());
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("source path does not exist")
+        );
+    }
+
+    #[test]
+    fn test_validate_mounts_optional_missing_skipped() {
+        use tempfile::TempDir;
+        let temp = TempDir::new().unwrap();
+
+        let mounts = vec![Mount {
+            name: "optional-cache".to_string(),
+            source: Some("/nonexistent/cache".to_string()),
+            target: "/cache".to_string(),
+            mode: MountMode::ReadOnly,
+            optional: true,
+        }];
+
+        let result = super::validate_mounts(&mounts, temp.path()).unwrap();
+        // Optional mount should be skipped if missing
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_validate_mounts_optional_exists_included() {
+        use std::fs;
+        use tempfile::TempDir;
+        let temp = TempDir::new().unwrap();
+
+        // Create a test directory
+        let cache_dir = temp.path().join("cache");
+        fs::create_dir(&cache_dir).unwrap();
+
+        let mounts = vec![Mount {
+            name: "optional-cache".to_string(),
+            source: Some(cache_dir.to_string_lossy().to_string()),
+            target: "/cache".to_string(),
+            mode: MountMode::ReadOnly,
+            optional: true,
+        }];
+
+        let result = super::validate_mounts(&mounts, temp.path()).unwrap();
+        // Optional mount should be included if it exists
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].mount.name, "optional-cache");
+        assert_eq!(result[0].resolved_source, cache_dir);
+    }
+
+    #[test]
+    fn test_validate_mounts_mixed_required_and_optional() {
+        use std::fs;
+        use tempfile::TempDir;
+        let temp = TempDir::new().unwrap();
+
+        // Create required directory
+        let data_dir = temp.path().join("data");
+        fs::create_dir(&data_dir).unwrap();
+
+        let mounts = vec![
+            Mount {
+                name: "required-data".to_string(),
+                source: Some(data_dir.to_string_lossy().to_string()),
+                target: "/data".to_string(),
+                mode: MountMode::ReadWrite,
+                optional: false,
+            },
+            Mount {
+                name: "optional-cache".to_string(),
+                source: Some("/nonexistent/cache".to_string()),
+                target: "/cache".to_string(),
+                mode: MountMode::ReadOnly,
+                optional: true,
+            },
+            Mount {
+                name: "workspace".to_string(),
+                source: Some("workspace".to_string()),
+                target: "/workspace".to_string(),
+                mode: MountMode::ReadWrite,
+                optional: false,
+            },
+        ];
+
+        let result = super::validate_mounts(&mounts, temp.path()).unwrap();
+        // Should include required data and workspace, skip optional cache
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].mount.name, "required-data");
+        assert_eq!(result[1].mount.name, "workspace");
+    }
+
+    #[test]
+    fn test_validate_mounts_relative_path() {
+        use std::fs;
+        use tempfile::TempDir;
+        let temp = TempDir::new().unwrap();
+
+        // Create a relative directory
+        let cache_dir = temp.path().join("cache");
+        fs::create_dir(&cache_dir).unwrap();
+
+        let mounts = vec![Mount {
+            name: "cache".to_string(),
+            source: Some("cache".to_string()),
+            target: "/cache".to_string(),
+            mode: MountMode::ReadWrite,
+            optional: false,
+        }];
+
+        let result = super::validate_mounts(&mounts, temp.path()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].resolved_source, cache_dir);
+    }
+
+    #[test]
+    fn test_validate_mounts_no_source() {
+        use tempfile::TempDir;
+        let temp = TempDir::new().unwrap();
+
+        // Mount with no source (runtime-provided)
+        let mounts = vec![Mount {
+            name: "runtime".to_string(),
+            source: None,
+            target: "/runtime".to_string(),
+            mode: MountMode::ReadWrite,
+            optional: false,
+        }];
+
+        let result = super::validate_mounts(&mounts, temp.path()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].resolved_source, PathBuf::from(""));
     }
 }
