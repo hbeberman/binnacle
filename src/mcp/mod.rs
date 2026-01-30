@@ -789,6 +789,21 @@ impl McpServer {
                     Ok(json!({"error": "AGENTS.md not found"}).to_string())
                 }
             }
+            "binnacle://issues" => {
+                // Run bn issue list and return result
+                let output = Command::new(&self.bn_path)
+                    .args(["issue", "list"])
+                    .current_dir(cwd)
+                    .env("BN_MCP_SESSION", &self.session_id)
+                    .output()
+                    .map_err(|e| format!("Failed to list issues: {}", e))?;
+
+                if output.status.success() {
+                    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+                } else {
+                    Err(String::from_utf8_lossy(&output.stderr).to_string())
+                }
+            }
             _ => Err(format!("Unknown resource: {}", uri)),
         }
     }
@@ -968,6 +983,12 @@ fn get_resource_definitions() -> Vec<ResourceDef> {
             description: "Content of AGENTS.md if present in the repository".to_string(),
             mime_type: Some("text/markdown".to_string()),
         },
+        ResourceDef {
+            uri: "binnacle://issues".to_string(),
+            name: "Issues".to_string(),
+            description: "List of all open issues in the project".to_string(),
+            mime_type: Some("application/json".to_string()),
+        },
     ]
 }
 
@@ -1051,9 +1072,10 @@ mod tests {
     #[test]
     fn test_resource_definitions() {
         let resources = get_resource_definitions();
-        assert_eq!(resources.len(), 2);
+        assert_eq!(resources.len(), 3);
         assert!(resources.iter().any(|r| r.uri == "binnacle://status"));
         assert!(resources.iter().any(|r| r.uri == "binnacle://agents"));
+        assert!(resources.iter().any(|r| r.uri == "binnacle://issues"));
     }
 
     #[test]
