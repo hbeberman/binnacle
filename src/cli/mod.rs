@@ -1765,6 +1765,13 @@ pub enum SystemCommands {
         #[command(subcommand)]
         command: CopilotCommands,
     },
+
+    /// Tmux layout management (requires --features tmux)
+    #[cfg(feature = "tmux")]
+    Tmux {
+        #[command(subcommand)]
+        command: TmuxCommands,
+    },
 }
 
 /// Copilot management subcommands
@@ -1784,6 +1791,22 @@ pub enum CopilotCommands {
     Path,
     /// List all installed Copilot CLI versions with active indicator
     Version,
+}
+
+/// Tmux layout management subcommands (feature-gated)
+#[cfg(feature = "tmux")]
+#[derive(Subcommand, Debug)]
+pub enum TmuxCommands {
+    /// Save current tmux layout to a KDL file
+    Save {
+        /// Layout name (default: current session name)
+        name: Option<String>,
+    },
+    /// Load a tmux layout from a KDL file
+    Load {
+        /// Layout name to load
+        name: String,
+    },
 }
 
 /// Hooks management subcommands
