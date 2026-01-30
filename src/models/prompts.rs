@@ -5,12 +5,12 @@
 
 /// Prompt for worker agents that pick tasks from `bn ready` and work on them.
 /// Used by: `containeragent.sh auto`
-pub const WORKER_PROMPT: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Run `bn ready` to find available tasks and bugs. IMPORTANT: Prioritize queued items first (items with "queued": true in the JSON output) - these have been explicitly marked as high priority by an operator. Among queued items, pick by priority (lower number = higher priority). If no queued items exist, pick the highest priority non-queued item. Claim your chosen item with `bn task update ID --status in_progress` or `bn bug update ID --status in_progress`, and start working immediately. CRITICAL: When you finish, close the item with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
+pub const WORKER_PROMPT: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Run `bn ready` to find available tasks and bugs. IMPORTANT: Prioritize queued items first (items with "queued": true in the JSON output) - these have been explicitly marked as high priority by an operator. Among queued items, pick by priority (lower number = higher priority). If no queued items exist, pick the highest priority non-queued item. Claim your chosen item with `bn task update ID --status in_progress` or `bn bug update ID --status in_progress`, and start working immediately. LSP GUIDANCE: Use your LSP tool for code navigation - goToDefinition, findReferences, hover for type info, and documentSymbol to understand file structure. LSP is more accurate than grep for finding symbol usages and understanding code. CRITICAL: When you finish, close the item with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
 
 /// Template for "do" agents that work on a specific task described by the user.
 /// The `{description}` placeholder should be replaced with the task description.
 /// Used by: `containeragent.sh do "description"`
-pub const DO_PROMPT_TEMPLATE: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md. Then work on the following: {description}. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work. CRITICAL: If you created or claimed a task/bug, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
+pub const DO_PROMPT_TEMPLATE: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md. Then work on the following: {description}. LSP GUIDANCE: Use your LSP tool for code navigation - goToDefinition, findReferences, hover for type info, and documentSymbol to understand file structure. LSP is more accurate than grep for finding symbol usages and understanding code. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work. CRITICAL: If you created or claimed a task/bug, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
 
 /// Prompt for PRD writer/planner agents that convert ideas into PRDs.
 /// Used by: `containeragent.sh prd`
@@ -22,6 +22,8 @@ CRITICAL: Before writing ANY PRD, ALWAYS run `bn idea list -H` to search for exi
 3. Consider whether the PRD should supersede/combine multiple related ideas
 
 If the user provides a topic, search ideas for that topic first, then work on it. If no topic provided, check `bn idea list` for candidates and pick the most promising one. Then STOP and ask clarifying questions before writing the PRD. Ask about: scope boundaries (what is in/out), target users, success criteria, implementation constraints, dependencies on other work, and priority relative to other features.
+
+LSP GUIDANCE: When researching existing code for your PRD, use your LSP tool for code navigation - goToDefinition, findReferences, hover for type info, and documentSymbol to understand file structure. LSP is more accurate than grep for finding symbol usages and understanding code architecture.
 
 IMPORTANT - Store PRDs as doc nodes, not files:
 After gathering requirements and writing the PRD content, use `bn doc create` to store it in the task graph:
@@ -62,6 +64,8 @@ Do NOT decompose:
 - Tasks that are already focused and atomic
 - Ideas (decomposition happens when ideas are promoted to tasks)
 
+LSP GUIDANCE: When investigating code for bug reports or task creation, use your LSP tool for code navigation - goToDefinition, findReferences, hover for type info, and documentSymbol to understand file structure. LSP is more accurate than grep for finding symbol usages and understanding code.
+
 CRITICAL - Always check the graph for latest state:
 When answering questions about bugs, tasks, or ideas (even ones you created earlier in this session), ALWAYS run `bn show <id>` to check the current state. Never assume an entity is still open just because you created it - another agent or human may have closed it. The graph is the source of truth, not your session memory.
 
@@ -70,7 +74,7 @@ If you created or claimed any task/bug during this session, close it with `bn ta
 
 /// Prompt for free agents with general binnacle access.
 /// Used by: `containeragent.sh free`
-pub const FREE_PROMPT: &str = r#"You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. CRITICAL: If you created or claimed a task/bug, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
+pub const FREE_PROMPT: &str = r#"You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. LSP GUIDANCE: Use your LSP tool for code navigation - goToDefinition, findReferences, hover for type info, and documentSymbol to understand file structure. LSP is more accurate than grep for finding symbol usages and understanding code. CRITICAL: If you created or claimed a task/bug, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
 
 /// Generate a "do" prompt with the given task description.
 pub fn do_prompt(description: &str) -> String {
@@ -121,5 +125,25 @@ mod tests {
         assert!(prompt.contains("bn orient"));
         assert!(prompt.contains("bn goodbye"));
         assert!(!prompt.contains("{description}"));
+    }
+
+    #[test]
+    fn test_all_prompts_contain_lsp_guidance() {
+        // All agent prompts should include LSP tool guidance
+        assert!(WORKER_PROMPT.contains("LSP GUIDANCE"));
+        assert!(WORKER_PROMPT.contains("goToDefinition"));
+        assert!(WORKER_PROMPT.contains("findReferences"));
+
+        assert!(DO_PROMPT_TEMPLATE.contains("LSP GUIDANCE"));
+        assert!(DO_PROMPT_TEMPLATE.contains("goToDefinition"));
+
+        assert!(PRD_PROMPT.contains("LSP GUIDANCE"));
+        assert!(PRD_PROMPT.contains("goToDefinition"));
+
+        assert!(BUDDY_PROMPT.contains("LSP GUIDANCE"));
+        assert!(BUDDY_PROMPT.contains("goToDefinition"));
+
+        assert!(FREE_PROMPT.contains("LSP GUIDANCE"));
+        assert!(FREE_PROMPT.contains("goToDefinition"));
     }
 }
