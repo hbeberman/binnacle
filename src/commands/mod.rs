@@ -566,7 +566,15 @@ fn init_with_options(
         let image_name = "localhost/binnacle-worker:latest";
         if !container_image_exists(image_name) {
             eprintln!("📦 Building binnacle container image...");
-            match container_build(repo_path, None, false, "latest", false, false) {
+            match container_build(
+                repo_path,
+                None,
+                false,
+                "latest",
+                false,
+                false,
+                crate::container::SourcePreference::None,
+            ) {
                 Ok(result) => {
                     if !result.success {
                         eprintln!("Warning: Failed to build container: {:?}", result.error);
@@ -19024,6 +19032,11 @@ fn parse_memory_limit(s: &str) -> Result<u64> {
 /// - No definition name: Lists available definitions
 /// - With definition name: Builds that definition and its dependencies
 /// - With --all flag: Builds all definitions in dependency order
+///
+/// # Source Preference
+/// When building a specific definition that exists in both project and host locations,
+/// use `source_preference` to specify which one to use. If no preference is given
+/// and a conflict exists, an error is returned.
 pub fn container_build(
     repo_path: &Path,
     definition: Option<&str>,
@@ -19031,8 +19044,12 @@ pub fn container_build(
     tag: &str,
     no_cache: bool,
     _skip_mount_validation: bool,
+    source_preference: crate::container::SourcePreference,
 ) -> Result<ContainerBuildResult> {
-    use crate::container::{RESERVED_NAME, compute_build_order, discover_definitions};
+    use crate::container::{
+        RESERVED_NAME, SourcePreference, compute_build_order, detect_conflicts,
+        discover_definitions, resolve_definition,
+    };
     use std::collections::HashMap;
 
     // Check for required tools
@@ -19051,14 +19068,21 @@ pub fn container_build(
 
     // MODE 1: List definitions (no definition name, no --all)
     if definition.is_none() && !all {
+        // When listing, show conflicts as a warning
+        let conflicts = detect_conflicts(&defs_with_source);
+
         let def_infos: Vec<DefinitionInfo> = defs_with_source
             .iter()
-            .map(|d| DefinitionInfo {
-                name: d.definition.name.clone(),
-                source: format!("{}", d.source),
-                description: d.definition.description.clone(),
-                parent: d.definition.parent.clone(),
-                config_path: d.config_path.display().to_string(),
+            .map(|d| {
+                let is_conflicted = conflicts.iter().any(|c| c.name == d.definition.name);
+                DefinitionInfo {
+                    name: d.definition.name.clone(),
+                    source: format!("{}", d.source),
+                    description: d.definition.description.clone(),
+                    parent: d.definition.parent.clone(),
+                    config_path: d.config_path.display().to_string(),
+                    has_conflict: if is_conflicted { Some(true) } else { None },
+                }
             })
             .collect();
 
@@ -19071,39 +19095,82 @@ pub fn container_build(
         });
     }
 
-    // Build map of definitions for easy lookup
-    let defs_map: HashMap<String, _> = defs_with_source
-        .iter()
-        .map(|d| (d.definition.name.clone(), &d.definition))
-        .collect();
-
     // MODE 2 & 3: Determine which definitions to build
     let to_build = if all {
-        // Build all definitions in dependency order
-        compute_build_order(
-            &defs_map
-                .iter()
-                .map(|(k, v)| (k.clone(), (*v).clone()))
-                .collect(),
-        )?
-    } else {
-        // Build single definition and its dependencies
-        let def_name = definition.unwrap(); // Safe because we checked earlier
-
-        if !defs_map.contains_key(def_name) {
+        // For --all, we need to resolve conflicts for each definition
+        // If a conflict exists and no preference is given, error out
+        let conflicts = detect_conflicts(&defs_with_source);
+        if !conflicts.is_empty() && source_preference == SourcePreference::None {
+            let conflict_names: Vec<_> = conflicts.iter().map(|c| c.name.as_str()).collect();
             return Ok(ContainerBuildResult {
                 success: false,
                 tag: None,
                 built_definitions: None,
                 available_definitions: None,
                 error: Some(format!(
-                    "Definition '{}' not found. Run 'bn container build' to list available definitions.",
-                    def_name
+                    "Cannot build all definitions: conflicts exist for: {}. Use --project or --host to specify which source to prefer.",
+                    conflict_names.join(", ")
                 )),
             });
         }
 
-        // Compute build order starting from requested definition and its parents
+        // Filter definitions based on source preference to remove duplicates
+        let filtered_defs: Vec<_> = if source_preference == SourcePreference::None {
+            // No conflicts, use all
+            defs_with_source.clone()
+        } else {
+            // Filter to preferred source when conflict exists
+            let conflict_names: std::collections::HashSet<_> =
+                conflicts.iter().map(|c| c.name.as_str()).collect();
+            defs_with_source
+                .iter()
+                .filter(|d| {
+                    if conflict_names.contains(d.definition.name.as_str()) {
+                        // This name has a conflict - only keep if matches preference
+                        match source_preference {
+                            SourcePreference::Project => {
+                                d.source == crate::container::DefinitionSource::Project
+                            }
+                            SourcePreference::Host => {
+                                d.source == crate::container::DefinitionSource::Host
+                            }
+                            SourcePreference::None => true, // Already handled above
+                        }
+                    } else {
+                        // No conflict - keep it
+                        true
+                    }
+                })
+                .cloned()
+                .collect()
+        };
+
+        let defs_map: HashMap<String, _> = filtered_defs
+            .iter()
+            .map(|d| (d.definition.name.clone(), d.definition.clone()))
+            .collect();
+
+        compute_build_order(&defs_map)?
+    } else {
+        // Build single definition and its dependencies
+        let def_name = definition.unwrap(); // Safe because we checked earlier
+
+        // Use resolve_definition to handle conflicts
+        let resolved = match resolve_definition(&defs_with_source, def_name, source_preference) {
+            Ok(def) => def,
+            Err(e) => {
+                return Ok(ContainerBuildResult {
+                    success: false,
+                    tag: None,
+                    built_definitions: None,
+                    available_definitions: None,
+                    error: Some(e.to_string()),
+                });
+            }
+        };
+
+        // Build map starting from resolved definition
+        // For parent lookups, also respect source preference to resolve conflicts
         let mut subset_map = HashMap::new();
         let mut stack = vec![def_name.to_string()];
         let mut visited = std::collections::HashSet::new();
@@ -19114,13 +19181,18 @@ pub fn container_build(
             }
             visited.insert(current.clone());
 
-            if let Some(def) = defs_map.get(&current) {
-                subset_map.insert(current.clone(), (*def).clone());
-                if let Some(parent) = &def.parent {
+            // Resolve this definition (handles conflicts)
+            if let Ok(def_src) = resolve_definition(&defs_with_source, &current, source_preference)
+            {
+                subset_map.insert(current.clone(), def_src.definition.clone());
+                if let Some(parent) = &def_src.definition.parent {
                     stack.push(parent.clone());
                 }
             }
         }
+
+        // Make sure the resolved definition is in the map
+        subset_map.insert(def_name.to_string(), resolved.definition);
 
         compute_build_order(&subset_map)?
     };
@@ -19130,10 +19202,18 @@ pub fn container_build(
     // Build each definition in order
     let mut built = Vec::new();
     for def_name in &to_build {
-        let def_src = defs_with_source
-            .iter()
-            .find(|d| &d.definition.name == def_name)
-            .ok_or_else(|| Error::Other(format!("Definition '{}' not found", def_name)))?;
+        // Use resolve_definition to respect source preference when looking up definitions
+        let def_src = match resolve_definition(&defs_with_source, def_name, source_preference) {
+            Ok(d) => d,
+            Err(_) => {
+                // Fall back to first match if resolution fails (shouldn't happen)
+                defs_with_source
+                    .iter()
+                    .find(|d| &d.definition.name == def_name)
+                    .ok_or_else(|| Error::Other(format!("Definition '{}' not found", def_name)))?
+                    .clone()
+            }
+        };
 
         eprintln!("\n📦 Building {} ({})...", def_name, def_src.source);
 
@@ -19392,7 +19472,13 @@ pub fn container_run(
     memory: Option<&str>,
     shell: bool,
     prompt: Option<&str>,
+    definition: Option<&str>,
+    source_preference: crate::container::SourcePreference,
 ) -> Result<ContainerRunResult> {
+    use crate::container::{
+        DefinitionSource, discover_definitions, generate_image_name, resolve_definition,
+    };
+
     // Check for required tools
     if !command_exists("ctr") {
         return Ok(ContainerRunResult {
@@ -19408,17 +19494,87 @@ pub fn container_run(
     let containerd_mode = detect_containerd_mode();
     warn_system_containerd_mode(&containerd_mode);
 
+    // Determine which container image to use
+    let defs_with_source = discover_definitions(repo_path)?;
+
+    let (image_name, def_name) = if let Some(def_name) = definition {
+        // User specified a definition - resolve it (handles conflicts)
+        match resolve_definition(&defs_with_source, def_name, source_preference) {
+            Ok(def_src) => {
+                if def_src.source == DefinitionSource::Embedded {
+                    // Embedded uses the hardcoded name
+                    (
+                        "localhost/binnacle-worker:latest".to_string(),
+                        def_name.to_string(),
+                    )
+                } else {
+                    // Use generated name for custom definitions
+                    (
+                        generate_image_name(repo_path, def_name)?,
+                        def_name.to_string(),
+                    )
+                }
+            }
+            Err(e) => {
+                return Ok(ContainerRunResult {
+                    success: false,
+                    name: None,
+                    agent_id: None,
+                    agent_name: None,
+                    error: Some(e.to_string()),
+                });
+            }
+        }
+    } else {
+        // No definition specified - use first available (prefer project, then host, then embedded)
+        let preferred = defs_with_source
+            .iter()
+            .find(|d| d.source == DefinitionSource::Project)
+            .or_else(|| {
+                defs_with_source
+                    .iter()
+                    .find(|d| d.source == DefinitionSource::Host)
+            })
+            .or_else(|| {
+                defs_with_source
+                    .iter()
+                    .find(|d| d.source == DefinitionSource::Embedded)
+            });
+
+        match preferred {
+            Some(def_src) => {
+                if def_src.source == DefinitionSource::Embedded {
+                    (
+                        "localhost/binnacle-worker:latest".to_string(),
+                        def_src.definition.name.clone(),
+                    )
+                } else {
+                    (
+                        generate_image_name(repo_path, &def_src.definition.name)?,
+                        def_src.definition.name.clone(),
+                    )
+                }
+            }
+            None => {
+                // Fallback to embedded
+                (
+                    "localhost/binnacle-worker:latest".to_string(),
+                    "binnacle".to_string(),
+                )
+            }
+        }
+    };
+
     // Check if the worker image exists in containerd
-    let image_name = "localhost/binnacle-worker:latest";
-    if !container_image_exists(image_name) {
+    if !container_image_exists(&image_name) {
         return Ok(ContainerRunResult {
             success: false,
             name: None,
             agent_id: None,
             agent_name: None,
             error: Some(format!(
-                "Image '{}' not found in containerd.\n\nRun 'bn container build' first to build the worker image.",
-                image_name
+                "Image '{}' not found in containerd.\n\nRun 'bn container build {}' first to build the image.",
+                image_name, def_name
             )),
         });
     }
@@ -20067,6 +20223,9 @@ pub struct DefinitionInfo {
     pub parent: Option<String>,
     /// Config file path
     pub config_path: String,
+    /// Whether this definition name has a conflict (exists in multiple sources)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_conflict: Option<bool>,
 }
 
 /// Result of listing container definitions
@@ -20120,6 +20279,7 @@ pub fn container_list_definitions(repo_path: &Path) -> Result<ContainerListDefin
             description: d.definition.description,
             parent: d.definition.parent,
             config_path: d.config_path.display().to_string(),
+            has_conflict: None, // Conflict detection is done in container_build
         })
         .collect::<Vec<_>>();
 

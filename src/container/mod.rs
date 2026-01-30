@@ -459,6 +459,158 @@ pub struct DefinitionWithSource {
     pub definition: ContainerDefinition,
     pub source: DefinitionSource,
     pub config_path: PathBuf,
+    pub modified_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Conflict information when same name exists in multiple sources
+#[derive(Debug, Clone)]
+pub struct DefinitionConflict {
+    pub name: String,
+    pub project_def: DefinitionWithSource,
+    pub host_def: DefinitionWithSource,
+}
+
+impl std::fmt::Display for DefinitionConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "Conflict: definition '{}' exists in multiple sources:",
+            self.name
+        )?;
+        writeln!(f)?;
+        writeln!(f, "  PROJECT (.binnacle/containers/):")?;
+        if let Some(desc) = &self.project_def.definition.description {
+            writeln!(f, "    Description: {}", desc)?;
+        }
+        if let Some(modified) = &self.project_def.modified_at {
+            writeln!(
+                f,
+                "    Modified: {}",
+                modified.format("%Y-%m-%d %H:%M:%S UTC")
+            )?;
+        }
+        writeln!(f, "    Path: {}", self.project_def.config_path.display())?;
+        writeln!(f)?;
+        writeln!(f, "  HOST (~/.local/share/binnacle/<hash>/containers/):")?;
+        if let Some(desc) = &self.host_def.definition.description {
+            writeln!(f, "    Description: {}", desc)?;
+        }
+        if let Some(modified) = &self.host_def.modified_at {
+            writeln!(
+                f,
+                "    Modified: {}",
+                modified.format("%Y-%m-%d %H:%M:%S UTC")
+            )?;
+        }
+        writeln!(f, "    Path: {}", self.host_def.config_path.display())?;
+        writeln!(f)?;
+        write!(
+            f,
+            "Use --project or --host to specify which definition to use."
+        )
+    }
+}
+
+/// Source preference for resolving definition conflicts
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourcePreference {
+    /// No preference - error on conflict
+    None,
+    /// Prefer project-level definition
+    Project,
+    /// Prefer host-level definition
+    Host,
+}
+
+/// Detect conflicts in discovered definitions
+///
+/// Returns a list of conflicts where the same name exists in both project and host sources.
+pub fn detect_conflicts(definitions: &[DefinitionWithSource]) -> Vec<DefinitionConflict> {
+    use std::collections::HashMap;
+
+    // Group definitions by name
+    let mut by_name: HashMap<&str, Vec<&DefinitionWithSource>> = HashMap::new();
+    for def in definitions {
+        by_name.entry(&def.definition.name).or_default().push(def);
+    }
+
+    // Find conflicts (name exists in both project and host)
+    let mut conflicts = Vec::new();
+    for (name, defs) in by_name {
+        let project_def = defs.iter().find(|d| d.source == DefinitionSource::Project);
+        let host_def = defs.iter().find(|d| d.source == DefinitionSource::Host);
+
+        if let (Some(project), Some(host)) = (project_def, host_def) {
+            conflicts.push(DefinitionConflict {
+                name: name.to_string(),
+                project_def: (*project).clone(),
+                host_def: (*host).clone(),
+            });
+        }
+    }
+
+    conflicts
+}
+
+/// Resolve a specific definition by name, respecting source preference
+///
+/// # Arguments
+/// - `definitions`: All discovered definitions
+/// - `name`: Name of the definition to find
+/// - `preference`: Source preference for conflict resolution
+///
+/// # Returns
+/// - `Ok(DefinitionWithSource)`: The resolved definition
+/// - `Err(_)`: If not found, or if conflict exists with no preference
+pub fn resolve_definition(
+    definitions: &[DefinitionWithSource],
+    name: &str,
+    preference: SourcePreference,
+) -> Result<DefinitionWithSource> {
+    // Find all definitions with this name
+    let matches: Vec<_> = definitions
+        .iter()
+        .filter(|d| d.definition.name == name)
+        .collect();
+
+    if matches.is_empty() {
+        return Err(Error::Other(format!(
+            "Definition '{}' not found. Run 'bn container build' to list available definitions.",
+            name
+        )));
+    }
+
+    // If only one match, return it
+    if matches.len() == 1 {
+        return Ok(matches[0].clone());
+    }
+
+    // Multiple matches - check for conflict and apply preference
+    let project_def = matches
+        .iter()
+        .find(|d| d.source == DefinitionSource::Project);
+    let host_def = matches.iter().find(|d| d.source == DefinitionSource::Host);
+
+    match (project_def, host_def, preference) {
+        (Some(project), Some(_host), SourcePreference::Project) => Ok((*project).clone()),
+        (Some(_project), Some(host), SourcePreference::Host) => Ok((*host).clone()),
+        (Some(project), Some(host), SourcePreference::None) => {
+            // Conflict with no preference - return error
+            let conflict = DefinitionConflict {
+                name: name.to_string(),
+                project_def: (*project).clone(),
+                host_def: (*host).clone(),
+            };
+            Err(Error::Other(conflict.to_string()))
+        }
+        // One of them is Some, pick that one
+        (Some(def), None, _) => Ok((*def).clone()),
+        (None, Some(def), _) => Ok((*def).clone()),
+        _ => {
+            // Fall back to first match (shouldn't happen with project/host sources)
+            Ok(matches[0].clone())
+        }
+    }
 }
 
 /// Discover container definitions from all sources
@@ -472,6 +624,15 @@ pub struct DefinitionWithSource {
 /// If the same name exists in multiple sources, both are included (caller must resolve conflicts).
 pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource>> {
     let mut results = Vec::new();
+
+    // Helper to get file modification time
+    fn get_modified_time(path: &Path) -> Option<chrono::DateTime<chrono::Utc>> {
+        use chrono::{DateTime, Utc};
+        path.metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .map(DateTime::<Utc>::from)
+    }
 
     // 1. Check project-level: .binnacle/containers/config.kdl
     let project_config = repo_path
@@ -494,12 +655,14 @@ pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource
             ))
         })?;
         let defs = parse_config_kdl(&doc)?;
+        let modified_at = get_modified_time(&project_config);
 
         for (_, def) in defs {
             results.push(DefinitionWithSource {
                 definition: def,
                 source: DefinitionSource::Project,
                 config_path: project_config.clone(),
+                modified_at,
             });
         }
     }
@@ -515,12 +678,14 @@ pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource
             Error::Other(format!("Failed to parse {}: {}", host_config.display(), e))
         })?;
         let defs = parse_config_kdl(&doc)?;
+        let modified_at = get_modified_time(&host_config);
 
         for (_, def) in defs {
             results.push(DefinitionWithSource {
                 definition: def,
                 source: DefinitionSource::Host,
                 config_path: host_config.clone(),
+                modified_at,
             });
         }
     }
@@ -541,6 +706,7 @@ pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource
             },
             source: DefinitionSource::Embedded,
             config_path: PathBuf::from("<embedded>"),
+            modified_at: None,
         });
     }
 
@@ -1807,5 +1973,311 @@ container "rust-dev" {
 
         // Verify error handling for missing files
         assert!(wrapper.contains("not found or not executable"));
+    }
+
+    // === Conflict Detection Tests ===
+
+    #[test]
+    fn test_detect_conflicts_no_conflict() {
+        let defs = vec![
+            super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "base".to_string(),
+                    description: Some("Base definition".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Project,
+                config_path: std::path::PathBuf::from("/project/.binnacle/containers/config.kdl"),
+                modified_at: None,
+            },
+            super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "dev".to_string(),
+                    description: Some("Dev definition".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Host,
+                config_path: std::path::PathBuf::from(
+                    "/home/user/.local/share/binnacle/abc123/containers/config.kdl",
+                ),
+                modified_at: None,
+            },
+        ];
+
+        let conflicts = super::detect_conflicts(&defs);
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn test_detect_conflicts_with_conflict() {
+        let defs = vec![
+            super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "worker".to_string(),
+                    description: Some("Project worker".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Project,
+                config_path: std::path::PathBuf::from("/project/.binnacle/containers/config.kdl"),
+                modified_at: None,
+            },
+            super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "worker".to_string(),
+                    description: Some("Host worker".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Host,
+                config_path: std::path::PathBuf::from(
+                    "/home/user/.local/share/binnacle/abc123/containers/config.kdl",
+                ),
+                modified_at: None,
+            },
+        ];
+
+        let conflicts = super::detect_conflicts(&defs);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].name, "worker");
+        assert_eq!(
+            conflicts[0].project_def.source,
+            super::DefinitionSource::Project
+        );
+        assert_eq!(conflicts[0].host_def.source, super::DefinitionSource::Host);
+    }
+
+    #[test]
+    fn test_resolve_definition_no_conflict() {
+        let defs = vec![super::DefinitionWithSource {
+            definition: ContainerDefinition {
+                name: "worker".to_string(),
+                description: Some("Only worker".to_string()),
+                parent: None,
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+            source: super::DefinitionSource::Project,
+            config_path: std::path::PathBuf::from("/project/.binnacle/containers/config.kdl"),
+            modified_at: None,
+        }];
+
+        // Should work with no preference when there's no conflict
+        let resolved = super::resolve_definition(&defs, "worker", super::SourcePreference::None);
+        assert!(resolved.is_ok());
+        assert_eq!(resolved.unwrap().definition.name, "worker");
+    }
+
+    #[test]
+    fn test_resolve_definition_conflict_no_preference_errors() {
+        let defs = vec![
+            super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "worker".to_string(),
+                    description: Some("Project worker".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Project,
+                config_path: std::path::PathBuf::from("/project/.binnacle/containers/config.kdl"),
+                modified_at: None,
+            },
+            super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "worker".to_string(),
+                    description: Some("Host worker".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Host,
+                config_path: std::path::PathBuf::from(
+                    "/home/user/.local/share/binnacle/abc123/containers/config.kdl",
+                ),
+                modified_at: None,
+            },
+        ];
+
+        // Should error when there's a conflict and no preference
+        let resolved = super::resolve_definition(&defs, "worker", super::SourcePreference::None);
+        assert!(resolved.is_err());
+        let err = resolved.unwrap_err().to_string();
+        assert!(err.contains("Conflict"));
+        assert!(err.contains("--project or --host"));
+    }
+
+    #[test]
+    fn test_resolve_definition_conflict_with_project_preference() {
+        let defs = vec![
+            super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "worker".to_string(),
+                    description: Some("Project worker".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Project,
+                config_path: std::path::PathBuf::from("/project/.binnacle/containers/config.kdl"),
+                modified_at: None,
+            },
+            super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "worker".to_string(),
+                    description: Some("Host worker".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Host,
+                config_path: std::path::PathBuf::from(
+                    "/home/user/.local/share/binnacle/abc123/containers/config.kdl",
+                ),
+                modified_at: None,
+            },
+        ];
+
+        // Should resolve to project definition with Project preference
+        let resolved = super::resolve_definition(&defs, "worker", super::SourcePreference::Project);
+        assert!(resolved.is_ok());
+        let def = resolved.unwrap();
+        assert_eq!(
+            def.definition.description,
+            Some("Project worker".to_string())
+        );
+        assert_eq!(def.source, super::DefinitionSource::Project);
+    }
+
+    #[test]
+    fn test_resolve_definition_conflict_with_host_preference() {
+        let defs = vec![
+            super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "worker".to_string(),
+                    description: Some("Project worker".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Project,
+                config_path: std::path::PathBuf::from("/project/.binnacle/containers/config.kdl"),
+                modified_at: None,
+            },
+            super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "worker".to_string(),
+                    description: Some("Host worker".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Host,
+                config_path: std::path::PathBuf::from(
+                    "/home/user/.local/share/binnacle/abc123/containers/config.kdl",
+                ),
+                modified_at: None,
+            },
+        ];
+
+        // Should resolve to host definition with Host preference
+        let resolved = super::resolve_definition(&defs, "worker", super::SourcePreference::Host);
+        assert!(resolved.is_ok());
+        let def = resolved.unwrap();
+        assert_eq!(def.definition.description, Some("Host worker".to_string()));
+        assert_eq!(def.source, super::DefinitionSource::Host);
+    }
+
+    #[test]
+    fn test_resolve_definition_not_found() {
+        let defs = vec![super::DefinitionWithSource {
+            definition: ContainerDefinition {
+                name: "worker".to_string(),
+                description: Some("Worker".to_string()),
+                parent: None,
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+            source: super::DefinitionSource::Project,
+            config_path: std::path::PathBuf::from("/project/.binnacle/containers/config.kdl"),
+            modified_at: None,
+        }];
+
+        // Should error for non-existent definition
+        let resolved =
+            super::resolve_definition(&defs, "nonexistent", super::SourcePreference::None);
+        assert!(resolved.is_err());
+        let err = resolved.unwrap_err().to_string();
+        assert!(err.contains("not found"));
+    }
+
+    #[test]
+    fn test_conflict_display_includes_metadata() {
+        let conflict = super::DefinitionConflict {
+            name: "worker".to_string(),
+            project_def: super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "worker".to_string(),
+                    description: Some("Project worker definition".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Project,
+                config_path: std::path::PathBuf::from("/project/.binnacle/containers/config.kdl"),
+                modified_at: Some(
+                    chrono::DateTime::parse_from_rfc3339("2024-01-15T10:30:00Z")
+                        .unwrap()
+                        .with_timezone(&chrono::Utc),
+                ),
+            },
+            host_def: super::DefinitionWithSource {
+                definition: ContainerDefinition {
+                    name: "worker".to_string(),
+                    description: Some("Host worker definition".to_string()),
+                    parent: None,
+                    entrypoint_mode: EntrypointMode::Replace,
+                    defaults: None,
+                    mounts: vec![],
+                },
+                source: super::DefinitionSource::Host,
+                config_path: std::path::PathBuf::from(
+                    "/home/user/.local/share/binnacle/abc123/containers/config.kdl",
+                ),
+                modified_at: Some(
+                    chrono::DateTime::parse_from_rfc3339("2024-01-20T15:45:00Z")
+                        .unwrap()
+                        .with_timezone(&chrono::Utc),
+                ),
+            },
+        };
+
+        let display = format!("{}", conflict);
+        assert!(display.contains("Conflict: definition 'worker'"));
+        assert!(display.contains("PROJECT"));
+        assert!(display.contains("HOST"));
+        assert!(display.contains("Project worker definition"));
+        assert!(display.contains("Host worker definition"));
+        assert!(display.contains("Modified:"));
+        assert!(display.contains("--project or --host"));
     }
 }
