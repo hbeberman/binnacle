@@ -223,16 +223,61 @@ fi
 # Run the AI agent
 echo "🤖 Starting AI agent..."
 
-# Print the system prompt for log visibility
-echo "--- SYSTEM PROMPT ---"
-echo "$BN_INITIAL_PROMPT"
-echo "--- END PROMPT ---"
-
 # Blocked MCP tools - orient/goodbye must use shell for proper agent lifecycle
 BLOCKED_TOOLS=(
     --deny-tool "binnacle(binnacle-orient)"
     --deny-tool "binnacle(binnacle-goodbye)"
 )
+
+# Emit all agent files to ~/.copilot/agents/ with MCP lifecycle appended
+# This ensures agents work in any repo without requiring .github/agents/ files
+#
+# NOTE: Container emits ALL 6 agents (auto, do, prd, buddy, ask, free), while
+# .github/agents/ only contains 4 interactive agents (do, prd, buddy, ask).
+# The 'auto' and 'free' agents are designed for CLI automation modes and don't
+# need to be checked into repos for interactive chat use with GitHub Copilot.
+echo "📝 Emitting agent files to ~/.copilot/agents/..."
+mkdir -p ~/.copilot/agents
+
+for agent_type in auto do prd buddy ask free; do
+    agent_file="$HOME/.copilot/agents/binnacle-${agent_type}.agent.md"
+
+    # Emit base agent template
+    if ! bn system emit "agent-${agent_type}" -H > "$agent_file" 2>&1; then
+        echo "❌ Failed to emit agent-${agent_type} template"
+        exit 1
+    fi
+
+    # Append appropriate MCP lifecycle blurb (planner vs worker)
+    if [ "$agent_type" = "prd" ]; then
+        bn system emit mcp-lifecycle-planner -H >> "$agent_file"
+    else
+        bn system emit mcp-lifecycle -H >> "$agent_file"
+    fi
+done
+echo "✅ Agent files emitted"
+
+# Map agent type to agent name for --agent flag
+get_agent_name() {
+    local agent_type="$1"
+    case "$agent_type" in
+        worker|auto)  echo "binnacle-auto" ;;
+        do)           echo "binnacle-do" ;;
+        prd)          echo "binnacle-prd" ;;
+        buddy)        echo "binnacle-buddy" ;;
+        qa|ask)       echo "binnacle-ask" ;;
+        free)         echo "binnacle-free" ;;
+        *)            echo "" ;;
+    esac
+}
+
+AGENT_NAME=$(get_agent_name "$BN_AGENT_TYPE")
+if [ -z "$AGENT_NAME" ]; then
+    echo "❌ Unknown agent type: $BN_AGENT_TYPE"
+    exit 1
+fi
+
+echo "📄 Using agent: $AGENT_NAME"
 
 # Use container-local pinned copilot binary
 # The copilot binary is pre-installed during image build at a pinned version
@@ -245,7 +290,22 @@ COPILOT_VERSION=$(echo "$COPILOT_PATH_INFO" | jq -r '.version // empty')
 
 if [ "$COPILOT_EXISTS" = "true" ] && [ -n "$COPILOT_BIN" ] && [ -x "$COPILOT_BIN" ]; then
     echo "🤖 Using pinned copilot $COPILOT_VERSION: $COPILOT_BIN"
-    "$COPILOT_BIN" --allow-all --no-auto-update "${BLOCKED_TOOLS[@]}" -p "$BN_INITIAL_PROMPT"
+
+    # For container (non-interactive) mode, we need BOTH:
+    # --agent: loads the agent definition (tools, name, base instructions)
+    # -p: provides an initial prompt to kick off automated work
+    #
+    # Without -p, copilot enters interactive mode waiting for user input.
+    # The agent file contains the full instructions, but -p triggers execution.
+
+    KICK_PROMPT="Begin work now."
+    if [ "$BN_AGENT_TYPE" = "do" ]; then
+        # For "do" type, include the task description in the kick prompt
+        KICK_PROMPT="Work on the following: $BN_INITIAL_PROMPT"
+    fi
+
+    echo "🤖 Running with --agent $AGENT_NAME -p (kick prompt)"
+    "$COPILOT_BIN" --allow-all --no-auto-update "${BLOCKED_TOOLS[@]}" --agent "$AGENT_NAME" -p "$KICK_PROMPT"
     AGENT_EXIT=$?
 elif command -v claude &> /dev/null; then
     echo "🤖 Using claude CLI"

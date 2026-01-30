@@ -1861,6 +1861,18 @@ pub enum EmitTemplate {
     McpLifecyclePlanner,
     /// bn-agent unified agent launcher script
     BnAgent,
+    /// Agent file: binnacle-auto.agent.md (picks from bn ready)
+    AgentAuto,
+    /// Agent file: binnacle-do.agent.md (works on specific task)
+    AgentDo,
+    /// Agent file: binnacle-prd.agent.md (renders ideas to PRDs)
+    AgentPrd,
+    /// Agent file: binnacle-buddy.agent.md (quick entry)
+    AgentBuddy,
+    /// Agent file: binnacle-ask.agent.md (read-only Q&A)
+    AgentAsk,
+    /// Agent file: binnacle-free.agent.md (general purpose)
+    AgentFree,
 }
 
 /// Store management subcommands

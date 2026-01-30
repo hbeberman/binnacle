@@ -1121,25 +1121,38 @@ fn run_command(
                 }
             },
             SystemCommands::Emit { template } => {
-                let content = match template {
-                    EmitTemplate::Agents => commands::AGENTS_MD_BLURB,
-                    EmitTemplate::Skill => commands::SKILLS_FILE_CONTENT,
-                    EmitTemplate::PlanAgent => commands::PLAN_AGENT_CONTENT,
-                    EmitTemplate::PrdAgent => commands::PRD_AGENT_CONTENT,
-                    EmitTemplate::TasksAgent => commands::TASKS_AGENT_CONTENT,
-                    EmitTemplate::CopilotInstructions => commands::COPILOT_INSTRUCTIONS_CONTENT,
-                    EmitTemplate::AutoWorker => commands::AUTO_WORKER_PROMPT,
-                    EmitTemplate::DoAgent => commands::DO_AGENT_PROMPT,
-                    EmitTemplate::PrdWriter => commands::PRD_WRITER_PROMPT,
-                    EmitTemplate::Buddy => commands::BUDDY_PROMPT,
-                    EmitTemplate::Free => commands::FREE_PROMPT,
-                    EmitTemplate::AskAgent => commands::ASK_AGENT_PROMPT,
-                    EmitTemplate::McpClaude => commands::MCP_CLAUDE_CONFIG,
-                    EmitTemplate::McpVscode => commands::MCP_VSCODE_CONFIG,
-                    EmitTemplate::McpCopilot => commands::MCP_COPILOT_CONFIG,
-                    EmitTemplate::McpLifecycle => commands::MCP_LIFECYCLE_BLURB,
-                    EmitTemplate::McpLifecyclePlanner => commands::MCP_LIFECYCLE_BLURB_PLANNER,
-                    EmitTemplate::BnAgent => commands::BN_AGENT_SCRIPT,
+                use binnacle::models::agents;
+                // Some templates are static strings, agent files are dynamically generated
+                let content: String = match template {
+                    EmitTemplate::Agents => commands::AGENTS_MD_BLURB.to_string(),
+                    EmitTemplate::Skill => commands::SKILLS_FILE_CONTENT.to_string(),
+                    EmitTemplate::PlanAgent => commands::PLAN_AGENT_CONTENT.to_string(),
+                    EmitTemplate::PrdAgent => commands::PRD_AGENT_CONTENT.to_string(),
+                    EmitTemplate::TasksAgent => commands::TASKS_AGENT_CONTENT.to_string(),
+                    EmitTemplate::CopilotInstructions => {
+                        commands::COPILOT_INSTRUCTIONS_CONTENT.to_string()
+                    }
+                    EmitTemplate::AutoWorker => commands::AUTO_WORKER_PROMPT.to_string(),
+                    EmitTemplate::DoAgent => commands::DO_AGENT_PROMPT.to_string(),
+                    EmitTemplate::PrdWriter => commands::PRD_WRITER_PROMPT.to_string(),
+                    EmitTemplate::Buddy => commands::BUDDY_PROMPT.to_string(),
+                    EmitTemplate::Free => commands::FREE_PROMPT.to_string(),
+                    EmitTemplate::AskAgent => commands::ASK_AGENT_PROMPT.to_string(),
+                    EmitTemplate::McpClaude => commands::MCP_CLAUDE_CONFIG.to_string(),
+                    EmitTemplate::McpVscode => commands::MCP_VSCODE_CONFIG.to_string(),
+                    EmitTemplate::McpCopilot => commands::MCP_COPILOT_CONFIG.to_string(),
+                    EmitTemplate::McpLifecycle => commands::MCP_LIFECYCLE_BLURB.to_string(),
+                    EmitTemplate::McpLifecyclePlanner => {
+                        commands::MCP_LIFECYCLE_BLURB_PLANNER.to_string()
+                    }
+                    EmitTemplate::BnAgent => commands::BN_AGENT_SCRIPT.to_string(),
+                    // Agent files are dynamically generated from prompts + metadata
+                    EmitTemplate::AgentAuto => agents::agent_auto(),
+                    EmitTemplate::AgentDo => agents::agent_do(),
+                    EmitTemplate::AgentPrd => agents::agent_prd(),
+                    EmitTemplate::AgentBuddy => agents::agent_buddy(),
+                    EmitTemplate::AgentAsk => agents::agent_ask(),
+                    EmitTemplate::AgentFree => agents::agent_free(),
                 };
                 if human {
                     println!("{}", content.trim());
@@ -3359,6 +3372,12 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     EmitTemplate::McpLifecycle => "mcp-lifecycle",
                     EmitTemplate::McpLifecyclePlanner => "mcp-lifecycle-planner",
                     EmitTemplate::BnAgent => "bn-agent",
+                    EmitTemplate::AgentAuto => "agent-auto",
+                    EmitTemplate::AgentDo => "agent-do",
+                    EmitTemplate::AgentPrd => "agent-prd",
+                    EmitTemplate::AgentBuddy => "agent-buddy",
+                    EmitTemplate::AgentAsk => "agent-ask",
+                    EmitTemplate::AgentFree => "agent-free",
                 };
                 (
                     "system emit".to_string(),

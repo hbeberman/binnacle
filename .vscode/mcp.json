@@ -2,11 +2,11 @@
   "servers": {
     "binnacle": {
       "args": [
-        "mcp",
-        "serve"
+        "-l",
+        "-c",
+        "bn mcp serve --cwd \"${workspaceFolder}\""
       ],
-      "command": "~/.cargo/bin/bn",
-      "cwd": "${workspaceFolder}",
+      "command": "bash",
       "type": "stdio"
     }
   }

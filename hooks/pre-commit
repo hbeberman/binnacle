@@ -30,7 +30,7 @@ staged_js_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.js' 2>/d
 
 if [ -n "$staged_js_files" ]; then
     echo "  → Running JavaScript linting..."
-    
+
     # Check if node_modules exists (ESLint installed)
     if [ ! -d "node_modules" ]; then
         echo ""
@@ -38,7 +38,7 @@ if [ -n "$staged_js_files" ]; then
         echo "   Run 'npm install' to install ESLint."
         exit 1
     fi
-    
+
     # Run ESLint on staged files only
     if ! npx eslint $staged_js_files 2>&1; then
         echo ""
@@ -121,6 +121,106 @@ else
     echo "  ✓ Cargo.toml not modified, skipping version sync check"
 fi
 
+# Check if .github/agents/ files are in sync with embedded templates
+# Only runs if .github/agents/ directory exists in the repo
+echo "  → Checking agent file sync..."
+
+agents_dir="$repo_root/.github/agents"
+if [ -d "$agents_dir" ]; then
+    # Copilot agent files (do, prd, buddy, ask - interactive chat agents)
+    # MUST match COPILOT_AGENT_NAMES in src/models/agents.rs
+    agent_files="do prd buddy ask"
+    agents_out_of_sync=""
+    agents_missing=""
+
+    for agent in $agent_files; do
+        agent_file="$agents_dir/binnacle-$agent.agent.md"
+        if [ -f "$agent_file" ]; then
+            # Get expected content from cargo run (strips trailing newline for comparison)
+            expected_content=$(cargo run --quiet -- system emit "agent-$agent" -H 2>/dev/null | sed 's/[[:space:]]*$//')
+
+            if [ -z "$expected_content" ]; then
+                # Skip if emit failed (build issues)
+                continue
+            fi
+
+            # Get current file content (strips trailing newline for comparison)
+            current_content=$(cat "$agent_file" | sed 's/[[:space:]]*$//')
+
+            # Compare (ignoring trailing whitespace)
+            if ! diff -q <(echo "$current_content") <(echo "$expected_content") >/dev/null 2>&1; then
+                agents_out_of_sync="$agents_out_of_sync binnacle-$agent.agent.md"
+            fi
+        else
+            agents_missing="$agents_missing binnacle-$agent.agent.md"
+        fi
+    done
+
+    if [ -n "$agents_missing" ]; then
+        echo ""
+        echo "❌ Missing agent files in .github/agents/:"
+        for file in $agents_missing; do
+            echo "     - .github/agents/$file"
+        done
+        echo ""
+        echo "   To fix: Run 'cargo run -- system init --write-copilot-prompts -y' to create them, then stage"
+        exit 1
+    fi
+
+    if [ -n "$agents_out_of_sync" ]; then
+        echo ""
+        echo "❌ Agent files out of sync with embedded templates:"
+        for file in $agents_out_of_sync; do
+            echo "     - .github/agents/$file"
+        done
+        echo ""
+        echo "   To fix: Run 'cargo run -- system init --write-copilot-prompts -y' to regenerate, then stage them"
+        exit 1
+    fi
+else
+    echo "  ✓ No .github/agents/ directory, skipping agent file sync"
+fi
+
+# Check if .vscode/mcp.json binnacle entry is in sync with embedded template
+# Only runs if .vscode/mcp.json exists in the repo
+# Allows additional servers - only validates the binnacle entry
+echo "  → Checking VS Code MCP config sync..."
+
+mcp_config="$repo_root/.vscode/mcp.json"
+if [ -f "$mcp_config" ]; then
+    if ! command -v jq &> /dev/null; then
+        echo "  ⚠ jq not installed, skipping MCP config validation"
+    else
+        # Get expected binnacle server config from cargo run
+        expected_binnacle=$(cargo run --quiet -- system emit mcp-vscode -H 2>/dev/null | jq -S '.servers.binnacle' 2>/dev/null)
+
+        if [ -n "$expected_binnacle" ] && [ "$expected_binnacle" != "null" ]; then
+            # Get current binnacle server config
+            current_binnacle=$(jq -S '.servers.binnacle' "$mcp_config" 2>/dev/null)
+
+            if [ "$current_binnacle" = "null" ] || [ -z "$current_binnacle" ]; then
+                echo ""
+                echo "❌ VS Code MCP config missing binnacle server entry!"
+                echo "     - .vscode/mcp.json"
+                echo ""
+                echo "   To fix: Run 'cargo run -- system init --write-mcp-vscode -y' to add it, then stage"
+                exit 1
+            fi
+
+            if ! diff -q <(echo "$current_binnacle") <(echo "$expected_binnacle") >/dev/null 2>&1; then
+                echo ""
+                echo "❌ VS Code MCP config binnacle entry out of sync!"
+                echo "     - .vscode/mcp.json"
+                echo ""
+                echo "   To fix: Run 'cargo run -- system init --write-mcp-vscode -y' to update, then stage"
+                exit 1
+            fi
+        fi
+    fi
+else
+    echo "  ✓ No .vscode/mcp.json, skipping MCP config sync"
+fi
+
 # Run cargo audit for security vulnerabilities
 echo "  → Running security audit..."
 if ! command -v cargo-audit &> /dev/null; then
@@ -143,7 +243,7 @@ echo "  → Checking for documentation litter..."
 # Allowed locations for markdown files:
 # - docs/           (documentation directory)
 # - prds/           (PRD files)
-# - Root level known files: README.md, CONTRIBUTING.md, AGENTS.md, PRD.md, 
+# - Root level known files: README.md, CONTRIBUTING.md, AGENTS.md, PRD.md,
 #                           LICENSE, CHANGELOG.md, IDEAS.md, PROMPT.md
 ALLOWED_ROOT_MD="README.md|CONTRIBUTING.md|AGENTS.md|PRD.md|LICENSE|CHANGELOG.md|IDEAS.md|PROMPT.md"
 
@@ -156,19 +256,19 @@ for file in $new_md_files; do
     if [[ "$file" == docs/* ]] || [[ "$file" == prds/* ]]; then
         continue
     fi
-    
+
     # Skip allowed root-level files
     basename=$(basename "$file")
     if [[ "$basename" =~ ^($ALLOWED_ROOT_MD)$ ]]; then
         continue
     fi
-    
+
     # Skip if the file is not at root level (nested in other dirs like tests/, src/)
     # Only check for litter at repo root
     if [[ "$file" != "$basename" ]]; then
         continue
     fi
-    
+
     # This is a new markdown file at repo root that's not in the allowed list
     litter_found="$litter_found $file"
 done
@@ -196,7 +296,7 @@ staged_web_files=$(git diff --cached --name-only --diff-filter=ACM -- 'web/*' 's
 
 if [ -n "$staged_web_files" ]; then
     echo "  → Web assets changed, running lightpanda validation..."
-    
+
     # Check if lightpanda is installed
     if ! command -v lightpanda &> /dev/null; then
         echo ""
