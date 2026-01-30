@@ -3,6 +3,7 @@
 //! This module defines the core data structures:
 //! - `Task` - Work items with status, priority, dependencies
 //! - `Bug` - Defects with severity, reproduction steps, and components
+//! - `Issue` - Pre-triage observations requiring investigation
 //! - `Milestone` - Collection of tasks/bugs with progress tracking
 //! - `TestNode` - Test definitions linked to tasks
 //! - `CommitLink` - Associations between commits and tasks
@@ -464,6 +465,133 @@ impl Bug {
 }
 
 impl Entity for Bug {
+    fn id(&self) -> &str {
+        self.core.id()
+    }
+    fn entity_type(&self) -> &str {
+        self.core.entity_type()
+    }
+    fn title(&self) -> &str {
+        self.core.title()
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.core.short_name()
+    }
+    fn description(&self) -> Option<&str> {
+        self.core.description()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.core.created_at()
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.core.updated_at()
+    }
+    fn tags(&self) -> &[String] {
+        self.core.tags()
+    }
+}
+
+// =============================================================================
+// Issue (Pre-triage investigation workflow)
+// =============================================================================
+
+/// Issue status in the investigation workflow.
+///
+/// Issues use a different lifecycle than tasks/bugs:
+/// - `Open`: Initial state, needs triage
+/// - `Triage`: Being evaluated for priority/assignment
+/// - `Investigating`: Under active investigation
+/// - `Resolved`: Root cause found and addressed
+/// - `Closed`: Investigation complete
+/// - `WontFix`: Decided not to address
+/// - `ByDesign`: Behavior is intentional
+/// - `NoRepro`: Cannot reproduce the issue
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IssueStatus {
+    /// Initial state, needs triage
+    #[default]
+    Open,
+    /// Being evaluated for priority/assignment
+    Triage,
+    /// Under active investigation
+    Investigating,
+    /// Root cause found and addressed
+    Resolved,
+    /// Investigation complete
+    Closed,
+    /// Decided not to address
+    WontFix,
+    /// Behavior is intentional
+    ByDesign,
+    /// Cannot reproduce the issue
+    NoRepro,
+}
+
+impl fmt::Display for IssueStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IssueStatus::Open => write!(f, "open"),
+            IssueStatus::Triage => write!(f, "triage"),
+            IssueStatus::Investigating => write!(f, "investigating"),
+            IssueStatus::Resolved => write!(f, "resolved"),
+            IssueStatus::Closed => write!(f, "closed"),
+            IssueStatus::WontFix => write!(f, "wont_fix"),
+            IssueStatus::ByDesign => write!(f, "by_design"),
+            IssueStatus::NoRepro => write!(f, "no_repro"),
+        }
+    }
+}
+
+/// An issue tracked by Binnacle for pre-triage investigation.
+///
+/// Issues differ from bugs in their workflow:
+/// - Bugs are confirmed defects with reproduction steps
+/// - Issues are observations that need investigation before becoming bugs
+///
+/// Common workflow: Issue -> investigate -> promote to Bug or close
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Issue {
+    /// Common entity fields (id, type, title, short_name, description, tags, timestamps)
+    #[serde(flatten)]
+    pub core: EntityCore,
+
+    /// Priority level (0-4, lower is higher priority)
+    #[serde(default)]
+    pub priority: u8,
+
+    /// Current status in the investigation workflow
+    #[serde(default)]
+    pub status: IssueStatus,
+
+    /// Assigned user or agent investigating
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignee: Option<String>,
+
+    /// Closure timestamp (when resolved/closed/wont_fix/by_design/no_repro)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_at: Option<DateTime<Utc>>,
+
+    /// Reason for closing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_reason: Option<String>,
+}
+
+impl Issue {
+    /// Create a new issue with the given ID and title.
+    pub fn new(id: String, title: String) -> Self {
+        Self {
+            core: EntityCore::new("issue", id, title),
+            priority: 2,
+            status: IssueStatus::default(),
+            assignee: None,
+            closed_at: None,
+            closed_reason: None,
+        }
+    }
+}
+
+impl Entity for Issue {
     fn id(&self) -> &str {
         self.core.id()
     }
@@ -2999,5 +3127,208 @@ mod tests {
         // Different content (excluding summary) should have different hash
         let hash3 = super::hash_excluding_summary(content3);
         assert_ne!(hash1, hash3);
+    }
+
+    // =========================================================================
+    // Issue Tests
+    // =========================================================================
+
+    #[test]
+    fn test_issue_serialization_roundtrip() {
+        let issue = Issue::new("bn-issue".to_string(), "Test issue".to_string());
+        let json = serde_json::to_string(&issue).unwrap();
+        let deserialized: Issue = serde_json::from_str(&json).unwrap();
+        assert_eq!(issue.core.id, deserialized.core.id);
+        assert_eq!(issue.core.title, deserialized.core.title);
+        assert_eq!(issue.status, deserialized.status);
+    }
+
+    #[test]
+    fn test_issue_default_status() {
+        let json = r#"{"id":"bn-issue","type":"issue","title":"Issue","priority":1,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#;
+        let issue: Issue = serde_json::from_str(json).unwrap();
+        assert_eq!(issue.status, IssueStatus::Open);
+    }
+
+    #[test]
+    fn test_issue_status_serialization() {
+        // Test all IssueStatus variants serialize correctly
+        assert_eq!(
+            serde_json::to_string(&IssueStatus::Open).unwrap(),
+            r#""open""#
+        );
+        assert_eq!(
+            serde_json::to_string(&IssueStatus::Triage).unwrap(),
+            r#""triage""#
+        );
+        assert_eq!(
+            serde_json::to_string(&IssueStatus::Investigating).unwrap(),
+            r#""investigating""#
+        );
+        assert_eq!(
+            serde_json::to_string(&IssueStatus::Resolved).unwrap(),
+            r#""resolved""#
+        );
+        assert_eq!(
+            serde_json::to_string(&IssueStatus::Closed).unwrap(),
+            r#""closed""#
+        );
+        assert_eq!(
+            serde_json::to_string(&IssueStatus::WontFix).unwrap(),
+            r#""wont_fix""#
+        );
+        assert_eq!(
+            serde_json::to_string(&IssueStatus::ByDesign).unwrap(),
+            r#""by_design""#
+        );
+        assert_eq!(
+            serde_json::to_string(&IssueStatus::NoRepro).unwrap(),
+            r#""no_repro""#
+        );
+    }
+
+    #[test]
+    fn test_issue_status_deserialization() {
+        // Test all IssueStatus variants deserialize correctly
+        assert_eq!(
+            serde_json::from_str::<IssueStatus>(r#""open""#).unwrap(),
+            IssueStatus::Open
+        );
+        assert_eq!(
+            serde_json::from_str::<IssueStatus>(r#""triage""#).unwrap(),
+            IssueStatus::Triage
+        );
+        assert_eq!(
+            serde_json::from_str::<IssueStatus>(r#""investigating""#).unwrap(),
+            IssueStatus::Investigating
+        );
+        assert_eq!(
+            serde_json::from_str::<IssueStatus>(r#""resolved""#).unwrap(),
+            IssueStatus::Resolved
+        );
+        assert_eq!(
+            serde_json::from_str::<IssueStatus>(r#""closed""#).unwrap(),
+            IssueStatus::Closed
+        );
+        assert_eq!(
+            serde_json::from_str::<IssueStatus>(r#""wont_fix""#).unwrap(),
+            IssueStatus::WontFix
+        );
+        assert_eq!(
+            serde_json::from_str::<IssueStatus>(r#""by_design""#).unwrap(),
+            IssueStatus::ByDesign
+        );
+        assert_eq!(
+            serde_json::from_str::<IssueStatus>(r#""no_repro""#).unwrap(),
+            IssueStatus::NoRepro
+        );
+    }
+
+    #[test]
+    fn test_issue_status_display() {
+        assert_eq!(IssueStatus::Open.to_string(), "open");
+        assert_eq!(IssueStatus::Triage.to_string(), "triage");
+        assert_eq!(IssueStatus::Investigating.to_string(), "investigating");
+        assert_eq!(IssueStatus::Resolved.to_string(), "resolved");
+        assert_eq!(IssueStatus::Closed.to_string(), "closed");
+        assert_eq!(IssueStatus::WontFix.to_string(), "wont_fix");
+        assert_eq!(IssueStatus::ByDesign.to_string(), "by_design");
+        assert_eq!(IssueStatus::NoRepro.to_string(), "no_repro");
+    }
+
+    #[test]
+    fn test_issue_new_defaults() {
+        let issue = Issue::new("bn-test".to_string(), "Test".to_string());
+
+        // Check EntityCore defaults
+        assert_eq!(issue.core.id, "bn-test");
+        assert_eq!(issue.core.entity_type, "issue");
+        assert_eq!(issue.core.title, "Test");
+        assert!(issue.core.short_name.is_none());
+        assert!(issue.core.description.is_none());
+        assert!(issue.core.tags.is_empty());
+
+        // Check Issue-specific defaults
+        assert_eq!(issue.priority, 2); // Default priority
+        assert_eq!(issue.status, IssueStatus::Open);
+        assert!(issue.assignee.is_none());
+        assert!(issue.closed_at.is_none());
+        assert!(issue.closed_reason.is_none());
+    }
+
+    #[test]
+    fn test_issue_entity_trait() {
+        let mut issue = Issue::new("bn-ent".to_string(), "Entity Test".to_string());
+        issue.core.short_name = Some("short".to_string());
+        issue.core.description = Some("description".to_string());
+        issue.core.tags = vec!["tag1".to_string()];
+
+        // Test Entity trait implementation
+        assert_eq!(issue.id(), "bn-ent");
+        assert_eq!(issue.entity_type(), "issue");
+        assert_eq!(issue.title(), "Entity Test");
+        assert_eq!(issue.short_name(), Some("short"));
+        assert_eq!(issue.description(), Some("description"));
+        assert_eq!(issue.tags(), &["tag1".to_string()]);
+    }
+
+    #[test]
+    fn test_issue_full_json() {
+        let json = r#"{
+            "id": "bn-full",
+            "type": "issue",
+            "title": "Full Issue",
+            "short_name": "full-issue",
+            "description": "A complete issue for testing",
+            "tags": ["backend", "urgent"],
+            "priority": 1,
+            "status": "investigating",
+            "assignee": "bob",
+            "created_at": "2026-01-20T10:00:00Z",
+            "updated_at": "2026-01-21T15:30:00Z",
+            "closed_at": null,
+            "closed_reason": null
+        }"#;
+
+        let issue: Issue = serde_json::from_str(json).unwrap();
+
+        assert_eq!(issue.core.id, "bn-full");
+        assert_eq!(issue.core.entity_type, "issue");
+        assert_eq!(issue.core.title, "Full Issue");
+        assert_eq!(issue.core.short_name, Some("full-issue".to_string()));
+        assert_eq!(
+            issue.core.description,
+            Some("A complete issue for testing".to_string())
+        );
+        assert_eq!(issue.core.tags, vec!["backend", "urgent"]);
+        assert_eq!(issue.priority, 1);
+        assert_eq!(issue.status, IssueStatus::Investigating);
+        assert_eq!(issue.assignee, Some("bob".to_string()));
+        assert!(issue.closed_at.is_none());
+        assert!(issue.closed_reason.is_none());
+    }
+
+    #[test]
+    fn test_issue_closed_fields() {
+        let json = r#"{
+            "id": "bn-closed",
+            "type": "issue",
+            "title": "Closed Issue",
+            "priority": 2,
+            "status": "resolved",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-02T00:00:00Z",
+            "closed_at": "2026-01-02T00:00:00Z",
+            "closed_reason": "Root cause identified and fixed"
+        }"#;
+
+        let issue: Issue = serde_json::from_str(json).unwrap();
+
+        assert_eq!(issue.status, IssueStatus::Resolved);
+        assert!(issue.closed_at.is_some());
+        assert_eq!(
+            issue.closed_reason,
+            Some("Root cause identified and fixed".to_string())
+        );
     }
 }
