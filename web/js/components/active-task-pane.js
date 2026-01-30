@@ -21,6 +21,50 @@ import {
 } from '../state.js';
 
 /**
+ * Track recently-removed working_on edge targets to filter from fallback path.
+ * This prevents tasks from appearing as "active" briefly after their working_on
+ * edge is removed but before the task status update propagates.
+ * @type {Map<string, number>}
+ */
+const recentlyRemovedTargets = new Map();
+
+/**
+ * Grace period in milliseconds after which removed targets are forgotten.
+ * Tasks that were unlinked more than this many ms ago will be shown
+ * in the fallback path again (if still in_progress).
+ */
+export const REMOVAL_GRACE_PERIOD_MS = 5000;
+
+/**
+ * Mark a task as recently unlinked from a working_on edge.
+ * Called by message-handlers when edge_removed fires for working_on edges.
+ * @param {string} taskId - The task ID that was unlinked
+ */
+export function markRecentlyUnlinked(taskId) {
+    recentlyRemovedTargets.set(taskId, Date.now());
+    
+    // Schedule cleanup after grace period
+    setTimeout(() => {
+        const removedAt = recentlyRemovedTargets.get(taskId);
+        // Only delete if this is still the same removal (not re-added and re-removed)
+        if (removedAt && (Date.now() - removedAt) >= REMOVAL_GRACE_PERIOD_MS) {
+            recentlyRemovedTargets.delete(taskId);
+        }
+    }, REMOVAL_GRACE_PERIOD_MS + 100); // Small buffer to ensure cleanup
+}
+
+/**
+ * Check if a task was recently unlinked and should be filtered from fallback.
+ * @param {string} taskId - The task ID to check
+ * @returns {boolean} True if the task was recently unlinked
+ */
+function isRecentlyUnlinked(taskId) {
+    const removedAt = recentlyRemovedTargets.get(taskId);
+    if (!removedAt) return false;
+    return (Date.now() - removedAt) < REMOVAL_GRACE_PERIOD_MS;
+}
+
+/**
  * Format duration from milliseconds to human-readable string
  * @param {number} ms - Duration in milliseconds
  * @returns {string} Formatted duration (e.g., "2h 15m", "45m", "30s")
@@ -90,10 +134,14 @@ function findActiveTasks() {
     if (activePairs.length === 0) {
         const tasks = getTasks() || [];
         const bugs = getBugs() || [];
+        
+        // Filter out tasks that were recently unlinked from working_on edges.
+        // This prevents "ghost" tasks from appearing when the edge is removed
+        // but the task status update hasn't propagated yet.
         const inProgressTasks = [
             ...tasks.filter(t => t.status === 'in_progress'),
             ...bugs.filter(b => b.status === 'in_progress')
-        ];
+        ].filter(task => !isRecentlyUnlinked(task.id));
         
         // Return tasks without agent info (for backwards compatibility)
         // Use task.updated_at as fallback when no edge exists
