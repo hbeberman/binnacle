@@ -1813,6 +1813,13 @@ pub enum TmuxCommands {
         /// Layout name to load
         name: String,
     },
+    /// List available tmux layouts from all sources
+    List,
+    /// Show detailed information about a layout without loading it
+    Show {
+        /// Layout name to show
+        name: String,
+    },
 }
 
 /// Hooks management subcommands
