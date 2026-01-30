@@ -69,6 +69,13 @@ let keysPressedSet = new Set();
 let keyboardPanInterval = null;
 const PAN_SPEED = 5; // pixels per frame
 
+// Edge auto-pan state (for dragging nodes near screen edge)
+let edgeAutoPanInterval = null;
+let edgeAutoPanDirection = { x: 0, y: 0 };
+const EDGE_PAN_THRESHOLD = 50; // pixels from edge to trigger auto-pan
+const EDGE_PAN_SPEED = 8; // pixels per frame
+const EDGE_PAN_ACCEL_ZONE = 30; // pixels - zone for acceleration (closer = faster)
+
 /**
  * Initialize camera controls on a canvas element
  * @param {HTMLCanvasElement} canvasElement - The canvas to attach controls to
@@ -274,6 +281,14 @@ function onMouseMove(e) {
             lastDragTime = now;
         }
         
+        // Check for edge auto-pan (auto-scroll when dragging near screen edge)
+        const panDir = calculateEdgePanDirection(x, y);
+        if (panDir.x !== 0 || panDir.y !== 0) {
+            startEdgeAutoPan(panDir);
+        } else {
+            stopEdgeAutoPan();
+        }
+        
         // Pause auto-follow while dragging
         pauseAutoFollow();
     } else if (isDragging) {
@@ -463,6 +478,9 @@ function onMouseUp(e) {
     }
     
     if (draggedNode && e.button === 0) {
+        // Stop edge auto-pan
+        stopEdgeAutoPan();
+        
         // Apply momentum to the node based on drag velocity
         // Convert screen velocity to world velocity (accounting for zoom)
         const zoom = getZoom();
@@ -503,6 +521,9 @@ function onMouseLeave() {
     }
     
     if (draggedNode) {
+        // Stop edge auto-pan
+        stopEdgeAutoPan();
+        
         // Apply momentum even when mouse leaves (same as mouseup)
         const zoom = getZoom();
         const momentumScale = 0.5;
@@ -638,6 +659,92 @@ function clearFocus() {
         state.set('ui.focusedNode', null);
         console.log('Focus cleared');
     }
+}
+
+/**
+ * Check if cursor is near canvas edge and calculate auto-pan direction
+ * @param {number} x - Cursor X position relative to canvas
+ * @param {number} y - Cursor Y position relative to canvas
+ * @returns {Object} Pan direction { x: -1/0/1, y: -1/0/1 } and speed multiplier
+ */
+function calculateEdgePanDirection(x, y) {
+    if (!canvas) return { x: 0, y: 0, speedX: 0, speedY: 0 };
+    
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    let dirX = 0;
+    let dirY = 0;
+    let speedX = 0;
+    let speedY = 0;
+    
+    // Check left edge
+    if (x < EDGE_PAN_THRESHOLD) {
+        dirX = 1; // Pan right (moves world left)
+        // Accelerate when closer to edge
+        const distFromEdge = x;
+        speedX = 1 + (1 - Math.min(distFromEdge, EDGE_PAN_ACCEL_ZONE) / EDGE_PAN_ACCEL_ZONE);
+    }
+    // Check right edge
+    else if (x > width - EDGE_PAN_THRESHOLD) {
+        dirX = -1; // Pan left (moves world right)
+        const distFromEdge = width - x;
+        speedX = 1 + (1 - Math.min(distFromEdge, EDGE_PAN_ACCEL_ZONE) / EDGE_PAN_ACCEL_ZONE);
+    }
+    
+    // Check top edge
+    if (y < EDGE_PAN_THRESHOLD) {
+        dirY = 1; // Pan down (moves world up)
+        const distFromEdge = y;
+        speedY = 1 + (1 - Math.min(distFromEdge, EDGE_PAN_ACCEL_ZONE) / EDGE_PAN_ACCEL_ZONE);
+    }
+    // Check bottom edge
+    else if (y > height - EDGE_PAN_THRESHOLD) {
+        dirY = -1; // Pan up (moves world down)
+        const distFromEdge = height - y;
+        speedY = 1 + (1 - Math.min(distFromEdge, EDGE_PAN_ACCEL_ZONE) / EDGE_PAN_ACCEL_ZONE);
+    }
+    
+    return { x: dirX, y: dirY, speedX, speedY };
+}
+
+/**
+ * Start edge auto-pan when dragging a node near screen edge
+ * @param {Object} direction - Pan direction from calculateEdgePanDirection
+ */
+function startEdgeAutoPan(direction) {
+    edgeAutoPanDirection = direction;
+    
+    if (!edgeAutoPanInterval && (direction.x !== 0 || direction.y !== 0)) {
+        edgeAutoPanInterval = setInterval(() => {
+            // Calculate pan amount based on direction and speed
+            const dx = edgeAutoPanDirection.x * EDGE_PAN_SPEED * (edgeAutoPanDirection.speedX || 1);
+            const dy = edgeAutoPanDirection.y * EDGE_PAN_SPEED * (edgeAutoPanDirection.speedY || 1);
+            
+            if (dx !== 0 || dy !== 0) {
+                applyPan(dx, dy);
+                
+                // Also move the dragged node to keep it under the cursor
+                // (cursor position in world space changes when we pan)
+                if (draggedNode) {
+                    // Use last known cursor position
+                    const worldPos = screenToWorld(lastDragX, lastDragY, canvas);
+                    moveNode(draggedNode, worldPos.x, worldPos.y);
+                }
+            }
+        }, 16); // ~60fps
+    }
+}
+
+/**
+ * Stop edge auto-pan
+ */
+function stopEdgeAutoPan() {
+    if (edgeAutoPanInterval) {
+        clearInterval(edgeAutoPanInterval);
+        edgeAutoPanInterval = null;
+    }
+    edgeAutoPanDirection = { x: 0, y: 0, speedX: 0, speedY: 0 };
 }
 
 /**
