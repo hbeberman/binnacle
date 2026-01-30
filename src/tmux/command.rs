@@ -209,6 +209,24 @@ impl TmuxCommand {
     pub fn select_window(target: &str) -> Self {
         Self::new("select-window").flag_with_value("-t", target)
     }
+
+    /// Rename a window.
+    ///
+    /// # Arguments
+    /// * `target` - Target window to rename
+    /// * `new_name` - New name for the window
+    ///
+    /// # Example
+    /// ```
+    /// use binnacle::tmux::command::TmuxCommand;
+    /// let cmd = TmuxCommand::rename_window("my-session:0", "editor");
+    /// assert_eq!(cmd.build(), "tmux rename-window -t my-session:0 editor");
+    /// ```
+    pub fn rename_window(target: &str, new_name: &str) -> Self {
+        Self::new("rename-window")
+            .flag_with_value("-t", target)
+            .arg(new_name)
+    }
 }
 
 #[cfg(test)]
@@ -430,5 +448,17 @@ mod tests {
     fn test_lines_size_large() {
         let cmd = TmuxCommand::split_window(None, Split::Vertical, Some(Size::Lines(1000)), None);
         assert_eq!(cmd.build(), "tmux split-window -v -l 1000");
+    }
+
+    #[test]
+    fn test_rename_window() {
+        let cmd = TmuxCommand::rename_window("my-session:0", "editor");
+        assert_eq!(cmd.build(), "tmux rename-window -t my-session:0 editor");
+    }
+
+    #[test]
+    fn test_rename_window_with_spaces() {
+        let cmd = TmuxCommand::rename_window("dev:1", "my window");
+        assert_eq!(cmd.build(), "tmux rename-window -t dev:1 my window");
     }
 }

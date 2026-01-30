@@ -4,6 +4,7 @@
 //! It is feature-gated behind the `tmux` feature flag.
 
 pub mod command;
+pub mod layout;
 pub mod parser;
 pub mod save;
 pub mod schema;
