@@ -3521,7 +3521,7 @@ pub struct GenericShowResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queue: Option<Queue>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub doc: Option<Doc>,
+    pub doc: Option<DocShowResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent: Option<Agent>,
 }
@@ -3600,15 +3600,8 @@ impl Output for GenericShowResult {
                 }
             }
             EntityType::Doc => {
-                if let Some(ref doc) = self.doc {
-                    format!(
-                        "Doc: {} \"{}\"\n  Content: {} bytes\n  Created: {}\n  Updated: {}",
-                        doc.core.id,
-                        doc.core.title,
-                        doc.content.len(),
-                        doc.core.created_at,
-                        doc.core.updated_at
-                    )
+                if let Some(ref doc_result) = self.doc {
+                    doc_result.to_human()
                 } else {
                     "Doc data not available".to_string()
                 }
@@ -3693,7 +3686,7 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
             result.queue = Some(storage.get_queue_by_id(id)?);
         }
         EntityType::Doc => {
-            result.doc = Some(storage.get_doc(id)?);
+            result.doc = Some(doc_show(repo_path, id, false)?);
         }
         EntityType::Agent => {
             result.agent = Some(storage.get_agent_by_id(id)?);
@@ -7428,6 +7421,8 @@ pub fn doc_list(
 pub struct DocShowResult {
     pub doc: Doc,
     pub linked_entities: Vec<LinkedEntityInfo>,
+    /// All edges for this doc (both inbound and outbound)
+    pub edges: Vec<Edge>,
     #[serde(skip)]
     pub show_full: bool,
 }
@@ -7474,6 +7469,7 @@ impl Output for DocShowResult {
         struct DocShowJson<'a> {
             doc: DocJson<'a>,
             linked_entities: &'a [LinkedEntityInfo],
+            edges: &'a [Edge],
         }
 
         let doc_json = DocJson {
@@ -7495,6 +7491,7 @@ impl Output for DocShowResult {
         let json_repr = DocShowJson {
             doc: doc_json,
             linked_entities: &self.linked_entities,
+            edges: &self.edges,
         };
 
         serde_json::to_string(&json_repr).unwrap_or_default()
@@ -7549,6 +7546,25 @@ impl Output for DocShowResult {
                     "  {} ({}) \"{}\"{}",
                     entity.id, entity.entity_type, entity.title, status_str
                 ));
+            }
+        }
+
+        // Show edges (relationships)
+        if !self.edges.is_empty() {
+            lines.push(String::new());
+            lines.push("Relationships:".to_string());
+            for edge in &self.edges {
+                let direction = if edge.source == self.doc.core.id {
+                    format!("{} → {}", edge.edge_type, edge.target)
+                } else {
+                    format!("{} ← {}", edge.edge_type, edge.source)
+                };
+                let reason_str = edge
+                    .reason
+                    .as_ref()
+                    .map(|r| format!(" ({})", r))
+                    .unwrap_or_default();
+                lines.push(format!("    {}{}", direction, reason_str));
             }
         }
 
@@ -7623,11 +7639,11 @@ pub fn doc_show(repo_path: &Path, id: &str, full: bool) -> Result<DocShowResult>
 
     // Get linked entities (entities this doc documents)
     // Documents edges: doc -> entity, so we look for outbound edges
-    let edges = storage
+    let doc_edges = storage
         .list_edges(Some(EdgeType::Documents), Some(id), None)
         .unwrap_or_default();
 
-    let linked_entities: Vec<LinkedEntityInfo> = edges
+    let linked_entities: Vec<LinkedEntityInfo> = doc_edges
         .iter()
         .filter_map(|edge| {
             // The target of a 'documents' edge is the entity being documented
@@ -7675,9 +7691,15 @@ pub fn doc_show(repo_path: &Path, id: &str, full: bool) -> Result<DocShowResult>
         })
         .collect();
 
+    // Get ALL edges for this doc (both inbound and outbound) - this includes edges like
+    // related_to from milestones that reference this doc
+    let hydrated_edges = storage.get_edges_for_entity(id)?;
+    let edges: Vec<Edge> = hydrated_edges.into_iter().map(|he| he.edge).collect();
+
     Ok(DocShowResult {
         doc,
         linked_entities,
+        edges,
         show_full: full,
     })
 }
