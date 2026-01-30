@@ -628,6 +628,16 @@ registerHandler('edge_removed', (message) => {
     state.set('sync.version', version);
     state.set('sync.lastSync', timestamp);
     
+    // Notify active-task-pane when working_on edges are removed.
+    // This prevents "ghost" tasks from appearing in the fallback path.
+    if (edge.edge_type === 'working_on') {
+        import('../components/active-task-pane.js').then(module => {
+            module.markRecentlyUnlinked?.(edge.target);
+        }).catch(err => {
+            console.debug('Could not notify active-task-pane of edge removal:', err);
+        });
+    }
+    
     // Remove edge - use ID-based removal
     const edges = state.getEdges().filter(e => e.id !== id);
     state.setEdges(edges);
