@@ -1,0 +1,17 @@
+// Binnacle container definitions
+// See https://github.com/hbeberman/binnacle for documentation
+
+container "worker" {
+    description "AI agent worker with binnacle task tracking"
+    
+    defaults {
+        cpus 4
+        memory "8g"
+    }
+    
+    mounts {
+        mount "workspace" target="/workspace" mode="rw"
+        mount "cargo-cache" source="~/.cargo" target="/usr/local/cargo/registry" mode="rw" optional=#true
+        mount "rustup-cache" source="~/.rustup" target="/usr/local/rustup" mode="ro" optional=#true
+    }
+}
