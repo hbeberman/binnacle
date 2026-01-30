@@ -1522,40 +1522,79 @@ function drawAgentLabel(node, screenPos, radius) {
 }
 
 /**
- * Draw PRD label above doc nodes that are PRDs
+ * Draw PRD label above doc nodes that are PRDs.
+ * Shows "PRD" badge on top and a brief summary (short_name or truncated title) below.
  */
 function drawPRDLabel(node, screenPos, radius) {
     if (node.type !== 'doc' || node.doc_type !== 'prd') return;
     
     const zoom = getZoom();
     const baseFontSize = 13 * Math.max(0.7, Math.min(1.3, zoom));
+    const summaryFontSize = 11 * Math.max(0.7, Math.min(1.3, zoom));
     const pillPadding = 6 * zoom;
-    const pillHeight = baseFontSize + pillPadding * 2;
-    const pillY = screenPos.y - radius - pillHeight - 8 * zoom;
+    const lineGap = 4 * zoom;
     
-    const displayText = 'PRD';
+    // Get summary text: prefer short_name, fall back to truncated title
+    const summaryText = node.short_name || (node.title ? truncateText(node.title, 30) : '');
+    const hasSummary = summaryText.length > 0;
     
+    // Calculate dimensions
+    const prdText = 'PRD';
     ctx.font = `bold ${baseFontSize}px sans-serif`;
-    const textWidth = ctx.measureText(displayText).width;
-    const pillWidth = textWidth + pillPadding * 4;
+    const prdTextWidth = ctx.measureText(prdText).width;
+    
+    let summaryTextWidth = 0;
+    if (hasSummary) {
+        ctx.font = `${summaryFontSize}px sans-serif`;
+        summaryTextWidth = ctx.measureText(summaryText).width;
+    }
+    
+    // Pill width accommodates both lines with padding
+    const maxTextWidth = Math.max(prdTextWidth, summaryTextWidth);
+    const pillWidth = maxTextWidth + pillPadding * 4;
+    
+    // Pill height depends on whether we have a summary
+    const prdLineHeight = baseFontSize + pillPadding * 2;
+    const summaryLineHeight = hasSummary ? summaryFontSize + pillPadding : 0;
+    const pillHeight = prdLineHeight + summaryLineHeight + (hasSummary ? lineGap : 0);
+    
+    const pillY = screenPos.y - radius - pillHeight - 8 * zoom;
+    const pillX = screenPos.x - pillWidth / 2;
+    const pillRadius = Math.min(pillHeight / 4, 8 * zoom);
     
     ctx.save();
     
     // Draw pill background
     ctx.fillStyle = 'rgba(147, 51, 234, 0.95)';  // Purple background
     ctx.beginPath();
-    const pillX = screenPos.x - pillWidth / 2;
-    const pillRadius = pillHeight / 2;
     ctx.roundRect(pillX, pillY, pillWidth, pillHeight, pillRadius);
     ctx.fill();
     
-    // Draw text
+    // Draw "PRD" text (top)
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(displayText, screenPos.x, pillY + pillHeight / 2);
+    ctx.font = `bold ${baseFontSize}px sans-serif`;
+    const prdY = pillY + pillPadding + baseFontSize / 2;
+    ctx.fillText(prdText, screenPos.x, prdY);
+    
+    // Draw summary text (bottom) if available
+    if (hasSummary) {
+        ctx.font = `${summaryFontSize}px sans-serif`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        const summaryY = prdY + baseFontSize / 2 + lineGap + summaryFontSize / 2 + pillPadding / 2;
+        ctx.fillText(summaryText, screenPos.x, summaryY);
+    }
     
     ctx.restore();
+}
+
+/**
+ * Truncate text to a maximum length with ellipsis
+ */
+function truncateText(text, maxLength) {
+    if (!text || text.length <= maxLength) return text;
+    return text.substring(0, maxLength - 1) + '…';
 }
 
 /**
