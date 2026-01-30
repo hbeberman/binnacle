@@ -1,9 +1,12 @@
 //! Container definition management and config.kdl parsing.
 
+use crate::storage::get_storage_dir;
 use crate::{Error, Result};
 use kdl::{KdlDocument, KdlNode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// Reserved container name that cannot be used by projects/users.
 pub const RESERVED_NAME: &str = "binnacle";
@@ -266,6 +269,121 @@ fn parse_mount_node(node: &KdlNode) -> Result<Mount> {
     })
 }
 
+/// Source of a container definition
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DefinitionSource {
+    /// Project-level definition (.binnacle/containers/)
+    Project,
+    /// User-level definition (~/.local/share/binnacle/<hash>/containers/)
+    Host,
+    /// Embedded fallback (compiled-in)
+    Embedded,
+}
+
+impl std::fmt::Display for DefinitionSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Project => write!(f, "project"),
+            Self::Host => write!(f, "host"),
+            Self::Embedded => write!(f, "embedded"),
+        }
+    }
+}
+
+/// Container definition with source metadata
+#[derive(Debug, Clone)]
+pub struct DefinitionWithSource {
+    pub definition: ContainerDefinition,
+    pub source: DefinitionSource,
+    pub config_path: PathBuf,
+}
+
+/// Discover container definitions from all sources
+///
+/// Search order:
+/// 1. Project-level: .binnacle/containers/config.kdl
+/// 2. User-level: ~/.local/share/binnacle/<hash>/containers/config.kdl
+/// 3. Embedded fallback: only the reserved "binnacle" definition
+///
+/// Returns a map of container name -> definition with source metadata.
+/// If the same name exists in multiple sources, both are included (caller must resolve conflicts).
+pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource>> {
+    let mut results = Vec::new();
+
+    // 1. Check project-level: .binnacle/containers/config.kdl
+    let project_config = repo_path
+        .join(".binnacle")
+        .join("containers")
+        .join("config.kdl");
+    if project_config.exists() {
+        let content = fs::read_to_string(&project_config).map_err(|e| {
+            Error::Other(format!(
+                "Failed to read {}: {}",
+                project_config.display(),
+                e
+            ))
+        })?;
+        let doc: KdlDocument = content.parse().map_err(|e| {
+            Error::Other(format!(
+                "Failed to parse {}: {}",
+                project_config.display(),
+                e
+            ))
+        })?;
+        let defs = parse_config_kdl(&doc)?;
+
+        for (_, def) in defs {
+            results.push(DefinitionWithSource {
+                definition: def,
+                source: DefinitionSource::Project,
+                config_path: project_config.clone(),
+            });
+        }
+    }
+
+    // 2. Check user-level: ~/.local/share/binnacle/<hash>/containers/config.kdl
+    let storage_dir = get_storage_dir(repo_path)?;
+    let host_config = storage_dir.join("containers").join("config.kdl");
+    if host_config.exists() {
+        let content = fs::read_to_string(&host_config).map_err(|e| {
+            Error::Other(format!("Failed to read {}: {}", host_config.display(), e))
+        })?;
+        let doc: KdlDocument = content.parse().map_err(|e| {
+            Error::Other(format!("Failed to parse {}: {}", host_config.display(), e))
+        })?;
+        let defs = parse_config_kdl(&doc)?;
+
+        for (_, def) in defs {
+            results.push(DefinitionWithSource {
+                definition: def,
+                source: DefinitionSource::Host,
+                config_path: host_config.clone(),
+            });
+        }
+    }
+
+    // 3. Embedded fallback: only if no config.kdl files found anywhere
+    // The embedded "binnacle" definition is always available as a last resort
+    // but only returned if no other definitions were found
+    if results.is_empty() {
+        // Create a minimal embedded fallback definition
+        results.push(DefinitionWithSource {
+            definition: ContainerDefinition {
+                name: RESERVED_NAME.to_string(),
+                description: Some("Embedded binnacle container (fallback)".to_string()),
+                parent: None,
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+            source: DefinitionSource::Embedded,
+            config_path: PathBuf::from("<embedded>"),
+        });
+    }
+
+    Ok(results)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,5 +574,180 @@ container "rust-dev" {
         assert_eq!("ro".parse::<MountMode>().unwrap(), MountMode::ReadOnly);
         assert_eq!("rw".parse::<MountMode>().unwrap(), MountMode::ReadWrite);
         assert!("invalid".parse::<MountMode>().is_err());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_discover_definitions_empty_returns_embedded() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path();
+
+        // No config files exist, should return embedded fallback
+        let defs = super::discover_definitions(repo_path).unwrap();
+
+        assert_eq!(
+            defs.len(),
+            1,
+            "Expected 1 definition, got {}: {:?}",
+            defs.len(),
+            defs.iter().map(|d| &d.definition.name).collect::<Vec<_>>()
+        );
+        assert_eq!(defs[0].definition.name, RESERVED_NAME);
+        assert_eq!(defs[0].source, super::DefinitionSource::Embedded);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_discover_definitions_project_only() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path();
+
+        // Create project-level config
+        let containers_dir = repo_path.join(".binnacle").join("containers");
+        fs::create_dir_all(&containers_dir).unwrap();
+        let config_path = containers_dir.join("config.kdl");
+        fs::write(
+            &config_path,
+            r#"
+container "base" {
+    description "Project base container"
+}
+"#,
+        )
+        .unwrap();
+
+        let defs = super::discover_definitions(repo_path).unwrap();
+
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].definition.name, "base");
+        assert_eq!(defs[0].source, super::DefinitionSource::Project);
+        assert_eq!(defs[0].config_path, config_path);
+    }
+
+    #[test]
+    fn test_discover_definitions_host_only() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path();
+
+        // Create a data directory for host-level config
+        let data_temp = TempDir::new().unwrap();
+
+        // We need to use get_storage_dir to get the correct hash-based path
+        // For testing, we'll manually construct the path
+        let storage_dir =
+            crate::storage::get_storage_dir_with_base(repo_path, data_temp.path()).unwrap();
+
+        let containers_dir = storage_dir.join("containers");
+        fs::create_dir_all(&containers_dir).unwrap();
+        let config_path = containers_dir.join("config.kdl");
+        fs::write(
+            &config_path,
+            r#"
+container "my-dev" {
+    description "User dev container"
+}
+"#,
+        )
+        .unwrap();
+
+        // Use the DI variant for testing
+        // SAFETY: This is a test, single-threaded execution
+        unsafe {
+            std::env::set_var("BN_DATA_DIR", data_temp.path());
+        }
+        let defs = super::discover_definitions(repo_path).unwrap();
+        unsafe {
+            std::env::remove_var("BN_DATA_DIR");
+        }
+
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].definition.name, "my-dev");
+        assert_eq!(defs[0].source, super::DefinitionSource::Host);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_discover_definitions_both_sources() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        // Create separate temp directories
+        let repo_temp = TempDir::new().unwrap();
+        let repo_path = repo_temp.path();
+
+        // Create project-level config
+        let project_containers = repo_path.join(".binnacle").join("containers");
+        fs::create_dir_all(&project_containers).unwrap();
+        fs::write(
+            project_containers.join("config.kdl"),
+            r#"
+container "base" {
+    description "Project base"
+}
+container "rust-dev" {
+    description "Project Rust dev"
+}
+"#,
+        )
+        .unwrap();
+
+        // Create host-level config
+        let data_temp = TempDir::new().unwrap();
+        let storage_dir =
+            crate::storage::get_storage_dir_with_base(repo_path, data_temp.path()).unwrap();
+        let host_containers = storage_dir.join("containers");
+        fs::create_dir_all(&host_containers).unwrap();
+        fs::write(
+            host_containers.join("config.kdl"),
+            r#"
+container "my-env" {
+    description "User environment"
+}
+container "rust-dev" {
+    description "User Rust dev (conflict)"
+}
+"#,
+        )
+        .unwrap();
+
+        // SAFETY: This is a test, single-threaded execution with serial_test
+        unsafe {
+            std::env::set_var("BN_DATA_DIR", data_temp.path());
+        }
+        let defs = super::discover_definitions(repo_path).unwrap();
+        unsafe {
+            std::env::remove_var("BN_DATA_DIR");
+        }
+
+        // Should have 4 definitions total (2 from project + 2 from host)
+        // Including the "rust-dev" conflict
+        assert_eq!(defs.len(), 4);
+
+        // Check that we have both sources represented
+        let project_count = defs
+            .iter()
+            .filter(|d| d.source == super::DefinitionSource::Project)
+            .count();
+        let host_count = defs
+            .iter()
+            .filter(|d| d.source == super::DefinitionSource::Host)
+            .count();
+        assert_eq!(project_count, 2);
+        assert_eq!(host_count, 2);
+
+        // Verify rust-dev appears twice (conflict)
+        let rust_dev_count = defs
+            .iter()
+            .filter(|d| d.definition.name == "rust-dev")
+            .count();
+        assert_eq!(rust_dev_count, 2);
     }
 }
