@@ -3196,10 +3196,12 @@ impl Storage {
     /// Get edges for a specific entity (both outbound and inbound).
     pub fn get_edges_for_entity(&self, entity_id: &str) -> Result<Vec<HydratedEdge>> {
         let mut edges = Vec::new();
+        let mut seen_edge_ids = std::collections::HashSet::new();
 
         // Outbound edges (source = this entity)
         let outbound = self.list_edges(None, Some(entity_id), None)?;
         for edge in outbound {
+            seen_edge_ids.insert(edge.id.clone());
             let direction = if edge.is_bidirectional() {
                 EdgeDirection::Both
             } else {
@@ -3211,14 +3213,18 @@ impl Storage {
         // Inbound edges (target = this entity)
         let inbound = self.list_edges(None, None, Some(entity_id))?;
         for edge in inbound {
-            // Skip bidirectional edges we already added (to avoid duplicates)
-            if edge.is_bidirectional() {
+            // Skip edges we already added (same edge appears in both outbound and inbound
+            // when source = target, which shouldn't happen but guard against it)
+            if seen_edge_ids.contains(&edge.id) {
                 continue;
             }
-            edges.push(HydratedEdge {
-                edge,
-                direction: EdgeDirection::Inbound,
-            });
+            // Bidirectional edges should also appear when entity is the target
+            let direction = if edge.is_bidirectional() {
+                EdgeDirection::Both
+            } else {
+                EdgeDirection::Inbound
+            };
+            edges.push(HydratedEdge { edge, direction });
         }
 
         Ok(edges)
