@@ -38,9 +38,13 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal && \
-    rustup component add rustfmt clippy && \
+    rustup component add rustfmt clippy rust-analyzer && \
     cargo install cargo-audit && \
     chmod -R a+rw $RUSTUP_HOME $CARGO_HOME
+
+# Install TypeScript/JavaScript language server for LSP support
+# Requires Node.js >= 16 (Fedora 43 provides 22.x)
+RUN npm install -g @vtsls/language-server
 
 # Install Lightpanda headless browser for GUI validation
 RUN curl -L -o /usr/local/bin/lightpanda \

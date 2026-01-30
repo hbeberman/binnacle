@@ -128,6 +128,36 @@ if [ "$ENV_JSON" != "{}" ]; then
     echo "🔌 Injected MCP env vars: $INJECTED_VARS"
 fi
 
+# Write LSP configuration for Copilot code intelligence
+LSP_CONFIG="$HOME/.copilot/lsp-config.json"
+cat > "$LSP_CONFIG" << 'EOF'
+{
+  "lspServers": {
+    "rust-analyzer": {
+      "command": "rust-analyzer",
+      "fileExtensions": {
+        ".rs": "rust"
+      }
+    },
+    "vtsls": {
+      "command": "vtsls",
+      "args": ["--stdio"],
+      "fileExtensions": {
+        ".ts": "typescript",
+        ".tsx": "typescriptreact",
+        ".js": "javascript",
+        ".jsx": "javascriptreact",
+        ".mts": "typescript",
+        ".cts": "typescript",
+        ".mjs": "javascript",
+        ".cjs": "javascript"
+      }
+    }
+  }
+}
+EOF
+echo "🔧 LSP configuration written to $LSP_CONFIG"
+
 # Configure git hooks path so commit-msg hook adds co-author trailer
 # The hooks/ directory in the repo contains the commit-msg hook that adds
 # "Co-authored-by: binnacle-bot <noreply@binnacle.bot>" when BN_AGENT_SESSION=1
