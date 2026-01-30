@@ -128,6 +128,15 @@ if [ "$ENV_JSON" != "{}" ]; then
     echo "🔌 Injected MCP env vars: $INJECTED_VARS"
 fi
 
+# Write Copilot config to enable LSP
+COPILOT_CONFIG="$HOME/.copilot/config.json"
+cat > "$COPILOT_CONFIG" << 'EOF'
+{
+  "staff": true
+}
+EOF
+echo "🔧 Copilot config written to $COPILOT_CONFIG (staff mode enabled for LSP)"
+
 # Write LSP configuration for Copilot code intelligence
 LSP_CONFIG="$HOME/.copilot/lsp-config.json"
 cat > "$LSP_CONFIG" << 'EOF'
@@ -233,7 +242,7 @@ COPILOT_BIN=$(find "${BN_DATA_DIR}/utils/copilot" -name "copilot" -type f -execu
 
 if [ -n "$COPILOT_BIN" ] && [ -x "$COPILOT_BIN" ]; then
     echo "🤖 Using pinned copilot: $COPILOT_BIN"
-    "$COPILOT_BIN" --allow-all --no-auto-update "${BLOCKED_TOOLS[@]}" -p "$BN_INITIAL_PROMPT"
+    "$COPILOT_BIN" --allow-all --no-auto-update --staff "${BLOCKED_TOOLS[@]}" -p "$BN_INITIAL_PROMPT"
     AGENT_EXIT=$?
 elif command -v claude &> /dev/null; then
     echo "🤖 Using claude CLI"
