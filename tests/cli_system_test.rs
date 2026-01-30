@@ -2305,7 +2305,7 @@ fn test_copilot_path_binnacle_preferred() {
         .clone();
 
     let json: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(json["version"], "v0.0.398");
+    assert_eq!(json["version"], "v0.0.399");
     assert_eq!(json["source"], "binnacle-preferred");
     assert!(json["path"].as_str().unwrap().contains("copilot"));
     // exists may be false if not installed
@@ -2320,7 +2320,7 @@ fn test_copilot_path_human_format() {
         .args(["system", "copilot", "path", "-H"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("v0.0.398"))
+        .stdout(predicate::str::contains("v0.0.399"))
         .stdout(predicate::str::contains("binnacle-preferred"));
 }
 
@@ -2378,7 +2378,7 @@ fn test_copilot_version_no_installations() {
         .clone();
 
     let json: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(json["active_version"], "v0.0.398");
+    assert_eq!(json["active_version"], "v0.0.399");
     assert_eq!(json["active_source"], "binnacle-preferred");
     assert_eq!(json["installed_versions"].as_array().unwrap().len(), 0);
 }
@@ -2393,7 +2393,7 @@ fn test_copilot_version_human_format() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "Active: v0.0.398 (binnacle-preferred)",
+            "Active: v0.0.399 (binnacle-preferred)",
         ))
         .stdout(predicate::str::contains("No versions installed"));
 }
@@ -2404,7 +2404,7 @@ fn test_copilot_version_with_installation() {
 
     // Create a mock installation directory
     let copilot_base_dir = env.data_dir.path().join("utils").join("copilot");
-    let version_dir = copilot_base_dir.join("v0.0.398");
+    let version_dir = copilot_base_dir.join("v0.0.399");
     fs::create_dir_all(&version_dir).unwrap();
 
     // Create a mock copilot binary
@@ -2421,14 +2421,14 @@ fn test_copilot_version_with_installation() {
         .clone();
 
     let json: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(json["active_version"], "v0.0.398");
+    assert_eq!(json["active_version"], "v0.0.399");
     assert_eq!(json["active_source"], "binnacle-preferred");
 
     let installed = json["installed_versions"].as_array().unwrap();
     assert_eq!(installed.len(), 1);
-    assert_eq!(installed[0]["version"], "v0.0.398");
+    assert_eq!(installed[0]["version"], "v0.0.399");
     assert_eq!(installed[0]["is_active"], true);
-    assert!(installed[0]["path"].as_str().unwrap().contains("v0.0.398"));
+    assert!(installed[0]["path"].as_str().unwrap().contains("v0.0.399"));
 }
 
 #[test]
@@ -2438,11 +2438,11 @@ fn test_copilot_version_multiple_installations() {
     // Create mock installation directories for multiple versions
     let copilot_base_dir = env.data_dir.path().join("utils").join("copilot");
 
-    // Install v0.0.398 (active)
-    let version_dir_1 = copilot_base_dir.join("v0.0.398");
+    // Install v0.0.399 (active)
+    let version_dir_1 = copilot_base_dir.join("v0.0.399");
     fs::create_dir_all(&version_dir_1).unwrap();
     let binary_path_1 = version_dir_1.join("copilot");
-    fs::write(&binary_path_1, "#!/bin/sh\necho 'mock copilot v0.0.398'").unwrap();
+    fs::write(&binary_path_1, "#!/bin/sh\necho 'mock copilot v0.0.399'").unwrap();
 
     // Install v1.1.0 (inactive)
     let version_dir_2 = copilot_base_dir.join("v1.1.0");
@@ -2460,7 +2460,7 @@ fn test_copilot_version_multiple_installations() {
         .clone();
 
     let json: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(json["active_version"], "v0.0.398");
+    assert_eq!(json["active_version"], "v0.0.399");
 
     let installed = json["installed_versions"].as_array().unwrap();
     assert_eq!(installed.len(), 2);
@@ -2468,7 +2468,7 @@ fn test_copilot_version_multiple_installations() {
     // Check that versions are sorted in descending order (v1.1.0 should be first)
     assert_eq!(installed[0]["version"], "v1.1.0");
     assert_eq!(installed[0]["is_active"], false);
-    assert_eq!(installed[1]["version"], "v0.0.398");
+    assert_eq!(installed[1]["version"], "v0.0.399");
     assert_eq!(installed[1]["is_active"], true);
 }
 
@@ -2497,9 +2497,9 @@ fn test_copilot_version_with_config_override() {
     // Create mock installations
     let copilot_base_dir = env.data_dir.path().join("utils").join("copilot");
 
-    let version_dir_1 = copilot_base_dir.join("v0.0.398");
+    let version_dir_1 = copilot_base_dir.join("v0.0.399");
     fs::create_dir_all(&version_dir_1).unwrap();
-    fs::write(version_dir_1.join("copilot"), "#!/bin/sh\necho 'v0.0.398'").unwrap();
+    fs::write(version_dir_1.join("copilot"), "#!/bin/sh\necho 'v0.0.399'").unwrap();
 
     let version_dir_2 = copilot_base_dir.join("v1.1.0");
     fs::create_dir_all(&version_dir_2).unwrap();
@@ -2527,7 +2527,7 @@ fn test_copilot_version_with_config_override() {
 
     let v120 = installed
         .iter()
-        .find(|v| v["version"] == "v0.0.398")
+        .find(|v| v["version"] == "v0.0.399")
         .unwrap();
     assert_eq!(v120["is_active"], false);
 }
