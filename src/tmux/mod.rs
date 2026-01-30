@@ -5,6 +5,7 @@
 
 pub mod command;
 pub mod parser;
+pub mod save;
 pub mod schema;
 
 use crate::{Error, Result};
