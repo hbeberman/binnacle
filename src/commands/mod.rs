@@ -10,8 +10,8 @@
 
 use crate::models::{
     Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Editor, Idea,
-    IdeaStatus, Milestone, Mission, Queue, SessionState, Task, TaskStatus, TestNode, TestResult,
-    complexity::analyze_complexity, graph::UnionFind, prompts,
+    IdeaStatus, Issue, Milestone, Mission, Queue, SessionState, Task, TaskStatus, TestNode,
+    TestResult, complexity::analyze_complexity, graph::UnionFind, prompts,
 };
 use crate::storage::{EntityType, Storage, find_git_root, generate_id, parse_status};
 use crate::{Error, Result};
@@ -3487,6 +3487,8 @@ pub struct GenericShowResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bug: Option<BugShowResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub issue: Option<Issue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub idea: Option<Idea>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub test: Option<TestNode>,
@@ -3521,6 +3523,20 @@ impl Output for GenericShowResult {
                     bug.to_human()
                 } else {
                     "Bug data not available".to_string()
+                }
+            }
+            EntityType::Issue => {
+                if let Some(ref issue) = self.issue {
+                    format!(
+                        "Issue: {} \"{}\"\n  Status: {:?}\n  Priority: P{}\n  Created: {}",
+                        issue.core.id,
+                        issue.core.title,
+                        issue.status,
+                        issue.priority,
+                        issue.core.created_at
+                    )
+                } else {
+                    "Issue data not available".to_string()
                 }
             }
             EntityType::Idea => {
@@ -3613,6 +3629,7 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
         entity_type,
         task: None,
         bug: None,
+        issue: None,
         idea: None,
         test: None,
         milestone: None,
@@ -3634,6 +3651,9 @@ pub fn generic_show(repo_path: &Path, id: &str) -> Result<GenericShowResult> {
             if let BugShowResponse::Found(bug_result) = response {
                 result.bug = Some(*bug_result);
             }
+        }
+        EntityType::Issue => {
+            result.issue = Some(storage.get_issue(id)?);
         }
         EntityType::Idea => {
             result.idea = Some(idea_show(repo_path, id)?);
@@ -14848,6 +14868,7 @@ pub struct StoreExportResult {
     pub size_bytes: u64,
     pub task_count: usize,
     pub bug_count: usize,
+    pub issue_count: usize,
     pub idea_count: usize,
     pub doc_count: usize,
     pub milestone_count: usize,
@@ -14872,6 +14893,7 @@ impl Output for StoreExportResult {
             lines.push(format!("  Size: {:.1} KB", size_kb));
             lines.push(format!("  Tasks: {}", self.task_count));
             lines.push(format!("  Bugs: {}", self.bug_count));
+            lines.push(format!("  Issues: {}", self.issue_count));
             lines.push(format!("  Ideas: {}", self.idea_count));
             lines.push(format!("  Docs: {}", self.doc_count));
             lines.push(format!("  Milestones: {}", self.milestone_count));
@@ -14895,6 +14917,8 @@ struct ExportManifest {
     task_count: usize,
     #[serde(default)]
     bug_count: usize,
+    #[serde(default)]
+    issue_count: usize,
     #[serde(default)]
     idea_count: usize,
     #[serde(default)]
@@ -14943,6 +14967,7 @@ pub fn system_store_export(
     let files_to_export = [
         "tasks.jsonl",
         "bugs.jsonl",
+        "issues.jsonl",
         "ideas.jsonl",
         "docs.jsonl",
         "milestones.jsonl",
@@ -14965,9 +14990,10 @@ pub fn system_store_export(
         }
     }
 
-    // Count tasks, bugs, ideas, docs, milestones, tests, and commits
+    // Count tasks, bugs, issues, ideas, docs, milestones, tests, and commits
     let tasks = storage.list_tasks(None, None, None)?;
     let bugs = storage.list_bugs(None, None, None, None, true)?; // Include all for export
+    let issues = storage.list_issues(None, None, None, true)?; // Include all for export
     let ideas = storage.list_ideas(None, None)?;
     let docs = storage.list_docs(None, None, None, None)?;
     let milestones = storage.list_milestones(None, None, None)?;
@@ -14997,6 +15023,7 @@ pub fn system_store_export(
         binnacle_version: env!("CARGO_PKG_VERSION").to_string(),
         task_count: tasks.len(),
         bug_count: bugs.len(),
+        issue_count: issues.len(),
         idea_count: ideas.len(),
         doc_count: docs.len(),
         milestone_count: milestones.len(),
@@ -15073,6 +15100,7 @@ pub fn system_store_export(
         size_bytes,
         task_count: tasks.len(),
         bug_count: bugs.len(),
+        issue_count: issues.len(),
         idea_count: ideas.len(),
         doc_count: docs.len(),
         milestone_count: milestones.len(),
@@ -15090,6 +15118,7 @@ pub struct CommitArchiveResult {
     pub size_bytes: u64,
     pub task_count: usize,
     pub bug_count: usize,
+    pub issue_count: usize,
     pub idea_count: usize,
     pub doc_count: usize,
     pub milestone_count: usize,
@@ -15108,12 +15137,13 @@ impl Output for CommitArchiveResult {
     fn to_human(&self) -> String {
         if self.created {
             format!(
-                "Created archive for commit {}:\n  Path: {}\n  Size: {} bytes\n  Tasks: {}, Bugs: {}, Ideas: {}, Docs: {}, Milestones: {}, Tests: {}, Commits: {}",
+                "Created archive for commit {}:\n  Path: {}\n  Size: {} bytes\n  Tasks: {}, Bugs: {}, Issues: {}, Ideas: {}, Docs: {}, Milestones: {}, Tests: {}, Commits: {}",
                 &self.commit_hash[..7.min(self.commit_hash.len())],
                 self.output_path,
                 self.size_bytes,
                 self.task_count,
                 self.bug_count,
+                self.issue_count,
                 self.idea_count,
                 self.doc_count,
                 self.milestone_count,
@@ -15147,6 +15177,7 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
         size_bytes: 0,
         task_count: 0,
         bug_count: 0,
+        issue_count: 0,
         idea_count: 0,
         doc_count: 0,
         milestone_count: 0,
@@ -15166,6 +15197,7 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
                 size_bytes: 0,
                 task_count: 0,
                 bug_count: 0,
+                issue_count: 0,
                 idea_count: 0,
                 doc_count: 0,
                 milestone_count: 0,
@@ -15244,6 +15276,7 @@ pub fn generate_commit_archive(repo_path: &Path, commit_hash: &str) -> Result<Co
         size_bytes: result.size_bytes,
         task_count: result.task_count,
         bug_count: result.bug_count,
+        issue_count: result.issue_count,
         idea_count: result.idea_count,
         doc_count: result.doc_count,
         milestone_count: result.milestone_count,
@@ -28598,6 +28631,7 @@ mod tests {
             binnacle_version: "0.0.1".to_string(),
             task_count: 10,
             bug_count: 2,
+            issue_count: 1,
             idea_count: 3,
             doc_count: 1,
             milestone_count: 4,
@@ -28612,7 +28646,7 @@ mod tests {
 
         // Expected schema fingerprint for ExportManifest
         // If this fails, you've changed the archive schema - see comment above!
-        let expected = "binnacle_version|bug_count|checksums|checksums.tasks.jsonl|commit_count|doc_count|exported_at|format|idea_count|milestone_count|source_repo|task_count|test_count|version";
+        let expected = "binnacle_version|bug_count|checksums|checksums.tasks.jsonl|commit_count|doc_count|exported_at|format|idea_count|issue_count|milestone_count|source_repo|task_count|test_count|version";
         assert_eq!(
             fp, expected,
             "ExportManifest schema changed! Update expected fingerprint if intentional. \

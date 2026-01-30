@@ -24,8 +24,8 @@ pub use orphan_branch::OrphanBranchBackend;
 
 use crate::models::{
     Agent, AgentStatus, Bug, CommitLink, Doc, DocType, Edge, EdgeDirection, EdgeType, HydratedEdge,
-    Idea, IdeaStatus, LogAnnotation, Milestone, MilestoneProgress, Mission, MissionProgress, Queue,
-    Task, TaskStatus, TestNode, TestResult,
+    Idea, IdeaStatus, Issue, LogAnnotation, Milestone, MilestoneProgress, Mission, MissionProgress,
+    Queue, Task, TaskStatus, TestNode, TestResult,
 };
 use crate::{Error, Result};
 use chrono::Utc;
@@ -43,6 +43,7 @@ use std::path::{Path, PathBuf};
 pub enum EntityType {
     Task,
     Bug,
+    Issue,
     Idea,
     Test,
     Milestone,
@@ -57,6 +58,7 @@ impl std::fmt::Display for EntityType {
         match self {
             EntityType::Task => write!(f, "task"),
             EntityType::Bug => write!(f, "bug"),
+            EntityType::Issue => write!(f, "issue"),
             EntityType::Idea => write!(f, "idea"),
             EntityType::Test => write!(f, "test"),
             EntityType::Milestone => write!(f, "milestone"),
@@ -135,6 +137,7 @@ impl Storage {
         let files = [
             "tasks.jsonl",
             "bugs.jsonl",
+            "issues.jsonl",
             "ideas.jsonl",
             "docs.jsonl",
             "milestones.jsonl",
@@ -253,6 +256,32 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_bugs_priority ON bugs(priority);
             CREATE INDEX IF NOT EXISTS idx_bugs_severity ON bugs(severity);
             CREATE INDEX IF NOT EXISTS idx_bug_tags_tag ON bug_tags(tag);
+
+            -- Issue tables (pre-triage investigation items)
+            CREATE TABLE IF NOT EXISTS issues (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                short_name TEXT,
+                description TEXT,
+                priority INTEGER NOT NULL DEFAULT 2,
+                status TEXT NOT NULL DEFAULT 'open',
+                assignee TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                closed_at TEXT,
+                closed_reason TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS issue_tags (
+                issue_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (issue_id, tag),
+                FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
+            CREATE INDEX IF NOT EXISTS idx_issues_priority ON issues(priority);
+            CREATE INDEX IF NOT EXISTS idx_issue_tags_tag ON issue_tags(tag);
 
             -- Milestone tables
             CREATE TABLE IF NOT EXISTS milestones (
@@ -1105,6 +1134,44 @@ impl Storage {
         Ok(())
     }
 
+    /// Cache an issue in SQLite for fast querying.
+    fn cache_issue(&self, issue: &Issue) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT OR REPLACE INTO issues
+            (id, title, short_name, description, priority, status, assignee,
+             created_at, updated_at, closed_at, closed_reason)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "#,
+            params![
+                issue.core.id,
+                issue.core.title,
+                issue.core.short_name,
+                issue.core.description,
+                issue.priority,
+                serde_json::to_string(&issue.status)?.trim_matches('"'),
+                issue.assignee,
+                issue.core.created_at.to_rfc3339(),
+                issue.core.updated_at.to_rfc3339(),
+                issue.closed_at.map(|t| t.to_rfc3339()),
+                issue.closed_reason,
+            ],
+        )?;
+
+        self.conn.execute(
+            "DELETE FROM issue_tags WHERE issue_id = ?1",
+            [&issue.core.id],
+        )?;
+        for tag in &issue.core.tags {
+            self.conn.execute(
+                "INSERT INTO issue_tags (issue_id, tag) VALUES (?1, ?2)",
+                params![issue.core.id, tag],
+            )?;
+        }
+
+        Ok(())
+    }
+
     /// Cache an edge in SQLite for fast querying.
     fn cache_edge(&self, edge: &Edge) -> Result<()> {
         self.conn.execute(
@@ -1506,6 +1573,175 @@ impl Storage {
             "DELETE FROM bug_dependencies WHERE child_id = ? OR parent_id = ?",
             [id, id],
         )?;
+
+        Ok(())
+    }
+
+    // === Issue Operations ===
+
+    /// Add a new issue.
+    pub fn add_issue(&mut self, issue: &Issue) -> Result<()> {
+        let issues_path = self.root.join("issues.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&issues_path)?;
+
+        let json = serde_json::to_string(issue)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_issue(issue)?;
+
+        Ok(())
+    }
+
+    /// Load all issues from JSONL into a HashMap keyed by ID.
+    /// This reads the JSONL file once and returns the latest version of each issue.
+    fn load_all_issues_from_jsonl(&self) -> Result<std::collections::HashMap<String, Issue>> {
+        let issues_path = self.root.join("issues.jsonl");
+        if !issues_path.exists() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let file = File::open(&issues_path)?;
+        let reader = BufReader::new(file);
+
+        let mut issues_map = std::collections::HashMap::new();
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(issue) = serde_json::from_str::<Issue>(&line) {
+                issues_map.insert(issue.core.id.clone(), issue);
+            }
+        }
+
+        Ok(issues_map)
+    }
+
+    /// Get an issue by ID.
+    pub fn get_issue(&self, id: &str) -> Result<Issue> {
+        // First check if the issue exists in the cache (handles deletions)
+        let exists: bool = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM issues WHERE id = ?)",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !exists {
+            return Err(Error::NotFound(format!("Issue not found: {}", id)));
+        }
+
+        let issues_path = self.root.join("issues.jsonl");
+        if !issues_path.exists() {
+            return Err(Error::NotFound(format!("Issue not found: {}", id)));
+        }
+
+        let file = File::open(&issues_path)?;
+        let reader = BufReader::new(file);
+
+        let mut latest: Option<Issue> = None;
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(issue) = serde_json::from_str::<Issue>(&line)
+                && issue.core.id == id
+            {
+                latest = Some(issue);
+            }
+        }
+
+        latest.ok_or_else(|| Error::NotFound(format!("Issue not found: {}", id)))
+    }
+
+    /// List all issues, optionally filtered.
+    /// By default, excludes closed issues unless `include_closed` is true.
+    pub fn list_issues(
+        &self,
+        status: Option<&str>,
+        priority: Option<u8>,
+        tag: Option<&str>,
+        include_closed: bool,
+    ) -> Result<Vec<Issue>> {
+        let mut sql = String::from(
+            "SELECT DISTINCT i.id FROM issues i
+             LEFT JOIN issue_tags it ON i.id = it.issue_id
+             WHERE 1=1",
+        );
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        // If a specific status is requested, use it; otherwise exclude closed statuses unless --all
+        if let Some(s) = status {
+            sql.push_str(" AND i.status = ?");
+            params_vec.push(Box::new(s.to_string()));
+        } else if !include_closed {
+            // Exclude closed, resolved, wont_fix, by_design, no_repro statuses by default
+            sql.push_str(
+                " AND i.status NOT IN ('closed', 'resolved', 'wont_fix', 'by_design', 'no_repro')",
+            );
+        }
+        if let Some(p) = priority {
+            sql.push_str(" AND i.priority = ?");
+            params_vec.push(Box::new(p));
+        }
+        if let Some(t) = tag {
+            sql.push_str(" AND it.tag = ?");
+            params_vec.push(Box::new(t.to_string()));
+        }
+
+        sql.push_str(" ORDER BY i.priority ASC, i.created_at DESC");
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids: Vec<String> = stmt
+            .query_map(params_refs.as_slice(), |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Batch load all issues from JSONL once
+        let all_issues = self.load_all_issues_from_jsonl()?;
+
+        // Fetch full issue objects from the batch-loaded map
+        let mut issues = Vec::new();
+        for id in ids {
+            if let Some(issue) = all_issues.get(&id) {
+                issues.push(issue.clone());
+            }
+        }
+
+        Ok(issues)
+    }
+
+    /// Update an issue.
+    pub fn update_issue(&mut self, issue: &Issue) -> Result<()> {
+        self.get_issue(&issue.core.id)?;
+
+        let issues_path = self.root.join("issues.jsonl");
+        let mut file = OpenOptions::new().append(true).open(&issues_path)?;
+
+        let json = serde_json::to_string(issue)?;
+        writeln!(file, "{}", json)?;
+
+        self.cache_issue(issue)?;
+
+        Ok(())
+    }
+
+    /// Delete an issue by ID.
+    pub fn delete_issue(&mut self, id: &str) -> Result<()> {
+        self.get_issue(id)?;
+
+        self.conn.execute("DELETE FROM issues WHERE id = ?", [id])?;
+        self.conn
+            .execute("DELETE FROM issue_tags WHERE issue_id = ?", [id])?;
 
         Ok(())
     }
@@ -3086,7 +3322,7 @@ impl Storage {
     // === Entity Type Detection ===
 
     /// Detect the type of an entity by its ID.
-    /// Tries each entity type (task, bug, test, milestone, edge, queue) and returns the first match.
+    /// Tries each entity type (task, bug, issue, test, milestone, edge, queue) and returns the first match.
     pub fn get_entity_type(&self, id: &str) -> Result<EntityType> {
         // Try task
         if self.get_task(id).is_ok() {
@@ -3096,6 +3332,11 @@ impl Storage {
         // Try bug
         if self.get_bug(id).is_ok() {
             return Ok(EntityType::Bug);
+        }
+
+        // Try issue
+        if self.get_issue(id).is_ok() {
+            return Ok(EntityType::Issue);
         }
 
         // Try idea
@@ -5344,7 +5585,7 @@ pub fn validate_sha(sha: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AgentType, BugSeverity};
+    use crate::models::{AgentType, BugSeverity, IssueStatus};
     use crate::test_utils::TestEnv;
 
     fn create_test_storage() -> (TestEnv, Storage) {
@@ -7585,5 +7826,122 @@ mod tests {
             storage2.get_config("co-author.name").unwrap(),
             Some("custom-bot".to_string())
         );
+    }
+
+    // === Issue Storage Tests ===
+
+    #[test]
+    fn test_create_and_get_issue() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let issue = Issue::new("bn-issue".to_string(), "Test issue".to_string());
+        storage.add_issue(&issue).unwrap();
+
+        let retrieved = storage.get_issue("bn-issue").unwrap();
+        assert_eq!(retrieved.core.id, "bn-issue");
+        assert_eq!(retrieved.core.title, "Test issue");
+        assert_eq!(retrieved.status, IssueStatus::Open);
+        assert_eq!(retrieved.priority, 2); // Default priority
+    }
+
+    #[test]
+    fn test_update_issue() {
+        use crate::models::IssueStatus;
+
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let mut issue = Issue::new("bn-issue".to_string(), "Test issue".to_string());
+        storage.add_issue(&issue).unwrap();
+
+        // Update issue status and priority
+        issue.status = IssueStatus::Investigating;
+        issue.priority = 1;
+        issue.core.description = Some("Updated description".to_string());
+        storage.update_issue(&issue).unwrap();
+
+        let retrieved = storage.get_issue("bn-issue").unwrap();
+        assert_eq!(retrieved.status, IssueStatus::Investigating);
+        assert_eq!(retrieved.priority, 1);
+        assert_eq!(
+            retrieved.core.description,
+            Some("Updated description".to_string())
+        );
+    }
+
+    #[test]
+    fn test_list_issues_with_filters() {
+        use crate::models::IssueStatus;
+
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let mut issue1 = Issue::new("bn-iss1".to_string(), "Issue 1".to_string());
+        issue1.priority = 1;
+        issue1.status = IssueStatus::Open;
+        storage.add_issue(&issue1).unwrap();
+
+        let mut issue2 = Issue::new("bn-iss2".to_string(), "Issue 2".to_string());
+        issue2.priority = 2;
+        issue2.status = IssueStatus::Investigating;
+        storage.add_issue(&issue2).unwrap();
+
+        let mut issue3 = Issue::new("bn-iss3".to_string(), "Issue 3".to_string());
+        issue3.status = IssueStatus::Closed;
+        storage.add_issue(&issue3).unwrap();
+
+        // Test listing open issues (should exclude closed by default)
+        let open_issues = storage.list_issues(None, None, None, false).unwrap();
+        assert_eq!(open_issues.len(), 2);
+
+        // Test listing all issues (including closed)
+        let all_issues = storage.list_issues(None, None, None, true).unwrap();
+        assert_eq!(all_issues.len(), 3);
+
+        // Test filtering by status
+        let investigating = storage
+            .list_issues(Some("investigating"), None, None, true)
+            .unwrap();
+        assert_eq!(investigating.len(), 1);
+        assert_eq!(investigating[0].core.id, "bn-iss2");
+
+        // Test filtering by priority
+        let priority_1 = storage.list_issues(None, Some(1), None, true).unwrap();
+        assert_eq!(priority_1.len(), 1);
+        assert_eq!(priority_1[0].core.id, "bn-iss1");
+    }
+
+    #[test]
+    fn test_delete_issue() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let issue = Issue::new("bn-issue".to_string(), "Test issue".to_string());
+        storage.add_issue(&issue).unwrap();
+
+        // Verify it exists
+        assert!(storage.get_issue("bn-issue").is_ok());
+
+        // Delete it
+        storage.delete_issue("bn-issue").unwrap();
+
+        // Verify it's gone
+        assert!(storage.get_issue("bn-issue").is_err());
+    }
+
+    #[test]
+    fn test_get_entity_type_issue() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        let issue = Issue::new("bn-iss1".to_string(), "Test issue".to_string());
+        storage.add_issue(&issue).unwrap();
+
+        let entity_type = storage.get_entity_type("bn-iss1").unwrap();
+        assert_eq!(entity_type, EntityType::Issue);
+    }
+
+    #[test]
+    fn test_issue_storage_init_creates_file() {
+        let env = TestEnv::new();
+        let storage = env.init_storage();
+
+        assert!(storage.root.join("issues.jsonl").exists());
     }
 }
