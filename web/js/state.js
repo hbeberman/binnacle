@@ -36,6 +36,7 @@ const createDefaultState = () => ({
     entities: {
         tasks: [],
         bugs: [],
+        issues: [],
         ideas: [],
         tests: [],
         docs: [],
@@ -387,6 +388,10 @@ export function getBugs() {
     return state.entities.bugs;
 }
 
+export function getIssues() {
+    return state.entities.issues;
+}
+
 export function getIdeas() {
     return state.entities.ideas;
 }
@@ -415,6 +420,7 @@ export function getEntities() {
     return [
         ...state.entities.tasks,
         ...state.entities.bugs,
+        ...state.entities.issues,
         ...state.entities.ideas,
         ...state.entities.tests,
         ...state.entities.docs,

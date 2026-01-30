@@ -128,6 +128,9 @@ registerHandler('sync', (message) => {
     if (data.bugs !== undefined) {
         state.setEntities('bugs', normalizeEntities(data.bugs, 'bug'));
     }
+    if (data.issues !== undefined) {
+        state.setEntities('issues', normalizeEntities(data.issues, 'issue'));
+    }
     if (data.ideas !== undefined) {
         state.setEntities('ideas', normalizeEntities(data.ideas, 'idea'));
     }
@@ -331,6 +334,7 @@ function countEntities() {
     return (
         state.getTasks().length +
         state.getBugs().length +
+        state.getIssues().length +
         state.getIdeas().length +
         state.getTests().length +
         state.getDocs().length +
@@ -347,7 +351,7 @@ function captureInitialEntityIds() {
     const initialIds = new Set();
     
     // Collect IDs from all entity types
-    const entityTypes = ['tasks', 'bugs', 'ideas', 'tests', 'docs', 'milestones', 'queues', 'agents'];
+    const entityTypes = ['tasks', 'bugs', 'issues', 'ideas', 'tests', 'docs', 'milestones', 'queues', 'agents'];
     for (const entityType of entityTypes) {
         const entities = state.get(`entities.${entityType}`) || [];
         for (const entity of entities) {
@@ -669,6 +673,7 @@ function getEntityKey(entity_type) {
     const mapping = {
         'task': 'tasks',
         'bug': 'bugs',
+        'issue': 'issues',
         'idea': 'ideas',
         'test': 'tests',
         'doc': 'docs',

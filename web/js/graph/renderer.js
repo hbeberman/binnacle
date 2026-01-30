@@ -1661,6 +1661,10 @@ function drawNodeTypeCapsule(node, screenPos, radius) {
             displayText = 'Bug';
             backgroundColor = 'rgba(224, 120, 120, 0.95)'; // Red
             break;
+        case 'issue':
+            displayText = 'Issue';
+            backgroundColor = 'rgba(245, 166, 35, 0.95)'; // Amber/orange
+            break;
         case 'task':
             displayText = 'Task';
             backgroundColor = 'rgba(91, 192, 222, 0.95)'; // Blue

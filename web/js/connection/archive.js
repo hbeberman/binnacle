@@ -168,6 +168,7 @@ async function loadArchiveFromBytes(bytes, source) {
     // Populate entities
     state.setEntities('tasks', entities.tasks);
     state.setEntities('bugs', entities.bugs);
+    state.setEntities('issues', entities.issues);
     state.setEntities('ideas', entities.ideas);
     state.setEntities('tests', entities.tests);
     state.setEntities('docs', entities.docs);
@@ -199,12 +200,13 @@ async function loadArchiveFromBytes(bytes, source) {
  * Categorize nodes by entity type
  * 
  * @param {Array} nodes - Array of node objects from WASM
- * @returns {Object} Categorized entities { tasks, bugs, ideas, tests, docs, milestones, queues, agents }
+ * @returns {Object} Categorized entities { tasks, bugs, issues, ideas, tests, docs, milestones, queues, agents }
  */
 function categorizeEntities(nodes) {
     const entities = {
         tasks: [],
         bugs: [],
+        issues: [],
         ideas: [],
         tests: [],
         docs: [],
@@ -226,6 +228,9 @@ function categorizeEntities(nodes) {
                 break;
             case 'bug':
                 entities.bugs.push(entity);
+                break;
+            case 'issue':
+                entities.issues.push(entity);
                 break;
             case 'idea':
                 entities.ideas.push(entity);
@@ -381,7 +386,7 @@ function updateNodePositionsFromViewer() {
     }
     
     // Update each entity type
-    for (const type of ['tasks', 'bugs', 'ideas', 'tests', 'docs', 'milestones', 'queues', 'agents']) {
+    for (const type of ['tasks', 'bugs', 'issues', 'ideas', 'tests', 'docs', 'milestones', 'queues', 'agents']) {
         const entities = state.get(`entities.${type}`) || [];
         const updated = entities.map(entity => {
             const pos = positions.get(entity.id);

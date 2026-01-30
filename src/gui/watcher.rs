@@ -116,6 +116,15 @@ impl EntitySnapshot {
             }
         }
 
+        // Load issues
+        if let Ok(issues) = storage.list_issues(None, None, None, true) {
+            for issue in issues {
+                if let Ok(value) = serde_json::to_value(&issue) {
+                    entities.insert(issue.core.id.clone(), value);
+                }
+            }
+        }
+
         // Load ideas
         if let Ok(ideas) = storage.list_ideas(None, None) {
             for idea in ideas {
@@ -226,6 +235,7 @@ fn entity_type_from_value(value: &Value) -> &'static str {
         match type_str {
             "task" => return "task",
             "bug" => return "bug",
+            "issue" => return "issue",
             "idea" => return "idea",
             "test" => return "test",
             "milestone" => return "milestone",
