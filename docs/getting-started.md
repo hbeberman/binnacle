@@ -109,9 +109,11 @@ This shows tasks with no blockers, sorted by priority. You'll see tasks like "ga
 With binnacle's agent launcher, you can let an AI agent work through your tasks:
 
 ```bash
-# From the binnacle repo directory, run an agent on your project
-cd /path/to/binnacle
-./agent.sh auto
+# Run an auto worker agent (uses container mode by default)
+bn-agent auto
+
+# Or run on host directly
+bn-agent --host auto
 ```
 
 The agent will:
@@ -142,15 +144,16 @@ bn gui
 # Then open http://localhost:3030 in your browser
 ```
 
-### Step 7: Loop Mode for Continuous Work
+### Step 7: Continuous Work (Loop Mode)
 
-For multiple tasks, use loop mode:
+By default, `bn-agent` loops continuously, restarting after each task. Use `--once` to run a single iteration:
 
 ```bash
-./agent.sh --loop auto
+bn-agent auto           # loops by default (Ctrl+C twice to exit)
+bn-agent --once auto    # run once and exit
 ```
 
-This restarts the agent after each task completion, working through your backlog. Press `Ctrl+C` twice to exit.
+This works through your backlog automatically. Press `Ctrl+C` twice to exit loop mode.
 
 ## Key Concepts
 

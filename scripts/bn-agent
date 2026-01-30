@@ -263,6 +263,7 @@ emit_template() {
 BN_MCP_LIFECYCLE="${BN_MCP_LIFECYCLE:-true}"
 
 # Build prompt based on agent type
+# Note: bn-agent always uses -i PROMPT mode (agent files are for VS Code integration)
 case "$AGENT_TYPE" in
     auto)
         PROMPT=$(emit_template auto-worker)

@@ -10,7 +10,9 @@
 //! - `Agent` - AI agent registration for lifecycle management
 //! - `Editor` - Attribution for document version editors (agent or user)
 //! - `complexity` - Heuristics for detecting complex task descriptions
+//! - `agents` - Agent file templates for .github/agents/ format
 
+pub mod agents;
 pub mod complexity;
 pub mod graph;
 pub mod prompts;

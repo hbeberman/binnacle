@@ -11,7 +11,7 @@
 use crate::models::{
     Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Editor, Idea,
     IdeaStatus, Milestone, Mission, Queue, SessionState, Task, TaskStatus, TestNode, TestResult,
-    complexity::analyze_complexity, graph::UnionFind, prompts,
+    agents, complexity::analyze_complexity, graph::UnionFind, prompts,
 };
 use crate::storage::{EntityType, Storage, find_git_root, generate_id, parse_status};
 use crate::{Error, Result};
@@ -1486,12 +1486,13 @@ pub const MCP_CLAUDE_CONFIG: &str = r#"{
 
 /// VS Code MCP configuration template.
 /// Add this to .vscode/mcp.json in your repository.
+/// Uses login shell to pick up user's PATH (supports ~/.local/bin, ~/.cargo/bin, etc.)
 pub const MCP_VSCODE_CONFIG: &str = r#"{
   "servers": {
     "binnacle": {
       "type": "stdio",
-      "command": "bn",
-      "args": ["mcp", "serve", "--cwd", "${workspaceFolder}"]
+      "command": "bash",
+      "args": ["-l", "-c", "bn mcp serve --cwd \"${workspaceFolder}\""]
     }
   }
 }"#;
@@ -1598,17 +1599,18 @@ fn write_mcp_vscode_config(repo_path: &Path) -> Result<bool> {
         .ok_or_else(|| Error::Other("servers is not a JSON object".to_string()))?;
 
     // Add or update binnacle entry with VS Code-specific format
+    // Uses login shell to pick up user's PATH (supports ~/.local/bin, ~/.cargo/bin, etc.)
     let binnacle_config = serde_json::json!({
         "type": "stdio",
-        "command": "bn",
-        "args": ["mcp", "serve", "--cwd", "${workspaceFolder}"]
+        "command": "bash",
+        "args": ["-l", "-c", "bn mcp serve --cwd \"${workspaceFolder}\""]
     });
     servers.insert("binnacle".to_string(), binnacle_config);
 
-    // Write back with pretty formatting
+    // Write back with pretty formatting (with trailing newline)
     let formatted = serde_json::to_string_pretty(&config)
         .map_err(|e| Error::Other(format!("Failed to serialize VS Code MCP config: {}", e)))?;
-    fs::write(&config_path, formatted)
+    fs::write(&config_path, format!("{}\n", formatted))
         .map_err(|e| Error::Other(format!("Failed to write VS Code MCP config: {}", e)))?;
 
     Ok(true)
@@ -1680,6 +1682,7 @@ fn write_mcp_copilot_config() -> Result<bool> {
 /// Create Copilot workflow agent and instruction files in the repository.
 /// Writes to .github/agents/ and .github/instructions/
 /// Always overwrites if the files already exist.
+/// Deletes deprecated agent files (binnacle-plan.agent.md, binnacle-tasks.agent.md) if present.
 /// Returns true if the files were created/updated.
 pub fn create_copilot_prompt_files(repo_path: &Path) -> Result<bool> {
     let agents_dir = repo_path.join(".github").join("agents");
@@ -1695,21 +1698,26 @@ pub fn create_copilot_prompt_files(repo_path: &Path) -> Result<bool> {
         ))
     })?;
 
-    // Write the agent files
-    fs::write(
-        agents_dir.join("binnacle-plan.agent.md"),
-        PLAN_AGENT_CONTENT,
-    )
-    .map_err(|e| Error::Other(format!("Failed to write binnacle-plan.agent.md: {}", e)))?;
+    // Delete deprecated agent files if they exist
+    let deprecated_files = ["binnacle-plan.agent.md", "binnacle-tasks.agent.md"];
+    for deprecated in deprecated_files {
+        let path = agents_dir.join(deprecated);
+        if path.exists() {
+            fs::remove_file(&path).map_err(|e| {
+                Error::Other(format!("Failed to remove deprecated {}: {}", deprecated, e))
+            })?;
+        }
+    }
 
-    fs::write(agents_dir.join("binnacle-prd.agent.md"), PRD_AGENT_CONTENT)
-        .map_err(|e| Error::Other(format!("Failed to write binnacle-prd.agent.md: {}", e)))?;
-
-    fs::write(
-        agents_dir.join("binnacle-tasks.agent.md"),
-        TASKS_AGENT_CONTENT,
-    )
-    .map_err(|e| Error::Other(format!("Failed to write binnacle-tasks.agent.md: {}", e)))?;
+    // Write the Copilot agent files (4 agents: do, prd, buddy, ask)
+    for name in agents::COPILOT_AGENT_NAMES {
+        let filename = agents::get_agent_filename(name)
+            .ok_or_else(|| Error::Other(format!("Unknown agent name: {}", name)))?;
+        let content = agents::get_agent_content(name)
+            .ok_or_else(|| Error::Other(format!("No content for agent: {}", name)))?;
+        fs::write(agents_dir.join(filename), content)
+            .map_err(|e| Error::Other(format!("Failed to write {}: {}", filename, e)))?;
+    }
 
     // Write the instructions file
     fs::write(
