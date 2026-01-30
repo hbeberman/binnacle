@@ -64,9 +64,9 @@ jobs:
     timeout-minutes: 30
 
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: write # Required to create releases and upload assets
+      id-token: write # Required for OIDC token for artifact attestations
+      attestations: write # Required to create artifact attestations
 
     steps:
       - name: Checkout repository
