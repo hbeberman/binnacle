@@ -1,5 +1,7 @@
 //! Container definition management and config.kdl parsing.
 
+pub mod validation;
+
 use crate::storage::get_storage_dir;
 use crate::{Error, Result};
 use kdl::{KdlDocument, KdlNode};
