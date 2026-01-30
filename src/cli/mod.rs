@@ -1984,8 +1984,19 @@ pub enum AgentCommands {
 /// Container management subcommands (requires containerd/buildah)
 #[derive(Subcommand, Debug)]
 pub enum ContainerCommands {
-    /// Build the binnacle worker image using buildah
+    /// Build container image(s) using buildah
+    ///
+    /// With no arguments, lists available definitions.
+    /// With a definition name, builds that definition and its dependencies.
+    /// With --all, builds all available definitions in dependency order.
     Build {
+        /// Container definition name to build (omit to list definitions)
+        definition: Option<String>,
+
+        /// Build all definitions in dependency order
+        #[arg(long, conflicts_with = "definition")]
+        all: bool,
+
         /// Image tag (default: latest)
         #[arg(short, long, default_value = "latest")]
         tag: String,
@@ -1993,6 +2004,10 @@ pub enum ContainerCommands {
         /// Force rebuild without cache
         #[arg(long)]
         no_cache: bool,
+
+        /// Skip mount validation (useful for CI environments)
+        #[arg(long)]
+        skip_mount_validation: bool,
     },
 
     /// Run a worker container in headed (interactive) mode
