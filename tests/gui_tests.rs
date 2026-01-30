@@ -300,24 +300,20 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_export_includes_state_js() {
-        let temp = tempfile::tempdir().unwrap();
+        let env = TestEnv::new();
 
         // Initialize binnacle
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        env.bn().args(["system", "init", "-y"]).assert().success();
 
         // Export GUI to temporary output directory
         let output_dir = tempfile::tempdir().unwrap();
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui")
-            .arg("export")
-            .arg("-o")
-            .arg(output_dir.path());
+        let output = env
+            .bn()
+            .args(["gui", "export", "-o"])
+            .arg(output_dir.path())
+            .assert()
+            .success();
 
-        let output = cmd.assert().success();
         let stdout = String::from_utf8_lossy(&output.get_output().stdout);
         assert!(
             stdout.contains(r#""status":"success""#),
@@ -352,24 +348,18 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_state_js_no_self_import() {
-        let temp = tempfile::tempdir().unwrap();
+        let env = TestEnv::new();
 
         // Initialize binnacle
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        env.bn().args(["system", "init", "-y"]).assert().success();
 
         // Export GUI to temporary output directory
         let output_dir = tempfile::tempdir().unwrap();
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui")
-            .arg("export")
-            .arg("-o")
-            .arg(output_dir.path());
-
-        cmd.assert().success();
+        env.bn()
+            .args(["gui", "export", "-o"])
+            .arg(output_dir.path())
+            .assert()
+            .success();
 
         // Read state.js content
         let state_js_path = output_dir.path().join("js").join("state.js");
