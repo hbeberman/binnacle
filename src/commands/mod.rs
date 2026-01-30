@@ -5314,6 +5314,8 @@ pub struct BugCreated {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queued_to: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
 }
 
 impl Output for BugCreated {
@@ -5323,9 +5325,13 @@ impl Output for BugCreated {
 
     fn to_human(&self) -> String {
         let base = format!("Created bug {} \"{}\"", self.id, self.title);
-        match &self.queued_to {
-            Some(q) => format!("{} (added to queue {})", base, q),
+        let with_parent = match &self.parent {
+            Some(p) => format!("{} (child of {})", base, p),
             None => base,
+        };
+        match &self.queued_to {
+            Some(q) => format!("{} (added to queue {})", with_parent, q),
+            None => with_parent,
         }
     }
 }
@@ -5356,10 +5362,11 @@ pub fn bug_create(
         reproduction_steps,
         affected_component,
         false,
+        None,
     )
 }
 
-/// Create a new bug with optional immediate queuing.
+/// Create a new bug with optional immediate queuing and parent issue link.
 #[allow(clippy::too_many_arguments)]
 pub fn bug_create_with_queue(
     repo_path: &Path,
@@ -5373,6 +5380,7 @@ pub fn bug_create_with_queue(
     reproduction_steps: Option<String>,
     affected_component: Option<String>,
     queue: bool,
+    parent: Option<String>,
 ) -> Result<BugCreated> {
     let mut storage = Storage::open(repo_path)?;
 
@@ -5380,6 +5388,13 @@ pub fn bug_create_with_queue(
         && p > 4
     {
         return Err(Error::Other("Priority must be 0-4".to_string()));
+    }
+
+    // Validate parent is an Issue if provided
+    if let Some(ref parent_id) = parent {
+        storage
+            .get_issue(parent_id)
+            .map_err(|_| Error::Other(format!("Parent '{}' must be an issue entity", parent_id)))?;
     }
 
     let id = storage.generate_unique_id("bn", &title);
@@ -5399,6 +5414,16 @@ pub fn bug_create_with_queue(
 
     storage.add_bug(&bug)?;
 
+    // Create child_of link to parent issue if provided
+    let linked_parent = if let Some(ref parent_id) = parent {
+        let edge_id = storage.generate_edge_id(&id, parent_id, EdgeType::ChildOf);
+        let edge = Edge::new(edge_id, id.clone(), parent_id.clone(), EdgeType::ChildOf);
+        storage.add_edge(&edge)?;
+        Some(parent_id.clone())
+    } else {
+        None
+    };
+
     // Add to queue if requested
     let queued_to = if queue {
         Some(add_entity_to_queue_internal(&mut storage, &id)?)
@@ -5410,6 +5435,7 @@ pub fn bug_create_with_queue(
         id,
         title,
         queued_to,
+        parent: linked_parent,
     })
 }
 
@@ -25819,6 +25845,123 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("Priority must be 0-4")
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_bug_create_with_parent_issue() {
+        let temp = setup();
+
+        // Create a parent issue first
+        let issue = issue_create(
+            temp.path(),
+            "Parent Issue".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create a bug with the issue as parent
+        let result = bug_create_with_queue(
+            temp.path(),
+            "Child Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+            false,
+            Some(issue.id.clone()),
+        )
+        .unwrap();
+
+        // Verify the bug was created
+        assert!(!result.id.is_empty());
+        assert_eq!(result.parent, Some(issue.id.clone()));
+
+        // Verify the child_of link was created
+        let links = link_list(temp.path(), Some(&result.id), true, None).unwrap();
+        assert_eq!(links.edges.len(), 1);
+        assert_eq!(links.edges[0].edge_type, "child_of");
+        assert_eq!(links.edges[0].target, issue.id);
+    }
+
+    #[test]
+    #[serial]
+    fn test_bug_create_with_invalid_parent() {
+        let temp = setup();
+
+        // Create a task (not an issue)
+        let task = task_create(
+            temp.path(),
+            "Some Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Attempt to create a bug with task as parent (should fail)
+        let result = bug_create_with_queue(
+            temp.path(),
+            "Child Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+            false,
+            Some(task.id.clone()),
+        );
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must be an issue entity")
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_bug_create_with_nonexistent_parent() {
+        let temp = setup();
+
+        // Attempt to create a bug with nonexistent parent
+        let result = bug_create_with_queue(
+            temp.path(),
+            "Child Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+            false,
+            Some("bn-nonexistent".to_string()),
+        );
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must be an issue entity")
         );
     }
 
