@@ -1523,40 +1523,56 @@ function drawAgentLabel(node, screenPos, radius) {
 
 /**
  * Draw PRD label above doc nodes that are PRDs.
- * Shows "PRD" badge on top and a brief summary (short_name or truncated title) below.
+ * Shows "PRD" badge on top, title/short_name in middle, and description preview below.
  */
 function drawPRDLabel(node, screenPos, radius) {
     if (node.type !== 'doc' || node.doc_type !== 'prd') return;
     
     const zoom = getZoom();
     const baseFontSize = 13 * Math.max(0.7, Math.min(1.3, zoom));
-    const summaryFontSize = 11 * Math.max(0.7, Math.min(1.3, zoom));
+    const titleFontSize = 12 * Math.max(0.7, Math.min(1.3, zoom));
+    const descFontSize = 10 * Math.max(0.7, Math.min(1.3, zoom));
     const pillPadding = 6 * zoom;
-    const lineGap = 4 * zoom;
+    const lineGap = 3 * zoom;
     
-    // Get summary text: prefer short_name, fall back to truncated title
-    const summaryText = node.short_name || (node.title ? truncateText(node.title, 30) : '');
-    const hasSummary = summaryText.length > 0;
+    // Get title text: prefer short_name, fall back to truncated title (increased limit)
+    const titleText = node.short_name || (node.title ? truncateText(node.title, 50) : '');
+    const hasTitle = titleText.length > 0;
+    
+    // Get description preview if available
+    const descText = node.description ? truncateText(node.description, 60) : '';
+    const hasDesc = descText.length > 0;
     
     // Calculate dimensions
     const prdText = 'PRD';
     ctx.font = `bold ${baseFontSize}px sans-serif`;
     const prdTextWidth = ctx.measureText(prdText).width;
     
-    let summaryTextWidth = 0;
-    if (hasSummary) {
-        ctx.font = `${summaryFontSize}px sans-serif`;
-        summaryTextWidth = ctx.measureText(summaryText).width;
+    let titleTextWidth = 0;
+    if (hasTitle) {
+        ctx.font = `500 ${titleFontSize}px sans-serif`;
+        titleTextWidth = ctx.measureText(titleText).width;
     }
     
-    // Pill width accommodates both lines with padding
-    const maxTextWidth = Math.max(prdTextWidth, summaryTextWidth);
+    let descTextWidth = 0;
+    if (hasDesc) {
+        ctx.font = `${descFontSize}px sans-serif`;
+        descTextWidth = ctx.measureText(descText).width;
+    }
+    
+    // Pill width accommodates all lines with padding (max width capped for readability)
+    const maxTextWidth = Math.min(
+        Math.max(prdTextWidth, titleTextWidth, descTextWidth),
+        200 * zoom  // Cap width at 200px scaled
+    );
     const pillWidth = maxTextWidth + pillPadding * 4;
     
-    // Pill height depends on whether we have a summary
+    // Pill height depends on content
     const prdLineHeight = baseFontSize + pillPadding * 2;
-    const summaryLineHeight = hasSummary ? summaryFontSize + pillPadding : 0;
-    const pillHeight = prdLineHeight + summaryLineHeight + (hasSummary ? lineGap : 0);
+    const titleLineHeight = hasTitle ? titleFontSize + pillPadding : 0;
+    const descLineHeight = hasDesc ? descFontSize + pillPadding : 0;
+    const totalLineGaps = (hasTitle ? lineGap : 0) + (hasDesc ? lineGap : 0);
+    const pillHeight = prdLineHeight + titleLineHeight + descLineHeight + totalLineGaps;
     
     const pillY = screenPos.y - radius - pillHeight - 8 * zoom;
     const pillX = screenPos.x - pillWidth / 2;
@@ -1575,15 +1591,23 @@ function drawPRDLabel(node, screenPos, radius) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `bold ${baseFontSize}px sans-serif`;
-    const prdY = pillY + pillPadding + baseFontSize / 2;
-    ctx.fillText(prdText, screenPos.x, prdY);
+    let currentY = pillY + pillPadding + baseFontSize / 2;
+    ctx.fillText(prdText, screenPos.x, currentY);
     
-    // Draw summary text (bottom) if available
-    if (hasSummary) {
-        ctx.font = `${summaryFontSize}px sans-serif`;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-        const summaryY = prdY + baseFontSize / 2 + lineGap + summaryFontSize / 2 + pillPadding / 2;
-        ctx.fillText(summaryText, screenPos.x, summaryY);
+    // Draw title text (middle) if available
+    if (hasTitle) {
+        currentY += baseFontSize / 2 + lineGap + titleFontSize / 2 + pillPadding / 2;
+        ctx.font = `500 ${titleFontSize}px sans-serif`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.fillText(truncateText(titleText, Math.floor(maxTextWidth / (titleFontSize * 0.5))), screenPos.x, currentY);
+    }
+    
+    // Draw description preview (bottom) if available
+    if (hasDesc) {
+        currentY += (hasTitle ? titleFontSize / 2 : baseFontSize / 2) + lineGap + descFontSize / 2 + pillPadding / 2;
+        ctx.font = `${descFontSize}px sans-serif`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.fillText(truncateText(descText, Math.floor(maxTextWidth / (descFontSize * 0.5))), screenPos.x, currentY);
     }
     
     ctx.restore();
