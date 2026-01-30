@@ -1262,12 +1262,181 @@ fn run_command(
                         };
                         output(&result, human);
                     }
-                    TmuxCommands::Load { name: _ } => {
-                        // Stub implementation
-                        eprintln!("tmux load not yet implemented");
-                        return Err(binnacle::Error::Other(
-                            "tmux load not yet implemented".to_string(),
-                        ));
+                    TmuxCommands::Load { name } => {
+                        use binnacle::tmux::command::TmuxCommand;
+                        use binnacle::tmux::layout::{ResolvedLayout, find_layout, load_layout};
+                        use std::process::Command;
+
+                        // Find the layout using multi-source resolution
+                        let discovered = find_layout(&name, repo_path)?.ok_or_else(|| {
+                            binnacle::Error::Other(format!(
+                                "Layout '{}' not found. Searched in:\n  - {}\n  - Session storage\n  - User config",
+                                name,
+                                repo_path.join(".binnacle/tmux").display()
+                            ))
+                        })?;
+
+                        // Load and parse the layout
+                        let layout = load_layout(&discovered)?;
+                        let session_name = layout.name.clone();
+
+                        // Resolve the layout with current directory as base
+                        let cwd = std::env::current_dir().map_err(|e| {
+                            binnacle::Error::Other(format!(
+                                "Failed to get current directory: {}",
+                                e
+                            ))
+                        })?;
+                        let resolved = ResolvedLayout::from_layout(layout, &cwd)?;
+
+                        // Check if session already exists
+                        let has_session_cmd = TmuxCommand::has_session(&session_name);
+                        let session_exists = Command::new("tmux")
+                            .args(&has_session_cmd.args()[1..]) // skip "tmux"
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status()
+                            .map(|s| s.success())
+                            .unwrap_or(false);
+
+                        // Check if we're already inside tmux
+                        let in_tmux = std::env::var("TMUX").is_ok();
+
+                        // Compute repo hash for env var
+                        let repo_hash = binnacle::storage::compute_repo_hash(repo_path)?;
+
+                        // Check for repo mismatch if session exists
+                        let mut warning = None;
+                        if session_exists {
+                            // Check if session was created for a different repo
+                            let show_env_cmd = TmuxCommand::show_environment(
+                                Some(&session_name),
+                                "BINNACLE_REPO_HASH",
+                            );
+                            if let Ok(output) = Command::new("tmux")
+                                .args(&show_env_cmd.args()[1..])
+                                .output()
+                            {
+                                let stdout = String::from_utf8_lossy(&output.stdout);
+                                // Format is "BINNACLE_REPO_HASH=value" or "-BINNACLE_REPO_HASH" if not set
+                                if let Some(existing_hash) =
+                                    stdout.trim().strip_prefix("BINNACLE_REPO_HASH=")
+                                    && existing_hash != repo_hash
+                                {
+                                    warning = Some(format!(
+                                        "Session '{}' was created for a different repository",
+                                        session_name
+                                    ));
+                                }
+                            }
+
+                            // Session exists - just attach
+                            if !in_tmux {
+                                // Not in tmux - attach directly
+                                let attach_cmd = TmuxCommand::attach_session(&session_name);
+                                let status = Command::new("tmux")
+                                    .args(&attach_cmd.args()[1..])
+                                    .status()
+                                    .map_err(|e| {
+                                        binnacle::Error::Other(format!(
+                                            "Failed to attach to session: {}",
+                                            e
+                                        ))
+                                    })?;
+
+                                if !status.success() {
+                                    return Err(binnacle::Error::Other(
+                                        "Failed to attach to tmux session".to_string(),
+                                    ));
+                                }
+                            }
+
+                            let result = commands::TmuxLoadResult {
+                                created: false,
+                                session_name: session_name.clone(),
+                                layout_name: name.clone(),
+                                source: discovered.source.to_string(),
+                                path: discovered.path.display().to_string(),
+                                warning,
+                                in_tmux,
+                                commands: if in_tmux {
+                                    Some(vec![format!("tmux switch-client -t {}", session_name)])
+                                } else {
+                                    None
+                                },
+                            };
+                            output(&result, human);
+                        } else {
+                            // Create new session
+                            let commands = resolved.to_commands();
+
+                            // Execute all commands
+                            for cmd in &commands {
+                                let args = cmd.args();
+                                let status = Command::new(&args[0])
+                                    .args(&args[1..])
+                                    .status()
+                                    .map_err(|e| {
+                                        binnacle::Error::Other(format!(
+                                            "Failed to execute '{}': {}",
+                                            cmd.clone().build(),
+                                            e
+                                        ))
+                                    })?;
+
+                                if !status.success() {
+                                    return Err(binnacle::Error::Other(format!(
+                                        "Tmux command failed: {}",
+                                        cmd.clone().build()
+                                    )));
+                                }
+                            }
+
+                            // Set BINNACLE_REPO_HASH environment variable
+                            let set_env_cmd = TmuxCommand::set_environment(
+                                Some(&session_name),
+                                "BINNACLE_REPO_HASH",
+                                &repo_hash,
+                                false,
+                            );
+                            let _ = Command::new("tmux").args(&set_env_cmd.args()[1..]).status();
+
+                            // Auto-attach if not already in tmux
+                            if !in_tmux {
+                                let attach_cmd = TmuxCommand::attach_session(&session_name);
+                                let status = Command::new("tmux")
+                                    .args(&attach_cmd.args()[1..])
+                                    .status()
+                                    .map_err(|e| {
+                                        binnacle::Error::Other(format!(
+                                            "Failed to attach to session: {}",
+                                            e
+                                        ))
+                                    })?;
+
+                                if !status.success() {
+                                    return Err(binnacle::Error::Other(
+                                        "Failed to attach to tmux session".to_string(),
+                                    ));
+                                }
+                            }
+
+                            let result = commands::TmuxLoadResult {
+                                created: true,
+                                session_name: session_name.clone(),
+                                layout_name: name.clone(),
+                                source: discovered.source.to_string(),
+                                path: discovered.path.display().to_string(),
+                                warning: None,
+                                in_tmux,
+                                commands: if in_tmux {
+                                    Some(vec![format!("tmux switch-client -t {}", session_name)])
+                                } else {
+                                    None
+                                },
+                            };
+                            output(&result, human);
+                        }
                     }
                 }
             }
