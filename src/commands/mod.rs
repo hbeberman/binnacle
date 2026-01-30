@@ -10,8 +10,8 @@
 
 use crate::models::{
     Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Editor, Idea,
-    IdeaStatus, Issue, Milestone, Mission, Queue, SessionState, Task, TaskStatus, TestNode,
-    TestResult, complexity::analyze_complexity, graph::UnionFind, prompts,
+    IdeaStatus, Issue, IssueStatus, Milestone, Mission, Queue, SessionState, Task, TaskStatus,
+    TestNode, TestResult, complexity::analyze_complexity, graph::UnionFind, prompts,
 };
 use crate::storage::{EntityType, Storage, find_git_root, generate_id, parse_status};
 use crate::{Error, Result};
@@ -6289,6 +6289,442 @@ pub fn bug_delete(repo_path: &Path, id: &str) -> Result<BugDeleted> {
     storage.delete_bug(id)?;
 
     Ok(BugDeleted { id: id.to_string() })
+}
+
+// === Issue Commands ===
+
+fn parse_issue_status(s: &str) -> Result<IssueStatus> {
+    match s.to_lowercase().as_str() {
+        "open" => Ok(IssueStatus::Open),
+        "triage" => Ok(IssueStatus::Triage),
+        "investigating" => Ok(IssueStatus::Investigating),
+        "resolved" => Ok(IssueStatus::Resolved),
+        "closed" => Ok(IssueStatus::Closed),
+        "wont_fix" => Ok(IssueStatus::WontFix),
+        "by_design" => Ok(IssueStatus::ByDesign),
+        "no_repro" => Ok(IssueStatus::NoRepro),
+        _ => Err(Error::Other(format!("Invalid issue status: {}", s))),
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct IssueCreated {
+    pub id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queued_to: Option<String>,
+}
+
+impl Output for IssueCreated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let base = format!("Created issue {} \"{}\"", self.id, self.title);
+        match &self.queued_to {
+            Some(q) => format!("{} (added to queue {})", base, q),
+            None => base,
+        }
+    }
+}
+
+/// Create a new issue.
+#[allow(clippy::too_many_arguments)]
+pub fn issue_create(
+    repo_path: &Path,
+    title: String,
+    short_name: Option<String>,
+    description: Option<String>,
+    priority: Option<u8>,
+    tags: Vec<String>,
+    assignee: Option<String>,
+) -> Result<IssueCreated> {
+    issue_create_with_queue(
+        repo_path,
+        title,
+        short_name,
+        description,
+        priority,
+        tags,
+        assignee,
+        false,
+    )
+}
+
+/// Create a new issue with optional immediate queuing.
+#[allow(clippy::too_many_arguments)]
+pub fn issue_create_with_queue(
+    repo_path: &Path,
+    title: String,
+    short_name: Option<String>,
+    description: Option<String>,
+    priority: Option<u8>,
+    tags: Vec<String>,
+    assignee: Option<String>,
+    queue: bool,
+) -> Result<IssueCreated> {
+    let mut storage = Storage::open(repo_path)?;
+
+    if let Some(p) = priority
+        && p > 4
+    {
+        return Err(Error::Other("Priority must be 0-4".to_string()));
+    }
+
+    let id = storage.generate_unique_id("bn", &title);
+    let mut issue = Issue::new(id.clone(), title.clone());
+    issue.core.short_name = normalize_short_name(short_name);
+    issue.core.description = description;
+    issue.priority = priority.unwrap_or(2);
+    issue.core.tags = tags;
+    issue.assignee = assignee;
+
+    storage.add_issue(&issue)?;
+
+    // Add to queue if requested
+    let queued_to = if queue {
+        Some(add_entity_to_queue_internal(&mut storage, &id)?)
+    } else {
+        None
+    };
+
+    Ok(IssueCreated {
+        id,
+        title,
+        queued_to,
+    })
+}
+
+impl Output for Issue {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("{} {}", self.core.id, self.core.title));
+        if let Some(ref sn) = self.core.short_name {
+            lines.push(format!("  Short Name: {}", sn));
+        }
+        lines.push(format!(
+            "  Status: {}  Priority: {}",
+            self.status, self.priority
+        ));
+        if let Some(ref desc) = self.core.description {
+            lines.push(format!("  Description: {}", desc));
+        }
+        if !self.core.tags.is_empty() {
+            lines.push(format!("  Tags: {}", self.core.tags.join(", ")));
+        }
+        if let Some(ref assignee) = self.assignee {
+            lines.push(format!("  Assignee: {}", assignee));
+        }
+        lines.push(format!(
+            "  Created: {}",
+            self.core.created_at.format("%Y-%m-%d %H:%M")
+        ));
+        lines.push(format!(
+            "  Updated: {}",
+            self.core.updated_at.format("%Y-%m-%d %H:%M")
+        ));
+        if let Some(closed) = self.closed_at {
+            lines.push(format!("  Closed: {}", closed.format("%Y-%m-%d %H:%M")));
+            if let Some(ref reason) = self.closed_reason {
+                lines.push(format!("  Reason: {}", reason));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct IssueList {
+    pub issues: Vec<Issue>,
+    pub count: usize,
+}
+
+impl Output for IssueList {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.issues.is_empty() {
+            return "No issues found.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("{}:\n", pluralize(self.count, "issue")));
+
+        for issue in &self.issues {
+            let status_char = match issue.status {
+                IssueStatus::Open => " ",
+                IssueStatus::Triage => "?",
+                IssueStatus::Investigating => ">",
+                IssueStatus::Resolved => "x",
+                IssueStatus::Closed => "x",
+                IssueStatus::WontFix => "-",
+                IssueStatus::ByDesign => "~",
+                IssueStatus::NoRepro => "~",
+            };
+            let short = issue
+                .core
+                .short_name
+                .as_deref()
+                .unwrap_or(&issue.core.title);
+            lines.push(format!(
+                "  [{}] {} P{} {}",
+                status_char, issue.core.id, issue.priority, short
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// List issues with optional filters.
+pub fn issue_list(
+    repo_path: &Path,
+    status: Option<&str>,
+    priority: Option<u8>,
+    tag: Option<&str>,
+    all: bool,
+) -> Result<IssueList> {
+    let storage = Storage::open(repo_path)?;
+    let issues = storage.list_issues(status, priority, tag, all)?;
+
+    let count = issues.len();
+    Ok(IssueList { issues, count })
+}
+
+/// Show issue details.
+pub fn issue_show(repo_path: &Path, id: &str) -> Result<Issue> {
+    let storage = Storage::open(repo_path)?;
+    storage.get_issue(id)
+}
+
+#[derive(Serialize)]
+pub struct IssueUpdated {
+    pub id: String,
+    pub updated_fields: Vec<String>,
+}
+
+impl Output for IssueUpdated {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.updated_fields.is_empty() {
+            format!("Issue {} unchanged", self.id)
+        } else {
+            format!(
+                "Updated issue {} ({})",
+                self.id,
+                self.updated_fields.join(", ")
+            )
+        }
+    }
+}
+
+/// Update an issue.
+#[allow(clippy::too_many_arguments)]
+pub fn issue_update(
+    repo_path: &Path,
+    id: &str,
+    title: Option<String>,
+    short_name: Option<String>,
+    description: Option<String>,
+    priority: Option<u8>,
+    status: Option<&str>,
+    add_tags: Vec<String>,
+    remove_tags: Vec<String>,
+    assignee: Option<String>,
+) -> Result<IssueUpdated> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut issue = storage.get_issue(id)?;
+    let mut updated_fields = Vec::new();
+
+    if let Some(t) = title {
+        issue.core.title = t;
+        updated_fields.push("title".to_string());
+    }
+
+    if let Some(sn) = short_name {
+        issue.core.short_name = normalize_short_name(Some(sn));
+        updated_fields.push("short_name".to_string());
+    }
+
+    if let Some(d) = description {
+        issue.core.description = Some(d);
+        updated_fields.push("description".to_string());
+    }
+
+    if let Some(p) = priority {
+        if p > 4 {
+            return Err(Error::Other("Priority must be 0-4".to_string()));
+        }
+        issue.priority = p;
+        updated_fields.push("priority".to_string());
+    }
+
+    if let Some(s) = status {
+        issue.status = parse_issue_status(s)?;
+        updated_fields.push("status".to_string());
+    }
+
+    if !add_tags.is_empty() {
+        for tag in add_tags {
+            if !issue.core.tags.contains(&tag) {
+                issue.core.tags.push(tag);
+            }
+        }
+        updated_fields.push("tags".to_string());
+    }
+
+    if !remove_tags.is_empty() {
+        issue.core.tags.retain(|t| !remove_tags.contains(t));
+        if !updated_fields.contains(&"tags".to_string()) {
+            updated_fields.push("tags".to_string());
+        }
+    }
+
+    if let Some(a) = assignee {
+        issue.assignee = Some(a);
+        updated_fields.push("assignee".to_string());
+    }
+
+    if !updated_fields.is_empty() {
+        issue.core.updated_at = Utc::now();
+        storage.update_issue(&issue)?;
+    }
+
+    Ok(IssueUpdated {
+        id: id.to_string(),
+        updated_fields,
+    })
+}
+
+#[derive(Serialize)]
+pub struct IssueClosed {
+    pub id: String,
+    pub previous_status: String,
+}
+
+impl Output for IssueClosed {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Closed issue {} (was {})", self.id, self.previous_status)
+    }
+}
+
+/// Close an issue.
+pub fn issue_close(repo_path: &Path, id: &str, reason: Option<String>) -> Result<IssueClosed> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut issue = storage.get_issue(id)?;
+
+    // Check if already closed
+    if matches!(
+        issue.status,
+        IssueStatus::Resolved
+            | IssueStatus::Closed
+            | IssueStatus::WontFix
+            | IssueStatus::ByDesign
+            | IssueStatus::NoRepro
+    ) {
+        return Err(Error::Other(format!(
+            "Issue {} is already closed (status: {})",
+            id, issue.status
+        )));
+    }
+
+    let previous_status = issue.status.to_string();
+    issue.status = IssueStatus::Closed;
+    issue.closed_at = Some(Utc::now());
+    issue.closed_reason = reason;
+    issue.core.updated_at = Utc::now();
+
+    storage.update_issue(&issue)?;
+
+    // Remove from queue if present
+    let _ = remove_entity_from_queues(&mut storage, id);
+
+    Ok(IssueClosed {
+        id: id.to_string(),
+        previous_status,
+    })
+}
+
+#[derive(Serialize)]
+pub struct IssueReopened {
+    pub id: String,
+}
+
+impl Output for IssueReopened {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Reopened issue {}", self.id)
+    }
+}
+
+/// Reopen a closed issue.
+pub fn issue_reopen(repo_path: &Path, id: &str) -> Result<IssueReopened> {
+    let mut storage = Storage::open(repo_path)?;
+    let mut issue = storage.get_issue(id)?;
+
+    // Check if not closed
+    if !matches!(
+        issue.status,
+        IssueStatus::Resolved
+            | IssueStatus::Closed
+            | IssueStatus::WontFix
+            | IssueStatus::ByDesign
+            | IssueStatus::NoRepro
+    ) {
+        return Err(Error::Other(format!(
+            "Issue {} is not closed (status: {})",
+            id, issue.status
+        )));
+    }
+
+    issue.status = IssueStatus::Open;
+    issue.closed_at = None;
+    issue.closed_reason = None;
+    issue.core.updated_at = Utc::now();
+
+    storage.update_issue(&issue)?;
+
+    Ok(IssueReopened { id: id.to_string() })
+}
+
+#[derive(Serialize)]
+pub struct IssueDeleted {
+    pub id: String,
+}
+
+impl Output for IssueDeleted {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        format!("Deleted issue {}", self.id)
+    }
+}
+
+/// Delete an issue.
+pub fn issue_delete(repo_path: &Path, id: &str) -> Result<IssueDeleted> {
+    let mut storage = Storage::open(repo_path)?;
+    storage.delete_issue(id)?;
+
+    Ok(IssueDeleted { id: id.to_string() })
 }
 
 // === Idea Commands ===

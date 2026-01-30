@@ -129,6 +129,12 @@ pub enum Commands {
         command: BugCommands,
     },
 
+    /// Issue tracking commands (pre-triage investigation items)
+    Issue {
+        #[command(subcommand)]
+        command: IssueCommands,
+    },
+
     /// Idea management commands (low-stakes seeds that can be promoted to tasks)
     Idea {
         #[command(subcommand)]
@@ -685,6 +691,125 @@ pub enum BugCommands {
     /// Delete a bug
     Delete {
         /// Bug ID
+        id: String,
+    },
+}
+
+/// Issue subcommands (for pre-triage investigation)
+#[derive(Subcommand, Debug)]
+pub enum IssueCommands {
+    /// Create a new issue
+    Create {
+        /// Issue title
+        title: String,
+
+        /// Short display name (shown in GUI instead of ID)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
+        /// Priority (0-4, lower is higher priority)
+        #[arg(short, long)]
+        priority: Option<u8>,
+
+        /// Tags for the issue
+        #[arg(short, long)]
+        tag: Vec<String>,
+
+        /// Assignee
+        #[arg(short, long)]
+        assignee: Option<String>,
+
+        /// Issue description
+        #[arg(short, long, visible_alias = "desc")]
+        description: Option<String>,
+
+        /// Add to work queue immediately after creation
+        #[arg(short = 'q', long)]
+        queue: bool,
+    },
+
+    /// List issues
+    List {
+        /// Filter by status (open, triage, investigating, resolved, closed, wont_fix, by_design, no_repro)
+        #[arg(long, value_parser = ["open", "triage", "investigating", "resolved", "closed", "wont_fix", "by_design", "no_repro"])]
+        status: Option<String>,
+
+        /// Filter by priority
+        #[arg(long)]
+        priority: Option<u8>,
+
+        /// Filter by tag
+        #[arg(long)]
+        tag: Option<String>,
+
+        /// Include closed issues (closed/resolved/wont_fix/by_design/no_repro) in the list
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Show issue details
+    Show {
+        /// Issue ID (e.g., bn-i1i2)
+        id: String,
+    },
+
+    /// Update an issue
+    Update {
+        /// Issue ID
+        id: String,
+
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+
+        /// New short display name for GUI (recommended: 1-2 words, ~12 chars max)
+        #[arg(short = 's', long)]
+        short_name: Option<String>,
+
+        /// New description
+        #[arg(long, visible_alias = "desc")]
+        description: Option<String>,
+
+        /// New priority
+        #[arg(long)]
+        priority: Option<u8>,
+
+        /// New status (open, triage, investigating, resolved, closed, wont_fix, by_design, no_repro)
+        #[arg(long, value_parser = ["open", "triage", "investigating", "resolved", "closed", "wont_fix", "by_design", "no_repro"])]
+        status: Option<String>,
+
+        /// Add a tag
+        #[arg(long)]
+        add_tag: Vec<String>,
+
+        /// Remove a tag
+        #[arg(long)]
+        remove_tag: Vec<String>,
+
+        /// New assignee
+        #[arg(long)]
+        assignee: Option<String>,
+    },
+
+    /// Close an issue (marks as closed)
+    Close {
+        /// Issue ID
+        id: String,
+
+        /// Reason for closing (describe what was determined)
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Reopen a closed issue
+    Reopen {
+        /// Issue ID
+        id: String,
+    },
+
+    /// Delete an issue
+    Delete {
+        /// Issue ID
         id: String,
     },
 }
