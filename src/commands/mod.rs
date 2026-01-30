@@ -19381,25 +19381,138 @@ fn build_definition_container(
     def_name: &str,
     _definition: &crate::container::ContainerDefinition,
     tag: &str,
-    _no_cache: bool,
+    no_cache: bool,
 ) -> Result<()> {
     use crate::container::generate_image_name;
 
-    // Generate image name
-    let image_name = generate_image_name(repo_path, def_name)?;
+    // Generate image name (without :latest suffix for buildah tag)
+    let image_name_base = generate_image_name(repo_path, def_name)?;
+    // Remove the :latest suffix if present (we'll add the user's tag)
+    let image_name_base = image_name_base
+        .strip_suffix(":latest")
+        .unwrap_or(&image_name_base);
+    let image_ref = format!("{}:{}", image_name_base, tag);
 
-    eprintln!("🏗️  Image: {}", image_name);
-    eprintln!("📌 Tag: {}", tag);
+    eprintln!("🏗️  Image: {}", image_ref);
 
-    // TODO: Implement actual definition-based build
-    // This will involve:
-    // 1. Finding the Containerfile for this definition
-    // 2. Resolving parent image reference if needed
-    // 3. Building with buildah
-    // 4. Exporting/importing to containerd
+    // Find the Containerfile for this definition
+    // Convention: .binnacle/containers/<name>/Containerfile
+    let containerfile_path = repo_path
+        .join(".binnacle")
+        .join("containers")
+        .join(def_name)
+        .join("Containerfile");
 
-    eprintln!("⚠️  Definition-based builds not yet fully implemented");
-    eprintln!("    Using placeholder for now");
+    if !containerfile_path.exists() {
+        return Err(Error::Other(format!(
+            "Containerfile not found at {}\n\
+             Expected location: .binnacle/containers/{}/Containerfile",
+            containerfile_path.display(),
+            def_name
+        )));
+    }
+
+    // Determine where to copy the bn binary
+    // Convention: .binnacle/containers/<name>/bn
+    let binary_path = repo_path
+        .join(".binnacle")
+        .join("containers")
+        .join(def_name)
+        .join("bn");
+
+    // Get the currently running binary and copy it to the build context
+    let current_exe = std::env::current_exe()
+        .map_err(|e| Error::Other(format!("Failed to get current executable path: {}", e)))?;
+
+    eprintln!(
+        "📋 Copying bn binary from {} to {}...",
+        current_exe.display(),
+        binary_path.display()
+    );
+
+    // Copy the binary to the container build context
+    fs::copy(&current_exe, &binary_path).map_err(|e| {
+        Error::Other(format!(
+            "Failed to copy binary from {} to {}: {}",
+            current_exe.display(),
+            binary_path.display(),
+            e
+        ))
+    })?;
+
+    // Build with buildah - stream output for real-time feedback
+    eprintln!("📦 Building container image ({})...", image_ref);
+    let mut build_cmd = Command::new("buildah");
+    build_cmd
+        .arg("bud")
+        .arg("--layers") // Enable layer caching for faster rebuilds
+        .arg("-t")
+        .arg(&image_ref)
+        .arg("-f")
+        .arg(&containerfile_path)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    if no_cache {
+        build_cmd.arg("--no-cache");
+    }
+
+    // Use repo root as build context (so COPY paths work correctly)
+    build_cmd.arg(repo_path);
+
+    let status = build_cmd.status()?;
+
+    // Clean up the copied binary
+    let _ = fs::remove_file(&binary_path);
+
+    if !status.success() {
+        return Err(Error::Other("Build failed (see output above)".to_string()));
+    }
+
+    // Export and import to containerd
+    // Use docker-archive format (not oci-archive) because it embeds the full image
+    // reference in the manifest, allowing ctr to import it with the correct name.
+    eprintln!("📤 Exporting image to docker archive...");
+    let temp_archive = format!("/tmp/binnacle-{}.tar", def_name);
+
+    let push_output = Command::new("buildah")
+        .args([
+            "push",
+            &image_ref,
+            &format!("docker-archive:{}:{}", temp_archive, image_ref),
+        ])
+        .output()?;
+
+    if !push_output.status.success() {
+        return Err(Error::Other(format!(
+            "Failed to export image: {}",
+            String::from_utf8_lossy(&push_output.stderr)
+        )));
+    }
+
+    eprintln!("📥 Importing image to containerd...");
+    let mode = detect_containerd_mode();
+    warn_system_containerd_mode(&mode);
+    let import_output = ctr_command(&mode)
+        .args(["-n", "binnacle", "images", "import", &temp_archive])
+        .output()?;
+
+    // Clean up temp file
+    eprintln!("🧹 Cleaning up...");
+    let _ = fs::remove_file(&temp_archive);
+
+    if !import_output.status.success() {
+        let stderr = String::from_utf8_lossy(&import_output.stderr);
+
+        // Check for permission denied errors and provide helpful message
+        let error_msg = if let Some(helpful_msg) = check_containerd_permission_error(&stderr) {
+            helpful_msg
+        } else {
+            format!("Failed to import image to containerd: {}", stderr)
+        };
+
+        return Err(Error::Other(error_msg));
+    }
 
     Ok(())
 }
