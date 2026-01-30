@@ -737,8 +737,11 @@ pub fn compute_repo_hash(repo_path: &Path) -> Result<String> {
 /// - `definition_name`: Name of the container definition
 ///
 /// # Example
-/// ```
-/// let image = generate_image_name(Path::new("/workspace"), "base")?;
+/// ```no_run
+/// use std::path::Path;
+/// use binnacle::container::generate_image_name;
+///
+/// let image = generate_image_name(Path::new("/workspace"), "base").unwrap();
 /// // Returns: "localhost/bn-a1b2c3d4e5f6-base:latest"
 /// ```
 pub fn generate_image_name(repo_path: &Path, definition_name: &str) -> Result<String> {
