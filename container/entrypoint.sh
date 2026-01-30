@@ -237,11 +237,14 @@ BLOCKED_TOOLS=(
 # Use container-local pinned copilot binary
 # The copilot binary is pre-installed during image build at a pinned version
 # to prevent auto-updates from breaking the container in production.
-# Find the installed copilot binary in BN_DATA_DIR (set to /usr/local/share/binnacle in container)
-COPILOT_BIN=$(find "${BN_DATA_DIR}/utils/copilot" -name "copilot" -type f -executable 2>/dev/null | head -1)
+# Use 'bn system copilot path' to get the exact path for the embedded version
+COPILOT_PATH_INFO=$(bn system copilot path 2>/dev/null || true)
+COPILOT_BIN=$(echo "$COPILOT_PATH_INFO" | jq -r '.path // empty')
+COPILOT_EXISTS=$(echo "$COPILOT_PATH_INFO" | jq -r '.exists // false')
+COPILOT_VERSION=$(echo "$COPILOT_PATH_INFO" | jq -r '.version // empty')
 
-if [ -n "$COPILOT_BIN" ] && [ -x "$COPILOT_BIN" ]; then
-    echo "🤖 Using pinned copilot: $COPILOT_BIN"
+if [ "$COPILOT_EXISTS" = "true" ] && [ -n "$COPILOT_BIN" ] && [ -x "$COPILOT_BIN" ]; then
+    echo "🤖 Using pinned copilot $COPILOT_VERSION: $COPILOT_BIN"
     "$COPILOT_BIN" --allow-all --no-auto-update "${BLOCKED_TOOLS[@]}" -p "$BN_INITIAL_PROMPT"
     AGENT_EXIT=$?
 elif command -v claude &> /dev/null; then
@@ -250,8 +253,8 @@ elif command -v claude &> /dev/null; then
     AGENT_EXIT=$?
 else
     echo "❌ No AI agent found (copilot or claude CLI)"
-    echo "   Expected copilot in: ${BN_DATA_DIR}/utils/copilot/"
-    echo "   Please rebuild the container with 'bn container build'"
+    echo "   Expected copilot at: $COPILOT_BIN"
+    echo "   Run 'bn system copilot install --upstream' during container build"
     exit 1
 fi
 
