@@ -86,6 +86,7 @@ gui = [
   "regex",
   "libc",
 ]
+tmux = []
 wasm = [
   "wasm-bindgen",
   "js-sys",

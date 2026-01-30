@@ -3,6 +3,8 @@
 use binnacle::action_log;
 #[cfg(feature = "gui")]
 use binnacle::cli::GuiCommands;
+#[cfg(feature = "tmux")]
+use binnacle::cli::TmuxCommands;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
     CopilotCommands, DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands,
@@ -1192,6 +1194,27 @@ fn run_command(
                     output(&result, human);
                 }
             },
+            #[cfg(feature = "tmux")]
+            SystemCommands::Tmux { command } => {
+                // Check tmux binary first
+                binnacle::tmux::check_tmux_binary()?;
+                match command {
+                    TmuxCommands::Save { name: _ } => {
+                        // Stub implementation
+                        eprintln!("tmux save not yet implemented");
+                        return Err(binnacle::Error::Other(
+                            "tmux save not yet implemented".to_string(),
+                        ));
+                    }
+                    TmuxCommands::Load { name: _ } => {
+                        // Stub implementation
+                        eprintln!("tmux load not yet implemented");
+                        return Err(binnacle::Error::Other(
+                            "tmux load not yet implemented".to_string(),
+                        ));
+                    }
+                }
+            }
         },
         Some(Commands::Agent { command }) => match command {
             AgentCommands::List { status } => {
@@ -3095,6 +3118,17 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 CopilotCommands::Version => {
                     ("system copilot version".to_string(), serde_json::json!({}))
                 }
+            },
+            #[cfg(feature = "tmux")]
+            SystemCommands::Tmux { command } => match command {
+                TmuxCommands::Save { name } => (
+                    "system tmux save".to_string(),
+                    serde_json::json!({ "name": name }),
+                ),
+                TmuxCommands::Load { name } => (
+                    "system tmux load".to_string(),
+                    serde_json::json!({ "name": name }),
+                ),
             },
         },
 
