@@ -1,5 +1,6 @@
 //! Container definition management and config.kdl parsing.
 
+pub mod errors;
 pub mod validation;
 
 use crate::storage::get_storage_dir;
@@ -45,10 +46,7 @@ impl std::str::FromStr for EntrypointMode {
             "replace" => Ok(Self::Replace),
             "before" => Ok(Self::Before),
             "after" => Ok(Self::After),
-            _ => Err(Error::Other(format!(
-                "Invalid entrypoint mode: '{}' (expected 'replace', 'before', or 'after')",
-                s
-            ))),
+            _ => Err(Error::Other(errors::invalid_entrypoint_mode(s))),
         }
     }
 }
@@ -87,10 +85,7 @@ impl std::str::FromStr for MountMode {
         match s {
             "ro" => Ok(Self::ReadOnly),
             "rw" => Ok(Self::ReadWrite),
-            _ => Err(Error::Other(format!(
-                "Invalid mount mode: '{}' (expected 'ro' or 'rw')",
-                s
-            ))),
+            _ => Err(Error::Other(errors::invalid_mount_mode(s))),
         }
     }
 }
@@ -134,9 +129,8 @@ pub fn resolve_mount_source(source: &str, repo_root: &Path) -> Result<PathBuf> {
 /// Returns Some(path) if expansion occurred, None otherwise.
 fn expand_home(path: &str) -> Result<Option<PathBuf>> {
     if path.starts_with("~/") || path == "~" {
-        let home = dirs::home_dir().ok_or_else(|| {
-            Error::Other("Cannot expand ~ because home directory is not set".to_string())
-        })?;
+        let home =
+            dirs::home_dir().ok_or_else(|| Error::Other(errors::home_expansion_failed("~")))?;
 
         if path == "~" {
             return Ok(Some(home));
@@ -148,9 +142,8 @@ fn expand_home(path: &str) -> Result<Option<PathBuf>> {
     }
 
     if path.starts_with("$HOME/") || path == "$HOME" {
-        let home = dirs::home_dir().ok_or_else(|| {
-            Error::Other("Cannot expand $HOME because home directory is not set".to_string())
-        })?;
+        let home =
+            dirs::home_dir().ok_or_else(|| Error::Other(errors::home_expansion_failed("$HOME")))?;
 
         if path == "$HOME" {
             return Ok(Some(home));
@@ -234,17 +227,18 @@ pub fn validate_mounts(mounts: &[Mount], repo_root: &Path) -> Result<Vec<Validat
             if mount.optional {
                 // Optional mount missing - log warning and skip
                 eprintln!(
-                    "warning: Skipping optional mount '{}': source path does not exist: {}",
-                    mount.name,
-                    resolved_source.display()
+                    "{}",
+                    errors::optional_mount_skipped(
+                        &mount.name,
+                        &resolved_source.display().to_string()
+                    )
                 );
                 continue;
             } else {
                 // Required mount missing - error
-                return Err(Error::Other(format!(
-                    "Mount '{}' source path does not exist: {}",
-                    mount.name,
-                    resolved_source.display()
+                return Err(Error::Other(errors::mount_source_not_found(
+                    &mount.name,
+                    &resolved_source.display().to_string(),
                 )));
             }
         }
@@ -271,10 +265,7 @@ pub fn parse_config_kdl(doc: &KdlDocument) -> Result<HashMap<String, ContainerDe
 
         // Validate reserved name
         if def.name == RESERVED_NAME {
-            return Err(Error::Other(format!(
-                "Container name '{}' is reserved and cannot be used. Please choose a different name (e.g., 'worker', 'dev', 'agent').",
-                RESERVED_NAME
-            )));
+            return Err(Error::Other(errors::reserved_name(RESERVED_NAME)));
         }
 
         definitions.insert(def.name.clone(), def);
@@ -290,7 +281,7 @@ fn parse_container_node(node: &KdlNode) -> Result<ContainerDefinition> {
         .entries()
         .first()
         .and_then(|e| e.value().as_string())
-        .ok_or_else(|| Error::Other("Container node must have a name argument".to_string()))?
+        .ok_or_else(|| Error::Other(errors::missing_container_name()))?
         .to_string();
 
     let mut description = None;
@@ -395,14 +386,14 @@ fn parse_mount_node(node: &KdlNode) -> Result<Mount> {
         .entries()
         .first()
         .and_then(|e| e.value().as_string())
-        .ok_or_else(|| Error::Other("Mount node must have a name argument".to_string()))?
+        .ok_or_else(|| Error::Other(errors::missing_mount_name()))?
         .to_string();
 
     // Get target (required)
     let target = node
         .get("target")
         .and_then(|v| v.as_string())
-        .ok_or_else(|| Error::Other(format!("Mount '{}' must have a target", name)))?
+        .ok_or_else(|| Error::Other(errors::missing_mount_target(&name)))?
         .to_string();
 
     // Get source (optional for special mounts like workspace/binnacle)
@@ -576,9 +567,12 @@ pub fn resolve_definition(
         .collect();
 
     if matches.is_empty() {
-        return Err(Error::Other(format!(
-            "Definition '{}' not found. Run 'bn container build' to list available definitions.",
-            name
+        return Err(Error::Other(errors::definition_not_found(
+            name,
+            &[
+                ".binnacle/containers/config.kdl",
+                "~/.local/share/binnacle/<hash>/containers/config.kdl",
+            ],
         )));
     }
 
@@ -643,17 +637,15 @@ pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource
         .join("config.kdl");
     if project_config.exists() {
         let content = fs::read_to_string(&project_config).map_err(|e| {
-            Error::Other(format!(
-                "Failed to read {}: {}",
-                project_config.display(),
-                e
+            Error::Other(errors::config_read_failed(
+                &project_config.display().to_string(),
+                &e.to_string(),
             ))
         })?;
-        let doc: KdlDocument = content.parse().map_err(|e| {
-            Error::Other(format!(
-                "Failed to parse {}: {}",
-                project_config.display(),
-                e
+        let doc: KdlDocument = content.parse().map_err(|e: kdl::KdlError| {
+            Error::Other(errors::config_parse_failed(
+                &project_config.display().to_string(),
+                &e.to_string(),
             ))
         })?;
         let defs = parse_config_kdl(&doc)?;
@@ -674,10 +666,16 @@ pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource
     let host_config = storage_dir.join("containers").join("config.kdl");
     if host_config.exists() {
         let content = fs::read_to_string(&host_config).map_err(|e| {
-            Error::Other(format!("Failed to read {}: {}", host_config.display(), e))
+            Error::Other(errors::config_read_failed(
+                &host_config.display().to_string(),
+                &e.to_string(),
+            ))
         })?;
-        let doc: KdlDocument = content.parse().map_err(|e| {
-            Error::Other(format!("Failed to parse {}: {}", host_config.display(), e))
+        let doc: KdlDocument = content.parse().map_err(|e: kdl::KdlError| {
+            Error::Other(errors::config_parse_failed(
+                &host_config.display().to_string(),
+                &e.to_string(),
+            ))
         })?;
         let defs = parse_config_kdl(&doc)?;
         let modified_at = get_modified_time(&host_config);
@@ -784,9 +782,13 @@ pub fn compute_build_order(
         if let Some(parent) = &def.parent {
             // Validate parent exists
             if !definitions.contains_key(parent) {
-                return Err(Error::Other(format!(
-                    "Container '{}' references undefined parent '{}'",
-                    name, parent
+                return Err(Error::Other(errors::missing_parent(
+                    name,
+                    parent,
+                    &[
+                        ".binnacle/containers/",
+                        "~/.local/share/binnacle/<hash>/containers/",
+                    ],
                 )));
             }
 
@@ -833,11 +835,9 @@ pub fn compute_build_order(
         // Find nodes in cycle for better error message
         let processed: HashSet<_> = result.iter().cloned().collect();
         let in_cycle: Vec<_> = all_names.difference(&processed).cloned().collect();
+        let cycle_refs: Vec<&str> = in_cycle.iter().map(|s| s.as_str()).collect();
 
-        return Err(Error::Other(format!(
-            "Circular dependency detected in container definitions: {}",
-            in_cycle.join(", ")
-        )));
+        return Err(Error::Other(errors::circular_dependency(&cycle_refs)));
     }
 
     Ok(result)
@@ -1071,10 +1071,15 @@ container "binnacle" {
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("reserved and cannot be used"));
+        // The new error format uses "bn: error: config: reserved container name"
+        assert!(
+            err_msg.contains("reserved container name"),
+            "Error message should mention reserved name: {}",
+            err_msg
+        );
         // Verify suggestion is included
         assert!(
-            err_msg.contains("Please choose a different name"),
+            err_msg.contains("Choose a different name"),
             "Error message should include suggestion: {}",
             err_msg
         );
@@ -1092,11 +1097,12 @@ container "test" {
         let result = parse_config_kdl(&doc);
 
         assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        // The new error format uses "bn: error: config: invalid entrypoint mode"
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Invalid entrypoint mode")
+            err_msg.contains("invalid entrypoint mode"),
+            "Error message should mention invalid entrypoint mode: {}",
+            err_msg
         );
     }
 
@@ -1114,11 +1120,12 @@ container "test" {
         let result = parse_config_kdl(&doc);
 
         assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        // The new error format uses "bn: error: config: invalid mount mode"
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Invalid mount mode")
+            err_msg.contains("invalid mount mode"),
+            "Error message should mention invalid mount mode: {}",
+            err_msg
         );
     }
 
@@ -1600,11 +1607,12 @@ container "rust-dev" {
 
         let result = super::compute_build_order(&defs);
         assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        // The new error format uses "bn: error: config: circular dependency detected"
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Circular dependency")
+            err_msg.contains("circular dependency"),
+            "Error message should mention circular dependency: {}",
+            err_msg
         );
     }
 
@@ -1625,7 +1633,13 @@ container "rust-dev" {
 
         let result = super::compute_build_order(&defs);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("undefined parent"));
+        let err_msg = result.unwrap_err().to_string();
+        // The new error format uses "bn: error: build: parent container not found"
+        assert!(
+            err_msg.contains("parent container not found"),
+            "Error message should mention parent not found: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -1742,11 +1756,12 @@ container "rust-dev" {
 
         let result = super::validate_mounts(&mounts, temp.path());
         assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        // The new error format uses "bn: error: mount: source path not found"
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("source path does not exist")
+            err_msg.contains("source path not found"),
+            "Error message should mention source path not found: {}",
+            err_msg
         );
     }
 
