@@ -10840,6 +10840,275 @@ impl Output for SearchLinkResult {
     }
 }
 
+/// Result for bn graph context command.
+/// Combines lineage, peers, and descendants into a single context view.
+#[derive(Serialize)]
+pub struct ContextResult {
+    /// The entity ID being examined
+    pub source: String,
+    /// Basic info about the source entity
+    pub source_title: String,
+    pub source_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_status: Option<String>,
+    /// Lineage (ancestors)
+    pub lineage: Vec<LineageHop>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prd_found: Option<String>,
+    /// Peers (siblings and cousins)
+    pub peers: Vec<Peer>,
+    /// Descendants (children)
+    pub descendants: Vec<Descendant>,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub descendants_unexplored: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+impl Output for ContextResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+
+        // Header
+        let status_str = self
+            .source_status
+            .as_deref()
+            .map(|s| format!("/{}", s))
+            .unwrap_or_default();
+        lines.push(format!(
+            "Context for {} [{}{}]",
+            self.source, self.source_type, status_str
+        ));
+        lines.push(format!("  {}", self.source_title));
+        lines.push(String::new());
+
+        // Lineage section
+        lines.push("═══ LINEAGE (ancestors) ═══".to_string());
+        if self.lineage.len() <= 1 {
+            lines.push("  No ancestors found".to_string());
+        } else {
+            // Skip first hop (it's the source itself)
+            for hop in self.lineage.iter().skip(1) {
+                let hop_status = hop
+                    .status
+                    .as_deref()
+                    .or(hop.doc_type.as_deref())
+                    .map(|s| format!("/{}", s))
+                    .unwrap_or_default();
+                let edge_str = hop.edge_to_parent.as_deref().unwrap_or("???");
+                lines.push(format!(
+                    "  ↑ {} {} [{}{}] {}",
+                    edge_str, hop.id, hop.entity_type, hop_status, hop.title
+                ));
+                if let Some(ref desc) = hop.description {
+                    if !desc.is_empty() {
+                        lines.push(format!("      {}", desc));
+                    }
+                }
+            }
+        }
+        if let Some(ref prd) = self.prd_found {
+            lines.push(format!("  (PRD: {})", prd));
+        }
+        lines.push(String::new());
+
+        // Peers section
+        lines.push("═══ PEERS (siblings/cousins) ═══".to_string());
+        if self.peers.is_empty() {
+            lines.push("  No peers found".to_string());
+        } else {
+            let mut by_depth: std::collections::BTreeMap<usize, Vec<&Peer>> =
+                std::collections::BTreeMap::new();
+            for peer in &self.peers {
+                by_depth.entry(peer.depth).or_default().push(peer);
+            }
+            for (depth, peers) in by_depth {
+                let relation = if depth == 1 { "Siblings" } else { "Cousins" };
+                lines.push(format!("  {} (depth {}):", relation, depth));
+                for peer in peers {
+                    let peer_status = peer
+                        .status
+                        .as_deref()
+                        .map(|s| format!("/{}", s))
+                        .unwrap_or_default();
+                    lines.push(format!(
+                        "    {} [{}{}] {} (via {})",
+                        peer.id, peer.entity_type, peer_status, peer.title, peer.shared_parent
+                    ));
+                    if let Some(ref desc) = peer.description {
+                        if !desc.is_empty() {
+                            lines.push(format!("        {}", desc));
+                        }
+                    }
+                }
+            }
+        }
+        lines.push(String::new());
+
+        // Descendants section
+        lines.push("═══ DESCENDANTS (children) ═══".to_string());
+        if self.descendants.is_empty() {
+            lines.push("  No descendants found".to_string());
+        } else {
+            for descendant in &self.descendants {
+                let indent = "  ".repeat(descendant.depth + 1);
+                let desc_status = descendant
+                    .status
+                    .as_deref()
+                    .map(|s| format!("/{}", s))
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "{}{} [{}{}] {}",
+                    indent, descendant.id, descendant.entity_type, desc_status, descendant.title
+                ));
+                if let Some(ref desc) = descendant.description {
+                    if !desc.is_empty() {
+                        lines.push(format!("{}  {}", indent, desc));
+                    }
+                }
+            }
+        }
+        if self.descendants_unexplored > 0 {
+            lines.push(format!(
+                "  ({} more descendants not shown)",
+                self.descendants_unexplored
+            ));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Get full context for an entity - combines lineage, peers, and descendants.
+pub fn graph_context(
+    repo_path: &Path,
+    id: &str,
+    lineage_depth: usize,
+    peer_depth: usize,
+    descendant_depth: usize,
+    include_closed: bool,
+    verbose: bool,
+) -> Result<ContextResult> {
+    let storage = Storage::open(repo_path)?;
+
+    // Get source entity info
+    let entity_type = storage.get_entity_type(id)?;
+    let (source_title, source_type, source_status) = match entity_type {
+        EntityType::Task => {
+            let task = storage.get_task(id)?;
+            let status_str = serde_json::to_value(&task.status)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{:?}", task.status));
+            (task.core.title, "task".to_string(), Some(status_str))
+        }
+        EntityType::Bug => {
+            let bug = storage.get_bug(id)?;
+            let status_str = serde_json::to_value(&bug.status)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{:?}", bug.status));
+            (bug.core.title, "bug".to_string(), Some(status_str))
+        }
+        EntityType::Milestone => {
+            let milestone = storage.get_milestone(id)?;
+            let status_str = serde_json::to_value(&milestone.status)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{:?}", milestone.status));
+            (
+                milestone.core.title,
+                "milestone".to_string(),
+                Some(status_str),
+            )
+        }
+        EntityType::Idea => {
+            let idea = storage.get_idea(id)?;
+            let status_str = serde_json::to_value(&idea.status)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{:?}", idea.status));
+            (idea.core.title, "idea".to_string(), Some(status_str))
+        }
+        EntityType::Doc => {
+            let doc = storage.get_doc(id)?;
+            let doc_type_str = match doc.doc_type {
+                DocType::Note => "note",
+                DocType::Prd => "prd",
+                DocType::Handoff => "handoff",
+            };
+            (
+                doc.core.title,
+                "doc".to_string(),
+                Some(doc_type_str.to_string()),
+            )
+        }
+        EntityType::Test => {
+            let test = storage.get_test(id)?;
+            (test.name, "test".to_string(), None)
+        }
+        EntityType::Queue => {
+            let queue = storage.get_queue_by_id(id)?;
+            (queue.title, "queue".to_string(), None)
+        }
+        EntityType::Agent => {
+            let agent = storage.get_agent_by_id(id)?;
+            let status_str = serde_json::to_value(&agent.status)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{:?}", agent.status));
+            let agent_type_str = serde_json::to_value(&agent.agent_type)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{:?}", agent.agent_type));
+            (agent_type_str, "agent".to_string(), Some(status_str))
+        }
+        _ => {
+            return Err(Error::Other(format!(
+                "Entity type {:?} not supported for context",
+                entity_type
+            )));
+        }
+    };
+
+    // Close the storage to release file locks before calling other functions
+    drop(storage);
+
+    // Get lineage
+    let lineage_result = graph_lineage(repo_path, id, lineage_depth, verbose)?;
+
+    // Get peers
+    let peers_result = graph_peers(repo_path, id, peer_depth, include_closed, verbose)?;
+
+    // Get descendants
+    let descendants_result = graph_descendants(
+        repo_path,
+        id,
+        descendant_depth,
+        false,
+        include_closed,
+        verbose,
+    )?;
+
+    Ok(ContextResult {
+        source: id.to_string(),
+        source_title,
+        source_type,
+        source_status,
+        lineage: lineage_result.hops,
+        prd_found: lineage_result.prd_found,
+        peers: peers_result.peers,
+        descendants: descendants_result.descendants,
+        descendants_unexplored: descendants_result.unexplored_count,
+    })
+}
+
 /// Search for links/edges by type, source, or target.
 pub fn search_link(
     repo_path: &Path,
@@ -29678,5 +29947,180 @@ mod tests {
         assert_eq!(result.source, task.id);
         assert_eq!(result.descendants.len(), 0);
         assert_eq!(result.unexplored_count, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_context_basic() {
+        let temp = tempfile::tempdir().unwrap();
+        Storage::init(temp.path()).unwrap();
+
+        // Create a simple task
+        let task = task_create(
+            temp.path(),
+            "Test context task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Test: context should contain lineage with source, empty peers, empty descendants
+        let result = graph_context(temp.path(), &task.id, 10, 1, 2, false, false).unwrap();
+        assert_eq!(result.source, task.id);
+        assert_eq!(result.source_title, "Test context task");
+        assert_eq!(result.source_type, "task");
+        assert_eq!(result.source_status, Some("pending".to_string()));
+        assert_eq!(result.lineage.len(), 1); // Just the source itself
+        assert_eq!(result.peers.len(), 0);
+        assert_eq!(result.descendants.len(), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_context_with_hierarchy() {
+        let temp = tempfile::tempdir().unwrap();
+        Storage::init(temp.path()).unwrap();
+
+        // Create a milestone as parent
+        let milestone = milestone_create(
+            temp.path(),
+            "Test Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create sibling tasks under the milestone
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link tasks to milestone
+        link_add(
+            temp.path(),
+            &task1.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &task2.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Test context of task1 - should show milestone as ancestor and task2 as peer
+        let result = graph_context(temp.path(), &task1.id, 10, 1, 2, false, false).unwrap();
+        assert_eq!(result.source, task1.id);
+        assert_eq!(result.source_title, "Task 1");
+
+        // Lineage should include task1 itself and milestone
+        assert!(result.lineage.len() >= 2);
+        assert!(result.lineage.iter().any(|h| h.id == milestone.id));
+
+        // Peers should include task2
+        assert_eq!(result.peers.len(), 1);
+        assert_eq!(result.peers[0].id, task2.id);
+
+        // No descendants for task1
+        assert_eq!(result.descendants.len(), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_context_with_descendants() {
+        let temp = tempfile::tempdir().unwrap();
+        Storage::init(temp.path()).unwrap();
+
+        // Create parent task
+        let parent = task_create(
+            temp.path(),
+            "Parent Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Create child task
+        let child = task_create(
+            temp.path(),
+            "Child Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link child to parent
+        link_add(temp.path(), &child.id, &parent.id, "child_of", None, false).unwrap();
+
+        // Test context of parent - should show child as descendant
+        let result = graph_context(temp.path(), &parent.id, 10, 1, 2, false, false).unwrap();
+        assert_eq!(result.source, parent.id);
+        assert_eq!(result.descendants.len(), 1);
+        assert_eq!(result.descendants[0].id, child.id);
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_context_human_output() {
+        let temp = tempfile::tempdir().unwrap();
+        Storage::init(temp.path()).unwrap();
+
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let result = graph_context(temp.path(), &task.id, 10, 1, 2, false, false).unwrap();
+        let human = result.to_human();
+
+        // Check that human output contains expected sections
+        assert!(human.contains("Context for"));
+        assert!(human.contains("LINEAGE"));
+        assert!(human.contains("PEERS"));
+        assert!(human.contains("DESCENDANTS"));
     }
 }

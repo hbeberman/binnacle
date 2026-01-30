@@ -1635,6 +1635,32 @@ pub enum GraphCommands {
         #[arg(long)]
         verbose: bool,
     },
+
+    /// Get full context for an entity (combines lineage, peers, and descendants)
+    Context {
+        /// Entity ID to get context for
+        id: String,
+
+        /// Maximum depth for lineage traversal (default: 10)
+        #[arg(long, default_value = "10")]
+        lineage_depth: usize,
+
+        /// Peer depth: 1=siblings only, 2=siblings+cousins (default: 1)
+        #[arg(long, default_value = "1")]
+        peer_depth: usize,
+
+        /// Maximum depth for descendants (default: 2)
+        #[arg(long, default_value = "2")]
+        descendant_depth: usize,
+
+        /// Include closed/done entities
+        #[arg(long)]
+        include_closed: bool,
+
+        /// Include descriptions in output
+        #[arg(long)]
+        verbose: bool,
+    },
 }
 
 /// Search subcommands
