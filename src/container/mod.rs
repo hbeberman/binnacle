@@ -453,6 +453,134 @@ pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource
     Ok(results)
 }
 
+/// Compute repository hash (first 12 chars of SHA256 of canonical path)
+pub fn compute_repo_hash(repo_path: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+
+    let canonical = repo_path
+        .canonicalize()
+        .map_err(|e| Error::Other(format!("Failed to canonicalize repo path: {}", e)))?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    let hash = hasher.finalize();
+
+    Ok(format!("{:x}", hash)[..12].to_string())
+}
+
+/// Generate Docker/Podman image name for a container definition
+///
+/// Format: `localhost/bn-<repo-hash>-<definition-name>:latest`
+///
+/// # Arguments
+/// - `repo_path`: Repository root path (for hash computation)
+/// - `definition_name`: Name of the container definition
+///
+/// # Example
+/// ```
+/// let image = generate_image_name(Path::new("/workspace"), "base")?;
+/// // Returns: "localhost/bn-a1b2c3d4e5f6-base:latest"
+/// ```
+pub fn generate_image_name(repo_path: &Path, definition_name: &str) -> Result<String> {
+    let hash = compute_repo_hash(repo_path)?;
+    Ok(format!("localhost/bn-{}-{}:latest", hash, definition_name))
+}
+
+/// Compute build order for container definitions (topological sort)
+///
+/// Returns definitions in dependency order (parents before children).
+/// Detects circular dependencies and errors if found.
+///
+/// # Arguments
+/// - `definitions`: Map of container name -> definition
+///
+/// # Returns
+/// - `Ok(Vec<String>)`: Container names in build order
+/// - `Err(_)`: If circular dependency detected or missing parent
+///
+/// # Example
+/// Given definitions:
+/// - base (no parent)
+/// - rust-dev (parent: base)
+/// - app (parent: rust-dev)
+///
+/// Returns: ["base", "rust-dev", "app"]
+pub fn compute_build_order(
+    definitions: &HashMap<String, ContainerDefinition>,
+) -> Result<Vec<String>> {
+    use std::collections::{HashSet, VecDeque};
+
+    let mut in_degree: HashMap<String, usize> = HashMap::new();
+    let mut children: HashMap<String, Vec<String>> = HashMap::new();
+    let mut all_names: HashSet<String> = HashSet::new();
+
+    // Initialize graph
+    for (name, def) in definitions {
+        all_names.insert(name.clone());
+        in_degree.entry(name.clone()).or_insert(0);
+
+        if let Some(parent) = &def.parent {
+            // Validate parent exists
+            if !definitions.contains_key(parent) {
+                return Err(Error::Other(format!(
+                    "Container '{}' references undefined parent '{}'",
+                    name, parent
+                )));
+            }
+
+            // Increment in-degree for this node (it has a dependency)
+            *in_degree.entry(name.clone()).or_insert(0) += 1;
+
+            // Add to parent's children list
+            children
+                .entry(parent.clone())
+                .or_default()
+                .push(name.clone());
+        }
+    }
+
+    // Kahn's algorithm for topological sort
+    let mut queue: VecDeque<String> = VecDeque::new();
+    let mut result: Vec<String> = Vec::new();
+
+    // Start with nodes that have no dependencies (in-degree = 0)
+    for (name, &degree) in &in_degree {
+        if degree == 0 {
+            queue.push_back(name.clone());
+        }
+    }
+
+    while let Some(current) = queue.pop_front() {
+        result.push(current.clone());
+
+        // Process children of current node
+        if let Some(child_list) = children.get(&current) {
+            for child in child_list {
+                if let Some(degree) = in_degree.get_mut(child) {
+                    *degree -= 1;
+                    if *degree == 0 {
+                        queue.push_back(child.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // If result doesn't contain all nodes, there's a cycle
+    if result.len() != all_names.len() {
+        // Find nodes in cycle for better error message
+        let processed: HashSet<_> = result.iter().cloned().collect();
+        let in_cycle: Vec<_> = all_names.difference(&processed).cloned().collect();
+
+        return Err(Error::Other(format!(
+            "Circular dependency detected in container definitions: {}",
+            in_cycle.join(", ")
+        )));
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -885,5 +1013,291 @@ container "rust-dev" {
         let repo_root = Path::new("/repo");
         let result = super::resolve_mount_source("../sibling/data", repo_root).unwrap();
         assert_eq!(result, PathBuf::from("/repo/../sibling/data"));
+    }
+
+    #[test]
+    fn test_compute_repo_hash() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let hash = super::compute_repo_hash(temp.path()).unwrap();
+
+        // Should be 12 hex characters
+        assert_eq!(hash.len(), 12);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_generate_image_name() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let image = super::generate_image_name(temp.path(), "rust-dev").unwrap();
+
+        // Should start with localhost/bn- and end with :latest
+        assert!(image.starts_with("localhost/bn-"));
+        assert!(image.ends_with("-rust-dev:latest"));
+
+        // Extract hash part (between "bn-" and "-rust-dev")
+        let parts: Vec<&str> = image.split('-').collect();
+        assert!(parts.len() >= 3);
+        let hash_part = parts[1];
+        assert_eq!(hash_part.len(), 12);
+    }
+
+    #[test]
+    fn test_compute_build_order_no_dependencies() {
+        let mut defs = HashMap::new();
+        defs.insert(
+            "base".to_string(),
+            ContainerDefinition {
+                name: "base".to_string(),
+                description: None,
+                parent: None,
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+        defs.insert(
+            "app".to_string(),
+            ContainerDefinition {
+                name: "app".to_string(),
+                description: None,
+                parent: None,
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        let order = super::compute_build_order(&defs).unwrap();
+        assert_eq!(order.len(), 2);
+        assert!(order.contains(&"base".to_string()));
+        assert!(order.contains(&"app".to_string()));
+    }
+
+    #[test]
+    fn test_compute_build_order_linear_chain() {
+        let mut defs = HashMap::new();
+        defs.insert(
+            "base".to_string(),
+            ContainerDefinition {
+                name: "base".to_string(),
+                description: None,
+                parent: None,
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+        defs.insert(
+            "rust-dev".to_string(),
+            ContainerDefinition {
+                name: "rust-dev".to_string(),
+                description: None,
+                parent: Some("base".to_string()),
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+        defs.insert(
+            "app".to_string(),
+            ContainerDefinition {
+                name: "app".to_string(),
+                description: None,
+                parent: Some("rust-dev".to_string()),
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        let order = super::compute_build_order(&defs).unwrap();
+        assert_eq!(order.len(), 3);
+
+        // base must come before rust-dev, rust-dev before app
+        let base_idx = order.iter().position(|s| s == "base").unwrap();
+        let rust_idx = order.iter().position(|s| s == "rust-dev").unwrap();
+        let app_idx = order.iter().position(|s| s == "app").unwrap();
+
+        assert!(base_idx < rust_idx);
+        assert!(rust_idx < app_idx);
+    }
+
+    #[test]
+    fn test_compute_build_order_tree() {
+        let mut defs = HashMap::new();
+        defs.insert(
+            "base".to_string(),
+            ContainerDefinition {
+                name: "base".to_string(),
+                description: None,
+                parent: None,
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+        defs.insert(
+            "rust-dev".to_string(),
+            ContainerDefinition {
+                name: "rust-dev".to_string(),
+                description: None,
+                parent: Some("base".to_string()),
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+        defs.insert(
+            "python-dev".to_string(),
+            ContainerDefinition {
+                name: "python-dev".to_string(),
+                description: None,
+                parent: Some("base".to_string()),
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        let order = super::compute_build_order(&defs).unwrap();
+        assert_eq!(order.len(), 3);
+
+        // base must come first
+        assert_eq!(order[0], "base");
+
+        // rust-dev and python-dev can be in either order, but both after base
+        assert!(order[1..].contains(&"rust-dev".to_string()));
+        assert!(order[1..].contains(&"python-dev".to_string()));
+    }
+
+    #[test]
+    fn test_compute_build_order_circular_dependency() {
+        let mut defs = HashMap::new();
+        defs.insert(
+            "a".to_string(),
+            ContainerDefinition {
+                name: "a".to_string(),
+                description: None,
+                parent: Some("b".to_string()),
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+        defs.insert(
+            "b".to_string(),
+            ContainerDefinition {
+                name: "b".to_string(),
+                description: None,
+                parent: Some("a".to_string()),
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        let result = super::compute_build_order(&defs);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Circular dependency")
+        );
+    }
+
+    #[test]
+    fn test_compute_build_order_missing_parent() {
+        let mut defs = HashMap::new();
+        defs.insert(
+            "child".to_string(),
+            ContainerDefinition {
+                name: "child".to_string(),
+                description: None,
+                parent: Some("nonexistent".to_string()),
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        let result = super::compute_build_order(&defs);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("undefined parent"));
+    }
+
+    #[test]
+    fn test_compute_build_order_complex_graph() {
+        let mut defs = HashMap::new();
+
+        // Create a diamond dependency graph:
+        //       base
+        //      /    \
+        //   left    right
+        //      \    /
+        //       bottom
+
+        defs.insert(
+            "base".to_string(),
+            ContainerDefinition {
+                name: "base".to_string(),
+                description: None,
+                parent: None,
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+        defs.insert(
+            "left".to_string(),
+            ContainerDefinition {
+                name: "left".to_string(),
+                description: None,
+                parent: Some("base".to_string()),
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+        defs.insert(
+            "right".to_string(),
+            ContainerDefinition {
+                name: "right".to_string(),
+                description: None,
+                parent: Some("base".to_string()),
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+        // bottom can only depend on one parent in our model, so this creates a valid tree
+        defs.insert(
+            "bottom".to_string(),
+            ContainerDefinition {
+                name: "bottom".to_string(),
+                description: None,
+                parent: Some("left".to_string()),
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        let order = super::compute_build_order(&defs).unwrap();
+        assert_eq!(order.len(), 4);
+
+        // Verify ordering constraints
+        let base_idx = order.iter().position(|s| s == "base").unwrap();
+        let left_idx = order.iter().position(|s| s == "left").unwrap();
+        let right_idx = order.iter().position(|s| s == "right").unwrap();
+        let bottom_idx = order.iter().position(|s| s == "bottom").unwrap();
+
+        assert!(base_idx < left_idx);
+        assert!(base_idx < right_idx);
+        assert!(left_idx < bottom_idx);
     }
 }
