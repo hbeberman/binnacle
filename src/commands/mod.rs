@@ -2155,6 +2155,59 @@ impl Output for TmuxSaveResult {
     }
 }
 
+/// Result of tmux load command
+#[cfg(feature = "tmux")]
+#[derive(Debug, Serialize)]
+pub struct TmuxLoadResult {
+    /// Whether a new session was created (vs attached to existing)
+    pub created: bool,
+    /// Session name
+    pub session_name: String,
+    /// Layout name that was loaded
+    pub layout_name: String,
+    /// Source of the layout (project, session, user)
+    pub source: String,
+    /// Path to the layout file
+    pub path: String,
+    /// Warning message if attaching to session from different repo
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+    /// Whether we're already in tmux (commands to execute manually)
+    pub in_tmux: bool,
+    /// Commands to execute (when in_tmux is true, user must run these)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<Vec<String>>,
+}
+
+#[cfg(feature = "tmux")]
+impl Output for TmuxLoadResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut msg = if self.created {
+            format!(
+                "Created session '{}' from layout '{}' ({})",
+                self.session_name, self.layout_name, self.source
+            )
+        } else {
+            format!("Attached to existing session '{}'", self.session_name)
+        };
+
+        if let Some(warning) = &self.warning {
+            msg.push_str(&format!("\n⚠️  {}", warning));
+        }
+
+        if self.in_tmux {
+            msg.push_str("\n\nAlready in tmux. To switch to the new session, run:");
+            msg.push_str(&format!("\n  tmux switch-client -t {}", self.session_name));
+        }
+
+        msg
+    }
+}
+
 impl Output for HooksUninstallResult {
     fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
