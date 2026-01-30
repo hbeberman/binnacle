@@ -19244,12 +19244,22 @@ pub fn container_build(
 /// Build the embedded binnacle container (legacy, for backward compatibility)
 fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     // Determine build context: prefer external files if available, otherwise use embedded
-    let (build_context_dir, containerfile_path, using_embedded) =
-        if Path::new("container/Containerfile").exists() {
-            // Use repository files if they exist
+    // Check in order: new location (.binnacle/containers/worker/), legacy location (container/), embedded
+    let (build_context_dir, containerfile_path, binary_path, using_embedded) =
+        if Path::new(".binnacle/containers/worker/Containerfile").exists() {
+            // Use new project-level container definition
+            (
+                PathBuf::from("."),
+                PathBuf::from(".binnacle/containers/worker/Containerfile"),
+                PathBuf::from(".binnacle/containers/worker/bn"),
+                false,
+            )
+        } else if Path::new("container/Containerfile").exists() {
+            // Use legacy repository files
             (
                 PathBuf::from("."),
                 PathBuf::from("container/Containerfile"),
+                PathBuf::from("container/bn"),
                 false,
             )
         } else {
@@ -19257,26 +19267,26 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
             eprintln!("📦 Using embedded container files...");
             let temp_dir = write_embedded_container_files()?;
             let containerfile = temp_dir.join("container/Containerfile");
-            (temp_dir, containerfile, true)
+            let binary = temp_dir.join("container/bn");
+            (temp_dir, containerfile, binary, true)
         };
 
     // Get the currently running binary and copy it to the build context
     let current_exe = std::env::current_exe()
         .map_err(|e| Error::Other(format!("Failed to get current executable path: {}", e)))?;
 
-    let container_binary_path = build_context_dir.join("container/bn");
     eprintln!(
         "📋 Copying bn binary from {} to {}...",
         current_exe.display(),
-        container_binary_path.display()
+        binary_path.display()
     );
 
     // Copy the binary to the container build context
-    fs::copy(&current_exe, &container_binary_path).map_err(|e| {
+    fs::copy(&current_exe, &binary_path).map_err(|e| {
         Error::Other(format!(
             "Failed to copy binary from {} to {}: {}",
             current_exe.display(),
-            container_binary_path.display(),
+            binary_path.display(),
             e
         ))
     })?;
@@ -19306,7 +19316,7 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     let status = build_cmd.status()?;
 
     // Clean up the copied binary and temp directory
-    let _ = fs::remove_file(&container_binary_path);
+    let _ = fs::remove_file(&binary_path);
     if using_embedded {
         let _ = fs::remove_dir_all(&build_context_dir);
     }

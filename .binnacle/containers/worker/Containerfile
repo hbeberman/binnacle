@@ -1,0 +1,96 @@
+# Binnacle Container Worker
+# Base: Fedora 43
+FROM docker.io/library/fedora:43
+
+LABEL org.opencontainers.image.title="binnacle-worker"
+LABEL org.opencontainers.image.description="AI agent worker with binnacle task tracking"
+LABEL org.opencontainers.image.source="https://github.com/hbeberman/binnacle"
+
+# Install system dependencies
+# gcc/make: Required for Rust's C linker (compiling native crates)
+# Rust toolchain is needed for pre-commit hooks (cargo fmt, clippy, audit)
+# diffutils: Required for pre-commit AGENTS.md sync check
+# just: Command runner for justfile recipes
+RUN dnf install -y \
+    git \
+    curl \
+    wget \
+    jq \
+    ripgrep \
+    fd-find \
+    tree \
+    vim \
+    unzip \
+    python3 \
+    python3-pip \
+    nodejs \
+    npm \
+    nss_wrapper \
+    gcc \
+    make \
+    diffutils \
+    just \
+    && dnf clean all
+
+# Install Rust toolchain via rustup
+# Required for pre-commit hooks: cargo fmt, cargo clippy, cargo audit
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal && \
+    rustup component add rustfmt clippy rust-analyzer && \
+    cargo install cargo-audit && \
+    chmod -R a+rw $RUSTUP_HOME $CARGO_HOME
+
+# Install TypeScript/JavaScript language server for LSP support
+# Requires Node.js >= 16 (Fedora 43 provides 22.x)
+RUN npm install -g @vtsls/language-server
+
+# Install Lightpanda headless browser for GUI validation
+RUN curl -L -o /usr/local/bin/lightpanda \
+    https://github.com/lightpanda-io/browser/releases/download/v0.2.1/lightpanda-x86_64-linux && \
+    chmod +x /usr/local/bin/lightpanda
+
+# Disable Lightpanda telemetry (belt-and-suspenders with inline env at invocation)
+ENV LIGHTPANDA_DISABLE_TELEMETRY=true
+
+# Create nss_wrapper template files for default (non-sudo) mode
+# Used by entrypoint.sh to provide user identity for Node.js os.userInfo(), git, etc.
+# when running as host user (not root)
+RUN mkdir -p /etc/nss_wrapper && \
+    cp /etc/passwd /etc/nss_wrapper/passwd && \
+    cp /etc/group /etc/nss_wrapper/group && \
+    chmod 644 /etc/nss_wrapper/passwd /etc/nss_wrapper/group
+
+# Copy binnacle binary (bn container build copies the running binary here)
+# For manual builds: cargo build --release && cp target/release/bn .binnacle/containers/worker/bn
+# The binary has COPILOT_VERSION embedded at build time (see build.rs)
+ARG BN_BINARY_PATH=.binnacle/containers/worker/bn
+COPY ${BN_BINARY_PATH} /usr/local/bin/bn
+
+# Install pinned GitHub Copilot CLI version using bn system copilot install
+# This downloads the version embedded in the bn binary (from COPILOT_VERSION at build time)
+# The binary is cached to ~/.local/share/binnacle/utils/copilot/<version>/copilot
+ENV BN_DATA_DIR=/usr/local/share/binnacle
+RUN bn system copilot install --upstream
+
+# Install git wrapper that blocks --no-verify
+# The wrapper intercepts git commit/push --no-verify and rejects it
+# This ensures agents cannot bypass commit hooks
+COPY .binnacle/containers/worker/git-wrapper.sh /usr/local/bin/git
+RUN chmod +x /usr/local/bin/git
+
+# Create working directories
+RUN mkdir -p /workspace /binnacle
+
+# Set container mode environment variables
+ENV BN_CONTAINER_MODE=true
+ENV BN_AGENT_TYPE=worker
+ENV BN_MERGE_TARGET=main
+
+# Copy entrypoint script
+COPY .binnacle/containers/worker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+WORKDIR /workspace
+ENTRYPOINT ["/entrypoint.sh"]
