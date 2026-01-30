@@ -10116,12 +10116,13 @@ impl Output for LineageResult {
     }
 }
 
-/// Walk the ancestry chain from a task up to the first PRD document.
+/// Walk the ancestry chain from a task up to the first PRD document (or further if stop_at_prd is false).
 pub fn graph_lineage(
     repo_path: &Path,
     id: &str,
     max_depth: usize,
     verbose: bool,
+    stop_at_prd: bool,
 ) -> Result<LineageResult> {
     let storage = Storage::open(repo_path)?;
     let mut hops = Vec::new();
@@ -10248,8 +10249,14 @@ pub fn graph_lineage(
             && let Some(ref dtype) = doc_type
             && dtype == "prd"
         {
-            prd_found = Some(current_id.clone());
-            break;
+            // Record that we found a PRD
+            if prd_found.is_none() {
+                prd_found = Some(current_id.clone());
+            }
+            // Only stop here if stop_at_prd is true
+            if stop_at_prd {
+                break;
+            }
         }
 
         // Check for documents edges to PRD at this hop
@@ -10269,12 +10276,17 @@ pub fn graph_lineage(
                     description: None,
                     edge_to_parent: Some("documents".to_string()),
                 });
-                prd_found = Some(edge.source);
+                // Record that we found a PRD (only if not already found)
+                if prd_found.is_none() {
+                    prd_found = Some(edge.source.clone());
+                }
+                // Only add the first PRD found at this hop, then continue
                 break;
             }
         }
 
-        if prd_found.is_some() {
+        // If stop_at_prd is true and we found a PRD, stop traversing
+        if stop_at_prd && prd_found.is_some() {
             break;
         }
 
@@ -11080,8 +11092,8 @@ pub fn graph_context(
     // Close the storage to release file locks before calling other functions
     drop(storage);
 
-    // Get lineage
-    let lineage_result = graph_lineage(repo_path, id, lineage_depth, verbose)?;
+    // Get lineage (default: stop at PRD)
+    let lineage_result = graph_lineage(repo_path, id, lineage_depth, verbose, true)?;
 
     // Get peers
     let peers_result = graph_peers(repo_path, id, peer_depth, include_closed, verbose)?;
@@ -29281,8 +29293,8 @@ mod tests {
         )
         .unwrap();
 
-        // Test: lineage should traverse task -> milestone -> PRD and stop
-        let result = graph_lineage(temp.path(), &task.id, 10, false).unwrap();
+        // Test: lineage should traverse task -> milestone -> PRD and stop (default behavior)
+        let result = graph_lineage(temp.path(), &task.id, 10, false, true).unwrap();
 
         assert_eq!(result.source, task.id);
         assert_eq!(result.hops.len(), 3); // task, milestone, doc
@@ -29294,6 +29306,114 @@ mod tests {
         assert_eq!(result.hops[1].id, milestone.id);
         assert_eq!(result.hops[2].id, prd.id);
         assert_eq!(result.hops[2].doc_type, Some("prd".to_string()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_graph_lineage_continues_past_prd() {
+        let temp = setup();
+
+        // Create chain: task -> milestone1 -> PRD doc -> milestone2 (parent)
+        // First create a parent milestone that the PRD is attached to
+        let parent_milestone = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create the child milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Test Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Link milestone to parent_milestone (child_of relationship)
+        link_add(
+            temp.path(),
+            &milestone.id,
+            &parent_milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Create a PRD doc attached to the milestone
+        let prd = doc_create(
+            temp.path(),
+            "PRD: Test Feature".to_string(),
+            DocType::Prd,
+            None,
+            Some("# Overview\n\nThis is a test PRD.".to_string()),
+            None,
+            vec![],
+            vec![milestone.id.clone()],
+        )
+        .unwrap();
+
+        // Create task as child of milestone
+        let task = task_create(
+            temp.path(),
+            "Test task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        link_add(
+            temp.path(),
+            &task.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Test: with stop_at_prd=false, lineage should traverse task -> milestone -> PRD and continue to parent_milestone
+        let result = graph_lineage(temp.path(), &task.id, 10, false, false).unwrap();
+
+        assert_eq!(result.source, task.id);
+        // Should find the PRD but not stop there
+        assert!(result.prd_found.is_some());
+        assert!(!result.truncated);
+
+        // The chain should be: task, milestone, prd (via documents edge), parent_milestone
+        // Since we continue past PRD with stop_at_prd=false
+        assert!(result.hops.len() >= 4); // At least task, milestone, prd, parent_milestone
+
+        // Verify task and milestone are in the chain
+        assert_eq!(result.hops[0].id, task.id);
+        assert_eq!(result.hops[1].id, milestone.id);
+
+        // The PRD should be found as a hop
+        let prd_index = result.hops.iter().position(|h| h.id == prd.id);
+        let parent_index = result.hops.iter().position(|h| h.id == parent_milestone.id);
+
+        // PRD should be found
+        assert!(prd_index.is_some(), "PRD should be in hops");
+
+        // Parent milestone should be found
+        assert!(
+            parent_index.is_some(),
+            "Parent milestone should be in hops when not stopping at PRD"
+        );
     }
 
     #[test]
@@ -29362,7 +29482,7 @@ mod tests {
         link_add(temp.path(), &task1.id, &task2.id, "child_of", None, false).unwrap();
 
         // Test: max_depth=3 should stop at task3
-        let result = graph_lineage(temp.path(), &task1.id, 3, false).unwrap();
+        let result = graph_lineage(temp.path(), &task1.id, 3, false, true).unwrap();
 
         assert_eq!(result.source, task1.id);
         assert_eq!(result.hops.len(), 3); // task1, task2, task3
@@ -29393,7 +29513,7 @@ mod tests {
         .unwrap();
 
         // Test: lineage of orphan should contain only itself
-        let result = graph_lineage(temp.path(), &task.id, 10, false).unwrap();
+        let result = graph_lineage(temp.path(), &task.id, 10, false, true).unwrap();
 
         assert_eq!(result.source, task.id);
         assert_eq!(result.hops.len(), 1);

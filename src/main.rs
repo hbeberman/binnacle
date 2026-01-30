@@ -967,8 +967,14 @@ fn run_command(
                 let result = commands::graph_components(repo_path)?;
                 output(&result, human);
             }
-            GraphCommands::Lineage { id, depth, verbose } => {
-                let result = commands::graph_lineage(repo_path, &id, depth, verbose)?;
+            GraphCommands::Lineage {
+                id,
+                depth,
+                verbose,
+                no_stop_at_prd,
+            } => {
+                let result =
+                    commands::graph_lineage(repo_path, &id, depth, verbose, !no_stop_at_prd)?;
                 output(&result, human);
             }
             GraphCommands::Peers {
@@ -3313,12 +3319,18 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
 
         Some(Commands::Graph { command }) => match command {
             GraphCommands::Components => ("graph components".to_string(), serde_json::json!({})),
-            GraphCommands::Lineage { id, depth, verbose } => (
+            GraphCommands::Lineage {
+                id,
+                depth,
+                verbose,
+                no_stop_at_prd,
+            } => (
                 "graph lineage".to_string(),
                 serde_json::json!({
                     "id": id,
                     "depth": depth,
                     "verbose": verbose,
+                    "no_stop_at_prd": no_stop_at_prd,
                 }),
             ),
             GraphCommands::Peers {
