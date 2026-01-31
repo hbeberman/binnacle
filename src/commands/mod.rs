@@ -26,6 +26,27 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
+/// Guidance message for GitHub token acquisition.
+/// Shown when token validation fails or when --token is missing.
+const TOKEN_ACQUISITION_GUIDANCE: &str = r#"
+To create a GitHub Personal Access Token (PAT) for Copilot:
+
+1. Go to https://github.com/settings/tokens
+2. Click "Generate new token" → "Fine-grained token"
+3. Give it a name (e.g., "binnacle")
+4. Set expiration (90 days recommended for security)
+5. Under "Repository access", select your target repositories or "All repositories"
+6. Under "Permissions", enable:
+   - "Copilot" → Read-only (required for AI features)
+7. Click "Generate token" and copy the token
+
+Then run:
+  bn system host-init --token <your-token>
+
+For CI/pipelines (no Copilot validation):
+  bn system host-init --token-non-validated <your-token>
+"#;
+
 /// Output format trait for commands.
 pub trait Output {
     /// Serialize to JSON string.
@@ -757,8 +778,8 @@ output-format "json"
             }
             Err(e) => {
                 return Err(Error::Other(format!(
-                    "Copilot token validation failed: {}. Ensure you have an active GitHub Copilot subscription and your token has the required permissions.",
-                    e
+                    "Copilot token validation failed: {}\n{}",
+                    e, TOKEN_ACQUISITION_GUIDANCE
                 )));
             }
         }
@@ -775,8 +796,8 @@ output-format "json"
             }
             Err(e) => {
                 return Err(Error::Other(format!(
-                    "Token validation failed: {}. The token must be a valid GitHub PAT.",
-                    e
+                    "Token validation failed: {}\n{}",
+                    e, TOKEN_ACQUISITION_GUIDANCE
                 )));
             }
         }
@@ -3619,8 +3640,8 @@ pub fn token_set(token: &str) -> Result<TokenSetResult> {
     // Validate the token via Copilot API
     let validation = crate::github::validate_copilot_token(token).map_err(|e| {
         Error::Other(format!(
-            "Token validation failed: {}\n\nTo acquire a valid token:\n  1. Go to https://github.com/settings/tokens\n  2. Create a new token with 'copilot' scope\n  3. Ensure you have an active GitHub Copilot subscription",
-            e
+            "Token validation failed: {}\n{}",
+            e, TOKEN_ACQUISITION_GUIDANCE
         ))
     })?;
 

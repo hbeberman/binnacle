@@ -2747,6 +2747,23 @@ fn test_system_host_init_token_invalid() {
 }
 
 #[test]
+fn test_system_host_init_token_invalid_shows_guidance() {
+    let temp = TestEnv::new();
+
+    // Invalid token should show guidance on how to acquire a proper token
+    bn_in(&temp)
+        .args([
+            "system",
+            "host-init",
+            "--token-non-validated",
+            "invalid_token_12345",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("github.com/settings/tokens"));
+}
+
+#[test]
 fn test_system_host_init_json_includes_token_fields() {
     let temp = TestEnv::new();
 
