@@ -3054,7 +3054,7 @@ impl Storage {
 
     /// Get the 3 most recently completed tasks.
     pub fn get_recently_completed_tasks(&self) -> Result<Vec<Task>> {
-        let sql = "SELECT id FROM tasks WHERE status = 'done' ORDER BY updated_at DESC LIMIT 3";
+        let sql = "SELECT id FROM tasks WHERE status = 'done' AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 3";
         let mut stmt = self.conn.prepare(sql)?;
         let ids: Vec<String> = stmt
             .query_map([], |row| row.get(0))?
@@ -3073,7 +3073,7 @@ impl Storage {
 
     /// Get the 3 most recently completed bugs.
     pub fn get_recently_completed_bugs(&self) -> Result<Vec<Bug>> {
-        let sql = "SELECT id FROM bugs WHERE status = 'done' ORDER BY updated_at DESC LIMIT 3";
+        let sql = "SELECT id FROM bugs WHERE status = 'done' AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 3";
         let mut stmt = self.conn.prepare(sql)?;
         let ids: Vec<String> = stmt
             .query_map([], |row| row.get(0))?

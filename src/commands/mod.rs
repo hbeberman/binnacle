@@ -12828,7 +12828,26 @@ impl Output for ReadyTasks {
         // Show recently completed section at the bottom
         if !self.recently_completed_tasks.is_empty() || !self.recently_completed_bugs.is_empty() {
             lines.push(String::new()); // blank line before completed section
-            lines.push("Recently completed:\n".to_string());
+            let completed_task_count = self.recently_completed_tasks.len();
+            let completed_bug_count = self.recently_completed_bugs.len();
+            let header = if completed_bug_count > 0 && completed_task_count > 0 {
+                format!(
+                    "Recently completed ({}, {}):\n",
+                    pluralize(completed_task_count, "task"),
+                    pluralize(completed_bug_count, "bug")
+                )
+            } else if completed_bug_count > 0 {
+                format!(
+                    "Recently completed ({}):\n",
+                    pluralize(completed_bug_count, "bug")
+                )
+            } else {
+                format!(
+                    "Recently completed ({}):\n",
+                    pluralize(completed_task_count, "task")
+                )
+            };
+            lines.push(header);
 
             // Show completed bugs
             for bug in &self.recently_completed_bugs {
