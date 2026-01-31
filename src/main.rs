@@ -2487,6 +2487,14 @@ fn run_command(
                 )?;
             }
         },
+        #[cfg(feature = "tui")]
+        Some(Commands::Tui { port, host }) => {
+            // Create a tokio runtime and run the TUI
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?;
+            rt.block_on(async { binnacle::tui::run_tui(port, Some(host)).await })
+                .map_err(|e| binnacle::Error::Other(e.to_string()))?;
+        }
         None => {
             // Show welcome message when no command is given
             if human {
@@ -4566,6 +4574,12 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             };
             ("gui".to_string(), subcommand)
         }
+
+        #[cfg(feature = "tui")]
+        Some(Commands::Tui { port, host }) => (
+            "tui".to_string(),
+            serde_json::json!({ "port": port, "host": host }),
+        ),
 
         None => ("status".to_string(), serde_json::json!({})),
     }

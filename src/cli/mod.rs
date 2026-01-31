@@ -399,6 +399,22 @@ For detailed instructions, see: container/README.md
         #[arg(long)]
         dry_run: bool,
     },
+
+    /// Terminal UI for real-time cluster monitoring (requires 'tui' feature)
+    ///
+    /// Connects to a running `bn serve` or `bn gui serve` instance via WebSocket
+    /// and displays a keyboard-driven interface for monitoring queued tasks,
+    /// recently completed items, and exploring node details.
+    #[cfg(feature = "tui")]
+    Tui {
+        /// Server port to connect to (default: 3030, or BN_GUI_PORT env var)
+        #[arg(short, long, env = "BN_GUI_PORT")]
+        port: Option<u16>,
+
+        /// Server host to connect to (default: localhost)
+        #[arg(long, default_value = "localhost")]
+        host: String,
+    },
 }
 
 /// Task subcommands

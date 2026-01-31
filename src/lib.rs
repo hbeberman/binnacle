@@ -21,6 +21,8 @@ pub mod storage;
 pub mod sys;
 #[cfg(all(feature = "tmux", not(target_arch = "wasm32")))]
 pub mod tmux;
+#[cfg(all(feature = "tui", not(target_arch = "wasm32")))]
+pub mod tui;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 

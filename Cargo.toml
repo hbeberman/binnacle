@@ -75,6 +75,11 @@ tracing = { version = "0.1", optional = true }
 regex = { version = "1", optional = true }
 libc = { version = "0.2", optional = true }
 
+# TUI dependencies (feature-gated)
+ratatui = { version = "0.29", optional = true }
+crossterm = { version = "0.28", optional = true }
+tokio-tungstenite = { version = "0.24", optional = true }
+
 [features]
 gui = [
   "axum",
@@ -86,6 +91,13 @@ gui = [
   "tracing",
   "regex",
   "libc",
+]
+tui = [
+  "ratatui",
+  "crossterm",
+  "tokio",
+  "tokio-tungstenite",
+  "futures",
 ]
 tmux = []
 wasm = [
