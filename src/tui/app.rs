@@ -49,6 +49,19 @@ pub enum ActiveView {
     NodeDetail,
 }
 
+/// Input mode for the TUI
+///
+/// Tracks the current input mode state, allowing the TUI to handle keyboard
+/// input differently based on context (e.g., normal navigation vs search filtering).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InputMode {
+    /// Default navigation mode - normal key handling
+    #[default]
+    Normal,
+    /// Search mode - filtering lists with / and n/N navigation
+    Search,
+}
+
 /// Response from /api/ready endpoint
 #[derive(Debug, Deserialize)]
 struct ReadyResponse {
@@ -254,6 +267,10 @@ pub struct TuiApp {
     active_view: ActiveView,
     /// Previous view (for returning from detail view)
     previous_list_view: ActiveView,
+    /// Current input mode (Normal, Search, etc.)
+    /// NOTE: Will be used by search mode implementation (bn-575f)
+    #[allow(dead_code)]
+    input_mode: InputMode,
     /// Queue/Ready view
     queue_ready_view: QueueReadyView,
     /// Recently Completed view
@@ -290,6 +307,7 @@ impl TuiApp {
             should_quit: false,
             active_view: ActiveView::QueueReady,
             previous_list_view: ActiveView::QueueReady,
+            input_mode: InputMode::Normal,
             queue_ready_view: QueueReadyView::new(),
             recently_completed_view: RecentlyCompletedView::new(),
             node_detail_view: NodeDetailView::new(),
@@ -304,6 +322,34 @@ impl TuiApp {
             help_visible: false,
             layout_chunks: None,
         }
+    }
+
+    /// Get the current input mode
+    /// NOTE: Will be used by search mode implementation (bn-575f)
+    #[allow(dead_code)]
+    pub fn input_mode(&self) -> InputMode {
+        self.input_mode
+    }
+
+    /// Set the input mode
+    /// NOTE: Will be used by search mode implementation (bn-575f)
+    #[allow(dead_code)]
+    pub fn set_input_mode(&mut self, mode: InputMode) {
+        self.input_mode = mode;
+    }
+
+    /// Check if we're in normal mode
+    /// NOTE: Will be used by search mode implementation (bn-575f)
+    #[allow(dead_code)]
+    pub fn is_normal_mode(&self) -> bool {
+        self.input_mode == InputMode::Normal
+    }
+
+    /// Check if we're in search mode
+    /// NOTE: Will be used by search mode implementation (bn-575f)
+    #[allow(dead_code)]
+    pub fn is_search_mode(&self) -> bool {
+        self.input_mode == InputMode::Search
     }
 
     /// Switch to the next view (only cycles between list views, not detail)
