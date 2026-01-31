@@ -122,9 +122,10 @@ function renderNodeList(container, options = {}) {
     }
     
     // Group nodes by status (kanban columns)
+    // Note: in_progress items are kept in the pending column with a banner
+    // to show all actionable work together
     const columns = {
         pending: [],
-        in_progress: [],
         blocked: [],
         done: []
     };
@@ -133,22 +134,20 @@ function renderNodeList(container, options = {}) {
         if (node.nodeType === 'task' || node.nodeType === 'bug' || node.nodeType === 'milestone') {
             if (node.status === 'done' || node.status === 'cancelled') {
                 columns.done.push(node);
-            } else if (node.status === 'in_progress') {
-                columns.in_progress.push(node);
             } else if (node.status === 'blocked') {
                 columns.blocked.push(node);
             } else {
-                // pending or other statuses go in pending
+                // pending and in_progress go together in pending column
+                // in_progress items will have a banner to distinguish them
                 columns.pending.push(node);
             }
         } else if (node.nodeType === 'issue') {
             // Issues have their own status workflow
             if (['resolved', 'closed', 'wont_fix', 'by_design', 'no_repro'].includes(node.status)) {
                 columns.done.push(node);
-            } else if (node.status === 'investigating') {
-                columns.in_progress.push(node);
             } else {
-                // open, triage go in pending
+                // open, triage, investigating all go in pending
+                // investigating will have an in-progress banner
                 columns.pending.push(node);
             }
         } else if (node.nodeType === 'idea') {
@@ -166,7 +165,12 @@ function renderNodeList(container, options = {}) {
     // Sort each column
     Object.values(columns).forEach(column => {
         column.sort((a, b) => {
-            // Ready first
+            // In-progress items first (they have banner and should be prominent)
+            const aInProgress = (a.status === 'in_progress' || a.status === 'investigating') ? 0 : 1;
+            const bInProgress = (b.status === 'in_progress' || b.status === 'investigating') ? 0 : 1;
+            if (aInProgress !== bInProgress) return aInProgress - bInProgress;
+            
+            // Ready items next
             const aReady = readyIds.has(a.id);
             const bReady = readyIds.has(b.id);
             if (aReady !== bReady) return bReady - aReady;
@@ -192,9 +196,6 @@ function renderNodeList(container, options = {}) {
     const columnsToRender = [];
     if (columns.pending.length > 0) {
         columnsToRender.push(renderKanbanColumn('Pending', 'pending', columns.pending, readyIds, options));
-    }
-    if (columns.in_progress.length > 0) {
-        columnsToRender.push(renderKanbanColumn('In Progress', 'in_progress', columns.in_progress, readyIds, options));
     }
     if (columns.blocked.length > 0) {
         columnsToRender.push(renderKanbanColumn('Blocked', 'blocked', columns.blocked, readyIds, options));
