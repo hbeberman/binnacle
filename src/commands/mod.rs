@@ -6181,6 +6181,9 @@ pub struct TaskClosed {
     pub hint: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub removed_from_queues: Vec<String>,
+    /// Milestones that were auto-completed because all their child tasks/bugs are now done
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub auto_completed_milestones: Vec<String>,
 }
 
 impl Output for TaskClosed {
@@ -6197,6 +6200,12 @@ impl Output for TaskClosed {
             output.push_str(&format!(
                 "\nRemoved from queue(s): {}",
                 self.removed_from_queues.join(", ")
+            ));
+        }
+        if !self.auto_completed_milestones.is_empty() {
+            output.push_str(&format!(
+                "\nAuto-completed milestone(s): {}",
+                self.auto_completed_milestones.join(", ")
             ));
         }
         if let Some(hint) = &self.hint {
@@ -6298,6 +6307,72 @@ fn check_and_auto_resolve_parent_issues(
     }
 
     Ok(auto_resolved)
+}
+
+/// Check if any parent milestones should be auto-completed when a task or bug is closed.
+///
+/// When a task or bug is closed, this function:
+/// 1. Finds all parent milestones via child_of edges (where task/bug is the child/source)
+/// 2. For each parent milestone, checks if ALL children (tasks and bugs) are now closed
+/// 3. If yes and the milestone is not already in a terminal state, transitions it to `done`
+/// 4. Returns the list of milestone IDs that were auto-completed
+fn check_and_auto_complete_parent_milestones(
+    storage: &mut Storage,
+    entity_id: &str,
+) -> Result<Vec<String>> {
+    use crate::models::EdgeType;
+
+    let mut auto_completed = Vec::new();
+
+    // Find parent milestones via child_of edges where this entity is the source (child)
+    let child_of_edges = storage.list_edges(Some(EdgeType::ChildOf), Some(entity_id), None)?;
+
+    for edge in child_of_edges {
+        let parent_id = &edge.target;
+
+        // Check if the parent is a milestone
+        let milestone = match storage.get_milestone(parent_id) {
+            Ok(milestone) => milestone,
+            Err(_) => continue, // Parent is not a milestone, skip
+        };
+
+        // Skip if milestone is already in a terminal state
+        if matches!(milestone.status, TaskStatus::Done | TaskStatus::Cancelled) {
+            continue;
+        }
+
+        // Find all children of this milestone via child_of edges (where milestone is the target)
+        let child_edges = storage.list_edges(Some(EdgeType::ChildOf), None, Some(parent_id))?;
+
+        // Check if all children are closed (tasks or bugs)
+        let all_children_closed = child_edges.iter().all(|child_edge| {
+            let child_id = &child_edge.source;
+            // Try to get as task first
+            if let Ok(task) = storage.get_task(child_id) {
+                return matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled);
+            }
+            // Then try as bug
+            if let Ok(bug) = storage.get_bug(child_id) {
+                return matches!(bug.status, TaskStatus::Done | TaskStatus::Cancelled);
+            }
+            // Not a task or bug (could be other entity type), consider it "done"
+            true
+        });
+
+        if all_children_closed {
+            // Auto-complete the milestone
+            let mut milestone = milestone;
+            milestone.status = TaskStatus::Done;
+            milestone.closed_at = Some(Utc::now());
+            milestone.closed_reason =
+                Some("Auto-completed: all child tasks/bugs are done".to_string());
+            milestone.core.updated_at = Utc::now();
+            storage.update_milestone(&milestone)?;
+            auto_completed.push(parent_id.clone());
+        }
+    }
+
+    Ok(auto_completed)
 }
 
 fn promote_partial_tasks(storage: &mut Storage) -> Result<Vec<String>> {
@@ -6435,6 +6510,9 @@ pub fn task_close(
     // Auto-remove task from any queues it's in
     let removed_from_queues = remove_task_from_queues(&mut storage, id)?;
 
+    // Check if any parent milestones should be auto-completed
+    let auto_completed_milestones = check_and_auto_complete_parent_milestones(&mut storage, id)?;
+
     // Generate warnings for incomplete deps, missing commits, no commits, and uncommitted changes
     let mut warnings = Vec::new();
     if !incomplete_deps.is_empty() {
@@ -6474,6 +6552,7 @@ pub fn task_close(
         warning,
         hint,
         removed_from_queues,
+        auto_completed_milestones,
     })
 }
 
@@ -7407,6 +7486,9 @@ pub struct BugClosed {
     /// Issues that were auto-resolved because all their child bugs are now closed
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub auto_resolved_issues: Vec<String>,
+    /// Milestones that were auto-completed because all their child tasks/bugs are now done
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub auto_completed_milestones: Vec<String>,
 }
 
 impl Output for BugClosed {
@@ -7429,6 +7511,12 @@ impl Output for BugClosed {
             output.push_str(&format!(
                 "\nAuto-resolved parent issue(s): {}",
                 self.auto_resolved_issues.join(", ")
+            ));
+        }
+        if !self.auto_completed_milestones.is_empty() {
+            output.push_str(&format!(
+                "\nAuto-completed milestone(s): {}",
+                self.auto_completed_milestones.join(", ")
             ));
         }
         if let Some(hint) = &self.hint {
@@ -7498,6 +7586,9 @@ pub fn bug_close(
     // Check if any parent issues should be auto-resolved
     let auto_resolved_issues = check_and_auto_resolve_parent_issues(&mut storage, id)?;
 
+    // Check if any parent milestones should be auto-completed
+    let auto_completed_milestones = check_and_auto_complete_parent_milestones(&mut storage, id)?;
+
     // Generate warnings for incomplete deps, missing commits, no commits, and uncommitted changes
     let mut warnings = Vec::new();
     if !incomplete_deps.is_empty() {
@@ -7538,6 +7629,7 @@ pub fn bug_close(
         hint,
         removed_from_queues,
         auto_resolved_issues,
+        auto_completed_milestones,
     })
 }
 
@@ -24124,6 +24216,252 @@ mod tests {
         // Should succeed without commit
         let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    #[serial]
+    fn test_task_close_auto_completes_parent_milestone() {
+        let temp = setup();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create two tasks as children of the milestone
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link tasks to milestone as children
+        link_add(
+            temp.path(),
+            &task1.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &task2.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Close first task - milestone should NOT be auto-completed
+        let result1 = task_close(temp.path(), &task1.id, Some("Done".to_string()), false).unwrap();
+        assert!(result1.auto_completed_milestones.is_empty());
+
+        // Verify milestone is still pending
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Pending);
+
+        // Close second task - milestone should now be auto-completed
+        let result2 = task_close(temp.path(), &task2.id, Some("Done".to_string()), false).unwrap();
+        assert_eq!(result2.auto_completed_milestones.len(), 1);
+        assert_eq!(result2.auto_completed_milestones[0], milestone.id);
+
+        // Verify milestone is now done
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Done);
+        assert_eq!(
+            ms.milestone.closed_reason,
+            Some("Auto-completed: all child tasks/bugs are done".to_string())
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_bug_close_auto_completes_parent_milestone() {
+        let temp = setup();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a bug as child of the milestone
+        let bug = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Link bug to milestone as child
+        link_add(temp.path(), &bug.id, &milestone.id, "child_of", None, false).unwrap();
+
+        // Close bug - milestone should be auto-completed
+        let result = bug_close(temp.path(), &bug.id, Some("Fixed".to_string()), false).unwrap();
+        assert_eq!(result.auto_completed_milestones.len(), 1);
+        assert_eq!(result.auto_completed_milestones[0], milestone.id);
+
+        // Verify milestone is done
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Done);
+    }
+
+    #[test]
+    #[serial]
+    fn test_task_close_no_auto_complete_when_milestone_already_done() {
+        let temp = setup();
+
+        // Create a milestone and close it manually
+        let milestone = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+        milestone_close(
+            temp.path(),
+            &milestone.id,
+            Some("Manual close".to_string()),
+            false,
+        )
+        .unwrap();
+
+        // Create a task as child
+        let task = task_create(
+            temp.path(),
+            "Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &task.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Close task - should not report auto-completed since milestone was already done
+        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false).unwrap();
+        assert!(result.auto_completed_milestones.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn test_task_close_auto_completes_with_mixed_task_and_bug_children() {
+        let temp = setup();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a task and a bug as children
+        let task = task_create(
+            temp.path(),
+            "Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let bug = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Link both to milestone
+        link_add(
+            temp.path(),
+            &task.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+        link_add(temp.path(), &bug.id, &milestone.id, "child_of", None, false).unwrap();
+
+        // Close task first - milestone should not be auto-completed
+        let result1 = task_close(temp.path(), &task.id, Some("Done".to_string()), false).unwrap();
+        assert!(result1.auto_completed_milestones.is_empty());
+
+        // Close bug - now milestone should be auto-completed
+        let result2 = bug_close(temp.path(), &bug.id, Some("Fixed".to_string()), false).unwrap();
+        assert_eq!(result2.auto_completed_milestones.len(), 1);
+        assert_eq!(result2.auto_completed_milestones[0], milestone.id);
     }
 
     #[test]
