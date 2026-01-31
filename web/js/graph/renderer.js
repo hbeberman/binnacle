@@ -360,8 +360,19 @@ function filterVisibleNodes() {
         if (nodeFilters[node.type] === false) return false;
         
         // Apply hide completed filter
-        if (hideCompleted && (node.status === 'done' || node.status === 'cancelled')) {
-            return false;
+        if (hideCompleted) {
+            // Hide completed tasks/bugs/milestones (status-based)
+            if (node.status === 'done' || node.status === 'cancelled') {
+                return false;
+            }
+            // Hide PRDs and doc nodes by default (they don't have status)
+            if (node.type === 'doc') {
+                return false;
+            }
+            // Hide completed milestones (redundant check, but explicit)
+            if (node.type === 'milestone' && (node.status === 'done' || node.status === 'cancelled')) {
+                return false;
+            }
         }
         
         // Apply search filter

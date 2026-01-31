@@ -95,8 +95,15 @@ function getNodesToFadeOut(revealedNodeIds) {
         }
         
         // Hide completed filter
-        if (passes && hideCompleted && (node.status === 'done' || node.status === 'cancelled')) {
-            passes = false;
+        if (passes && hideCompleted) {
+            // Hide completed tasks/bugs/milestones (status-based)
+            if (node.status === 'done' || node.status === 'cancelled') {
+                passes = false;
+            }
+            // Hide PRDs and doc nodes by default (they don't have status)
+            if (node.type === 'doc') {
+                passes = false;
+            }
         }
         
         // Search filter

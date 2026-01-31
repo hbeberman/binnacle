@@ -83,18 +83,27 @@ function renderNodeList(container, options = {}) {
     // Apply hideCompleted filter
     if (hideCompleted) {
         allNodes = allNodes.filter(node => {
-            // Keep non-tasks/bugs/issues/ideas/milestones
-            if (!['task', 'bug', 'issue', 'idea', 'milestone'].includes(node.nodeType)) {
+            // Hide docs (PRDs and other doc types) by default
+            if (node.nodeType === 'doc') {
+                return false;
+            }
+            
+            // Keep tests (no status concept)
+            if (node.nodeType === 'test') {
                 return true;
             }
             
-            // Filter out completed statuses
+            // Filter out completed statuses for ideas
             if (node.nodeType === 'idea') {
                 return node.status !== 'promoted' && node.status !== 'wilted';
             }
+            
+            // Filter out completed statuses for issues
             if (node.nodeType === 'issue') {
                 return !['resolved', 'closed', 'wont_fix', 'by_design', 'no_repro'].includes(node.status);
             }
+            
+            // Filter out completed statuses for tasks/bugs/milestones
             return node.status !== 'done' && node.status !== 'cancelled';
         });
     }
