@@ -218,7 +218,10 @@ mod gui_enabled {
         let env = TestEnv::new();
 
         // Initialize binnacle first
-        env.bn().args(["system", "init", "-y"]).assert().success();
+        env.bn()
+            .args(["session", "init", "--auto-global", "-y"])
+            .assert()
+            .success();
 
         // Find the storage dir that was created and add a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
@@ -241,7 +244,10 @@ mod gui_enabled {
         let env = TestEnv::new();
 
         // Initialize binnacle first
-        env.bn().args(["system", "init", "-y"]).assert().success();
+        env.bn()
+            .args(["session", "init", "--auto-global", "-y"])
+            .assert()
+            .success();
 
         // Find the storage dir that was created
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
@@ -267,7 +273,10 @@ mod gui_enabled {
         let env = TestEnv::new();
 
         // Initialize binnacle first
-        env.bn().args(["system", "init", "-y"]).assert().success();
+        env.bn()
+            .args(["session", "init", "--auto-global", "-y"])
+            .assert()
+            .success();
 
         // Find the storage dir and create a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
@@ -303,7 +312,10 @@ mod gui_enabled {
         let env = TestEnv::new();
 
         // Initialize binnacle
-        env.bn().args(["system", "init", "-y"]).assert().success();
+        env.bn()
+            .args(["session", "init", "--auto-global", "-y"])
+            .assert()
+            .success();
 
         // Export GUI to temporary output directory
         let output_dir = tempfile::tempdir().unwrap();
@@ -351,7 +363,10 @@ mod gui_enabled {
         let env = TestEnv::new();
 
         // Initialize binnacle
-        env.bn().args(["system", "init", "-y"]).assert().success();
+        env.bn()
+            .args(["session", "init", "--auto-global", "-y"])
+            .assert()
+            .success();
 
         // Export GUI to temporary output directory
         let output_dir = tempfile::tempdir().unwrap();
@@ -486,7 +501,10 @@ mod gui_enabled {
         let env = TestEnv::new();
 
         // Initialize binnacle first
-        env.bn().args(["system", "init", "-y"]).assert().success();
+        env.bn()
+            .args(["session", "init", "--auto-global", "-y"])
+            .assert()
+            .success();
 
         // Find the storage dir and create a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
@@ -569,7 +587,10 @@ mod gui_enabled {
         let env = TestEnv::new();
 
         // Initialize binnacle first
-        env.bn().args(["system", "init", "-y"]).assert().success();
+        env.bn()
+            .args(["session", "init", "--auto-global", "-y"])
+            .assert()
+            .success();
 
         // Find the storage dir and create a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
@@ -619,7 +640,10 @@ mod gui_enabled {
         let env = TestEnv::new();
 
         // Initialize binnacle first
-        env.bn().args(["system", "init", "-y"]).assert().success();
+        env.bn()
+            .args(["session", "init", "--auto-global", "-y"])
+            .assert()
+            .success();
 
         // Find the storage dir and create a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
@@ -640,7 +664,10 @@ mod gui_enabled {
         let env = TestEnv::new();
 
         // Initialize binnacle first
-        env.bn().args(["system", "init", "-y"]).assert().success();
+        env.bn()
+            .args(["session", "init", "--auto-global", "-y"])
+            .assert()
+            .success();
 
         // Find the storage dir and create a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());

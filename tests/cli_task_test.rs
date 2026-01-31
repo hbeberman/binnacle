@@ -29,7 +29,7 @@ fn test_init_creates_storage() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args(["system", "init"])
+        .args(["session", "init", "--auto-global"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":true"));
@@ -40,7 +40,7 @@ fn test_init_human_readable() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args(["system", "init", "-H"])
+        .args(["session", "init", "--auto-global", "-H"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Initialized binnacle"));
@@ -51,7 +51,7 @@ fn test_init_already_initialized() {
     let temp = init_binnacle();
 
     bn_in(&temp)
-        .args(["system", "init"])
+        .args(["session", "init", "--auto-global"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":false"));

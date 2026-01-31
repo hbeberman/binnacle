@@ -72,7 +72,7 @@ pub enum Commands {
     /// Get project overview and current state (start here!)
     ///
     /// Shows tasks, bugs, milestones, and their relationships.
-    /// For new projects, humans should use `bn system init` (interactive).
+    /// For new projects, humans should use `bn system host-init` (global) then `bn session init` (repo).
     /// The --init flag is for AI agents needing non-interactive setup.
     Orient {
         /// Agent type (required): worker, planner, buddy, or ask
@@ -1843,91 +1843,11 @@ pub enum SearchCommands {
 /// System administration subcommands (human-operated)
 #[derive(Subcommand, Debug)]
 pub enum SystemCommands {
-    /// [DEPRECATED: use 'bn session init'] Initialize binnacle for this repository
-    Init {
-        /// Write binnacle section to AGENTS.md (creates file if needed)
-        #[arg(long)]
-        write_agents_md: bool,
-
-        /// Write Claude Code skills file to ~/.claude/skills/binnacle/SKILL.md
-        #[arg(long)]
-        write_claude_skills: bool,
-
-        /// Write Codex skills file to ~/.codex/skills/binnacle/SKILL.md
-        #[arg(long)]
-        write_codex_skills: bool,
-
-        /// Write Copilot workflow agents to .github/agents/ and .github/instructions/
-        #[arg(long)]
-        write_copilot_prompts: bool,
-
-        /// Install commit-msg hook for co-author attribution
-        #[arg(long)]
-        install_hook: bool,
-
-        /// Write VS Code MCP config to .vscode/mcp.json in the repository
-        #[arg(long)]
-        write_mcp_vscode: bool,
-
-        /// Write GitHub Copilot CLI MCP config to ~/.copilot/mcp-config.json
-        #[arg(long)]
-        write_mcp_copilot: bool,
-
-        /// Write all MCP configs (VS Code, Copilot CLI)
-        #[arg(long)]
-        write_mcp_all: bool,
-
-        /// Install GitHub Copilot CLI with binnacle-preferred version
-        #[arg(long)]
-        install_copilot: bool,
-
-        /// Install bn-agent script to ~/.local/bin/bn-agent
-        #[arg(long)]
-        install_bn_agent: bool,
-
-        /// Build binnacle container image if not already built
-        #[arg(long)]
-        build_container: bool,
-
-        /// Skip interactive prompts (use flags to control what gets written)
-        #[arg(long, short = 'y')]
-        yes: bool,
-    },
-
-    /// [DEPRECATED: use 'bn session reinit'] Re-run full interactive initialization (global + repo)
-    ///
-    /// Use this to reconfigure global binnacle setup (skills files, MCP configs,
-    /// Copilot CLI installation) or if you want to change previous answers.
-    Reinit,
-
-    /// [DEPRECATED: use 'bn session store'] Data store management (import/export/inspect)
-    Store {
-        #[command(subcommand)]
-        command: StoreCommands,
-    },
-
     /// Emit embedded templates to stdout (no side effects, no init required)
     Emit {
         /// Which template to emit
         #[arg(value_enum)]
         template: EmitTemplate,
-    },
-
-    /// [DEPRECATED: use 'bn session migrate'] Migrate data between storage backends
-    Migrate {
-        /// Target backend type (file, orphan-branch, git-notes)
-        #[arg(long)]
-        to: String,
-
-        /// Preview migration without making changes
-        #[arg(long)]
-        dry_run: bool,
-    },
-
-    /// [DEPRECATED: use 'bn session hooks'] Manage git hooks installed by binnacle
-    Hooks {
-        #[command(subcommand)]
-        command: HooksCommands,
     },
 
     /// Convert tasks tagged as 'bug' into Bug entities

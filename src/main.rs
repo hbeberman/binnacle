@@ -124,15 +124,13 @@ fn run_command(
                     if human {
                         eprintln!("Error: No binnacle database found.\n");
                         eprintln!("To initialize a new database:");
-                        eprintln!(
-                            "    bn system init        # Interactive, recommended for humans"
-                        );
+                        eprintln!("    bn session init       # Initialize for this repository");
                         eprintln!("    bn orient --init      # Non-interactive, for AI agents\n");
                         eprintln!("Database location: {}", repo_path.display());
                     } else {
                         let err = serde_json::json!({
                             "error": "No binnacle database found",
-                            "hint": "Human should run 'bn system init' (interactive). AI agents: use 'bn orient --init' (non-interactive, conservative defaults).",
+                            "hint": "Human should run 'bn session init' (repo-specific setup). AI agents: use 'bn orient --init' (non-interactive, conservative defaults).",
                             "path": repo_path
                         });
                         eprintln!("{}", err);
@@ -1124,124 +1122,6 @@ fn run_command(
             }
         },
         Some(Commands::System { command }) => match command {
-            SystemCommands::Init {
-                write_agents_md,
-                write_claude_skills,
-                write_codex_skills,
-                write_copilot_prompts,
-                install_hook,
-                write_mcp_vscode,
-                write_mcp_copilot,
-                write_mcp_all,
-                install_copilot,
-                install_bn_agent,
-                build_container,
-                yes,
-            } => {
-                eprintln!(
-                    "Warning: 'bn system init' is deprecated. Use 'bn session init' instead."
-                );
-                // Expand --write-mcp-all into individual MCP flags
-                let write_mcp_vscode = write_mcp_vscode || write_mcp_all;
-                let write_mcp_copilot = write_mcp_copilot || write_mcp_all;
-
-                let result = if yes {
-                    // Non-interactive: use flags directly
-                    commands::init_non_interactive(
-                        repo_path,
-                        write_agents_md,
-                        write_claude_skills,
-                        write_codex_skills,
-                        write_copilot_prompts,
-                        install_hook,
-                        write_mcp_vscode,
-                        write_mcp_copilot,
-                        install_copilot,
-                        install_bn_agent,
-                        build_container,
-                    )?
-                } else if write_agents_md
-                    || write_claude_skills
-                    || write_codex_skills
-                    || write_copilot_prompts
-                    || install_hook
-                    || write_mcp_vscode
-                    || write_mcp_copilot
-                    || write_mcp_all
-                    || install_copilot
-                    || install_bn_agent
-                    || build_container
-                {
-                    // Flags provided without -y: use flags as the options
-                    commands::init_non_interactive(
-                        repo_path,
-                        write_agents_md,
-                        write_claude_skills,
-                        write_codex_skills,
-                        write_copilot_prompts,
-                        install_hook,
-                        write_mcp_vscode,
-                        write_mcp_copilot,
-                        install_copilot,
-                        install_bn_agent,
-                        build_container,
-                    )?
-                } else {
-                    // Interactive mode (default)
-                    commands::init(repo_path)?
-                };
-                output(&result, human);
-            }
-            SystemCommands::Reinit => {
-                eprintln!(
-                    "Warning: 'bn system reinit' is deprecated. Use 'bn session reinit' instead."
-                );
-                let result = commands::init_reinit(repo_path)?;
-                output(&result, human);
-            }
-            SystemCommands::Store { command } => {
-                eprintln!(
-                    "Warning: 'bn system store' is deprecated. Use 'bn session store' instead."
-                );
-                match command {
-                    StoreCommands::Show => {
-                        let result = commands::system_store_show(repo_path)?;
-                        output(&result, human);
-                    }
-                    StoreCommands::Export {
-                        output: out_path,
-                        format,
-                    } => {
-                        let result = commands::system_store_export(repo_path, &out_path, &format)?;
-                        // Don't output anything when writing to stdout (would corrupt the binary data)
-                        if out_path != "-" {
-                            output(&result, human);
-                        }
-                    }
-                    StoreCommands::Import {
-                        input,
-                        r#type,
-                        dry_run,
-                    } => {
-                        let result =
-                            commands::system_store_import(repo_path, &input, &r#type, dry_run)?;
-                        output(&result, human);
-                    }
-                    StoreCommands::Dump => {
-                        let result = commands::system_store_dump(repo_path)?;
-                        output(&result, human);
-                    }
-                    StoreCommands::Clear { force, no_backup } => {
-                        let result =
-                            commands::system_store_clear(repo_path, force, no_backup, human)?;
-                        output(&result, human);
-                    }
-                    StoreCommands::Archive { commit_hash } => {
-                        let result = commands::generate_commit_archive(repo_path, &commit_hash)?;
-                        output(&result, human);
-                    }
-                }
-            }
             SystemCommands::Emit { template } => {
                 let content = match template {
                     EmitTemplate::Agents => commands::AGENTS_MD_BLURB,
@@ -1268,13 +1148,6 @@ fn run_command(
                 } else {
                     println!("{}", serde_json::json!({"content": content.trim()}));
                 }
-            }
-            SystemCommands::Migrate { to, dry_run } => {
-                eprintln!(
-                    "Warning: 'bn system migrate' is deprecated. Use 'bn session migrate' instead."
-                );
-                let result = commands::migrate_storage(repo_path, &to, dry_run)?;
-                output(&result, human);
             }
             SystemCommands::MigrateBugs {
                 dry_run,
@@ -1343,17 +1216,6 @@ fn run_command(
             SystemCommands::Sessions => {
                 let result = commands::system_sessions()?;
                 output(&result, human);
-            }
-            SystemCommands::Hooks { command } => {
-                eprintln!(
-                    "Warning: 'bn system hooks' is deprecated. Use 'bn session hooks' instead."
-                );
-                match command {
-                    HooksCommands::Uninstall => {
-                        let result = commands::hooks_uninstall(repo_path)?;
-                        output(&result, human);
-                    }
-                }
             }
             SystemCommands::Copilot { command } => match command {
                 CopilotCommands::Install { version, upstream } => {
@@ -4188,73 +4050,6 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         },
 
         Some(Commands::System { command }) => match command {
-            SystemCommands::Init {
-                write_agents_md,
-                write_claude_skills,
-                write_codex_skills,
-                write_copilot_prompts,
-                install_hook,
-                write_mcp_vscode,
-                write_mcp_copilot,
-                write_mcp_all,
-                install_copilot,
-                install_bn_agent,
-                build_container,
-                yes,
-            } => (
-                "system init".to_string(),
-                serde_json::json!({
-                    "write_agents_md": write_agents_md,
-                    "write_claude_skills": write_claude_skills,
-                    "write_codex_skills": write_codex_skills,
-                    "write_copilot_prompts": write_copilot_prompts,
-                    "install_hook": install_hook,
-                    "write_mcp_vscode": write_mcp_vscode,
-                    "write_mcp_copilot": write_mcp_copilot,
-                    "write_mcp_all": write_mcp_all,
-                    "install_copilot": install_copilot,
-                    "install_bn_agent": install_bn_agent,
-                    "build_container": build_container,
-                    "yes": yes,
-                }),
-            ),
-            SystemCommands::Reinit => ("system reinit".to_string(), serde_json::json!({})),
-            SystemCommands::Store { command } => match command {
-                StoreCommands::Show => ("system store show".to_string(), serde_json::json!({})),
-                StoreCommands::Export { output, format } => (
-                    "system store export".to_string(),
-                    serde_json::json!({
-                        "output": output,
-                        "format": format,
-                    }),
-                ),
-                StoreCommands::Import {
-                    input,
-                    r#type,
-                    dry_run,
-                } => (
-                    "system store import".to_string(),
-                    serde_json::json!({
-                        "input": input,
-                        "type": r#type,
-                        "dry_run": dry_run,
-                    }),
-                ),
-                StoreCommands::Dump => ("system store dump".to_string(), serde_json::json!({})),
-                StoreCommands::Clear { force, no_backup } => (
-                    "system store clear".to_string(),
-                    serde_json::json!({
-                        "force": force,
-                        "no_backup": no_backup,
-                    }),
-                ),
-                StoreCommands::Archive { commit_hash } => (
-                    "system store archive".to_string(),
-                    serde_json::json!({
-                        "commit_hash": commit_hash,
-                    }),
-                ),
-            },
             SystemCommands::Emit { template } => {
                 let template_name = match template {
                     EmitTemplate::Agents => "agents",
@@ -4281,10 +4076,6 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     serde_json::json!({ "template": template_name }),
                 )
             }
-            SystemCommands::Migrate { to, dry_run } => (
-                "system migrate".to_string(),
-                serde_json::json!({ "to": to, "dry_run": dry_run }),
-            ),
             SystemCommands::MigrateBugs {
                 dry_run,
                 remove_tag,
@@ -4314,11 +4105,6 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 }),
             ),
             SystemCommands::Sessions => ("system sessions".to_string(), serde_json::json!({})),
-            SystemCommands::Hooks { command } => match command {
-                HooksCommands::Uninstall => {
-                    ("system hooks uninstall".to_string(), serde_json::json!({}))
-                }
-            },
             SystemCommands::Copilot { command } => match command {
                 CopilotCommands::Install { version, upstream } => (
                     "system copilot install".to_string(),

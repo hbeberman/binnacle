@@ -311,7 +311,10 @@ fn test_config_customizations_persist_after_reinit() {
         .stdout(predicates::str::contains("\"value\":\"false\""));
 
     // Running init again should NOT overwrite customizations (idempotent)
-    env.bn().args(["system", "init", "-y"]).assert().success();
+    env.bn()
+        .args(["session", "init", "--auto-global", "-y"])
+        .assert()
+        .success();
 
     // Verify customizations are preserved
     env.bn()

@@ -40,7 +40,7 @@ fn init_git(env: &TestEnv) {
 /// Helper to initialize binnacle
 fn init_binnacle(env: &TestEnv) {
     env.bn()
-        .args(["system", "init"])
+        .args(["session", "init", "--auto-global"])
         .write_stdin("n\nn\nn\nn\n")
         .assert()
         .success();
@@ -136,7 +136,7 @@ fn test_post_commit_hook_with_archive_config() {
     // Run archive command directly instead of relying on hook's background process
     // The hook spawns this in background which makes it unreliable in tests
     env.bn()
-        .args(["system", "store", "archive", &commit_hash])
+        .args(["session", "store", "archive", &commit_hash])
         .assert()
         .success();
 
@@ -158,7 +158,7 @@ fn test_post_commit_hook_install_function() {
     // Archive should be created in default directory (BN_DATA_DIR/archives/)
     let output = env
         .bn()
-        .args(["system", "store", "archive", "test123"])
+        .args(["session", "store", "archive", "test123"])
         .assert()
         .success()
         .get_output()
@@ -195,7 +195,7 @@ fn test_post_commit_hook_archive_disabled() {
 
     let output = env
         .bn()
-        .args(["system", "store", "archive", "test123"])
+        .args(["session", "store", "archive", "test123"])
         .assert()
         .success()
         .get_output()
@@ -246,7 +246,7 @@ fn test_archive_graceful_nonexistent_directory() {
     // Try to generate archive - should fail gracefully, not error
     let output = env
         .bn()
-        .args(["system", "store", "archive", "abc123"])
+        .args(["session", "store", "archive", "abc123"])
         .assert()
         .success() // Should succeed with created: false, not error
         .get_output()
@@ -301,7 +301,7 @@ fn test_archive_graceful_unwritable_directory() {
     // Try to generate archive - should fail gracefully
     let output = env
         .bn()
-        .args(["system", "store", "archive", "abc123"])
+        .args(["session", "store", "archive", "abc123"])
         .assert()
         .success() // Should succeed with created: false, not error
         .get_output()
@@ -358,7 +358,7 @@ fn test_archive_graceful_human_output() {
     // Try with -H for human-readable output
     let output = env
         .bn()
-        .args(["-H", "system", "store", "archive", "abc123"])
+        .args(["-H", "session", "store", "archive", "abc123"])
         .assert()
         .success()
         .get_output()

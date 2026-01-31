@@ -16,7 +16,7 @@ use std::time::Instant;
 fn init_binnacle() -> TestEnv {
     let env = TestEnv::new();
     env.bn()
-        .args(["system", "init"])
+        .args(["session", "init", "--auto-global"])
         .write_stdin("n\nn\nn\nn\n")
         .assert()
         .success();
@@ -383,7 +383,7 @@ fn test_gui_perf_export_import_roundtrip() {
     // Export
     let start = Instant::now();
     env.bn()
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success();
     let export_time = start.elapsed();
@@ -394,7 +394,7 @@ fn test_gui_perf_export_import_roundtrip() {
     let env2 = TestEnv::new();
     let start = Instant::now();
     env2.bn()
-        .args(["system", "store", "import", export_path.to_str().unwrap()])
+        .args(["session", "store", "import", export_path.to_str().unwrap()])
         .assert()
         .success();
     let import_time = start.elapsed();

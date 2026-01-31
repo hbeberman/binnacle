@@ -463,7 +463,7 @@ pub fn init_non_interactive(
 
 // === System Init (Host-Global Setup) ===
 
-/// Result of `bn system init` (host-global setup).
+/// Result of `bn system host-init` (host-global setup).
 #[derive(Serialize)]
 pub struct SystemInitResult {
     /// Whether this was a fresh initialization
@@ -1265,13 +1265,13 @@ This project uses **bn** (binnacle) for long-horizon task/test status tracking. 
 
 **After running `bn orient`**, report your assigned `agent_id` (e.g., `bn-486c`) to the user. This ID identifies your session in binnacle's tracking system.
 
-For new projects, the human should run `bn session init` (for repo-specific setup) or `bn system init` (for first-time global setup). If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
+For new projects, the human should run `bn system host-init` (for first-time global setup) then `bn session init` (for repo-specific setup). If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
 
 ### System vs Session Commands
 
 Binnacle has two administrative namespaces:
 - **`bn system`** - Host-global operations (stored in `~/.config/binnacle/`)
-  - `bn system init` - First-time global setup (run once per machine)
+  - `bn system host-init` - First-time global setup (run once per machine)
   - `bn system copilot` - Copilot binary management
   - `bn system emit` - Emit embedded templates
   - `bn system build-info` - Build metadata
@@ -1281,8 +1281,6 @@ Binnacle has two administrative namespaces:
   - `bn session store` - Import/export/inspect data
   - `bn session migrate` - Migrate storage backends
   - `bn session hooks` - Git hooks management
-
-**Note**: The old commands (`bn system store`, `bn system migrate`, `bn system hooks`) still work but are deprecated. They print warnings directing you to the `bn session` equivalents.
 
 ## Task Workflow (CRITICAL - READ CAREFULLY)
 

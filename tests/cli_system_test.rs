@@ -1,10 +1,10 @@
-//! Integration tests for `bn system` commands.
+//! Integration tests for `bn system` and `bn session` commands.
 //!
-//! These tests verify the system administration commands:
-//! - `bn system init` - Initialize binnacle repository
-//! - `bn system store show` - Display store summary
-//! - `bn system store export` - Export store to archive (uses zstd compression)
-//! - `bn system store import` - Import store from archive (supports both zstd and gzip)
+//! These tests verify the session administration commands:
+//! - `bn session init` - Initialize binnacle repository
+//! - `bn session store show` - Display store summary
+//! - `bn session store export` - Export store to archive (uses zstd compression)
+//! - `bn session store import` - Import store from archive (supports both zstd and gzip)
 
 mod common;
 
@@ -26,8 +26,7 @@ fn bn_in(env: &TestEnv) -> Command {
 fn init_binnacle() -> TestEnv {
     let env = TestEnv::new();
     env.bn()
-        .args(["system", "init"])
-        .write_stdin("n\nn\nn\nn\nn\nn\nn\nn\n") // 8 no's for all prompts
+        .args(["session", "init", "--auto-global", "-y"])
         .assert()
         .success();
     env
@@ -71,24 +70,22 @@ fn parse_json_from_mixed_output(output: &[u8]) -> Value {
 }
 
 // ============================================================================
-// bn system init Tests
+// bn session init Tests
 // ============================================================================
 
 #[test]
-fn test_system_init_new_repo() {
+fn test_session_init_new_repo() {
     let temp = TestEnv::new();
 
-    // Provide "n\n" responses to all interactive prompts (4 total)
     let output = bn_in(&temp)
-        .args(["system", "init"])
-        .write_stdin("n\nn\nn\nn\n")
+        .args(["session", "init", "--auto-global", "-y"])
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
 
-    let json = parse_json_from_mixed_output(&output);
+    let json = parse_json(&output);
     assert_eq!(json["initialized"], true);
     // Storage path should be in the test data directory (via BN_DATA_DIR)
     let storage_path = json["storage_path"].as_str().unwrap();
@@ -101,42 +98,46 @@ fn test_system_init_new_repo() {
 }
 
 #[test]
-fn test_system_init_existing_repo() {
+fn test_session_init_existing_repo() {
     let temp = init_binnacle();
 
     // Initialize again (should be idempotent)
     let output = bn_in(&temp)
-        .args(["system", "init"])
-        .write_stdin("n\nn\nn\nn\n")
+        .args(["session", "init", "--auto-global", "-y"])
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
 
-    let json = parse_json_from_mixed_output(&output);
+    let json = parse_json(&output);
     assert_eq!(json["initialized"], false); // Already initialized
     assert_eq!(json["agents_md_updated"], false);
 }
 
 #[test]
-fn test_system_init_human_format() {
+fn test_session_init_human_format() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args(["-H", "system", "init"])
-        .write_stdin("n\nn\nn\nn\n")
+        .args(["-H", "session", "init", "--auto-global", "-y"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Initialized binnacle"));
+        .stdout(predicate::str::contains("Session initialized"));
 }
 
 #[test]
-fn test_system_init_write_copilot_prompts_flag() {
+fn test_session_init_write_copilot_prompts_flag() {
     let temp = TestEnv::new();
 
     let output = bn_in(&temp)
-        .args(["system", "init", "--write-copilot-prompts", "-y"])
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-copilot-prompts",
+            "-y",
+        ])
         .assert()
         .success()
         .get_output()
@@ -163,18 +164,30 @@ fn test_system_init_write_copilot_prompts_flag() {
 }
 
 #[test]
-fn test_system_init_write_copilot_prompts_idempotent() {
+fn test_session_init_write_copilot_prompts_idempotent() {
     let temp = TestEnv::new();
 
     // First init
     bn_in(&temp)
-        .args(["system", "init", "--write-copilot-prompts", "-y"])
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-copilot-prompts",
+            "-y",
+        ])
         .assert()
         .success();
 
     // Second init should overwrite without error
     let output = bn_in(&temp)
-        .args(["system", "init", "--write-copilot-prompts", "-y"])
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-copilot-prompts",
+            "-y",
+        ])
         .assert()
         .success()
         .get_output()
@@ -187,11 +200,18 @@ fn test_system_init_write_copilot_prompts_idempotent() {
 }
 
 #[test]
-fn test_system_init_write_copilot_prompts_human_output() {
+fn test_session_init_write_copilot_prompts_human_output() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args(["-H", "system", "init", "--write-copilot-prompts", "-y"])
+        .args([
+            "-H",
+            "session",
+            "init",
+            "--auto-global",
+            "--write-copilot-prompts",
+            "-y",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Copilot agents"))
@@ -203,11 +223,17 @@ fn test_system_init_write_copilot_prompts_human_output() {
 // ============================================================================
 
 #[test]
-fn test_system_init_write_mcp_vscode_creates_config() {
+fn test_session_init_write_mcp_vscode_creates_config() {
     let temp = TestEnv::new();
 
     let output = bn_in(&temp)
-        .args(["system", "init", "--write-mcp-vscode", "-y"])
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-mcp-vscode",
+            "-y",
+        ])
         .assert()
         .success()
         .get_output()
@@ -235,7 +261,7 @@ fn test_system_init_write_mcp_vscode_creates_config() {
 }
 
 #[test]
-fn test_system_init_write_mcp_vscode_merges_with_existing() {
+fn test_session_init_write_mcp_vscode_merges_with_existing() {
     let temp = TestEnv::new();
 
     // Create an existing VS Code MCP config with another server
@@ -257,7 +283,13 @@ fn test_system_init_write_mcp_vscode_merges_with_existing() {
 
     // Run init with --write-mcp-vscode
     bn_in(&temp)
-        .args(["system", "init", "--write-mcp-vscode", "-y"])
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-mcp-vscode",
+            "-y",
+        ])
         .assert()
         .success();
 
@@ -275,72 +307,27 @@ fn test_system_init_write_mcp_vscode_merges_with_existing() {
 }
 
 #[test]
-fn test_system_init_write_mcp_vscode_idempotent() {
+fn test_session_init_write_mcp_vscode_idempotent() {
     let temp = TestEnv::new();
 
     // First init
     bn_in(&temp)
-        .args(["system", "init", "--write-mcp-vscode", "-y"])
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-mcp-vscode",
+            "-y",
+        ])
         .assert()
         .success();
 
     // Second init should succeed without error
     let output = bn_in(&temp)
-        .args(["system", "init", "--write-mcp-vscode", "-y"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-
-    let json = parse_json(&output);
-    assert_eq!(json["mcp_vscode_config_created"], true);
-}
-
-#[test]
-fn test_system_init_write_mcp_all_creates_all_configs() {
-    let temp = TestEnv::new();
-
-    let output = bn_in(&temp)
-        .args(["system", "init", "--write-mcp-all", "-y"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-
-    let json = parse_json(&output);
-    assert_eq!(json["initialized"], true);
-    assert_eq!(json["mcp_vscode_config_created"], true);
-    assert_eq!(json["mcp_copilot_config_created"], true);
-
-    // Verify VS Code config was created (we can verify this in the repo)
-    let vscode_config = temp.path().join(".vscode").join("mcp.json");
-    assert!(vscode_config.exists(), "VS Code MCP config should exist");
-}
-
-#[test]
-fn test_system_init_write_mcp_all_human_output() {
-    let temp = TestEnv::new();
-
-    bn_in(&temp)
-        .args(["-H", "system", "init", "--write-mcp-all", "-y"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("VS Code MCP config"))
-        .stdout(predicate::str::contains("Copilot CLI MCP config"));
-}
-
-#[test]
-fn test_system_init_write_mcp_all_combined_with_individual_flags() {
-    let temp = TestEnv::new();
-
-    // --write-mcp-all should work together with individual flags (no conflict)
-    let output = bn_in(&temp)
         .args([
-            "system",
+            "session",
             "init",
-            "--write-mcp-all",
+            "--auto-global",
             "--write-mcp-vscode",
             "-y",
         ])
@@ -352,11 +339,27 @@ fn test_system_init_write_mcp_all_combined_with_individual_flags() {
 
     let json = parse_json(&output);
     assert_eq!(json["mcp_vscode_config_created"], true);
+}
+
+#[test]
+fn test_host_init_write_mcp_copilot() {
+    let temp = TestEnv::new();
+
+    // Host-init with --write-mcp-copilot creates the copilot CLI config
+    let output = bn_in(&temp)
+        .args(["system", "host-init", "--write-mcp-copilot", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
     assert_eq!(json["mcp_copilot_config_created"], true);
 }
 
 // ============================================================================
-// bn system store show Tests
+// bn session store show Tests
 // ============================================================================
 
 #[test]
@@ -364,7 +367,7 @@ fn test_store_show_empty_repo() {
     let temp = init_binnacle();
 
     let output = bn_in(&temp)
-        .args(["system", "store", "show"])
+        .args(["session", "store", "show"])
         .assert()
         .success()
         .get_output()
@@ -402,7 +405,7 @@ fn test_store_show_with_tasks() {
         .success();
 
     let output = bn_in(&temp)
-        .args(["system", "store", "show"])
+        .args(["session", "store", "show"])
         .assert()
         .success()
         .get_output()
@@ -421,7 +424,7 @@ fn test_store_show_human_format() {
     create_task(&temp, "Test Task");
 
     bn_in(&temp)
-        .args(["-H", "system", "store", "show"])
+        .args(["-H", "session", "store", "show"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Store:"))
@@ -436,7 +439,7 @@ fn test_store_show_files_section() {
     create_task(&temp, "Test");
 
     let output = bn_in(&temp)
-        .args(["system", "store", "show"])
+        .args(["session", "store", "show"])
         .assert()
         .success()
         .get_output()
@@ -454,7 +457,7 @@ fn test_store_show_not_initialized() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args(["system", "store", "show"])
+        .args(["session", "store", "show"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Not initialized"));
@@ -472,7 +475,7 @@ fn test_store_export_to_file() {
     let export_path = temp.path().join("backup.bng");
 
     let output = bn_in(&temp)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success()
         .get_output()
@@ -502,7 +505,7 @@ fn test_store_export_stdout() {
     create_task(&temp, "Stdout Export Task");
 
     let output = bn_in(&temp)
-        .args(["system", "store", "export", "-"])
+        .args(["session", "store", "export", "-"])
         .assert()
         .success()
         .get_output()
@@ -523,7 +526,7 @@ fn test_store_export_human_format() {
     bn_in(&temp)
         .args([
             "-H",
-            "system",
+            "session",
             "store",
             "export",
             export_path.to_str().unwrap(),
@@ -540,7 +543,7 @@ fn test_store_export_not_initialized() {
     let export_path = temp.path().join("backup.bng");
 
     bn_in(&temp)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Not initialized"));
@@ -553,7 +556,7 @@ fn test_store_export_with_format_flag() {
 
     bn_in(&temp)
         .args([
-            "system",
+            "session",
             "store",
             "export",
             "--format",
@@ -578,14 +581,14 @@ fn test_store_import_replace_mode_clean() {
     // Export from first repo
     let export_path = temp1.path().join("backup.bng");
     bn_in(&temp1)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success();
 
     // Import to fresh repo
     let temp2 = TestEnv::new();
     let output = bn_in(&temp2)
-        .args(["system", "store", "import", export_path.to_str().unwrap()])
+        .args(["session", "store", "import", export_path.to_str().unwrap()])
         .assert()
         .success()
         .get_output()
@@ -616,14 +619,14 @@ fn test_store_import_replace_mode_already_initialized() {
     let temp1 = init_binnacle();
     let export_path = temp1.path().join("backup.bng");
     bn_in(&temp1)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success();
 
     // Try to import to already initialized repo
     let temp2 = init_binnacle();
     bn_in(&temp2)
-        .args(["system", "store", "import", export_path.to_str().unwrap()])
+        .args(["session", "store", "import", export_path.to_str().unwrap()])
         .assert()
         .failure()
         .stderr(predicate::str::contains("already initialized"))
@@ -637,7 +640,7 @@ fn test_store_import_stdin() {
 
     // Export to stdout
     let export_output = bn_in(&temp1)
-        .args(["system", "store", "export", "-"])
+        .args(["session", "store", "export", "-"])
         .assert()
         .success()
         .get_output()
@@ -647,7 +650,7 @@ fn test_store_import_stdin() {
     // Import from stdin
     let temp2 = TestEnv::new();
     let mut cmd = bn_in(&temp2);
-    cmd.args(["system", "store", "import", "-"])
+    cmd.args(["session", "store", "import", "-"])
         .write_stdin(export_output);
 
     let output = cmd.assert().success().get_output().stdout.clone();
@@ -668,7 +671,7 @@ fn test_store_import_merge_no_collisions() {
 
     let export_path = temp1.path().join("backup.bng");
     bn_in(&temp1)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success();
 
@@ -679,7 +682,7 @@ fn test_store_import_merge_no_collisions() {
     // Merge import
     let output = bn_in(&temp2)
         .args([
-            "system",
+            "session",
             "store",
             "import",
             "--type",
@@ -720,14 +723,14 @@ fn test_store_import_merge_with_collisions() {
 
     let export_path = temp1.path().join("backup.bng");
     bn_in(&temp1)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success();
 
     // Create second repo and import once (creates task with same ID)
     let temp2 = TestEnv::new();
     bn_in(&temp2)
-        .args(["system", "store", "import", export_path.to_str().unwrap()])
+        .args(["session", "store", "import", export_path.to_str().unwrap()])
         .assert()
         .success();
 
@@ -741,7 +744,7 @@ fn test_store_import_merge_with_collisions() {
     // Import again with merge - should handle collision
     let output = bn_in(&temp2)
         .args([
-            "system",
+            "session",
             "store",
             "import",
             "--type",
@@ -768,7 +771,7 @@ fn test_store_import_dry_run() {
 
     let export_path = temp1.path().join("backup.bng");
     bn_in(&temp1)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success();
 
@@ -776,7 +779,7 @@ fn test_store_import_dry_run() {
     let temp2 = TestEnv::new();
     let output = bn_in(&temp2)
         .args([
-            "system",
+            "session",
             "store",
             "import",
             "--dry-run",
@@ -813,14 +816,14 @@ fn test_store_import_dry_run_shows_collisions() {
 
     let export_path = temp1.path().join("backup.bng");
     bn_in(&temp1)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success();
 
     // Import to second repo
     let temp2 = TestEnv::new();
     bn_in(&temp2)
-        .args(["system", "store", "import", export_path.to_str().unwrap()])
+        .args(["session", "store", "import", export_path.to_str().unwrap()])
         .assert()
         .success();
 
@@ -833,7 +836,7 @@ fn test_store_import_dry_run_shows_collisions() {
     // Dry run merge - should show potential collisions without applying
     let output = bn_in(&temp2)
         .args([
-            "system",
+            "session",
             "store",
             "import",
             "--type",
@@ -869,7 +872,7 @@ fn test_store_import_human_format() {
 
     let export_path = temp1.path().join("backup.bng");
     bn_in(&temp1)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success();
 
@@ -877,7 +880,7 @@ fn test_store_import_human_format() {
     bn_in(&temp2)
         .args([
             "-H",
-            "system",
+            "session",
             "store",
             "import",
             export_path.to_str().unwrap(),
@@ -895,7 +898,7 @@ fn test_store_import_invalid_archive() {
     fs::write(&bad_file, b"not a real archive").unwrap();
 
     bn_in(&temp)
-        .args(["system", "store", "import", bad_file.to_str().unwrap()])
+        .args(["session", "store", "import", bad_file.to_str().unwrap()])
         .assert()
         .failure()
         .stderr(
@@ -915,7 +918,7 @@ fn test_store_import_gzip_backwards_compatibility() {
     // Export first to get the correct archive structure
     let zstd_export = temp1.path().join("export.bng");
     bn_in(&temp1)
-        .args(["system", "store", "export", zstd_export.to_str().unwrap()])
+        .args(["session", "store", "export", zstd_export.to_str().unwrap()])
         .assert()
         .success();
 
@@ -933,7 +936,7 @@ fn test_store_import_gzip_backwards_compatibility() {
     // Import the gzip archive into a new repo
     let temp2 = TestEnv::new();
     bn_in(&temp2)
-        .args(["system", "store", "import", gzip_archive.to_str().unwrap()])
+        .args(["session", "store", "import", gzip_archive.to_str().unwrap()])
         .assert()
         .success();
 
@@ -992,14 +995,14 @@ fn test_export_import_roundtrip() {
     // Export
     let export_path = temp1.path().join("roundtrip.bng");
     bn_in(&temp1)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success();
 
     // Import to new repo
     let temp2 = TestEnv::new();
     bn_in(&temp2)
-        .args(["system", "store", "import", export_path.to_str().unwrap()])
+        .args(["session", "store", "import", export_path.to_str().unwrap()])
         .assert()
         .success();
 
@@ -1048,7 +1051,7 @@ fn test_export_import_via_stdout_stdin_piping() {
 
     // Export to stdout
     let archive_data = bn_in(&temp1)
-        .args(["system", "store", "export", "-"])
+        .args(["session", "store", "export", "-"])
         .assert()
         .success()
         .get_output()
@@ -1058,7 +1061,7 @@ fn test_export_import_via_stdout_stdin_piping() {
     // Import from stdin to new repo
     let temp2 = TestEnv::new();
     let mut cmd = bn_in(&temp2);
-    cmd.args(["system", "store", "import", "-"])
+    cmd.args(["session", "store", "import", "-"])
         .write_stdin(archive_data);
 
     cmd.assert().success();
@@ -1128,7 +1131,12 @@ fn test_folder_import_replace_mode_clean() {
     // Import to fresh repo (replace mode - default)
     let dest_temp = TestEnv::new();
     let output = bn_in(&dest_temp)
-        .args(["system", "store", "import", import_folder.to_str().unwrap()])
+        .args([
+            "session",
+            "store",
+            "import",
+            import_folder.to_str().unwrap(),
+        ])
         .assert()
         .success()
         .get_output()
@@ -1164,7 +1172,12 @@ fn test_folder_import_replace_mode_already_initialized() {
     // Try to import to already initialized repo (should fail with replace mode)
     let dest_temp = init_binnacle();
     bn_in(&dest_temp)
-        .args(["system", "store", "import", import_folder.to_str().unwrap()])
+        .args([
+            "session",
+            "store",
+            "import",
+            import_folder.to_str().unwrap(),
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("already initialized"))
@@ -1185,7 +1198,7 @@ fn test_folder_import_merge_no_collisions() {
     // Merge import
     let output = bn_in(&dest_temp)
         .args([
-            "system",
+            "session",
             "store",
             "import",
             "--type",
@@ -1237,7 +1250,7 @@ fn test_folder_import_merge_with_id_collision() {
     write_tasks_jsonl(&temp_folder, &[("bn-collision", "First Version")]);
     bn_in(&dest_temp)
         .args([
-            "system",
+            "session",
             "store",
             "import",
             "--type",
@@ -1250,7 +1263,7 @@ fn test_folder_import_merge_with_id_collision() {
     // Now import again with same ID - should detect collision
     let output = bn_in(&dest_temp)
         .args([
-            "system",
+            "session",
             "store",
             "import",
             "--type",
@@ -1294,7 +1307,7 @@ fn test_folder_import_dry_run() {
     let dest_temp = TestEnv::new();
     let output = bn_in(&dest_temp)
         .args([
-            "system",
+            "session",
             "store",
             "import",
             "--dry-run",
@@ -1335,7 +1348,12 @@ fn test_folder_import_missing_tasks_jsonl() {
     // Import should fail
     let dest_temp = TestEnv::new();
     bn_in(&dest_temp)
-        .args(["system", "store", "import", import_folder.to_str().unwrap()])
+        .args([
+            "session",
+            "store",
+            "import",
+            import_folder.to_str().unwrap(),
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("missing required tasks.jsonl"));
@@ -1360,7 +1378,12 @@ fn test_folder_import_with_optional_files() {
     // Import
     let dest_temp = TestEnv::new();
     let output = bn_in(&dest_temp)
-        .args(["system", "store", "import", import_folder.to_str().unwrap()])
+        .args([
+            "session",
+            "store",
+            "import",
+            import_folder.to_str().unwrap(),
+        ])
         .assert()
         .success()
         .get_output()
@@ -1384,7 +1407,12 @@ fn test_folder_import_empty_tasks_jsonl() {
     // Import should succeed with 0 tasks
     let dest_temp = TestEnv::new();
     let output = bn_in(&dest_temp)
-        .args(["system", "store", "import", import_folder.to_str().unwrap()])
+        .args([
+            "session",
+            "store",
+            "import",
+            import_folder.to_str().unwrap(),
+        ])
         .assert()
         .success()
         .get_output()
@@ -1406,7 +1434,7 @@ fn test_folder_import_human_format() {
     bn_in(&dest_temp)
         .args([
             "-H",
-            "system",
+            "session",
             "store",
             "import",
             import_folder.to_str().unwrap(),
@@ -1432,7 +1460,7 @@ fn test_folder_import_roundtrip_via_store_path() {
 
     // Get the storage path
     let show_output = bn_in(&temp1)
-        .args(["system", "store", "show"])
+        .args(["session", "store", "show"])
         .assert()
         .success()
         .get_output()
@@ -1445,7 +1473,7 @@ fn test_folder_import_roundtrip_via_store_path() {
     // Import from the storage folder directly (simulating legacy import)
     let temp2 = TestEnv::new();
     let output = bn_in(&temp2)
-        .args(["system", "store", "import", storage_path])
+        .args(["session", "store", "import", storage_path])
         .assert()
         .success()
         .get_output()
@@ -1871,7 +1899,7 @@ fn test_store_clear_requires_force() {
 
     // Try to clear without --force - should abort
     let output = bn_in(&env)
-        .args(["system", "store", "clear"])
+        .args(["session", "store", "clear"])
         .assert()
         .success()
         .get_output()
@@ -1894,7 +1922,7 @@ fn test_store_clear_with_force_clears_data() {
 
     // Clear with --force
     let output = bn_in(&env)
-        .args(["system", "store", "clear", "--force"])
+        .args(["session", "store", "clear", "--force"])
         .assert()
         .success()
         .get_output()
@@ -1928,7 +1956,7 @@ fn test_store_clear_creates_backup_by_default() {
 
     // Clear with --force (backup created by default)
     let output = bn_in(&env)
-        .args(["system", "store", "clear", "--force"])
+        .args(["session", "store", "clear", "--force"])
         .assert()
         .success()
         .get_output()
@@ -1960,7 +1988,7 @@ fn test_store_clear_no_backup_skips_backup() {
 
     // Clear with --force --no-backup
     let output = bn_in(&env)
-        .args(["system", "store", "clear", "--force", "--no-backup"])
+        .args(["session", "store", "clear", "--force", "--no-backup"])
         .assert()
         .success()
         .get_output()
@@ -1978,7 +2006,7 @@ fn test_store_clear_empty_store_succeeds() {
 
     // Clear empty store - should succeed immediately
     let output = bn_in(&env)
-        .args(["system", "store", "clear", "--force"])
+        .args(["session", "store", "clear", "--force"])
         .assert()
         .success()
         .get_output()
@@ -2000,7 +2028,7 @@ fn test_store_clear_human_readable_warning() {
 
     // Try to clear without --force in human mode - should show warning
     bn_in(&env)
-        .args(["-H", "system", "store", "clear"])
+        .args(["-H", "session", "store", "clear"])
         .assert()
         .success()
         .stderr(predicate::str::contains("WARNING"))
@@ -2020,7 +2048,7 @@ fn test_store_archive_without_config() {
     // Archive without configuring archive.directory should use default location
     // and create an archive there
     let output = bn_in(&env)
-        .args(["system", "store", "archive", "abc123def456"])
+        .args(["session", "store", "archive", "abc123def456"])
         .assert()
         .success()
         .get_output()
@@ -2054,7 +2082,7 @@ fn test_store_archive_explicitly_disabled() {
 
     // Archive should not be created when explicitly disabled
     let output = bn_in(&env)
-        .args(["system", "store", "archive", "abc123def456"])
+        .args(["session", "store", "archive", "abc123def456"])
         .assert()
         .success()
         .get_output()
@@ -2091,7 +2119,7 @@ fn test_store_archive_with_config() {
 
     // Generate archive
     let output = bn_in(&env)
-        .args(["system", "store", "archive", "abc123def456"])
+        .args(["session", "store", "archive", "abc123def456"])
         .assert()
         .success()
         .get_output()
@@ -2115,7 +2143,7 @@ fn test_store_archive_human_readable() {
 
     // Archive without config - human readable (uses default location)
     let output = bn_in(&env)
-        .args(["-H", "system", "store", "archive", "abc123"])
+        .args(["-H", "session", "store", "archive", "abc123"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created archive"))
@@ -2146,7 +2174,7 @@ fn test_store_archive_human_readable_disabled() {
 
     // Archive with disabled config - human readable
     bn_in(&env)
-        .args(["-H", "system", "store", "archive", "abc123"])
+        .args(["-H", "session", "store", "archive", "abc123"])
         .assert()
         .success()
         .stdout(predicate::str::contains("not created"))
@@ -2172,7 +2200,7 @@ fn test_store_archive_creates_directory() {
 
     // Generate archive - should create directory automatically
     bn_in(&env)
-        .args(["system", "store", "archive", "deadbeef"])
+        .args(["session", "store", "archive", "deadbeef"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"created\":true"));
@@ -2264,7 +2292,7 @@ fn test_store_import_handles_missing_title_field() {
 
     // Import should succeed despite missing title field
     let output = bn_in(&temp)
-        .args(["system", "store", "import", archive_path.to_str().unwrap()])
+        .args(["session", "store", "import", archive_path.to_str().unwrap()])
         .assert()
         .success()
         .get_output()
@@ -2557,17 +2585,23 @@ fn test_copilot_version_with_config_override() {
 }
 
 // ============================================================================
-// bn system reinit Tests
+// bn session reinit Tests
 // ============================================================================
 
 #[test]
-fn test_system_reinit_runs_full_init() {
+fn test_session_reinit_runs_full_init() {
     let temp = TestEnv::new();
+
+    // First initialize the session
+    bn_in(&temp)
+        .args(["session", "init", "--auto-global", "-y"])
+        .assert()
+        .success();
 
     // Run reinit (should prompt for everything)
     let output = bn_in(&temp)
-        .args(["system", "reinit"])
-        .write_stdin("n\nn\nn\nn\nn\nn\nn\nn\nn\n") // All prompts (global + repo)
+        .args(["session", "reinit"])
+        .write_stdin("n\nn\nn\nn\n") // All prompts (repo-specific)
         .assert()
         .success()
         .get_output()
@@ -2575,19 +2609,25 @@ fn test_system_reinit_runs_full_init() {
         .clone();
 
     let json = parse_json_from_mixed_output(&output);
-    assert_eq!(json["initialized"], true);
+    assert_eq!(json["initialized"], false); // Already initialized
 }
 
 #[test]
-fn test_system_reinit_human_format() {
+fn test_session_reinit_human_format() {
     let temp = TestEnv::new();
 
+    // First initialize the session
     bn_in(&temp)
-        .args(["-H", "system", "reinit"])
-        .write_stdin("n\nn\nn\nn\nn\nn\nn\nn\nn\n")
+        .args(["session", "init", "--auto-global", "-y"])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["-H", "session", "reinit"])
+        .write_stdin("n\nn\nn\nn\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Initialized binnacle"));
+        .stdout(predicate::str::contains("Session already initialized"));
 }
 
 // ============================================================================
@@ -2730,7 +2770,7 @@ fn test_system_sessions_with_initialized_repo() {
 
     // Initialize a repo
     bn_in(&temp)
-        .args(["system", "init"])
+        .args(["session", "init", "--auto-global"])
         .write_stdin("n\nn\nn\nn\nn\nn\nn\nn\n")
         .assert()
         .success();
@@ -2760,7 +2800,7 @@ fn test_system_sessions_human_format() {
 
     // Initialize a repo
     bn_in(&temp)
-        .args(["system", "init"])
+        .args(["session", "init", "--auto-global"])
         .write_stdin("n\nn\nn\nn\nn\nn\nn\nn\n")
         .assert()
         .success();

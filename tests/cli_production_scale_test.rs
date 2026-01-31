@@ -25,7 +25,7 @@ fn bn_in(env: &TestEnv) -> Command {
 fn init_binnacle() -> TestEnv {
     let env = TestEnv::new();
     env.bn()
-        .args(["system", "init"])
+        .args(["session", "init", "--auto-global"])
         .write_stdin("n\nn\nn\nn\n")
         .assert()
         .success();
@@ -421,7 +421,7 @@ fn test_production_scale_export_import_roundtrip() {
     // Export to file
     let export_path = env.path().join("production_backup.bng");
     let output = bn_in(&env)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success()
         .get_output()
@@ -436,7 +436,7 @@ fn test_production_scale_export_import_roundtrip() {
     // Import to a fresh environment
     let env2 = TestEnv::new();
     let output = bn_in(&env2)
-        .args(["system", "store", "import", export_path.to_str().unwrap()])
+        .args(["session", "store", "import", export_path.to_str().unwrap()])
         .assert()
         .success()
         .get_output()
@@ -487,14 +487,14 @@ fn test_production_scale_edge_preservation() {
     // Export
     let export_path = env.path().join("edge_test_backup.bng");
     bn_in(&env)
-        .args(["system", "store", "export", export_path.to_str().unwrap()])
+        .args(["session", "store", "export", export_path.to_str().unwrap()])
         .assert()
         .success();
 
     // Import to fresh environment
     let env2 = TestEnv::new();
     bn_in(&env2)
-        .args(["system", "store", "import", export_path.to_str().unwrap()])
+        .args(["session", "store", "import", export_path.to_str().unwrap()])
         .assert()
         .success();
 
@@ -657,7 +657,7 @@ fn test_production_scale_store_show_stats() {
 
     // bn system store show should report accurate counts
     let output = bn_in(&env)
-        .args(["system", "store", "show"])
+        .args(["session", "store", "show"])
         .output()
         .expect("Failed to run store show command");
     let json = parse_json(&output.stdout);

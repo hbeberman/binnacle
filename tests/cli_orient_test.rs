@@ -39,7 +39,7 @@ fn create_task(env: &TestEnv, title: &str) -> String {
     stdout[id_start..id_end].to_string()
 }
 
-// === bn system init AGENTS.md Tests ===
+// === bn session init AGENTS.md Tests ===
 
 #[test]
 fn test_init_creates_agents_md() {
@@ -49,9 +49,15 @@ fn test_init_creates_agents_md() {
     // Verify AGENTS.md doesn't exist yet
     assert!(!agents_path.exists());
 
-    // Run init
+    // Run init with --write-agents-md
     bn_in(&temp)
-        .args(["system", "init"])
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-agents-md",
+            "-y",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"agents_md_updated\":true"));
@@ -71,9 +77,15 @@ fn test_init_appends_to_existing_agents_md() {
     // Create existing AGENTS.md
     fs::write(&agents_path, "# My Existing Agents\n\nSome content here.\n").unwrap();
 
-    // Run init
+    // Run init with --write-agents-md
     bn_in(&temp)
-        .args(["system", "init"])
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-agents-md",
+            "-y",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"agents_md_updated\":true"));
@@ -96,9 +108,15 @@ fn test_init_appends_markers_if_legacy_bn_orient() {
     )
     .unwrap();
 
-    // Run init - should append section with markers
+    // Run init with --write-agents-md - should append section with markers
     bn_in(&temp)
-        .args(["system", "init"])
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-agents-md",
+            "-y",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"agents_md_updated\":true"));
@@ -114,11 +132,26 @@ fn test_init_appends_markers_if_legacy_bn_orient() {
 fn test_init_idempotent_agents_md() {
     let temp = TestEnv::new();
 
-    // Run init twice
-    bn_in(&temp).args(["system", "init"]).assert().success();
+    // Run init twice with --write-agents-md
+    bn_in(&temp)
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-agents-md",
+            "-y",
+        ])
+        .assert()
+        .success();
 
     bn_in(&temp)
-        .args(["system", "init"])
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--write-agents-md",
+            "-y",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"initialized\":false"))
@@ -130,10 +163,17 @@ fn test_init_human_shows_agents_md_update() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args(["-H", "system", "init"])
+        .args([
+            "-H",
+            "session",
+            "init",
+            "--auto-global",
+            "--write-agents-md",
+            "-y",
+        ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Initialized binnacle"))
+        .stdout(predicate::str::contains("Session initialized"))
         .stdout(predicate::str::contains("Updated AGENTS.md"));
 }
 
@@ -353,7 +393,7 @@ fn test_orient_error_json_is_valid() {
         serde_json::from_str(stderr.trim()).expect("Error output should be valid JSON");
 
     assert_eq!(json["error"], "No binnacle database found");
-    assert!(json["hint"].as_str().unwrap().contains("bn system init"));
+    assert!(json["hint"].as_str().unwrap().contains("bn session init"));
     assert!(json["hint"].as_str().unwrap().contains("bn orient --init"));
     assert!(json["path"].is_string());
 }

@@ -32,9 +32,10 @@ fn setup_test_repo() -> (TempDir, TempDir) {
     // Initialize binnacle with isolated data directory
     let bn = env!("CARGO_BIN_EXE_bn");
     Command::new(bn)
-        .args(["system", "init"])
+        .args(["session", "init", "--auto-global", "-y"])
         .current_dir(repo_path)
         .env("BN_DATA_DIR", data_temp.path())
+        .env("BN_CONFIG_DIR", data_temp.path())
         .output()
         .expect("Failed to init binnacle");
 
@@ -53,6 +54,7 @@ fn test_summarize_endpoints_exist() {
         .args(["gui", "serve", "--port", &port.to_string(), "--readonly"])
         .current_dir(repo_path)
         .env("BN_DATA_DIR", data_temp.path())
+        .env("BN_CONFIG_DIR", data_temp.path())
         .spawn()
         .expect("Failed to start GUI server");
 

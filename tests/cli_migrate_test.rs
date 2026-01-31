@@ -53,6 +53,7 @@ impl GitTestEnv {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(self.repo_dir.path());
         cmd.env("BN_DATA_DIR", self.data_dir.path());
+        cmd.env("BN_CONFIG_DIR", self.data_dir.path());
         cmd
     }
 
@@ -65,7 +66,10 @@ impl GitTestEnv {
 /// Initialize binnacle and create some test data
 fn setup_with_data(env: &GitTestEnv) {
     // Initialize binnacle
-    env.bn().args(["system", "init", "-y"]).assert().success();
+    env.bn()
+        .args(["session", "init", "--auto-global", "-y"])
+        .assert()
+        .success();
 
     // Create a task
     env.bn()
@@ -128,7 +132,7 @@ fn test_migrate_dry_run_shows_preview() {
 
     env.bn()
         .args([
-            "system",
+            "session",
             "migrate",
             "--to",
             "orphan-branch",
@@ -157,7 +161,7 @@ fn test_migrate_dry_run_json_output() {
 
     let output = env
         .bn()
-        .args(["system", "migrate", "--to", "orphan-branch", "--dry-run"])
+        .args(["session", "migrate", "--to", "orphan-branch", "--dry-run"])
         .output()
         .expect("Failed to run command");
 
@@ -183,7 +187,7 @@ fn test_migrate_to_orphan_branch() {
 
     // Perform migration
     env.bn()
-        .args(["system", "migrate", "--to", "orphan-branch", "-H"])
+        .args(["session", "migrate", "--to", "orphan-branch", "-H"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
@@ -223,7 +227,7 @@ fn test_migrate_to_git_notes() {
 
     // Perform migration
     env.bn()
-        .args(["system", "migrate", "--to", "git-notes", "-H"])
+        .args(["session", "migrate", "--to", "git-notes", "-H"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
@@ -246,7 +250,7 @@ fn test_migrate_to_file_fails() {
 
     // Migration from file to file should fail
     env.bn()
-        .args(["system", "migrate", "--to", "file"])
+        .args(["session", "migrate", "--to", "file"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -260,7 +264,7 @@ fn test_migrate_unknown_backend_fails() {
     setup_with_data(&env);
 
     env.bn()
-        .args(["system", "migrate", "--to", "unknown-backend"])
+        .args(["session", "migrate", "--to", "unknown-backend"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("unknown backend type"));
@@ -272,7 +276,7 @@ fn test_migrate_uninit_repo_fails() {
     // Don't initialize binnacle
 
     env.bn()
-        .args(["system", "migrate", "--to", "orphan-branch"])
+        .args(["session", "migrate", "--to", "orphan-branch"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Not initialized"));
@@ -287,19 +291,19 @@ fn test_migrate_backend_aliases() {
 
     // "orphan" should work as an alias for "orphan-branch"
     env.bn()
-        .args(["system", "migrate", "--to", "orphan", "--dry-run"])
+        .args(["session", "migrate", "--to", "orphan", "--dry-run"])
         .assert()
         .success();
 
     // "branch" should also work
     env.bn()
-        .args(["system", "migrate", "--to", "branch", "--dry-run"])
+        .args(["session", "migrate", "--to", "branch", "--dry-run"])
         .assert()
         .success();
 
     // "notes" should work as an alias for "git-notes"
     env.bn()
-        .args(["system", "migrate", "--to", "notes", "--dry-run"])
+        .args(["session", "migrate", "--to", "notes", "--dry-run"])
         .assert()
         .success();
 }
@@ -310,7 +314,10 @@ fn test_migrate_backend_aliases() {
 
 /// Initialize binnacle only (no test data)
 fn init_only(env: &GitTestEnv) {
-    env.bn().args(["system", "init", "-y"]).assert().success();
+    env.bn()
+        .args(["session", "init", "--auto-global", "-y"])
+        .assert()
+        .success();
 }
 
 #[test]

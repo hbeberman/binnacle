@@ -33,7 +33,10 @@ impl TestEnv {
     /// Create a new test environment and initialize binnacle.
     pub fn init() -> Self {
         let env = Self::new();
-        env.bn().args(["system", "init", "-y"]).assert().success();
+        env.bn()
+            .args(["session", "init", "--auto-global", "-y"])
+            .assert()
+            .success();
         env
     }
 
