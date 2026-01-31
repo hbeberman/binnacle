@@ -295,28 +295,16 @@ fn test_session_init_output_includes_token_fields() {
 }
 
 #[test]
-fn test_host_init_output_includes_token_fields() {
+fn test_host_init_output_uses_emoji_format() {
     let env = TestEnv::new();
 
-    let output = bn_in(&env)
+    // host-init now outputs emoji-formatted text instead of JSON
+    bn_in(&env)
         .args(["system", "host-init", "-y"])
         .assert()
         .success()
-        .get_output()
-        .stdout
-        .clone();
-
-    let json = parse_json(&output);
-
-    // Verify token-related fields are present
-    assert!(
-        json.get("token_stored").is_some(),
-        "Output should include token_stored field"
-    );
-    assert!(
-        json.get("copilot_validated").is_some(),
-        "Output should include copilot_validated field"
-    );
+        .stdout(predicate::str::contains("✅"))
+        .stdout(predicate::str::contains("system config"));
 }
 
 #[test]

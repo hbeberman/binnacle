@@ -517,61 +517,64 @@ pub struct SystemInitResult {
 
 impl Output for SystemInitResult {
     fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_default()
+        // Output emoji list instead of JSON for consistency with console output during execution
+        self.to_emoji_list()
     }
 
     fn to_human(&self) -> String {
+        self.to_emoji_list()
+    }
+}
+
+impl SystemInitResult {
+    /// Format as emoji list for human-readable output
+    fn to_emoji_list(&self) -> String {
         let mut lines = Vec::new();
         if self.initialized {
             lines.push(format!(
-                "Initialized binnacle system config at {}",
+                "✅ Initialized system config at {}",
                 self.config_path
             ));
         } else {
             lines.push(format!(
-                "Binnacle system config already exists at {}",
+                "ℹ️  System config already exists at {}",
                 self.config_path
             ));
         }
         if self.skills_file_created {
-            lines.push(
-                "Created Claude Code skills file at ~/.claude/skills/binnacle/SKILL.md".to_string(),
-            );
+            lines.push("✅ Created Claude skills file".to_string());
         }
         if self.codex_skills_file_created {
-            lines
-                .push("Created Codex skills file at ~/.codex/skills/binnacle/SKILL.md".to_string());
+            lines.push("✅ Created Codex skills file".to_string());
         }
         if self.mcp_copilot_config_created {
-            lines.push(
-                "Updated GitHub Copilot CLI MCP config at ~/.copilot/mcp-config.json".to_string(),
-            );
+            lines.push("✅ Updated Copilot CLI MCP config".to_string());
         }
         if self.copilot_installed {
             lines.push(format!(
-                "Installed GitHub Copilot CLI {}",
+                "✅ Installed GitHub Copilot CLI {}",
                 crate::cli::copilot_version()
             ));
         }
         if self.bn_agent_installed {
-            lines.push("Installed bn-agent script to ~/.local/bin/bn-agent".to_string());
+            lines.push("✅ Installed bn-agent script".to_string());
         }
         if self.container_built {
-            lines.push("Built binnacle container image".to_string());
+            lines.push("✅ Built container image".to_string());
         }
         if self.token_stored {
             if let Some(ref username) = self.token_username {
                 let validation_type = if self.copilot_validated {
-                    "Copilot access confirmed"
+                    "Copilot validated"
                 } else {
-                    "GitHub user validated"
+                    "GitHub validated"
                 };
                 lines.push(format!(
-                    "Stored GitHub token for '{}' ({})",
+                    "✅ Stored token for '{}' ({})",
                     username, validation_type
                 ));
             } else {
-                lines.push("Stored GitHub token".to_string());
+                lines.push("✅ Stored GitHub token".to_string());
             }
         }
         lines.join("\n")
