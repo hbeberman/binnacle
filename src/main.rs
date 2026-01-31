@@ -1191,43 +1191,49 @@ fn run_command(
                 let result = commands::init_reinit(repo_path)?;
                 output(&result, human);
             }
-            SystemCommands::Store { command } => match command {
-                StoreCommands::Show => {
-                    let result = commands::system_store_show(repo_path)?;
-                    output(&result, human);
-                }
-                StoreCommands::Export {
-                    output: out_path,
-                    format,
-                } => {
-                    let result = commands::system_store_export(repo_path, &out_path, &format)?;
-                    // Don't output anything when writing to stdout (would corrupt the binary data)
-                    if out_path != "-" {
+            SystemCommands::Store { command } => {
+                eprintln!(
+                    "Warning: 'bn system store' is deprecated. Use 'bn session store' instead."
+                );
+                match command {
+                    StoreCommands::Show => {
+                        let result = commands::system_store_show(repo_path)?;
+                        output(&result, human);
+                    }
+                    StoreCommands::Export {
+                        output: out_path,
+                        format,
+                    } => {
+                        let result = commands::system_store_export(repo_path, &out_path, &format)?;
+                        // Don't output anything when writing to stdout (would corrupt the binary data)
+                        if out_path != "-" {
+                            output(&result, human);
+                        }
+                    }
+                    StoreCommands::Import {
+                        input,
+                        r#type,
+                        dry_run,
+                    } => {
+                        let result =
+                            commands::system_store_import(repo_path, &input, &r#type, dry_run)?;
+                        output(&result, human);
+                    }
+                    StoreCommands::Dump => {
+                        let result = commands::system_store_dump(repo_path)?;
+                        output(&result, human);
+                    }
+                    StoreCommands::Clear { force, no_backup } => {
+                        let result =
+                            commands::system_store_clear(repo_path, force, no_backup, human)?;
+                        output(&result, human);
+                    }
+                    StoreCommands::Archive { commit_hash } => {
+                        let result = commands::generate_commit_archive(repo_path, &commit_hash)?;
                         output(&result, human);
                     }
                 }
-                StoreCommands::Import {
-                    input,
-                    r#type,
-                    dry_run,
-                } => {
-                    let result =
-                        commands::system_store_import(repo_path, &input, &r#type, dry_run)?;
-                    output(&result, human);
-                }
-                StoreCommands::Dump => {
-                    let result = commands::system_store_dump(repo_path)?;
-                    output(&result, human);
-                }
-                StoreCommands::Clear { force, no_backup } => {
-                    let result = commands::system_store_clear(repo_path, force, no_backup, human)?;
-                    output(&result, human);
-                }
-                StoreCommands::Archive { commit_hash } => {
-                    let result = commands::generate_commit_archive(repo_path, &commit_hash)?;
-                    output(&result, human);
-                }
-            },
+            }
             SystemCommands::Emit { template } => {
                 let content = match template {
                     EmitTemplate::Agents => commands::AGENTS_MD_BLURB,

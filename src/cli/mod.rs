@@ -1884,7 +1884,7 @@ pub enum SystemCommands {
     /// Copilot CLI installation) or if you want to change previous answers.
     Reinit,
 
-    /// Data store management (import/export/inspect)
+    /// [DEPRECATED: use 'bn session store'] Data store management (import/export/inspect)
     Store {
         #[command(subcommand)]
         command: StoreCommands,
