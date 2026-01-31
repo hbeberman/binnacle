@@ -804,3 +804,104 @@ fn test_doctor_copilot_respects_config() {
     assert_eq!(json["stats"]["copilot_source"], "config");
     assert_eq!(json["stats"]["copilot_installed"], false);
 }
+
+// === State.kdl Permission Security Tests ===
+
+#[test]
+#[cfg(unix)]
+fn test_doctor_detects_insecure_state_kdl_permissions() {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = init_binnacle();
+    create_queue(&temp);
+
+    // Install copilot to avoid copilot warning
+    bn_in(&temp)
+        .args(["system", "copilot", "install", "--upstream"])
+        .assert()
+        .success();
+
+    // Find the state.kdl file location (same hash logic as Storage)
+    let canonical = temp.repo_path().canonicalize().unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    let hash = hasher.finalize();
+    let hash_hex = format!("{:x}", hash);
+    let short_hash = &hash_hex[..12];
+
+    let state_path = temp.data_dir.path().join(short_hash).join("state.kdl");
+    std::fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+    std::fs::write(&state_path, "// test state file").unwrap();
+
+    // Set insecure permissions (world readable - 0644 instead of 0600)
+    std::fs::set_permissions(&state_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    // Doctor should detect insecure permissions
+    bn_in(&temp)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"healthy\":false"))
+        .stdout(predicate::str::contains("security"))
+        .stdout(predicate::str::contains("insecure permissions"));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_doctor_ok_with_secure_state_kdl_permissions() {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = init_binnacle();
+    create_queue(&temp);
+
+    // Install copilot to avoid copilot warning
+    bn_in(&temp)
+        .args(["system", "copilot", "install", "--upstream"])
+        .assert()
+        .success();
+
+    // Find the state.kdl file location
+    let canonical = temp.repo_path().canonicalize().unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    let hash = hasher.finalize();
+    let hash_hex = format!("{:x}", hash);
+    let short_hash = &hash_hex[..12];
+
+    let state_path = temp.data_dir.path().join(short_hash).join("state.kdl");
+    std::fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+    std::fs::write(&state_path, "// test state file").unwrap();
+
+    // Set correct secure permissions (0600)
+    std::fs::set_permissions(&state_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    // Doctor should report healthy (no permission issue)
+    bn_in(&temp)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"healthy\":true"));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_doctor_ok_without_state_kdl_file() {
+    // Verify doctor doesn't fail when state.kdl doesn't exist
+    let temp = init_binnacle();
+    create_queue(&temp);
+
+    // Install copilot to avoid copilot warning
+    bn_in(&temp)
+        .args(["system", "copilot", "install", "--upstream"])
+        .assert()
+        .success();
+
+    // No state.kdl file created - doctor should still be healthy
+    bn_in(&temp)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"healthy\":true"));
+}

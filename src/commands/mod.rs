@@ -14299,6 +14299,41 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
             }
         };
 
+    // Check state.kdl file permissions (security check for secret-containing files)
+    // Session state.kdl
+    match storage.verify_state_kdl_permissions() {
+        Ok(false) => {
+            issues.push(DoctorIssue {
+                severity: "warning".to_string(),
+                category: "security".to_string(),
+                message: "Session state.kdl has insecure permissions (should be 0600). \
+                          Run 'bn config set' or any state-writing command to fix automatically."
+                    .to_string(),
+                entity_id: None,
+            });
+        }
+        Ok(true) | Err(_) => {
+            // Ok(true) = permissions correct, Err = file doesn't exist (both fine)
+        }
+    }
+
+    // System state.kdl
+    match Storage::verify_system_state_kdl_permissions() {
+        Ok(false) => {
+            issues.push(DoctorIssue {
+                severity: "warning".to_string(),
+                category: "security".to_string(),
+                message: "System state.kdl has insecure permissions (should be 0600). \
+                          Update the file to fix automatically."
+                    .to_string(),
+                entity_id: None,
+            });
+        }
+        Ok(true) | Err(_) => {
+            // Ok(true) = permissions correct, Err = file doesn't exist (both fine)
+        }
+    }
+
     let stats = DoctorStats {
         total_tasks: tasks.len(),
         total_bugs: bugs.len(),
