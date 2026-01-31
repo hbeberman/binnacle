@@ -2,10 +2,12 @@
 //!
 //! Contains different view implementations for the TUI.
 
+mod log_panel;
 mod node_detail;
 mod queue_ready;
 mod recently_completed;
 
+pub use log_panel::{LogEntry, LogPanelView};
 pub use node_detail::{EdgeInfo, NodeDetail, NodeDetailView};
 pub use queue_ready::QueueReadyView;
 pub use queue_ready::WorkItem;

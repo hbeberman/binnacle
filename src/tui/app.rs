@@ -18,15 +18,16 @@ use crossterm::{
 use futures::StreamExt;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
 use serde::Deserialize;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use super::connection::ConnectionState;
+use super::notifications::NotificationManager;
 use super::views::{
-    CompletedItem, EdgeInfo, NodeDetail, NodeDetailView, QueueReadyView, RecentlyCompletedView,
-    WorkItem,
+    CompletedItem, EdgeInfo, LogEntry, LogPanelView, NodeDetail, NodeDetailView, QueueReadyView,
+    RecentlyCompletedView, WorkItem,
 };
 
 /// Default server port
@@ -184,39 +185,27 @@ enum ServerMessage {
     /// Entity was added
     EntityAdded {
         entity_type: String,
-        #[allow(dead_code)]
         id: String,
         entity: serde_json::Value,
     },
     /// Entity was updated
     EntityUpdated {
         entity_type: String,
-        #[allow(dead_code)]
         id: String,
         entity: serde_json::Value,
     },
     /// Entity was removed
-    EntityRemoved {
-        #[allow(dead_code)]
-        entity_type: String,
-        #[allow(dead_code)]
-        id: String,
-    },
+    EntityRemoved { entity_type: String, id: String },
     /// Log entry (activity)
-    LogEntry {
-        #[allow(dead_code)]
-        entry: serde_json::Value,
-    },
+    LogEntry { entry: serde_json::Value },
     /// Edge added
     EdgeAdded {
-        #[allow(dead_code)]
         id: String,
         #[allow(dead_code)]
         edge: serde_json::Value,
     },
     /// Edge removed
     EdgeRemoved {
-        #[allow(dead_code)]
         id: String,
         #[allow(dead_code)]
         edge: serde_json::Value,
@@ -263,6 +252,10 @@ pub struct TuiApp {
     recently_completed_view: RecentlyCompletedView,
     /// Node Detail view
     node_detail_view: NodeDetailView,
+    /// Log panel view (always visible)
+    log_panel: LogPanelView,
+    /// Notification manager (toasts and history)
+    notifications: NotificationManager,
     /// HTTP base URL for API requests
     api_base: String,
     /// Flag indicating data needs refresh
@@ -284,6 +277,8 @@ impl TuiApp {
             queue_ready_view: QueueReadyView::new(),
             recently_completed_view: RecentlyCompletedView::new(),
             node_detail_view: NodeDetailView::new(),
+            log_panel: LogPanelView::new(),
+            notifications: NotificationManager::new(),
             api_base: format!("http://{}:{}", host, port),
             needs_refresh: true,
             needs_node_fetch: None,
@@ -363,6 +358,30 @@ impl TuiApp {
 
     /// Handle keyboard events
     fn handle_key(&mut self, key: KeyCode) {
+        // Handle notification history overlay first (when visible)
+        if self.notifications.history_visible {
+            match key {
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('h') => {
+                    self.notifications.close_history();
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.notifications.history_next();
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.notifications.history_previous();
+                }
+                KeyCode::Char('c') => {
+                    self.notifications.clear_history();
+                }
+                KeyCode::Char('q') => {
+                    self.should_quit = true;
+                }
+                _ => {}
+            }
+            self.last_key = Some(key);
+            return;
+        }
+
         // Handle quit universally
         if key == KeyCode::Char('q') {
             self.should_quit = true;
@@ -381,6 +400,27 @@ impl TuiApp {
         }
 
         match key {
+            // Notification/log keys
+            KeyCode::Char('n') => {
+                // Toggle notification history overlay
+                self.notifications.toggle_history();
+                self.last_key = Some(key);
+            }
+            KeyCode::Char('l') => {
+                // Toggle log panel collapsed state
+                self.log_panel.toggle_collapsed();
+                self.last_key = Some(key);
+            }
+            KeyCode::Char('d') => {
+                // Dismiss oldest toast
+                self.notifications.dismiss_oldest();
+                self.last_key = Some(key);
+            }
+            KeyCode::Char('D') => {
+                // Dismiss all toasts
+                self.notifications.dismiss_all();
+                self.last_key = Some(key);
+            }
             // View switching (only for list views)
             KeyCode::Tab => {
                 self.next_view();
@@ -459,6 +499,7 @@ impl TuiApp {
             KeyCode::Char('r') => {
                 // Request data refresh
                 self.needs_refresh = true;
+                self.log_panel.log("refreshing");
                 self.last_key = Some(key);
             }
             _ => {
@@ -476,20 +517,18 @@ impl TuiApp {
                     ServerMessage::Connected { .. } => {
                         // Initial connection, fetch data
                         self.needs_refresh = true;
+                        self.log_panel.log("connected");
                     }
                     ServerMessage::EntityAdded {
                         entity_type,
                         entity,
-                        ..
-                    }
-                    | ServerMessage::EntityUpdated {
-                        entity_type,
-                        entity,
-                        ..
+                        id,
                     } => {
+                        // Log the addition
+                        self.log_panel.log_entity(&entity_type, &id, "added");
+
                         // Check if this affects ready/queued items
                         if entity_type == "task" || entity_type == "bug" {
-                            // Check if status changed to/from actionable states
                             if let Some(status) = entity.get("status").and_then(|s| s.as_str()) {
                                 if status == "pending"
                                     || status == "in_progress"
@@ -501,15 +540,48 @@ impl TuiApp {
                             }
                         }
                     }
-                    ServerMessage::EntityRemoved { .. } => {
+                    ServerMessage::EntityUpdated {
+                        entity_type,
+                        entity,
+                        id,
+                    } => {
+                        // Log the update
+                        self.log_panel.log_entity(&entity_type, &id, "updated");
+
+                        // Check if this affects ready/queued items
+                        if entity_type == "task" || entity_type == "bug" {
+                            if let Some(status) = entity.get("status").and_then(|s| s.as_str()) {
+                                if status == "pending"
+                                    || status == "in_progress"
+                                    || status == "done"
+                                    || status == "blocked"
+                                {
+                                    self.needs_refresh = true;
+                                }
+                            }
+                        }
+                    }
+                    ServerMessage::EntityRemoved { entity_type, id } => {
+                        self.log_panel.log_entity(&entity_type, &id, "removed");
                         self.needs_refresh = true;
                     }
-                    ServerMessage::EdgeAdded { .. } | ServerMessage::EdgeRemoved { .. } => {
-                        // Edge changes might affect ready status (dependencies)
+                    ServerMessage::EdgeAdded { id, .. } => {
+                        self.log_panel.log_entity("edge", &id, "added");
+                        self.needs_refresh = true;
+                    }
+                    ServerMessage::EdgeRemoved { id, .. } => {
+                        self.log_panel.log_entity("edge", &id, "removed");
                         self.needs_refresh = true;
                     }
                     ServerMessage::Reload { .. } => {
+                        self.log_panel.log("reload requested");
                         self.needs_refresh = true;
+                    }
+                    ServerMessage::LogEntry { entry } => {
+                        // Try to parse as a log entry
+                        if let Ok(log_entry) = serde_json::from_value::<LogEntry>(entry) {
+                            self.log_panel.add_entry(log_entry);
+                        }
                     }
                     _ => {}
                 }
@@ -583,6 +655,8 @@ impl TuiApp {
     /// Mark connection as disconnected
     fn set_disconnected(&mut self) {
         self.connection_state = ConnectionState::Disconnected;
+        self.log_panel.log("disconnected");
+        self.notifications.warning("Connection lost");
     }
 
     /// Mark connection as connected
@@ -592,15 +666,22 @@ impl TuiApp {
 
     /// Render the UI
     fn render(&mut self, frame: &mut Frame) {
+        // Clean up expired toasts
+        self.notifications.cleanup();
+
         let area = frame.area();
+
+        // Determine log panel height
+        let log_height = self.log_panel.preferred_height();
 
         // Create main layout
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3), // Title bar
-                Constraint::Min(5),    // Main content
-                Constraint::Length(3), // Status bar
+                Constraint::Length(3),          // Title bar
+                Constraint::Min(5),             // Main content
+                Constraint::Length(log_height), // Log panel
+                Constraint::Length(3),          // Status bar
             ])
             .split(area);
 
@@ -614,8 +695,151 @@ impl TuiApp {
             ActiveView::NodeDetail => self.node_detail_view.render(frame, chunks[1]),
         }
 
+        // Log panel (always visible)
+        self.log_panel.render(frame, chunks[2]);
+
         // Status bar with keybindings
-        self.render_status_bar(frame, chunks[2]);
+        self.render_status_bar(frame, chunks[3]);
+
+        // Render toasts (floating, on top)
+        self.render_toasts(frame);
+
+        // Render notification history overlay (if visible)
+        if self.notifications.history_visible {
+            self.render_notification_history(frame);
+        }
+    }
+
+    /// Render toast notifications (floating in top-right corner)
+    fn render_toasts(&self, frame: &mut Frame) {
+        if !self.notifications.has_toasts() {
+            return;
+        }
+
+        let area = frame.area();
+        let toast_width = 40u16.min(area.width.saturating_sub(4));
+        let toast_x = area.width.saturating_sub(toast_width + 2);
+        let mut toast_y = 4u16; // Below title bar
+
+        for toast in self.notifications.visible_toasts() {
+            if toast_y + 3 >= area.height.saturating_sub(6) {
+                break;
+            }
+
+            let toast_area = Rect {
+                x: toast_x,
+                y: toast_y,
+                width: toast_width,
+                height: 3,
+            };
+
+            // Clear background
+            frame.render_widget(Clear, toast_area);
+
+            // Render toast
+            let level = toast.level;
+            let icon = level.icon();
+            let color = level.color();
+
+            let content = format!("{} {}", icon, toast.message);
+            let toast_widget = Paragraph::new(content)
+                .style(Style::default().fg(color))
+                .wrap(Wrap { trim: true })
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(color)),
+                );
+
+            frame.render_widget(toast_widget, toast_area);
+            toast_y += 3;
+        }
+
+        // Show overflow indicator
+        if self.notifications.overflow_count > 0 {
+            let overflow_area = Rect {
+                x: toast_x,
+                y: toast_y,
+                width: toast_width,
+                height: 1,
+            };
+            let overflow_text = format!("...and {} more", self.notifications.overflow_count);
+            let overflow_widget = Paragraph::new(overflow_text)
+                .style(Style::default().fg(Color::DarkGray))
+                .alignment(Alignment::Right);
+            frame.render_widget(overflow_widget, overflow_area);
+        }
+    }
+
+    /// Render notification history overlay
+    fn render_notification_history(&self, frame: &mut Frame) {
+        let area = frame.area();
+
+        // Create centered overlay
+        let overlay_width = (area.width * 3 / 4).min(80);
+        let overlay_height = (area.height * 3 / 4).min(30);
+        let overlay_x = (area.width - overlay_width) / 2;
+        let overlay_y = (area.height - overlay_height) / 2;
+
+        let overlay_area = Rect {
+            x: overlay_x,
+            y: overlay_y,
+            width: overlay_width,
+            height: overlay_height,
+        };
+
+        // Clear background
+        frame.render_widget(Clear, overlay_area);
+
+        if self.notifications.history_is_empty() {
+            let empty = Paragraph::new("\n  No notifications yet")
+                .style(Style::default().fg(Color::DarkGray))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" Notification History [n/Esc to close] "),
+                );
+            frame.render_widget(empty, overlay_area);
+            return;
+        }
+
+        // Build list items
+        let items: Vec<ListItem> = self
+            .notifications
+            .history()
+            .enumerate()
+            .take(overlay_height as usize - 2)
+            .map(|(idx, entry)| {
+                let icon = entry.level.icon();
+                let color = entry.level.color();
+                let time = entry.relative_time();
+
+                let style = if idx == self.notifications.history_selected {
+                    Style::default().bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!(" {:>8} ", time),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(icon, Style::default().fg(color)),
+                    Span::raw(" "),
+                    Span::styled(&entry.message, style),
+                ]))
+            })
+            .collect();
+
+        let list = List::new(items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Notification History [n/Esc:close  c:clear  j/k:navigate] ")
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
+
+        frame.render_widget(list, overlay_area);
     }
 
     /// Render the title bar with connection status
@@ -718,10 +942,10 @@ impl TuiApp {
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
         let help_text = match self.active_view {
             ActiveView::QueueReady | ActiveView::RecentlyCompleted => {
-                " Tab/1/2:Switch View  j/k:Navigate  Enter:Detail  gg/G:Top/Bottom  r:Refresh  q:Quit"
+                " Tab:View  j/k:Nav  Enter:Detail  r:Refresh  l:Log  n:History  d:Dismiss  q:Quit"
             }
             ActiveView::NodeDetail => {
-                " j/k:Navigate Edges  Enter:Go to Node  Esc:Back  1/2:List View  r:Refresh  q:Quit"
+                " j/k:Nav  Enter:Go  Esc:Back  r:Refresh  l:Log  n:History  d:Dismiss  q:Quit"
             }
         };
         let status = Paragraph::new(help_text)
