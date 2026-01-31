@@ -128,13 +128,35 @@ impl Storage {
     /// Initialize storage for a new repository.
     pub fn init(repo_path: &Path) -> Result<Self> {
         let root = get_storage_dir(repo_path)?;
-        Self::init_at_root(root)
+        let storage = Self::init_at_root(root)?;
+
+        // Write session metadata with repo_path for `bn system sessions`
+        let canonical_path = repo_path
+            .canonicalize()
+            .unwrap_or_else(|_| repo_path.to_path_buf());
+        let metadata =
+            crate::models::SessionMetadata::new(canonical_path.to_string_lossy().to_string());
+        // Ignore errors when writing metadata - it's not critical
+        let _ = storage.write_session_metadata(&metadata);
+
+        Ok(storage)
     }
 
     /// Initialize storage with an explicit data directory (DI-friendly for tests).
     pub fn init_with_data_dir(repo_path: &Path, data_dir: &Path) -> Result<Self> {
         let root = get_storage_dir_with_base(repo_path, data_dir)?;
-        Self::init_at_root(root)
+        let storage = Self::init_at_root(root)?;
+
+        // Write session metadata with repo_path for `bn system sessions`
+        let canonical_path = repo_path
+            .canonicalize()
+            .unwrap_or_else(|_| repo_path.to_path_buf());
+        let metadata =
+            crate::models::SessionMetadata::new(canonical_path.to_string_lossy().to_string());
+        // Ignore errors when writing metadata - it's not critical
+        let _ = storage.write_session_metadata(&metadata);
+
+        Ok(storage)
     }
 
     /// Internal: initialize storage at a specific root directory.
@@ -5403,6 +5425,28 @@ impl Storage {
         Ok(())
     }
 
+    // === Session Metadata Operations ===
+
+    /// Write session metadata to metadata.json.
+    /// This stores the repo_path so it can be displayed in `bn system sessions`.
+    pub fn write_session_metadata(&self, metadata: &crate::models::SessionMetadata) -> Result<()> {
+        let metadata_path = self.root.join("metadata.json");
+        let json = serde_json::to_string_pretty(metadata)?;
+        fs::write(&metadata_path, json)?;
+        Ok(())
+    }
+
+    /// Read session metadata from metadata.json if it exists.
+    pub fn read_session_metadata(&self) -> Result<Option<crate::models::SessionMetadata>> {
+        let metadata_path = self.root.join("metadata.json");
+        if !metadata_path.exists() {
+            return Ok(None);
+        }
+        let content = fs::read_to_string(&metadata_path)?;
+        let metadata: crate::models::SessionMetadata = serde_json::from_str(&content)?;
+        Ok(Some(metadata))
+    }
+
     // ============================================================
     // Action Log methods
     // ============================================================
@@ -9033,6 +9077,38 @@ mod tests {
         // Clean up
         // SAFETY: We're in a test environment
         unsafe { std::env::remove_var("BN_DATA_DIR") };
+    }
+
+    // === Session Metadata Tests ===
+
+    #[test]
+    fn test_session_metadata_write_and_read() {
+        let (_temp_dir, storage) = create_test_storage();
+
+        let metadata = crate::models::SessionMetadata::new("/test/repo/path".to_string());
+        storage.write_session_metadata(&metadata).unwrap();
+
+        let retrieved = storage.read_session_metadata().unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.repo_path, "/test/repo/path");
+    }
+
+    #[test]
+    fn test_session_metadata_written_on_init() {
+        // Create a new storage (which should write metadata automatically)
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_path = temp_dir.path().join("repo");
+        std::fs::create_dir_all(&repo_path).unwrap();
+
+        let storage = Storage::init(&repo_path).unwrap();
+
+        // Metadata should have been written with the canonical repo path
+        let result = storage.read_session_metadata().unwrap();
+        assert!(result.is_some());
+        let metadata = result.unwrap();
+        // The repo_path should be the canonical path of our test repo
+        assert!(metadata.repo_path.contains("repo") || !metadata.repo_path.is_empty());
     }
 
     // === Issue Storage Tests ===

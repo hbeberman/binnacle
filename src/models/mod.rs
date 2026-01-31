@@ -1618,6 +1618,28 @@ impl SessionState {
     }
 }
 
+/// Session metadata stored in metadata.json.
+/// Contains information about the repository that this session was created for.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMetadata {
+    /// The repository path this session was created for
+    pub repo_path: String,
+
+    /// When the session was first initialized
+    #[serde(default = "default_timestamp")]
+    pub created_at: DateTime<Utc>,
+}
+
+impl SessionMetadata {
+    /// Create new session metadata for a repository.
+    pub fn new(repo_path: String) -> Self {
+        Self {
+            repo_path,
+            created_at: Utc::now(),
+        }
+    }
+}
+
 /// A work pool for agent task prioritization.
 /// Only one queue can exist per repository.
 #[derive(Debug, Clone, Serialize, Deserialize)]

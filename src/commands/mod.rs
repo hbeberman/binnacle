@@ -1163,6 +1163,9 @@ pub struct SystemSessionsResult {
 pub struct SessionInfo {
     /// Session ID (repo hash)
     pub id: String,
+    /// Repository path this session belongs to
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_path: Option<String>,
     /// Path to session storage
     pub storage_path: String,
     /// Size of storage directory in bytes
@@ -1183,10 +1186,15 @@ impl Output for SystemSessionsResult {
 
         let mut lines = vec![format!("{} session(s) found:\n", self.sessions.len())];
         for session in &self.sessions {
+            let repo_display = session
+                .repo_path
+                .as_deref()
+                .unwrap_or("<unknown repository>");
             lines.push(format!(
-                "  {} ({}) - {}",
+                "  {} ({}) - {}\n    Store: {}",
                 session.id,
                 format_bytes(session.size_bytes),
+                repo_display,
                 session.storage_path
             ));
         }
@@ -1274,8 +1282,12 @@ pub fn system_sessions() -> Result<SystemSessionsResult> {
                     datetime.format("%Y-%m-%d %H:%M:%S").to_string()
                 });
 
+            // Read repo_path from metadata.json if it exists
+            let repo_path = read_session_metadata(&path);
+
             sessions.push(SessionInfo {
                 id,
+                repo_path,
                 storage_path: path.to_string_lossy().to_string(),
                 size_bytes,
                 last_modified,
@@ -1287,6 +1299,18 @@ pub fn system_sessions() -> Result<SystemSessionsResult> {
     sessions.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
 
     Ok(SystemSessionsResult { sessions })
+}
+
+/// Read session metadata from a session directory.
+/// Returns the repo_path if metadata.json exists and is valid.
+fn read_session_metadata(session_path: &Path) -> Option<String> {
+    let metadata_path = session_path.join("metadata.json");
+    if !metadata_path.exists() {
+        return None;
+    }
+    let content = fs::read_to_string(&metadata_path).ok()?;
+    let metadata: crate::models::SessionMetadata = serde_json::from_str(&content).ok()?;
+    Some(metadata.repo_path)
 }
 
 /// Initialize binnacle for the current repository with explicit options.
