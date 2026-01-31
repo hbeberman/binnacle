@@ -9,6 +9,7 @@
 
 import { createClickableId } from '../utils/clickable-ids.js';
 import { collapseFamilyReveal } from '../utils/family-collapse.js';
+import { getNodeWithEdges } from '../state.js';
 
 /**
  * Format a date timestamp for display
@@ -563,6 +564,15 @@ export function updateInfoPanelContent(panel, node, selectedNodes = []) {
     if (!node) {
         hideInfoPanel(panel);
         return;
+    }
+    
+    // Enrich node with edges if not already present
+    // This ensures relationships are shown even when node comes from different sources
+    if (!node.edges && node.id) {
+        const enrichedNode = getNodeWithEdges(node.id);
+        if (enrichedNode) {
+            node = enrichedNode;
+        }
     }
     
     // Clean up any batch-specific elements from previous batch view

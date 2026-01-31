@@ -6,7 +6,7 @@
  * Stays open until explicitly closed, allowing inspection while navigating.
  */
 
-import { getNode } from '../state.js';
+import { getNodeWithEdges } from '../state.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import { createClickableId, makeIdsClickable } from '../utils/clickable-ids.js';
 
@@ -241,7 +241,8 @@ export async function showNodeDetailPane(nodeId) {
         return;
     }
     
-    const node = getNode(nodeId);
+    // Use getNodeWithEdges to include relationship data
+    const node = getNodeWithEdges(nodeId);
     if (!node) {
         console.error(`Node ${nodeId} not found`);
         return;

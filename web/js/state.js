@@ -458,6 +458,53 @@ export function getNode(id) {
     return null;
 }
 
+/**
+ * Get a node by ID with its related edges attached
+ * 
+ * This enriches the node object with an `edges` array containing
+ * all edges where this node is either the source or target.
+ * Each edge in the array has: { edge_type, direction, related_id, related_title }
+ * 
+ * @param {string} id - Node ID
+ * @returns {Object|null} Node object with edges, or null if not found
+ */
+export function getNodeWithEdges(id) {
+    const node = getNode(id);
+    if (!node) return null;
+    
+    // Find all edges involving this node
+    const allEdges = state.edges || [];
+    const nodeEdges = [];
+    
+    for (const edge of allEdges) {
+        if (edge.source === id) {
+            // Outbound edge: this node -> target
+            const targetNode = getNode(edge.target);
+            nodeEdges.push({
+                edge_type: edge.edge_type,
+                direction: 'outbound',
+                related_id: edge.target,
+                related_title: targetNode?.title || targetNode?.name || null
+            });
+        } else if (edge.target === id) {
+            // Inbound edge: source -> this node
+            const sourceNode = getNode(edge.source);
+            nodeEdges.push({
+                edge_type: edge.edge_type,
+                direction: 'inbound',
+                related_id: edge.source,
+                related_title: sourceNode?.title || sourceNode?.name || null
+            });
+        }
+    }
+    
+    // Return a copy of the node with edges attached
+    return {
+        ...node,
+        edges: nodeEdges
+    };
+}
+
 export function getCurrentView() {
     return state.ui.currentView;
 }

@@ -9,7 +9,7 @@
  * - For ideas: Seed information and status
  */
 
-import { getNode } from '../state.js';
+import { getNodeWithEdges } from '../state.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import { createClickableId, makeIdsClickable } from '../utils/clickable-ids.js';
 
@@ -383,7 +383,8 @@ export async function showNodeDetailModal(nodeId) {
         return;
     }
     
-    const node = getNode(nodeId);
+    // Use getNodeWithEdges to include relationship data
+    const node = getNodeWithEdges(nodeId);
     if (!node) {
         console.error(`Node ${nodeId} not found`);
         return;
