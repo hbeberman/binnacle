@@ -2448,11 +2448,12 @@ impl Storage {
     }
 
     /// Get progress statistics for a milestone.
-    /// Child items are identified by parent_of edges from this milestone.
+    /// Child items are identified by child_of edges TO this milestone (i.e., where milestone is target).
     pub fn get_milestone_progress(&self, milestone_id: &str) -> Result<MilestoneProgress> {
-        // Get all children via parent_of edges from this milestone
-        let edges = self.list_edges(Some(EdgeType::ParentOf), Some(milestone_id), None)?;
-        let child_ids: Vec<&str> = edges.iter().map(|e| e.target.as_str()).collect();
+        // Get all children via child_of edges where this milestone is the target
+        // (Children point TO parent via child_of edges)
+        let edges = self.list_edges(Some(EdgeType::ChildOf), None, Some(milestone_id))?;
+        let child_ids: Vec<&str> = edges.iter().map(|e| e.source.as_str()).collect();
 
         let mut total = 0;
         let mut completed = 0;
