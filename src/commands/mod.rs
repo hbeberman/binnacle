@@ -1736,6 +1736,7 @@ const COMMIT_MSG_HOOK_CONTENT: &str = r#"
 ### BINNACLE HOOK START ###
 # Binnacle commit-msg hook
 # Automatically appends Co-authored-by trailer when an agent session is active
+# and a human identity is being used (not the default binnacle-bot identity)
 
 # Check if co-author feature is enabled (default: true)
 enabled_value=$(bn config get co-author.enabled 2>/dev/null | grep -o '"value":[^,}]*' | cut -d':' -f2 | tr -d ' "' || echo "null")
@@ -1745,8 +1746,9 @@ if [[ "$enabled_value" == "false" ]] || [[ "$enabled_value" == "no" ]] || [[ "$e
     : # Skip binnacle co-author, continue to rest of hook
 else
     # Check for active agent session via BN_AGENT_SESSION environment variable
-    if [[ -n "$BN_AGENT_SESSION" ]] && [[ "$BN_AGENT_SESSION" == "1" ]]; then
-        # Agent is active - append Co-authored-by trailer if not already present
+    # Also skip if using default identity (no human to attribute as co-author)
+    if [[ -n "$BN_AGENT_SESSION" ]] && [[ "$BN_AGENT_SESSION" == "1" ]] && [[ -z "$BN_USING_DEFAULT_IDENTITY" ]]; then
+        # Agent is active with human identity - append Co-authored-by trailer if not already present
         co_author_name=$(bn config get co-author.name 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
         if [[ -z "$co_author_name" ]] || [[ "$co_author_name" == "null" ]]; then
             co_author_name="binnacle-bot"
@@ -18450,63 +18452,32 @@ pub fn agent_spawn(
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty());
 
-    match (&git_name, &git_email) {
-        (None, None) => {
-            return Ok(AgentSpawnResult {
-                success: false,
-                agent_id: Some(agent_id),
-                name: Some(agent_name),
-                agent_type: agent_type.to_string(),
-                container_name: Some(container_name),
-                log_path: None,
-                error: Some(
-                    "Git identity not configured. Please set your git user.name and user.email:\n  \
-                     git config --global user.name \"Your Name\"\n  \
-                     git config --global user.email \"you@example.com\""
-                        .to_string(),
-                ),
-            });
+    // Use host git identity if available, otherwise use default binnacle-bot identity
+    let (effective_name, effective_email, using_default_identity) = match (&git_name, &git_email) {
+        (Some(name), Some(email)) => (name.clone(), email.clone(), false),
+        _ => {
+            // Use default binnacle-bot identity when host git config is missing
+            (
+                "binnacle-bot".to_string(),
+                "noreply@binnacle.bot".to_string(),
+                true,
+            )
         }
-        (None, Some(_)) => {
-            return Ok(AgentSpawnResult {
-                success: false,
-                agent_id: Some(agent_id),
-                name: Some(agent_name),
-                agent_type: agent_type.to_string(),
-                container_name: Some(container_name),
-                log_path: None,
-                error: Some(
-                    "Git user.name not configured. Please set it:\n  \
-                     git config --global user.name \"Your Name\""
-                        .to_string(),
-                ),
-            });
-        }
-        (Some(_), None) => {
-            return Ok(AgentSpawnResult {
-                success: false,
-                agent_id: Some(agent_id),
-                name: Some(agent_name),
-                agent_type: agent_type.to_string(),
-                container_name: Some(container_name),
-                log_path: None,
-                error: Some(
-                    "Git user.email not configured. Please set it:\n  \
-                     git config --global user.email \"you@example.com\""
-                        .to_string(),
-                ),
-            });
-        }
-        (Some(name), Some(email)) => {
-            args.push("--env".to_string());
-            args.push(format!("GIT_AUTHOR_NAME={}", name));
-            args.push("--env".to_string());
-            args.push(format!("GIT_COMMITTER_NAME={}", name));
-            args.push("--env".to_string());
-            args.push(format!("GIT_AUTHOR_EMAIL={}", email));
-            args.push("--env".to_string());
-            args.push(format!("GIT_COMMITTER_EMAIL={}", email));
-        }
+    };
+
+    args.push("--env".to_string());
+    args.push(format!("GIT_AUTHOR_NAME={}", effective_name));
+    args.push("--env".to_string());
+    args.push(format!("GIT_COMMITTER_NAME={}", effective_name));
+    args.push("--env".to_string());
+    args.push(format!("GIT_AUTHOR_EMAIL={}", effective_email));
+    args.push("--env".to_string());
+    args.push(format!("GIT_COMMITTER_EMAIL={}", effective_email));
+
+    // Set flag to indicate when using default identity (skips Co-authored-by trailer)
+    if using_default_identity {
+        args.push("--env".to_string());
+        args.push("BN_USING_DEFAULT_IDENTITY=1".to_string());
     }
 
     // Pass through timezone
@@ -21090,59 +21061,32 @@ pub fn container_run(
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty());
 
-    // Require both name and email to be set
-    match (&git_name, &git_email) {
-        (None, None) => {
-            return Ok(ContainerRunResult {
-                success: false,
-                name: None,
-                agent_id: Some(agent_id),
-                agent_name: Some(agent_name),
-                error: Some(
-                    "Git identity not configured. Please set your git user.name and user.email:\n  \
-                     git config --global user.name \"Your Name\"\n  \
-                     git config --global user.email \"you@example.com\"\n\n\
-                     This is required to ensure container commits use your identity, not a default."
-                        .to_string(),
-                ),
-            });
+    // Use host git identity if available, otherwise use default binnacle-bot identity
+    let (effective_name, effective_email, using_default_identity) = match (&git_name, &git_email) {
+        (Some(name), Some(email)) => (name.clone(), email.clone(), false),
+        _ => {
+            // Use default binnacle-bot identity when host git config is missing
+            (
+                "binnacle-bot".to_string(),
+                "noreply@binnacle.bot".to_string(),
+                true,
+            )
         }
-        (None, Some(_)) => {
-            return Ok(ContainerRunResult {
-                success: false,
-                name: None,
-                agent_id: Some(agent_id),
-                agent_name: Some(agent_name),
-                error: Some(
-                    "Git user.name not configured. Please set it:\n  \
-                     git config --global user.name \"Your Name\""
-                        .to_string(),
-                ),
-            });
-        }
-        (Some(_), None) => {
-            return Ok(ContainerRunResult {
-                success: false,
-                name: None,
-                agent_id: Some(agent_id),
-                agent_name: Some(agent_name),
-                error: Some(
-                    "Git user.email not configured. Please set it:\n  \
-                     git config --global user.email \"you@example.com\""
-                        .to_string(),
-                ),
-            });
-        }
-        (Some(git_user_name), Some(email)) => {
-            args.push("--env".to_string());
-            args.push(format!("GIT_AUTHOR_NAME={}", git_user_name));
-            args.push("--env".to_string());
-            args.push(format!("GIT_COMMITTER_NAME={}", git_user_name));
-            args.push("--env".to_string());
-            args.push(format!("GIT_AUTHOR_EMAIL={}", email));
-            args.push("--env".to_string());
-            args.push(format!("GIT_COMMITTER_EMAIL={}", email));
-        }
+    };
+
+    args.push("--env".to_string());
+    args.push(format!("GIT_AUTHOR_NAME={}", effective_name));
+    args.push("--env".to_string());
+    args.push(format!("GIT_COMMITTER_NAME={}", effective_name));
+    args.push("--env".to_string());
+    args.push(format!("GIT_AUTHOR_EMAIL={}", effective_email));
+    args.push("--env".to_string());
+    args.push(format!("GIT_COMMITTER_EMAIL={}", effective_email));
+
+    // Set flag to indicate when using default identity (skips Co-authored-by trailer)
+    if using_default_identity {
+        args.push("--env".to_string());
+        args.push("BN_USING_DEFAULT_IDENTITY=1".to_string());
     }
 
     // Pass through timezone from TZ env var or /etc/timezone
@@ -24674,6 +24618,24 @@ mod tests {
         // Uninstall when no hook exists
         let result = uninstall_commit_msg_hook(temp.path()).unwrap();
         assert!(!result); // Nothing to do
+    }
+
+    #[test]
+    #[serial]
+    fn test_hook_skips_coauthor_when_using_default_identity() {
+        let temp = TestEnv::new_with_env();
+        std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
+
+        let result = install_commit_msg_hook(temp.path()).unwrap();
+        assert!(result);
+
+        let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");
+        let contents = std::fs::read_to_string(&hook_path).unwrap();
+
+        // Verify hook checks for BN_USING_DEFAULT_IDENTITY
+        assert!(contents.contains("BN_USING_DEFAULT_IDENTITY"));
+        // Verify the condition skips co-author when using default identity
+        assert!(contents.contains(r#"[[ -z "$BN_USING_DEFAULT_IDENTITY" ]]"#));
     }
 
     #[test]
