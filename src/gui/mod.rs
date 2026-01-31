@@ -10,6 +10,8 @@ mod pid_file;
 #[cfg(feature = "gui")]
 mod server;
 #[cfg(feature = "gui")]
+pub mod session_log;
+#[cfg(feature = "gui")]
 pub mod tunnel;
 #[cfg(feature = "gui")]
 mod watcher;

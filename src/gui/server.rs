@@ -499,6 +499,16 @@ pub async fn start_server(
         .parse()
         .map_err(|e| format!("Invalid host address '{}': {}", host, e))?;
     let addr = SocketAddr::from((host_addr, port));
+
+    // Log GUI server start to session.log
+    crate::gui::session_log::log_gui_start(
+        &repo_path.to_string_lossy(),
+        host,
+        port,
+        std::process::id(),
+        readonly,
+    );
+
     if readonly {
         println!("Starting binnacle GUI at http://{} (READONLY MODE)", addr);
     } else {
@@ -2543,6 +2553,9 @@ pub async fn start_session_server(
         .parse()
         .map_err(|e| format!("Invalid host address '{}': {}", host, e))?;
     let addr = SocketAddr::from((host_addr, port));
+
+    // Log server start to session.log
+    crate::gui::session_log::log_server_start(&display_name, host, port, std::process::id());
 
     println!(
         "Session server started: {} on {}:{}",
