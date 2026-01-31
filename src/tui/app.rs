@@ -2,12 +2,12 @@
 //!
 //! This module contains the core TUI application logic including:
 //! - Terminal setup and restoration
-//! - WebSocket connection handling
+//! - WebSocket connection handling with automatic reconnection
 //! - Event loop for keyboard and server messages
 //! - View switching between Queue/Ready, Recently Completed, and Node Detail
 
 use std::io::{self, stdout};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use crossterm::{
@@ -16,14 +16,19 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use futures::StreamExt;
+use futures::stream::SplitStream;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
 use serde::Deserialize;
+use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use super::connection::ConnectionState;
+use super::connection::{
+    ConnectionState, MAX_RECONNECT_ATTEMPTS, RECONNECT_DEBOUNCE_MS, calculate_backoff,
+};
 use super::notifications::NotificationManager;
 use super::views::{
     CompletedItem, EdgeInfo, LogEntry, LogPanelView, NodeDetail, NodeDetailView, QueueReadyView,
@@ -258,12 +263,16 @@ pub struct TuiApp {
     notifications: NotificationManager,
     /// HTTP base URL for API requests
     api_base: String,
+    /// WebSocket endpoint URL
+    ws_endpoint: String,
     /// Flag indicating data needs refresh
     needs_refresh: bool,
     /// Flag indicating node detail needs fetch
     needs_node_fetch: Option<String>,
     /// Last key pressed (for gg detection)
     last_key: Option<KeyCode>,
+    /// Flag indicating reconnection was requested
+    reconnect_requested: bool,
 }
 
 impl TuiApp {
@@ -280,9 +289,11 @@ impl TuiApp {
             log_panel: LogPanelView::new(),
             notifications: NotificationManager::new(),
             api_base: format!("http://{}:{}", host, port),
+            ws_endpoint: format!("ws://{}:{}/ws", host, port),
             needs_refresh: true,
             needs_node_fetch: None,
             last_key: None,
+            reconnect_requested: false,
         }
     }
 
@@ -497,9 +508,14 @@ impl TuiApp {
                 self.last_key = Some(key);
             }
             KeyCode::Char('r') => {
-                // Request data refresh
-                self.needs_refresh = true;
-                self.log_panel.log("refreshing");
+                // If disconnected, trigger manual reconnect; otherwise refresh data
+                if matches!(self.connection_state, ConnectionState::Disconnected) {
+                    self.reconnect_requested = true;
+                    self.log_panel.log("reconnecting (manual)");
+                } else {
+                    self.needs_refresh = true;
+                    self.log_panel.log("refreshing");
+                }
                 self.last_key = Some(key);
             }
             _ => {
@@ -652,7 +668,55 @@ impl TuiApp {
         Ok(())
     }
 
-    /// Mark connection as disconnected
+    /// Start reconnection process
+    fn start_reconnecting(&mut self) {
+        self.connection_state = ConnectionState::Reconnecting {
+            attempt: 1,
+            next_retry: Some(Instant::now()),
+        };
+        self.log_panel.log("connection lost, reconnecting...");
+        self.notifications.warning("Connection lost");
+    }
+
+    /// Handle a failed reconnection attempt
+    fn handle_reconnect_failed(&mut self) {
+        if let ConnectionState::Reconnecting {
+            attempt,
+            next_retry: _,
+        } = &self.connection_state
+        {
+            let current_attempt = *attempt;
+            if current_attempt >= MAX_RECONNECT_ATTEMPTS {
+                // Max retries exceeded
+                self.connection_state = ConnectionState::Disconnected;
+                self.log_panel.log(format!(
+                    "reconnect failed after {} attempts",
+                    current_attempt
+                ));
+                self.notifications
+                    .error("Disconnected - press 'r' to retry");
+            } else {
+                // Schedule next attempt
+                let backoff = calculate_backoff(current_attempt + 1);
+                self.connection_state = ConnectionState::Reconnecting {
+                    attempt: current_attempt + 1,
+                    next_retry: Some(Instant::now() + backoff),
+                };
+                self.log_panel
+                    .log(format!("reconnect attempt {} failed", current_attempt));
+            }
+        }
+    }
+
+    /// Handle successful reconnection
+    fn handle_reconnect_success(&mut self) {
+        self.connection_state = ConnectionState::Connected;
+        self.log_panel.log("reconnected, refreshing state...");
+        self.notifications.info("Reconnected");
+    }
+
+    /// Mark connection as disconnected (max retries exceeded or initial failure)
+    #[allow(dead_code)]
     fn set_disconnected(&mut self) {
         self.connection_state = ConnectionState::Disconnected;
         self.log_panel.log("disconnected");
@@ -662,6 +726,35 @@ impl TuiApp {
     /// Mark connection as connected
     fn set_connected(&mut self) {
         self.connection_state = ConnectionState::Connected;
+    }
+
+    /// Get time until next reconnect attempt, if any
+    #[allow(dead_code)]
+    fn time_until_reconnect(&self) -> Option<Duration> {
+        if let ConnectionState::Reconnecting {
+            next_retry: Some(next),
+            ..
+        } = &self.connection_state
+        {
+            let now = Instant::now();
+            if *next > now {
+                return Some(*next - now);
+            }
+            return Some(Duration::ZERO);
+        }
+        None
+    }
+
+    /// Check if it's time to attempt reconnection
+    fn should_attempt_reconnect(&self) -> bool {
+        if let ConnectionState::Reconnecting {
+            next_retry: Some(next),
+            ..
+        } = &self.connection_state
+        {
+            return Instant::now() >= *next;
+        }
+        false
     }
 
     /// Render the UI
@@ -856,7 +949,7 @@ impl TuiApp {
         };
         let status_text = match &self.connection_state {
             ConnectionState::Connected => "Connected".to_string(),
-            ConnectionState::Reconnecting { attempt } => {
+            ConnectionState::Reconnecting { attempt, .. } => {
                 format!("Reconnecting (attempt {})...", attempt)
             }
             ConnectionState::Disconnected => "Disconnected".to_string(),
@@ -1000,7 +1093,8 @@ pub async fn run_tui(
     };
 
     app.set_connected();
-    let (_write, mut read) = ws_stream.split();
+    let (_write, read) = ws_stream.split();
+    let mut ws_read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>> = Some(read);
 
     // Setup terminal
     let mut terminal = setup_terminal()?;
@@ -1027,6 +1121,37 @@ pub async fn run_tui(
         // Render the UI
         terminal.draw(|f| app.render(f))?;
 
+        // Handle reconnection if needed
+        if app.reconnect_requested {
+            app.reconnect_requested = false;
+            // Start reconnection from manual request
+            app.connection_state = ConnectionState::Reconnecting {
+                attempt: 1,
+                next_retry: Some(Instant::now()),
+            };
+        }
+
+        // Attempt reconnection if it's time
+        if app.should_attempt_reconnect() {
+            match tokio_tungstenite::connect_async(&app.ws_endpoint).await {
+                Ok((new_ws, _)) => {
+                    app.handle_reconnect_success();
+                    let (_, new_read) = new_ws.split();
+                    ws_read = Some(new_read);
+                    // Debounce before state refresh
+                    tokio::time::sleep(Duration::from_millis(RECONNECT_DEBOUNCE_MS)).await;
+                    app.needs_refresh = true;
+                    let item_count = app.queue_ready_view.total_items()
+                        + app.recently_completed_view.items.len();
+                    app.log_panel
+                        .log(format!("state refresh complete ({} items)", item_count));
+                }
+                Err(_) => {
+                    app.handle_reconnect_failed();
+                }
+            }
+        }
+
         // Handle events with a timeout
         tokio::select! {
             // Check for keyboard events
@@ -1039,15 +1164,25 @@ pub async fn run_tui(
                     }
                 }
             }
-            // Check for WebSocket messages
-            msg = read.next() => {
+            // Check for WebSocket messages (only if connected)
+            msg = async {
+                if let Some(ref mut read) = ws_read {
+                    read.next().await
+                } else {
+                    // No connection, just pend forever (will timeout via sleep branch)
+                    std::future::pending().await
+                }
+            } => {
                 match msg {
                     Some(Ok(message)) => {
                         app.handle_ws_message(message);
                     }
                     Some(Err(_)) | None => {
-                        // Connection closed or error
-                        app.set_disconnected();
+                        // Connection closed or error - start reconnection
+                        ws_read = None;
+                        if app.connection_state.is_connected() {
+                            app.start_reconnecting();
+                        }
                     }
                 }
             }

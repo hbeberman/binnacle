@@ -127,6 +127,11 @@ impl QueueReadyView {
         self.items.get(self.selected)
     }
 
+    /// Get total count of items (queued + ready)
+    pub fn total_items(&self) -> usize {
+        self.items.len()
+    }
+
     /// Render the view
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         if self.items.is_empty() {
