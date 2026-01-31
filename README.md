@@ -9,67 +9,74 @@ Task tracker for AI agents. Stores data outside your repo so it doesn't pollute 
 > [!WARNING]
 > Early alpha. Things *will* break.
 
-## Quickstart to using binnacle
-### System Pereqs
-```bash
-#Install the following
-jq
-buildah
-containerd
-npm
+## Quick Start
 
-# Setup your path
-# Ensure ~/.local/bin is in your path if it isnt already
+Get from zero to running an AI agent in under 5 minutes.
+
+### 1. Install Binnacle
+
+```bash
+# Ensure ~/.local/bin is in your PATH
 export PATH=$HOME/.local/bin:$PATH
 
-# Devtunnels (Optional - but cool)
-# Setup devtunnels and login following https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started?tabs=linux
-```
-
-### Download Binnacle
-```bash
+# Download and install (Linux x86_64)
 wget https://github.com/hbeberman/binnacle/releases/download/v0.0.1-alpha.8/bn-x86_64-unknown-linux-gnu.tar.gz
 tar -xf bn-x86_64-unknown-linux-gnu.tar.gz
 install -m 755 bn ~/.local/bin/
 rm bn bn-x86_64-unknown-linux-gnu.tar.gz
-install 755 bn ~/.local/bin/bn
-# or
+
+# Or install via cargo
 cargo install binnacle@=0.0.1-alpha.8
 ```
 
-### Setup Copilot
+### 2. Create a GitHub PAT with Copilot Permissions
+
+1. Go to https://github.com/settings/tokens
+2. Click **"Generate new token"** → **"Fine-grained token"**
+3. Give it a name (e.g., "binnacle")
+4. Set expiration (90 days recommended)
+5. Under **"Repository access"**, select your target repositories or "All repositories"
+6. Under **"Permissions"**, enable:
+   - **"Copilot"** → Read-only (required for AI agents)
+7. Click **"Generate token"** and copy the token
+
+### 3. Install Copilot CLI
+
 ```bash
-# More info on https://github.com/github/copilot-cli
 npm install -g @github/copilot
-# Launch copilot and login so bn can use it for agents
-copilot
 ```
 
-### Hello Binnacle
-```bash
-# Setup a git repo for binnacle to work in (or navigate to an existing one)
-mkdir hello
-cd hello
-git init
+### 4. Initialize Binnacle
 
-# First-time setup (once per machine) - sets up global config
-bn system init
+```bash
+# Create a project (or use an existing git repo)
+mkdir hello && cd hello && git init
+
+# First-time setup (once per machine) - validates token and stores it
+bn system host-init --token <your-token>
 
 # Initialize binnacle for this repository
 bn session init
 
 # Or use the shorthand that does both (auto-initializes system if needed)
 bn orient
-
-# Use some tools!
-bn-agent buddy                  # Run your helpful binnacle assistant to interact with the graph
-bn-agent --container buddy      # Run buddy in container mode (isolated, read-only workspace)
-bn-agent prd                    # Run the PRD agent to plan features
-bn-agent --container prd        # Run PRD agent in container mode
-bn gui                          # Host a local GUI session
-bn gui --tunnel                 # Host a GUI session with a sharable (r/o) devtunnel URL
-bn-agent auto                   # Loop a container of a worker agent
 ```
+
+### 5. Run Your First Agent
+
+```bash
+bn-agent buddy                  # Interactive assistant for task management
+bn gui                          # Web interface at http://localhost:3030
+```
+
+**Container mode** (isolated environment):
+```bash
+# Prerequisites: containerd, buildah
+bn container build binnacle
+bn-agent --container buddy
+```
+
+For more details, see [Running Agents](#running-agents) and [Containerized Agents](#containerized-agents-quick-start).
 
 ## Build Prerequisites
 
