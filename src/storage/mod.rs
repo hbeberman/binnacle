@@ -108,6 +108,9 @@ impl Storage {
 
     /// Internal: open storage at a specific root directory.
     fn open_at_root(root: PathBuf) -> Result<Self> {
+        // Defense-in-depth: verify we're not accessing production paths in test mode
+        check_test_mode_write_protection(&root)?;
+
         if !root.exists() {
             return Err(Error::NotInitialized);
         }
@@ -136,6 +139,9 @@ impl Storage {
 
     /// Internal: initialize storage at a specific root directory.
     fn init_at_root(root: PathBuf) -> Result<Self> {
+        // Defense-in-depth: verify we're not accessing production paths in test mode
+        check_test_mode_write_protection(&root)?;
+
         // Create directory structure
         fs::create_dir_all(&root)?;
 
@@ -5735,6 +5741,111 @@ pub fn get_test_mode_info(repo_path: &Path) -> Result<(bool, Option<String>, Pat
     Ok((test_mode, test_id, storage_dir))
 }
 
+/// Get the production data directory base path.
+/// Returns the path where production binnacle data would be stored.
+/// This is `~/.local/share/binnacle/` on most systems.
+pub fn get_production_base_dir() -> Result<PathBuf> {
+    // Container mode: production data is at /binnacle
+    let container_path = Path::new("/binnacle");
+    if std::env::var("BN_CONTAINER_MODE").is_ok() || container_path.exists() {
+        return Ok(container_path.to_path_buf());
+    }
+
+    // Standard production path
+    dirs::data_dir()
+        .map(|d| d.join("binnacle"))
+        .ok_or_else(|| Error::Other("Could not determine data directory".to_string()))
+}
+
+/// Check if a path is under the production binnacle data directory.
+/// Returns true if the path starts with the production base dir.
+pub fn is_production_path(path: &Path) -> bool {
+    if let Ok(prod_base) = get_production_base_dir() {
+        // Normalize paths for comparison
+        let path_canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let prod_canonical = prod_base
+            .canonicalize()
+            .unwrap_or_else(|_| prod_base.clone());
+        path_canonical.starts_with(&prod_canonical)
+    } else {
+        false
+    }
+}
+
+/// Error returned when attempting to write to production data in test mode.
+#[derive(Debug)]
+pub struct TestModeProductionWriteError {
+    pub production_path: PathBuf,
+    pub test_path: Option<PathBuf>,
+}
+
+impl std::fmt::Display for TestModeProductionWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Cannot modify production binnacle data in test mode.\n\
+             Production path: {}\n",
+            self.production_path.display()
+        )?;
+        if let Some(ref test_path) = self.test_path {
+            writeln!(f, "Test path: {}", test_path.display())?;
+        }
+        write!(
+            f,
+            "\nIf you need to run this command against production, unset BN_TEST_MODE."
+        )
+    }
+}
+
+impl std::error::Error for TestModeProductionWriteError {}
+
+/// Check if a write operation to the given path should be blocked due to test mode.
+///
+/// When `BN_TEST_MODE=1` is set, any attempt to write to production paths
+/// (`~/.local/share/binnacle/` or `/binnacle`) should fail to prevent
+/// accidental modification of production data during testing.
+///
+/// Returns `Ok(())` if the write is allowed, or `Err` with a descriptive error if blocked.
+pub fn check_test_mode_write_protection(target_path: &Path) -> Result<()> {
+    if !is_test_mode() {
+        // Not in test mode, all writes allowed
+        return Ok(());
+    }
+
+    if is_production_path(target_path) {
+        let test_path =
+            get_test_id().and_then(|id| dirs::data_dir().map(|d| d.join("binnacle-test").join(id)));
+        return Err(Error::Other(
+            TestModeProductionWriteError {
+                production_path: get_production_base_dir()
+                    .unwrap_or_else(|_| PathBuf::from("~/.local/share/binnacle/")),
+                test_path,
+            }
+            .to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Check if sync push operations are allowed in the current mode.
+///
+/// In test mode (`BN_TEST_MODE=1`), push operations are blocked to prevent
+/// accidentally publishing test data to remote repositories.
+///
+/// Returns `Ok(())` if push is allowed, or `Err` with a descriptive error if blocked.
+pub fn check_test_mode_sync_push() -> Result<()> {
+    if is_test_mode() {
+        return Err(Error::Other(
+            "Cannot push binnacle data in test mode.\n\
+             Sync push is blocked to prevent publishing test data to remotes.\n\n\
+             If you need to push, unset BN_TEST_MODE."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Get the storage directory for a repository.
 ///
 /// Uses a hash of the repository path to create a unique directory.
@@ -8687,6 +8798,94 @@ mod tests {
             unsafe { std::env::remove_var("BN_TEST_ID") };
 
             assert!(result.is_none());
+        }
+
+        #[test]
+        fn test_get_production_base_dir() {
+            // Should return a valid path
+            let result = get_production_base_dir();
+            assert!(result.is_ok());
+            let path = result.unwrap();
+            // Path should end with "binnacle" (or be /binnacle in container mode)
+            let path_str = path.to_string_lossy();
+            assert!(
+                path_str.ends_with("binnacle") || path_str == "/binnacle",
+                "Expected production path to end with 'binnacle', got: {}",
+                path_str
+            );
+        }
+
+        #[test]
+        fn test_is_production_path_not_production() {
+            // A random temp path should not be considered a production path
+            let temp_path = std::env::temp_dir().join("random-test-path");
+            assert!(
+                !is_production_path(&temp_path),
+                "Temp path should not be considered production"
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn test_check_test_mode_write_protection_not_in_test_mode() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::remove_var("BN_TEST_MODE") };
+
+            // Any path should be allowed when not in test mode
+            let prod_path = get_production_base_dir().unwrap();
+            assert!(
+                check_test_mode_write_protection(&prod_path).is_ok(),
+                "Should allow writes when not in test mode"
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn test_check_test_mode_write_protection_test_path() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::set_var("BN_TEST_MODE", "1") };
+
+            // Test paths should be allowed in test mode
+            let test_path = std::env::temp_dir().join("binnacle-test-data");
+            let result = check_test_mode_write_protection(&test_path);
+
+            unsafe { std::env::remove_var("BN_TEST_MODE") };
+
+            assert!(
+                result.is_ok(),
+                "Should allow writes to test paths in test mode"
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn test_check_test_mode_sync_push_not_in_test_mode() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::remove_var("BN_TEST_MODE") };
+
+            assert!(
+                check_test_mode_sync_push().is_ok(),
+                "Should allow sync push when not in test mode"
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn test_check_test_mode_sync_push_blocked_in_test_mode() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::set_var("BN_TEST_MODE", "1") };
+
+            let result = check_test_mode_sync_push();
+
+            unsafe { std::env::remove_var("BN_TEST_MODE") };
+
+            assert!(result.is_err(), "Should block sync push in test mode");
+            let err_msg = result.unwrap_err().to_string();
+            assert!(
+                err_msg.contains("test mode"),
+                "Error should mention test mode: {}",
+                err_msg
+            );
         }
 
         // Note: Integration tests for actual path construction with BN_TEST_MODE

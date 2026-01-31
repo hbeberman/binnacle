@@ -22490,6 +22490,12 @@ pub fn sync(
 ) -> Result<SyncResult> {
     let remote = remote.unwrap_or_else(|| "origin".to_string());
 
+    // In test mode, block push operations to prevent publishing test data
+    let will_push = !pull_only; // push_only means only push, !pull_only means we might push
+    if will_push {
+        crate::storage::check_test_mode_sync_push()?;
+    }
+
     // Check if the binnacle-data branch exists
     let branch_exists = Command::new("git")
         .args([
