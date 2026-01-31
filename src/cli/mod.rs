@@ -2076,20 +2076,27 @@ pub enum SessionCommands {
 
 /// Session-level tmux layout management subcommands (feature-gated)
 ///
-/// These commands operate exclusively on ~/.local/share/binnacle/<REPO_HASH>/tmux/
+/// These commands operate on ~/.local/share/binnacle/<REPO_HASH>/tmux/ by default
 /// for repo-specific layouts that persist across sessions for this repository.
+/// Use --project to access .binnacle/tmux/ (git-committed, team-shared).
 #[cfg(feature = "tmux")]
 #[derive(Subcommand, Debug)]
 pub enum SessionTmuxCommands {
-    /// Save current tmux layout to ~/.local/share/binnacle/<REPO_HASH>/tmux/
+    /// Save current tmux layout to session-level (or project-level with --project)
     Save {
         /// Layout name (default: current session name)
         name: Option<String>,
+        /// Save to project-level (.binnacle/tmux/) instead of session-level
+        #[arg(long)]
+        project: bool,
     },
-    /// Load a tmux layout from ~/.local/share/binnacle/<REPO_HASH>/tmux/
+    /// Load a tmux layout from session-level (or project-level with --project)
     Load {
         /// Layout name to load
         name: String,
+        /// Load from project-level (.binnacle/tmux/) instead of session-level
+        #[arg(long)]
+        project: bool,
     },
     /// List tmux layouts in ~/.local/share/binnacle/<REPO_HASH>/tmux/
     List,

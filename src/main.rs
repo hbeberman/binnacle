@@ -1844,9 +1844,11 @@ fn run_command(
                     // Get session-level tmux directory
                     let storage_dir = get_storage_dir(repo_path)?;
                     let session_tmux_dir = storage_dir.join("tmux");
+                    // Get project-level tmux directory
+                    let project_tmux_dir = repo_path.join(".binnacle").join("tmux");
 
                     match command {
-                        SessionTmuxCommands::Save { name } => {
+                        SessionTmuxCommands::Save { name, project } => {
                             // Check tmux binary first
                             binnacle::tmux::check_tmux_binary()?;
                             // Capture current tmux session
@@ -1855,13 +1857,20 @@ fn run_command(
                             // Use provided name or session name
                             let layout_name = name.clone().unwrap_or_else(|| layout.name.clone());
                             let filename = format!("{}.kdl", layout_name);
-                            let save_path = session_tmux_dir.join(&filename);
+
+                            // Choose target directory based on --project flag
+                            let target_dir = if project {
+                                &project_tmux_dir
+                            } else {
+                                &session_tmux_dir
+                            };
+                            let save_path = target_dir.join(&filename);
 
                             // Ensure directory exists
-                            std::fs::create_dir_all(&session_tmux_dir).map_err(|e| {
+                            std::fs::create_dir_all(target_dir).map_err(|e| {
                                 binnacle::Error::Other(format!(
                                     "Failed to create directory {}: {}",
-                                    session_tmux_dir.display(),
+                                    target_dir.display(),
                                     e
                                 ))
                             })?;
@@ -1922,7 +1931,7 @@ fn run_command(
                             };
                             output(&result, human);
                         }
-                        SessionTmuxCommands::Load { name } => {
+                        SessionTmuxCommands::Load { name, project } => {
                             // Check tmux binary first
                             binnacle::tmux::check_tmux_binary()?;
                             use binnacle::tmux::command::TmuxCommand;
@@ -1931,9 +1940,21 @@ fn run_command(
                             };
                             use std::process::Command;
 
-                            // Look only in session-level directory
+                            // Choose source directory based on --project flag
+                            let source_dir = if project {
+                                &project_tmux_dir
+                            } else {
+                                &session_tmux_dir
+                            };
+                            let source_type = if project {
+                                LayoutSource::Project
+                            } else {
+                                LayoutSource::Session
+                            };
+
+                            // Look in the selected directory
                             let filename = format!("{}.kdl", name);
-                            let layout_path = session_tmux_dir.join(&filename);
+                            let layout_path = source_dir.join(&filename);
                             if !layout_path.exists() {
                                 return Err(binnacle::Error::Other(format!(
                                     "Layout '{}' not found at: {}",
@@ -1945,7 +1966,7 @@ fn run_command(
                             let discovered = DiscoveredLayout {
                                 name: name.clone(),
                                 path: layout_path,
-                                source: LayoutSource::Session,
+                                source: source_type,
                             };
 
                             // Load and parse the layout
@@ -4393,13 +4414,13 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             },
             #[cfg(feature = "tmux")]
             SessionCommands::Tmux { command } => match command {
-                SessionTmuxCommands::Save { name } => (
+                SessionTmuxCommands::Save { name, project } => (
                     "session tmux save".to_string(),
-                    serde_json::json!({ "name": name }),
+                    serde_json::json!({ "name": name, "project": project }),
                 ),
-                SessionTmuxCommands::Load { name } => (
+                SessionTmuxCommands::Load { name, project } => (
                     "session tmux load".to_string(),
-                    serde_json::json!({ "name": name }),
+                    serde_json::json!({ "name": name, "project": project }),
                 ),
                 SessionTmuxCommands::List => {
                     ("session tmux list".to_string(), serde_json::json!({}))
