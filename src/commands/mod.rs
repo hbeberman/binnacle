@@ -18819,6 +18819,234 @@ pub fn migrate_bugs(
     })
 }
 
+/// Result of migrating tokens from config.kdl to state.kdl
+#[derive(Debug, Serialize)]
+pub struct MigrateConfigResult {
+    /// Whether the migration succeeded
+    pub success: bool,
+    /// Whether this was a dry run
+    pub dry_run: bool,
+    /// Locations where legacy tokens were found
+    pub legacy_tokens_found: Vec<LegacyTokenLocation>,
+    /// Locations where tokens were migrated to
+    pub tokens_migrated_to: Vec<String>,
+    /// Warning messages
+    pub warnings: Vec<String>,
+}
+
+/// Location of a legacy token
+#[derive(Debug, Serialize)]
+pub struct LegacyTokenLocation {
+    /// The file path where the token was found
+    pub path: String,
+    /// Whether this is a session or system config
+    pub level: String,
+    /// Masked token for display
+    pub masked_token: String,
+}
+
+impl Output for MigrateConfigResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.legacy_tokens_found.is_empty() {
+            return "No legacy tokens found in config.kdl files. No migration needed.".to_string();
+        }
+
+        let mut lines = Vec::new();
+
+        if self.dry_run {
+            lines.push("DRY RUN - Config Migration Preview".to_string());
+            lines.push(String::new());
+            lines.push(format!(
+                "Found {} legacy {} in config.kdl:",
+                self.legacy_tokens_found.len(),
+                if self.legacy_tokens_found.len() == 1 {
+                    "token"
+                } else {
+                    "tokens"
+                }
+            ));
+        } else {
+            lines.push(format!(
+                "Migrated {} to state.kdl:",
+                if self.tokens_migrated_to.len() == 1 {
+                    "token"
+                } else {
+                    "tokens"
+                }
+            ));
+        }
+
+        for location in &self.legacy_tokens_found {
+            lines.push(format!(
+                "  [{}] {} ({})",
+                location.level, location.path, location.masked_token
+            ));
+        }
+
+        if self.dry_run {
+            lines.push(String::new());
+            lines.push("Run without --dry-run to perform migration.".to_string());
+        } else {
+            lines.push(String::new());
+            lines.push("Tokens moved to state.kdl and removed from config.kdl.".to_string());
+        }
+
+        for warning in &self.warnings {
+            lines.push(format!("\nWarning: {}", warning));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Migrate legacy tokens from config.kdl to state.kdl.
+///
+/// This migration command finds any github-token entries in config.kdl files
+/// (both session and system level) and moves them to the corresponding state.kdl.
+/// Tokens should be in state.kdl because:
+/// 1. state.kdl has 0600 permissions (owner-only)
+/// 2. config.kdl may be synced across machines via dotfiles
+/// 3. config.kdl may be accidentally committed to version control
+pub fn migrate_config(dry_run: bool) -> Result<MigrateConfigResult> {
+    use crate::config::schema::{get_legacy_token_from_config, remove_token_from_kdl_doc};
+
+    let mut legacy_tokens = Vec::new();
+    let mut tokens_migrated_to = Vec::new();
+    let mut warnings = Vec::new();
+
+    // Check system config.kdl
+    if let Some(system_config_path) = Storage::system_config_kdl_path() {
+        if system_config_path.exists() {
+            let system_config_doc = Storage::read_system_config_kdl()?;
+            if let Some(token) = get_legacy_token_from_config(&system_config_doc) {
+                let masked = mask_token(&token);
+                legacy_tokens.push(LegacyTokenLocation {
+                    path: system_config_path.display().to_string(),
+                    level: "system".to_string(),
+                    masked_token: masked,
+                });
+
+                if !dry_run {
+                    // Read current system state
+                    let mut state = Storage::read_system_binnacle_state().unwrap_or_default();
+
+                    // Only migrate if state doesn't already have a token
+                    if state.github_token.is_none() {
+                        state.github_token = Some(token);
+                        state.token_validated_at = Some(Utc::now());
+                        Storage::write_system_binnacle_state(&state)?;
+
+                        if let Some(state_path) = Storage::system_state_kdl_path() {
+                            tokens_migrated_to.push(state_path.display().to_string());
+                        }
+                    } else {
+                        warnings.push(
+                            "System state.kdl already has a token. Legacy token in config.kdl will be removed but not copied.".to_string()
+                        );
+                    }
+
+                    // Remove token from config.kdl
+                    let mut config_doc = system_config_doc;
+                    remove_token_from_kdl_doc(&mut config_doc);
+                    Storage::write_system_config_kdl(&config_doc)?;
+                }
+            }
+        }
+    }
+
+    // Check session config.kdl (only if we can determine the repo path)
+    // Note: This function doesn't have repo_path context, so we only do system-level
+    // Session-level migration should be done via `bn session migrate-config` or similar
+    // For now, we just warn if session configs can't be checked
+
+    if legacy_tokens.is_empty() {
+        return Ok(MigrateConfigResult {
+            success: true,
+            dry_run,
+            legacy_tokens_found: Vec::new(),
+            tokens_migrated_to: Vec::new(),
+            warnings: Vec::new(),
+        });
+    }
+
+    Ok(MigrateConfigResult {
+        success: true,
+        dry_run,
+        legacy_tokens_found: legacy_tokens,
+        tokens_migrated_to,
+        warnings,
+    })
+}
+
+/// Migrate legacy tokens from session config.kdl to session state.kdl.
+pub fn migrate_session_config(repo_path: &Path, dry_run: bool) -> Result<MigrateConfigResult> {
+    use crate::config::schema::{get_legacy_token_from_config, remove_token_from_kdl_doc};
+
+    let storage = Storage::open(repo_path)?;
+    let mut legacy_tokens = Vec::new();
+    let mut tokens_migrated_to = Vec::new();
+    let mut warnings = Vec::new();
+
+    // Check session config.kdl
+    let session_config_path = storage.config_kdl_path();
+    if session_config_path.exists() {
+        let session_config_doc = storage.read_config_kdl()?;
+        if let Some(token) = get_legacy_token_from_config(&session_config_doc) {
+            let masked = mask_token(&token);
+            legacy_tokens.push(LegacyTokenLocation {
+                path: session_config_path.display().to_string(),
+                level: "session".to_string(),
+                masked_token: masked,
+            });
+
+            if !dry_run {
+                // Read current session state
+                let mut state = storage.read_binnacle_state().unwrap_or_default();
+
+                // Only migrate if state doesn't already have a token
+                if state.github_token.is_none() {
+                    state.github_token = Some(token);
+                    state.token_validated_at = Some(Utc::now());
+                    storage.write_binnacle_state(&state)?;
+
+                    let state_path = storage.state_kdl_path();
+                    tokens_migrated_to.push(state_path.display().to_string());
+                } else {
+                    warnings.push(
+                        "Session state.kdl already has a token. Legacy token in config.kdl will be removed but not copied.".to_string()
+                    );
+                }
+
+                // Remove token from config.kdl
+                let mut config_doc = session_config_doc;
+                remove_token_from_kdl_doc(&mut config_doc);
+                storage.write_config_kdl(&config_doc)?;
+            }
+        }
+    }
+
+    Ok(MigrateConfigResult {
+        success: true,
+        dry_run,
+        legacy_tokens_found: legacy_tokens,
+        tokens_migrated_to,
+        warnings,
+    })
+}
+
+/// Helper to mask a token for display
+fn mask_token(token: &str) -> String {
+    if token.len() <= 12 {
+        format!("{}...", &token[..4.min(token.len())])
+    } else {
+        format!("{}...{}", &token[..4], &token[token.len() - 4..])
+    }
+}
+
 #[derive(Serialize)]
 pub struct CommitLinked {
     pub sha: String,

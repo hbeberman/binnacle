@@ -5,6 +5,7 @@
 //! - Serialization/deserialization to/from KDL format
 //! - Validation functions
 //! - Default values
+//! - Legacy token detection (for migration)
 
 use chrono::{DateTime, Utc};
 use kdl::{KdlDocument, KdlEntry, KdlNode, KdlValue};
@@ -300,6 +301,39 @@ pub const STATE_FILE_MODE: u32 = 0o600;
 #[cfg(unix)]
 pub const CONFIG_FILE_MODE: u32 = 0o644;
 
+/// Check if a KDL document contains a legacy github-token entry.
+///
+/// Tokens should be stored in state.kdl, not config.kdl. This function
+/// detects legacy/accidental token placements for migration purposes.
+pub fn has_legacy_token_in_config(doc: &KdlDocument) -> bool {
+    doc.get("github-token").is_some()
+}
+
+/// Extract a legacy github-token from a KDL document (config.kdl).
+///
+/// Returns the token value if found. Tokens found in config.kdl are
+/// considered legacy and should be migrated to state.kdl.
+pub fn get_legacy_token_from_config(doc: &KdlDocument) -> Option<String> {
+    if let Some(node) = doc.get("github-token") {
+        if let Some(entry) = node.entries().first() {
+            if let Some(s) = entry.value().as_string() {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Remove a github-token entry from a KDL document.
+///
+/// Returns true if a token was removed, false if none was found.
+pub fn remove_token_from_kdl_doc(doc: &mut KdlDocument) -> bool {
+    let nodes = doc.nodes_mut();
+    let original_len = nodes.len();
+    nodes.retain(|node| node.name().value() != "github-token");
+    nodes.len() < original_len
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -525,5 +559,79 @@ mod tests {
     fn test_file_mode_constants() {
         assert_eq!(STATE_FILE_MODE, 0o600);
         assert_eq!(CONFIG_FILE_MODE, 0o644);
+    }
+
+    // ==================== Legacy Token Detection Tests ====================
+
+    #[test]
+    fn test_has_legacy_token_in_config_false() {
+        let kdl = r#"
+            editor "nvim"
+            output-format "human"
+        "#;
+        let doc: KdlDocument = kdl.parse().unwrap();
+        assert!(!has_legacy_token_in_config(&doc));
+    }
+
+    #[test]
+    fn test_has_legacy_token_in_config_true() {
+        let kdl = r#"
+            editor "nvim"
+            github-token "ghp_legacy_token_abc123"
+        "#;
+        let doc: KdlDocument = kdl.parse().unwrap();
+        assert!(has_legacy_token_in_config(&doc));
+    }
+
+    #[test]
+    fn test_get_legacy_token_from_config() {
+        let kdl = r#"
+            editor "nvim"
+            github-token "ghp_legacy_token_xyz"
+        "#;
+        let doc: KdlDocument = kdl.parse().unwrap();
+        assert_eq!(
+            get_legacy_token_from_config(&doc),
+            Some("ghp_legacy_token_xyz".to_string())
+        );
+    }
+
+    #[test]
+    fn test_get_legacy_token_from_config_none() {
+        let kdl = r#"
+            editor "nvim"
+        "#;
+        let doc: KdlDocument = kdl.parse().unwrap();
+        assert_eq!(get_legacy_token_from_config(&doc), None);
+    }
+
+    #[test]
+    fn test_remove_token_from_kdl_doc() {
+        let kdl = r#"
+            editor "nvim"
+            github-token "ghp_to_remove"
+            output-format "human"
+        "#;
+        let mut doc: KdlDocument = kdl.parse().unwrap();
+
+        assert!(has_legacy_token_in_config(&doc));
+        let removed = remove_token_from_kdl_doc(&mut doc);
+        assert!(removed);
+        assert!(!has_legacy_token_in_config(&doc));
+
+        // Other nodes should remain
+        assert!(doc.get("editor").is_some());
+        assert!(doc.get("output-format").is_some());
+    }
+
+    #[test]
+    fn test_remove_token_from_kdl_doc_not_found() {
+        let kdl = r#"
+            editor "nvim"
+        "#;
+        let mut doc: KdlDocument = kdl.parse().unwrap();
+
+        let removed = remove_token_from_kdl_doc(&mut doc);
+        assert!(!removed);
     }
 }

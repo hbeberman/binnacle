@@ -36,6 +36,8 @@ pub enum ValueSource {
     CliFlag,
     /// Built-in default value
     Default,
+    /// Value from legacy location (config.kdl instead of state.kdl) - deprecated
+    LegacyConfig(String),
 }
 
 impl std::fmt::Display for ValueSource {
@@ -46,6 +48,7 @@ impl std::fmt::Display for ValueSource {
             ValueSource::System => write!(f, "system"),
             ValueSource::CliFlag => write!(f, "cli"),
             ValueSource::Default => write!(f, "default"),
+            ValueSource::LegacyConfig(path) => write!(f, "legacy-config:{}", path),
         }
     }
 }
@@ -111,6 +114,8 @@ pub struct ResolvedState {
     pub github_token: Option<Resolved<String>>,
     /// Whether the token came from an environment variable
     pub token_from_env: bool,
+    /// Deprecation warnings (e.g., token found in legacy location)
+    pub deprecation_warnings: Vec<String>,
 }
 
 impl ResolvedState {
@@ -139,6 +144,16 @@ impl ResolvedState {
     /// Get the source of the token, if set.
     pub fn token_source(&self) -> Option<&ValueSource> {
         self.github_token.as_ref().map(|r| &r.source)
+    }
+
+    /// Check if the token is from a deprecated location.
+    pub fn is_token_from_legacy_location(&self) -> bool {
+        matches!(self.token_source(), Some(ValueSource::LegacyConfig(_)))
+    }
+
+    /// Get deprecation warnings, if any.
+    pub fn get_deprecation_warnings(&self) -> &[String] {
+        &self.deprecation_warnings
     }
 }
 
@@ -233,7 +248,14 @@ pub fn resolve_config(storage: &Storage, overrides: &ConfigOverrides) -> Result<
 /// 1. `COPILOT_GITHUB_TOKEN` environment variable
 /// 2. Session state.kdl
 /// 3. System state.kdl
+/// 4. (Legacy fallback) Session config.kdl - DEPRECATED
+/// 5. (Legacy fallback) System config.kdl - DEPRECATED
+///
+/// Note: If a token is found in config.kdl, a deprecation warning is emitted.
+/// Run `bn system migrate-config` to move tokens to state.kdl.
 pub fn resolve_state(storage: &Storage) -> Result<ResolvedState> {
+    use crate::config::schema::get_legacy_token_from_config;
+
     let mut result = ResolvedState::default();
 
     // Check environment variable first (highest precedence)
@@ -254,14 +276,50 @@ pub fn resolve_state(storage: &Storage) -> Result<ResolvedState> {
     // Load session state (higher precedence than system)
     let session_state = storage.read_binnacle_state()?;
 
-    // Resolve token from files
+    // Resolve token from state.kdl files (correct location)
     if let Some(ref token) = session_state.github_token {
         result.github_token = Some(Resolved::new(token.clone(), ValueSource::Session));
-    } else if let Some(ref token) = system_state.github_token {
-        result.github_token = Some(Resolved::new(token.clone(), ValueSource::System));
+        return Ok(result);
     }
-    // else: remains None (no token configured)
+    if let Some(ref token) = system_state.github_token {
+        result.github_token = Some(Resolved::new(token.clone(), ValueSource::System));
+        return Ok(result);
+    }
 
+    // Legacy fallback: check config.kdl files (deprecated location)
+    // Session config.kdl
+    let session_config_doc = storage.read_config_kdl()?;
+    if let Some(token) = get_legacy_token_from_config(&session_config_doc) {
+        let config_path = storage.config_kdl_path();
+        result.github_token = Some(Resolved::new(
+            token,
+            ValueSource::LegacyConfig(config_path.display().to_string()),
+        ));
+        result.deprecation_warnings.push(format!(
+            "Token found in deprecated location: {}. Run 'bn system migrate-config' to move it to state.kdl.",
+            config_path.display()
+        ));
+        return Ok(result);
+    }
+
+    // System config.kdl
+    let system_config_doc = Storage::read_system_config_kdl()?;
+    if let Some(token) = get_legacy_token_from_config(&system_config_doc) {
+        let config_path = Storage::system_config_kdl_path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "~/.config/binnacle/config.kdl".to_string());
+        result.github_token = Some(Resolved::new(
+            token,
+            ValueSource::LegacyConfig(config_path.clone()),
+        ));
+        result.deprecation_warnings.push(format!(
+            "Token found in deprecated location: {}. Run 'bn system migrate-config' to move it to state.kdl.",
+            config_path
+        ));
+        return Ok(result);
+    }
+
+    // No token found anywhere
     Ok(result)
 }
 
@@ -276,6 +334,7 @@ pub fn resolve_state_with_override(
         return Ok(ResolvedState {
             github_token: Some(Resolved::new(token.to_string(), ValueSource::CliFlag)),
             token_from_env: false,
+            deprecation_warnings: Vec::new(),
         });
     }
     resolve_state(storage)
@@ -330,6 +389,13 @@ mod tests {
         assert_eq!(format!("{}", ValueSource::System), "system");
         assert_eq!(format!("{}", ValueSource::CliFlag), "cli");
         assert_eq!(format!("{}", ValueSource::Default), "default");
+        assert_eq!(
+            format!(
+                "{}",
+                ValueSource::LegacyConfig("/path/to/config.kdl".to_string())
+            ),
+            "legacy-config:/path/to/config.kdl"
+        );
     }
 
     // ==================== Config Resolution Tests ====================
@@ -616,5 +682,103 @@ mod tests {
         assert_eq!(*settings.config.output_format(), OutputFormat::Human);
         assert_eq!(settings.config.default_priority(), 1);
         assert_eq!(settings.state.token().unwrap(), "ghp_test_token");
+    }
+
+    // ==================== Legacy Token Detection Tests ====================
+
+    #[test]
+    fn test_resolve_state_legacy_token_in_session_config() {
+        use kdl::{KdlDocument, KdlEntry, KdlNode, KdlValue};
+
+        let (_temp_dir, storage) = create_test_storage();
+
+        // Ensure env var is not set
+        unsafe { std::env::remove_var(COPILOT_GITHUB_TOKEN_ENV) };
+
+        // Write a token to config.kdl (legacy/wrong location)
+        let mut doc = KdlDocument::new();
+        let mut node = KdlNode::new("github-token");
+        node.push(KdlEntry::new(KdlValue::String(
+            "ghp_legacy_session_token".to_string(),
+        )));
+        doc.nodes_mut().push(node);
+        storage.write_config_kdl(&doc).unwrap();
+
+        let state = resolve_state(&storage).unwrap();
+
+        // Token should be found
+        assert!(state.has_token());
+        assert_eq!(state.token().unwrap(), "ghp_legacy_session_token");
+
+        // Should be marked as from legacy location
+        assert!(state.is_token_from_legacy_location());
+        assert!(matches!(
+            state.token_source().unwrap(),
+            ValueSource::LegacyConfig(_)
+        ));
+
+        // Should have deprecation warning
+        assert!(!state.deprecation_warnings.is_empty());
+        assert!(state.deprecation_warnings[0].contains("deprecated"));
+    }
+
+    #[test]
+    fn test_resolve_state_prefers_state_kdl_over_legacy_config() {
+        use kdl::{KdlDocument, KdlEntry, KdlNode, KdlValue};
+
+        let (_temp_dir, storage) = create_test_storage();
+
+        // Ensure env var is not set
+        unsafe { std::env::remove_var(COPILOT_GITHUB_TOKEN_ENV) };
+
+        // Write a token to config.kdl (legacy/wrong location)
+        let mut doc = KdlDocument::new();
+        let mut node = KdlNode::new("github-token");
+        node.push(KdlEntry::new(KdlValue::String(
+            "ghp_legacy_token".to_string(),
+        )));
+        doc.nodes_mut().push(node);
+        storage.write_config_kdl(&doc).unwrap();
+
+        // Also write a token to state.kdl (correct location)
+        let state_data = BinnacleState {
+            github_token: Some("ghp_correct_token".to_string()),
+            ..Default::default()
+        };
+        storage.write_binnacle_state(&state_data).unwrap();
+
+        let state = resolve_state(&storage).unwrap();
+
+        // Should prefer the token from state.kdl
+        assert!(state.has_token());
+        assert_eq!(state.token().unwrap(), "ghp_correct_token");
+
+        // Should NOT be marked as legacy
+        assert!(!state.is_token_from_legacy_location());
+        assert_eq!(state.token_source().unwrap(), &ValueSource::Session);
+
+        // Should NOT have deprecation warning
+        assert!(state.deprecation_warnings.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_state_no_legacy_warning_when_token_in_correct_location() {
+        let (_temp_dir, storage) = create_test_storage();
+
+        // Ensure env var is not set
+        unsafe { std::env::remove_var(COPILOT_GITHUB_TOKEN_ENV) };
+
+        // Write token to state.kdl (correct location)
+        let state_data = BinnacleState {
+            github_token: Some("ghp_correct_token".to_string()),
+            ..Default::default()
+        };
+        storage.write_binnacle_state(&state_data).unwrap();
+
+        let state = resolve_state(&storage).unwrap();
+
+        assert!(state.has_token());
+        assert!(!state.is_token_from_legacy_location());
+        assert!(state.deprecation_warnings.is_empty());
     }
 }

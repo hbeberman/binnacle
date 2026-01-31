@@ -1156,6 +1156,10 @@ fn run_command(
                 let result = commands::migrate_bugs(repo_path, dry_run, remove_tag)?;
                 output(&result, human);
             }
+            SystemCommands::MigrateConfig { dry_run } => {
+                let result = commands::migrate_config(dry_run)?;
+                output(&result, human);
+            }
             SystemCommands::BuildInfo => {
                 let result = serde_json::json!({
                     "version": binnacle::cli::package_version(),
@@ -4105,6 +4109,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             } => (
                 "system migrate-bugs".to_string(),
                 serde_json::json!({ "dry_run": dry_run, "remove_tag": remove_tag }),
+            ),
+            SystemCommands::MigrateConfig { dry_run } => (
+                "system migrate-config".to_string(),
+                serde_json::json!({ "dry_run": dry_run }),
             ),
             SystemCommands::BuildInfo => ("system build-info".to_string(), serde_json::json!({})),
             SystemCommands::HostInit {

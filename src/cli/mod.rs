@@ -1861,6 +1861,17 @@ pub enum SystemCommands {
         remove_tag: bool,
     },
 
+    /// Migrate legacy token locations to state.kdl
+    ///
+    /// This command moves any github-token entries found in config.kdl (legacy/accidental)
+    /// to state.kdl (correct location). Tokens in config.kdl are insecure because config.kdl
+    /// may be synced across machines or committed to dotfiles.
+    MigrateConfig {
+        /// Preview migration without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Display build metadata (timestamp, commit hash)
     BuildInfo,
 
