@@ -396,7 +396,7 @@ impl TuiApp {
         // Handle notification history overlay first (when visible)
         if self.notifications.history_visible {
             match key {
-                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('h') => {
+                KeyCode::Esc | KeyCode::Char('H') => {
                     self.notifications.close_history();
                 }
                 KeyCode::Char('j') | KeyCode::Down => {
@@ -441,7 +441,7 @@ impl TuiApp {
                 self.last_key = Some(key);
             }
             // Notification/log keys
-            KeyCode::Char('n') => {
+            KeyCode::Char('H') => {
                 // Toggle notification history overlay
                 self.notifications.toggle_history();
                 self.last_key = Some(key);
@@ -1151,7 +1151,7 @@ impl TuiApp {
             )]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("    n      ", Style::default().fg(Color::Yellow)),
+                Span::styled("    H      ", Style::default().fg(Color::Yellow)),
                 Span::raw("Toggle notification history"),
             ]),
             Line::from(vec![
@@ -1278,10 +1278,10 @@ impl TuiApp {
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
         let help_text = match self.active_view {
             ActiveView::QueueReady | ActiveView::RecentlyCompleted => {
-                " Tab:View  j/k:Nav  Enter:Detail  r:Refresh  L:Log  n:History  ?:Help  q:Quit"
+                " Tab:View  j/k:Nav  Enter:Detail  r:Refresh  L:Log  H:History  ?:Help  q:Quit"
             }
             ActiveView::NodeDetail => {
-                " j/k:Nav  Enter:Go  Esc:Back  r:Refresh  L:Log  n:History  ?:Help  q:Quit"
+                " j/k:Nav  Enter:Go  Esc:Back  r:Refresh  L:Log  H:History  ?:Help  q:Quit"
             }
         };
         let status = Paragraph::new(help_text)
