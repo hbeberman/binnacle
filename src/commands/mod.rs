@@ -750,15 +750,19 @@ output-format "json"
         let image_name = "localhost/binnacle-worker:latest";
         if !container_image_exists(image_name) {
             eprintln!("📦 Building binnacle container image...");
-            // Note: container_build requires a repo_path for context, but for system init
-            // we just want to build the image. Use a temp path or skip if no context available.
-            eprintln!(
-                "Note: Container build requires repository context. Run from a git repo or skip this option."
-            );
-            false
+            match build_embedded_container("latest", false) {
+                Ok(()) => {
+                    eprintln!("✅ Container image built successfully");
+                    true
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to build container: {}", e);
+                    false
+                }
+            }
         } else {
-            eprintln!("Container image already exists, skipping build.");
-            false
+            eprintln!("✅ Container image already exists, skipping build.");
+            true
         }
     } else {
         false
