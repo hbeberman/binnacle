@@ -333,31 +333,57 @@ function buildGraphEdges() {
 }
 
 /**
- * Check if a PRD doc node has any uncompleted milestones linked to it.
- * Returns true if the PRD should be visible (has active milestones).
+ * Check if a PRD doc node has any pending descendants (milestones, tasks, bugs).
+ * Returns true if the PRD should be visible (has active work).
  * @param {Object} prdNode - The PRD doc node
- * @returns {boolean} True if PRD has uncompleted milestones
+ * @returns {boolean} True if PRD has pending descendants
  */
 function prdHasActiveWork(prdNode) {
     const edges = state.get('edges') || [];
-    const milestones = state.getEntities('milestones') || [];
+    const milestones = state.get('entities.milestones') || [];
+    const tasks = state.get('entities.tasks') || [];
+    const bugs = state.get('entities.bugs') || [];
     
-    // Build a set of milestone IDs that are children of this PRD
-    const childMilestoneIds = new Set();
+    // Build parent->children map for efficient traversal
+    const childrenOf = new Map();
     for (const edge of edges) {
-        // child_of edges: source is the child, target is the parent
-        // So milestone -> child_of -> PRD means edge.source=milestone, edge.target=PRD
-        if (edge.edge_type === 'child_of' && edge.target === prdNode.id) {
-            childMilestoneIds.add(edge.source);
+        if (edge.edge_type === 'child_of') {
+            // child_of: source is child, target is parent
+            if (!childrenOf.has(edge.target)) {
+                childrenOf.set(edge.target, new Set());
+            }
+            childrenOf.get(edge.target).add(edge.source);
         }
     }
     
-    // Check if any child milestones are uncompleted
-    for (const milestone of milestones) {
-        if (childMilestoneIds.has(milestone.id)) {
-            if (milestone.status !== 'done' && milestone.status !== 'cancelled') {
-                return true;
+    // Build lookup for all entities by ID
+    const entityById = new Map();
+    for (const m of milestones) entityById.set(m.id, m);
+    for (const t of tasks) entityById.set(t.id, t);
+    for (const b of bugs) entityById.set(b.id, b);
+    
+    // BFS to find all descendants and check if any are pending
+    const visited = new Set();
+    const queue = [prdNode.id];
+    
+    while (queue.length > 0) {
+        const currentId = queue.shift();
+        if (visited.has(currentId)) continue;
+        visited.add(currentId);
+        
+        const children = childrenOf.get(currentId);
+        if (!children) continue;
+        
+        for (const childId of children) {
+            const entity = entityById.get(childId);
+            if (entity) {
+                // Check if this entity is pending (not done/cancelled)
+                if (entity.status && entity.status !== 'done' && entity.status !== 'cancelled') {
+                    return true;
+                }
             }
+            // Continue traversal even if entity is completed (might have pending children)
+            queue.push(childId);
         }
     }
     
