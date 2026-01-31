@@ -1180,6 +1180,7 @@ fn run_command(
                 install_bn_agent,
                 build_container,
                 yes,
+                token_non_validated,
             } => {
                 let result = if yes {
                     // Non-interactive: use flags directly
@@ -1190,6 +1191,7 @@ fn run_command(
                         install_copilot,
                         install_bn_agent,
                         build_container,
+                        token_non_validated.as_deref(),
                     )?
                 } else if write_claude_skills
                     || write_codex_skills
@@ -1197,6 +1199,7 @@ fn run_command(
                     || install_copilot
                     || install_bn_agent
                     || build_container
+                    || token_non_validated.is_some()
                 {
                     // Flags provided without -y: use flags as the options
                     commands::system_init_non_interactive(
@@ -1206,6 +1209,7 @@ fn run_command(
                         install_copilot,
                         install_bn_agent,
                         build_container,
+                        token_non_validated.as_deref(),
                     )?
                 } else {
                     // Interactive mode (default)
@@ -4092,6 +4096,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 install_bn_agent,
                 build_container,
                 yes,
+                token_non_validated,
             } => (
                 "system host-init".to_string(),
                 serde_json::json!({
@@ -4102,6 +4107,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "install_bn_agent": install_bn_agent,
                     "build_container": build_container,
                     "yes": yes,
+                    "token_non_validated": token_non_validated,
                 }),
             ),
             SystemCommands::Sessions => ("system sessions".to_string(), serde_json::json!({})),

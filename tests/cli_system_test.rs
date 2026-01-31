@@ -2725,7 +2725,57 @@ fn test_system_host_init_help() {
         .stdout(predicate::str::contains("--write-mcp-copilot"))
         .stdout(predicate::str::contains("--install-copilot"))
         .stdout(predicate::str::contains("--install-bn-agent"))
-        .stdout(predicate::str::contains("--build-container"));
+        .stdout(predicate::str::contains("--build-container"))
+        .stdout(predicate::str::contains("--token-non-validated"));
+}
+
+#[test]
+fn test_system_host_init_token_invalid() {
+    let temp = TestEnv::new();
+
+    // Try to store an invalid token - should fail validation
+    bn_in(&temp)
+        .args([
+            "system",
+            "host-init",
+            "--token-non-validated",
+            "invalid_token_12345",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Token validation failed"));
+}
+
+#[test]
+fn test_system_host_init_json_includes_token_fields() {
+    let temp = TestEnv::new();
+
+    // Run host-init without token
+    let output = bn_in(&temp)
+        .args(["system", "host-init", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    // Verify the new fields are present in output
+    assert_eq!(json["token_stored"], false);
+    assert!(json["token_username"].is_null());
+}
+
+#[test]
+fn test_system_host_init_token_non_validated_triggers_non_interactive() {
+    let temp = TestEnv::new();
+
+    // Providing --token-non-validated should trigger non-interactive mode
+    // (even without -y flag), but it will fail because the token is invalid
+    bn_in(&temp)
+        .args(["system", "host-init", "--token-non-validated", "bad_token"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Token validation failed"));
 }
 
 // ============================================================================

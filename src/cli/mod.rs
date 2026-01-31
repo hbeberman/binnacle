@@ -1898,6 +1898,15 @@ pub enum SystemCommands {
         /// Skip interactive prompts (use flags to control what gets set up)
         #[arg(long, short = 'y')]
         yes: bool,
+
+        /// GitHub PAT to store without Copilot validation
+        ///
+        /// Validates the token via the cheap GitHub /user endpoint (no AI tokens burned),
+        /// then stores it in ~/.config/binnacle/state.kdl. Use this for CI/automated
+        /// setups where you want to validate basic GitHub API access without using
+        /// the more expensive Copilot completions validation.
+        #[arg(long, value_name = "TOKEN")]
+        token_non_validated: Option<String>,
     },
 
     /// List all known binnacle sessions (repositories) on this host

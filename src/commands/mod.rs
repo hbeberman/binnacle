@@ -485,6 +485,10 @@ pub struct SystemInitResult {
     pub bn_agent_installed: bool,
     /// Whether container image was built
     pub container_built: bool,
+    /// Whether a token was stored (via --token-non-validated)
+    pub token_stored: bool,
+    /// GitHub username if token was validated and stored
+    pub token_username: Option<String>,
 }
 
 impl Output for SystemInitResult {
@@ -530,6 +534,16 @@ impl Output for SystemInitResult {
         }
         if self.container_built {
             lines.push("Built binnacle container image".to_string());
+        }
+        if self.token_stored {
+            if let Some(ref username) = self.token_username {
+                lines.push(format!(
+                    "Stored GitHub token (validated as user '{}')",
+                    username
+                ));
+            } else {
+                lines.push("Stored GitHub token".to_string());
+            }
         }
         lines.join("\n")
     }
@@ -593,6 +607,7 @@ pub fn system_init() -> Result<SystemInitResult> {
         install_copilot,
         install_bn_agent,
         build_container,
+        None, // token_non_validated not supported in interactive mode
     )
 }
 
@@ -606,6 +621,7 @@ pub fn system_init_non_interactive(
     install_copilot: bool,
     install_bn_agent: bool,
     build_container: bool,
+    token_non_validated: Option<&str>,
 ) -> Result<SystemInitResult> {
     system_init_with_options(
         write_claude_skills,
@@ -614,6 +630,7 @@ pub fn system_init_non_interactive(
         install_copilot,
         install_bn_agent,
         build_container,
+        token_non_validated,
     )
 }
 
@@ -625,6 +642,7 @@ fn system_init_with_options(
     install_copilot: bool,
     install_bn_agent: bool,
     build_container: bool,
+    token_non_validated: Option<&str>,
 ) -> Result<SystemInitResult> {
     let config_dir = get_system_config_dir()?;
     let already_exists = config_dir.exists();
@@ -711,6 +729,28 @@ output-format "json"
         false
     };
 
+    // Validate and store token if provided
+    let (token_stored, token_username) = if let Some(token) = token_non_validated {
+        match crate::github::validate_github_user(token) {
+            Ok(result) => {
+                // Store the token in system state.kdl
+                let mut state = Storage::read_system_binnacle_state().unwrap_or_default();
+                state.github_token = Some(token.to_string());
+                state.token_validated_at = Some(Utc::now());
+                Storage::write_system_binnacle_state(&state)?;
+                (true, Some(result.user.login))
+            }
+            Err(e) => {
+                return Err(Error::Other(format!(
+                    "Token validation failed: {}. The token must be a valid GitHub PAT.",
+                    e
+                )));
+            }
+        }
+    } else {
+        (false, None)
+    };
+
     // Mark global init as done
     mark_global_init_done()?;
 
@@ -723,6 +763,8 @@ output-format "json"
         copilot_installed,
         bn_agent_installed,
         container_built,
+        token_stored,
+        token_username,
     })
 }
 
@@ -888,7 +930,7 @@ fn session_init_with_options(
     // Auto-initialize system if requested and not already done
     if auto_global && !is_system_initialized() {
         eprintln!("Auto-initializing system config with defaults...");
-        system_init_non_interactive(false, false, false, false, false, false)?;
+        system_init_non_interactive(false, false, false, false, false, false, None)?;
         system_auto_initialized = true;
     }
 
