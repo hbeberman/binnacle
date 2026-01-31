@@ -2325,6 +2325,30 @@ fn test_copilot_path_human_format() {
 }
 
 #[test]
+fn test_copilot_path_in_uninitialized_directory() {
+    // Create a TestEnv without initializing binnacle
+    // This tests the fix for bn-ffc2: bn-agent shows confusing error
+    // instead of 'not initialized' when run in uninitialized directory.
+    // copilot_path should work even without binnacle initialization.
+    let env = TestEnv::new();
+
+    // Test copilot path without initializing binnacle - should succeed
+    let output = bn_in(&env)
+        .args(["system", "copilot", "path"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    // Should use binnacle-preferred since no config exists
+    assert_eq!(json["version"], "v0.0.399");
+    assert_eq!(json["source"], "binnacle-preferred");
+    assert!(json["path"].as_str().unwrap().contains("copilot"));
+}
+
+#[test]
 fn test_copilot_path_with_config() {
     use sha2::{Digest, Sha256};
 

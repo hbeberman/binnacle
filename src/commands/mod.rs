@@ -2495,16 +2495,23 @@ impl Output for CopilotVersionResult {
 /// Get the path to the active Copilot CLI binary.
 /// Checks config.kdl for a specified version, otherwise uses the binnacle-preferred version.
 pub fn copilot_path(repo_path: &Path) -> Result<CopilotPathResult> {
-    // Initialize storage to access config.kdl
-    let storage = Storage::open(repo_path)?;
-
-    // Try to get copilot version from config.kdl
-    let (version, source) = match get_copilot_version_from_config(&storage)? {
-        Some(v) => (v, "config".to_string()),
-        None => (
+    // Try to get copilot version from config.kdl if storage is initialized.
+    // If storage is not initialized, fall back to binnacle-preferred version.
+    // This allows bn-agent to run in uninitialized directories without
+    // showing confusing "Not initialized" errors.
+    let (version, source) = match Storage::open(repo_path) {
+        Ok(storage) => match get_copilot_version_from_config(&storage)? {
+            Some(v) => (v, "config".to_string()),
+            None => (
+                crate::cli::copilot_version().to_string(),
+                "binnacle-preferred".to_string(),
+            ),
+        },
+        Err(Error::NotInitialized) => (
             crate::cli::copilot_version().to_string(),
             "binnacle-preferred".to_string(),
         ),
+        Err(e) => return Err(e),
     };
 
     // Ensure version starts with 'v'
