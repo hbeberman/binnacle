@@ -8,6 +8,38 @@ import * as state from '../state.js';
 import { makeIdsClickable } from '../utils/clickable-ids.js';
 
 /**
+ * Check if a PRD doc node has any uncompleted milestones linked to it.
+ * Returns true if the PRD should be visible (has active milestones).
+ * @param {Object} prdNode - The PRD doc node
+ * @returns {boolean} True if PRD has uncompleted milestones
+ */
+function prdHasActiveWork(prdNode) {
+    const edges = state.get('edges') || [];
+    const milestones = state.getMilestones() || [];
+    
+    // Build a set of milestone IDs that are children of this PRD
+    const childMilestoneIds = new Set();
+    for (const edge of edges) {
+        // child_of edges: source is the child, target is the parent
+        // So milestone -> child_of -> PRD means edge.source=milestone, edge.target=PRD
+        if (edge.edge_type === 'child_of' && edge.target === prdNode.id) {
+            childMilestoneIds.add(edge.source);
+        }
+    }
+    
+    // Check if any child milestones are uncompleted
+    for (const milestone of milestones) {
+        if (childMilestoneIds.has(milestone.id)) {
+            if (milestone.status !== 'done' && milestone.status !== 'cancelled') {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+/**
  * Initialize the node list view
  * @param {string|HTMLElement} containerSelector - Container element or selector
  * @param {Object} options - Configuration options
@@ -83,8 +115,12 @@ function renderNodeList(container, options = {}) {
     // Apply hideCompleted filter
     if (hideCompleted) {
         allNodes = allNodes.filter(node => {
-            // Hide docs (PRDs and other doc types) by default
+            // For PRD docs: only hide if they have no uncompleted milestones
+            // For other docs: hide by default
             if (node.nodeType === 'doc') {
+                if (node.doc_type === 'prd') {
+                    return prdHasActiveWork(node);
+                }
                 return false;
             }
             

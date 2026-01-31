@@ -100,9 +100,18 @@ function getNodesToFadeOut(revealedNodeIds) {
             if (node.status === 'done' || node.status === 'cancelled') {
                 passes = false;
             }
-            // Hide PRDs and doc nodes by default (they don't have status)
+            // For PRD docs: only hide if they have no uncompleted milestones
+            // For other docs: hide by default (they don't have status)
             if (node.type === 'doc') {
-                passes = false;
+                if (node.doc_type === 'prd') {
+                    // Show PRD if it has active milestones
+                    if (!prdHasActiveWork(node)) {
+                        passes = false;
+                    }
+                } else {
+                    // Non-PRD docs: hide by default
+                    passes = false;
+                }
             }
         }
         
@@ -123,6 +132,38 @@ function getNodesToFadeOut(revealedNodeIds) {
     }
     
     return nodesToFadeOut;
+}
+
+/**
+ * Check if a PRD doc node has any uncompleted milestones linked to it.
+ * Returns true if the PRD should be visible (has active milestones).
+ * @param {Object} prdNode - The PRD doc node
+ * @returns {boolean} True if PRD has uncompleted milestones
+ */
+function prdHasActiveWork(prdNode) {
+    const edges = state.get('edges') || [];
+    const milestones = state.getEntities('milestones') || [];
+    
+    // Build a set of milestone IDs that are children of this PRD
+    const childMilestoneIds = new Set();
+    for (const edge of edges) {
+        // child_of edges: source is the child, target is the parent
+        // So milestone -> child_of -> PRD means edge.source=milestone, edge.target=PRD
+        if (edge.edge_type === 'child_of' && edge.target === prdNode.id) {
+            childMilestoneIds.add(edge.source);
+        }
+    }
+    
+    // Check if any child milestones are uncompleted
+    for (const milestone of milestones) {
+        if (childMilestoneIds.has(milestone.id)) {
+            if (milestone.status !== 'done' && milestone.status !== 'cancelled') {
+                return true;
+            }
+        }
+    }
+    
+    return false;
 }
 
 /**
