@@ -8,6 +8,7 @@
 //! - `test` - Test node operations
 //! - `commit` - Commit tracking
 
+use crate::config::resolver::resolve_state;
 use crate::models::{
     Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Editor, Idea,
     IdeaStatus, Issue, IssueStatus, Milestone, Mission, Queue, SessionState, Task, TaskStatus,
@@ -19729,9 +19730,16 @@ pub fn agent_spawn(
         args.push("--env".to_string());
         args.push(format!("GH_TOKEN={}", token));
     }
-    if let Ok(token) = std::env::var("COPILOT_GITHUB_TOKEN") {
-        args.push("--env".to_string());
-        args.push(format!("COPILOT_GITHUB_TOKEN={}", token));
+    // COPILOT_GITHUB_TOKEN: Use precedence resolution (env > session > system)
+    // This allows tokens configured via `bn session init --token` to be injected
+    // into containers even when the env var isn't set on the host.
+    if let Ok(storage) = Storage::open(repo_path) {
+        if let Ok(state) = resolve_state(&storage) {
+            if let Some(token) = state.token() {
+                args.push("--env".to_string());
+                args.push(format!("COPILOT_GITHUB_TOKEN={}", token));
+            }
+        }
     }
 
     // Pass through git identity from host's git config
@@ -22370,10 +22378,16 @@ pub fn container_run(
         args.push("--env".to_string());
         args.push(format!("GH_TOKEN={}", token));
     }
-    // COPILOT_GITHUB_TOKEN is used by @github/copilot CLI
-    if let Ok(token) = std::env::var("COPILOT_GITHUB_TOKEN") {
-        args.push("--env".to_string());
-        args.push(format!("COPILOT_GITHUB_TOKEN={}", token));
+    // COPILOT_GITHUB_TOKEN: Use precedence resolution (env > session > system)
+    // This allows tokens configured via `bn session init --token` to be injected
+    // into containers even when the env var isn't set on the host.
+    if let Ok(storage) = Storage::open(repo_path) {
+        if let Ok(state) = resolve_state(&storage) {
+            if let Some(token) = state.token() {
+                args.push("--env".to_string());
+                args.push(format!("COPILOT_GITHUB_TOKEN={}", token));
+            }
+        }
     }
 
     // Pass through git identity from host's git config
