@@ -9,6 +9,7 @@ pub mod action_log;
 pub mod cli;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod commands;
+pub mod config;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod container;
 #[cfg(not(target_arch = "wasm32"))]
