@@ -121,6 +121,40 @@ impl QueueReadyView {
         self.list_state.select(Some(self.selected));
     }
 
+    /// Select item at specific index (for mouse clicks)
+    pub fn select_at(&mut self, index: usize) {
+        if self.items.is_empty() {
+            return;
+        }
+        // Account for header rows when mapping click position to item index
+        // Headers take up space: QUEUED header (1 line), empty line + READY header (2 lines)
+        let adjusted_index = if self.queued_count > 0 {
+            if index == 0 {
+                return; // Click on QUEUED header
+            }
+            let idx = index - 1; // Skip QUEUED header
+            if idx < self.queued_count {
+                idx
+            } else if idx == self.queued_count {
+                return; // Click on empty line
+            } else if idx == self.queued_count + 1 {
+                return; // Click on READY header
+            } else {
+                idx - 2 // Adjust for headers
+            }
+        } else {
+            if index == 0 {
+                return; // Click on READY header
+            }
+            index - 1 // Skip READY header
+        };
+
+        if adjusted_index < self.items.len() {
+            self.selected = adjusted_index;
+            self.list_state.select(Some(self.selected));
+        }
+    }
+
     /// Get the currently selected item (for future detail view integration)
     #[allow(dead_code)]
     pub fn selected_item(&self) -> Option<&WorkItem> {

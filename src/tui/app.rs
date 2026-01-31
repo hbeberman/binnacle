@@ -12,7 +12,10 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Utc};
 use crossterm::{
     ExecutableCommand,
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
+        MouseEvent, MouseEventKind,
+    },
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use futures::StreamExt;
@@ -273,6 +276,10 @@ pub struct TuiApp {
     last_key: Option<KeyCode>,
     /// Flag indicating reconnection was requested
     reconnect_requested: bool,
+    /// Whether help overlay is visible
+    help_visible: bool,
+    /// Last rendered layout chunks for mouse handling
+    layout_chunks: Option<std::rc::Rc<[Rect]>>,
 }
 
 impl TuiApp {
@@ -294,6 +301,8 @@ impl TuiApp {
             needs_node_fetch: None,
             last_key: None,
             reconnect_requested: false,
+            help_visible: false,
+            layout_chunks: None,
         }
     }
 
@@ -369,6 +378,21 @@ impl TuiApp {
 
     /// Handle keyboard events
     fn handle_key(&mut self, key: KeyCode) {
+        // Handle help overlay first (when visible)
+        if self.help_visible {
+            match key {
+                KeyCode::Esc | KeyCode::Char('?') => {
+                    self.help_visible = false;
+                }
+                KeyCode::Char('q') => {
+                    self.should_quit = true;
+                }
+                _ => {}
+            }
+            self.last_key = Some(key);
+            return;
+        }
+
         // Handle notification history overlay first (when visible)
         if self.notifications.history_visible {
             match key {
@@ -411,6 +435,11 @@ impl TuiApp {
         }
 
         match key {
+            // Help key
+            KeyCode::Char('?') => {
+                self.help_visible = true;
+                self.last_key = Some(key);
+            }
             // Notification/log keys
             KeyCode::Char('n') => {
                 // Toggle notification history overlay
@@ -521,6 +550,97 @@ impl TuiApp {
             _ => {
                 self.last_key = Some(key);
             }
+        }
+    }
+
+    /// Handle mouse events
+    fn handle_mouse(&mut self, event: MouseEvent) {
+        let MouseEvent {
+            kind, column, row, ..
+        } = event;
+
+        // Close overlays on click outside
+        if self.help_visible || self.notifications.history_visible {
+            if let MouseEventKind::Down(MouseButton::Left) = kind {
+                self.help_visible = false;
+                self.notifications.close_history();
+            }
+            return;
+        }
+
+        // Get the layout chunks to determine click targets
+        let Some(chunks) = &self.layout_chunks else {
+            return;
+        };
+
+        // Check if click is in the main content area (chunks[1])
+        let content_area = chunks[1];
+        let in_content = column >= content_area.x
+            && column < content_area.x + content_area.width
+            && row >= content_area.y
+            && row < content_area.y + content_area.height;
+
+        // Check if click is in the title bar area (chunks[0])
+        let title_area = chunks[0];
+        let in_title = column >= title_area.x
+            && column < title_area.x + title_area.width
+            && row >= title_area.y
+            && row < title_area.y + title_area.height;
+
+        match kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if in_title {
+                    // Click on title bar - check if clicking on view tabs
+                    // [1] Queue/Ready | [2] Completed
+                    // Approximate positions based on typical rendering
+                    if column < title_area.x + 20 {
+                        // Click on Queue/Ready tab area
+                        self.active_view = ActiveView::QueueReady;
+                        self.previous_list_view = ActiveView::QueueReady;
+                    } else if column < title_area.x + 40 {
+                        // Click on Completed tab area
+                        self.active_view = ActiveView::RecentlyCompleted;
+                        self.previous_list_view = ActiveView::RecentlyCompleted;
+                    }
+                } else if in_content {
+                    // Click in content area - select item at row
+                    let relative_row = row.saturating_sub(content_area.y + 1); // Account for border
+                    match self.active_view {
+                        ActiveView::QueueReady => {
+                            self.queue_ready_view.select_at(relative_row as usize);
+                        }
+                        ActiveView::RecentlyCompleted => {
+                            self.recently_completed_view
+                                .select_at(relative_row as usize);
+                        }
+                        ActiveView::NodeDetail => {
+                            // In detail view, clicking on edges
+                            self.node_detail_view.select_edge_at(relative_row as usize);
+                        }
+                    }
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                if in_content {
+                    match self.active_view {
+                        ActiveView::QueueReady => self.queue_ready_view.select_previous(),
+                        ActiveView::RecentlyCompleted => {
+                            self.recently_completed_view.select_previous()
+                        }
+                        ActiveView::NodeDetail => self.node_detail_view.select_previous_edge(),
+                    }
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if in_content {
+                    match self.active_view {
+                        ActiveView::QueueReady => self.queue_ready_view.select_next(),
+                        ActiveView::RecentlyCompleted => self.recently_completed_view.select_next(),
+                        ActiveView::NodeDetail => self.node_detail_view.select_next_edge(),
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -778,6 +898,9 @@ impl TuiApp {
             ])
             .split(area);
 
+        // Save layout chunks for mouse handling
+        self.layout_chunks = Some(chunks.clone());
+
         // Title bar with connection status
         self.render_title_bar(frame, chunks[0]);
 
@@ -800,6 +923,11 @@ impl TuiApp {
         // Render notification history overlay (if visible)
         if self.notifications.history_visible {
             self.render_notification_history(frame);
+        }
+
+        // Render help overlay (if visible)
+        if self.help_visible {
+            self.render_help_overlay(frame);
         }
     }
 
@@ -935,6 +1063,121 @@ impl TuiApp {
         frame.render_widget(list, overlay_area);
     }
 
+    /// Render the help overlay with keybinding reference
+    fn render_help_overlay(&self, frame: &mut Frame) {
+        let area = frame.area();
+
+        // Create centered overlay
+        let overlay_width = (area.width * 3 / 4).min(70);
+        let overlay_height = (area.height * 3 / 4).min(28);
+        let overlay_x = (area.width - overlay_width) / 2;
+        let overlay_y = (area.height - overlay_height) / 2;
+
+        let overlay_area = Rect {
+            x: overlay_x,
+            y: overlay_y,
+            width: overlay_width,
+            height: overlay_height,
+        };
+
+        // Clear background
+        frame.render_widget(Clear, overlay_area);
+
+        // Build help content
+        let help_text = vec![
+            Line::from(vec![Span::styled(
+                "  GLOBAL KEYS",
+                Style::default().bold().fg(Color::Cyan),
+            )]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("    ?      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Toggle this help overlay"),
+            ]),
+            Line::from(vec![
+                Span::styled("    q      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Quit"),
+            ]),
+            Line::from(vec![
+                Span::styled("    r      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Refresh data / Reconnect if disconnected"),
+            ]),
+            Line::from(vec![
+                Span::styled("    Tab    ", Style::default().fg(Color::Yellow)),
+                Span::raw("Cycle between views"),
+            ]),
+            Line::from(vec![
+                Span::styled("    1/2    ", Style::default().fg(Color::Yellow)),
+                Span::raw("Jump to Queue/Ready or Completed view"),
+            ]),
+            Line::from(vec![
+                Span::styled("    3      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Open detail for selection"),
+            ]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "  NAVIGATION",
+                Style::default().bold().fg(Color::Cyan),
+            )]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("    j/↓    ", Style::default().fg(Color::Yellow)),
+                Span::raw("Move selection down"),
+            ]),
+            Line::from(vec![
+                Span::styled("    k/↑    ", Style::default().fg(Color::Yellow)),
+                Span::raw("Move selection up"),
+            ]),
+            Line::from(vec![
+                Span::styled("    gg     ", Style::default().fg(Color::Yellow)),
+                Span::raw("Jump to top"),
+            ]),
+            Line::from(vec![
+                Span::styled("    G      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Jump to bottom"),
+            ]),
+            Line::from(vec![
+                Span::styled("    Enter  ", Style::default().fg(Color::Yellow)),
+                Span::raw("Open detail view / Navigate to edge"),
+            ]),
+            Line::from(vec![
+                Span::styled("    Esc    ", Style::default().fg(Color::Yellow)),
+                Span::raw("Go back / Quit"),
+            ]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "  NOTIFICATIONS",
+                Style::default().bold().fg(Color::Cyan),
+            )]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("    n      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Toggle notification history"),
+            ]),
+            Line::from(vec![
+                Span::styled("    l      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Toggle log panel collapse"),
+            ]),
+            Line::from(vec![
+                Span::styled("    d      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Dismiss oldest toast"),
+            ]),
+            Line::from(vec![
+                Span::styled("    D      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Dismiss all toasts"),
+            ]),
+        ];
+
+        let help_widget = Paragraph::new(help_text).wrap(Wrap { trim: false }).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Keyboard Shortcuts [?/Esc to close] ")
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
+
+        frame.render_widget(help_widget, overlay_area);
+    }
+
     /// Render the title bar with connection status
     fn render_title_bar(&self, frame: &mut Frame, area: Rect) {
         let status_indicator = match &self.connection_state {
@@ -1035,10 +1278,10 @@ impl TuiApp {
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
         let help_text = match self.active_view {
             ActiveView::QueueReady | ActiveView::RecentlyCompleted => {
-                " Tab:View  j/k:Nav  Enter:Detail  r:Refresh  l:Log  n:History  d:Dismiss  q:Quit"
+                " Tab:View  j/k:Nav  Enter:Detail  r:Refresh  l:Log  n:History  ?:Help  q:Quit"
             }
             ActiveView::NodeDetail => {
-                " j/k:Nav  Enter:Go  Esc:Back  r:Refresh  l:Log  n:History  d:Dismiss  q:Quit"
+                " j/k:Nav  Enter:Go  Esc:Back  r:Refresh  l:Log  n:History  ?:Help  q:Quit"
             }
         };
         let status = Paragraph::new(help_text)
@@ -1051,7 +1294,9 @@ impl TuiApp {
 /// Setup the terminal for TUI mode
 fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
+    stdout()
+        .execute(EnterAlternateScreen)?
+        .execute(EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout());
     Terminal::new(backend)
 }
@@ -1059,7 +1304,9 @@ fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
 /// Restore the terminal to normal mode
 fn restore_terminal() -> io::Result<()> {
     disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
+    stdout()
+        .execute(DisableMouseCapture)?
+        .execute(LeaveAlternateScreen)?;
     Ok(())
 }
 
@@ -1104,8 +1351,8 @@ pub async fn run_tui(
         // Fetch data if needed
         if app.needs_refresh {
             if let Err(e) = app.fetch_data().await {
-                // Log error but don't crash - data will be stale
-                eprintln!("Error fetching data: {}", e);
+                // Log error to TUI panel - data will be stale but user is informed
+                app.log_panel.log(format!("fetch error: {}", e));
             }
         }
 
@@ -1113,7 +1360,7 @@ pub async fn run_tui(
         if let Some(node_id) = app.needs_node_fetch.take() {
             if let Err(e) = app.fetch_node_data(&node_id).await {
                 // Log error and go back to list view
-                eprintln!("Error fetching node {}: {}", node_id, e);
+                app.log_panel.log(format!("node fetch error: {}", e));
                 app.go_back_from_detail();
             }
         }
@@ -1154,13 +1401,19 @@ pub async fn run_tui(
 
         // Handle events with a timeout
         tokio::select! {
-            // Check for keyboard events
+            // Check for keyboard and mouse events
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
                 if event::poll(Duration::from_millis(0))? {
-                    if let Event::Key(key) = event::read()? {
-                        if key.kind == KeyEventKind::Press {
-                            app.handle_key(key.code);
+                    match event::read()? {
+                        Event::Key(key) => {
+                            if key.kind == KeyEventKind::Press {
+                                app.handle_key(key.code);
+                            }
                         }
+                        Event::Mouse(mouse) => {
+                            app.handle_mouse(mouse);
+                        }
+                        _ => {}
                     }
                 }
             }

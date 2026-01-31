@@ -157,6 +157,22 @@ impl RecentlyCompletedView {
         self.list_state.select(Some(self.selected));
     }
 
+    /// Select item at specific index (for mouse clicks)
+    pub fn select_at(&mut self, index: usize) {
+        if self.items.is_empty() {
+            return;
+        }
+        // Account for header row (COMPLETED header)
+        if index == 0 {
+            return; // Click on header
+        }
+        let adjusted_index = index - 1;
+        if adjusted_index < self.items.len() {
+            self.selected = adjusted_index;
+            self.list_state.select(Some(self.selected));
+        }
+    }
+
     /// Render the view
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         if self.items.is_empty() {

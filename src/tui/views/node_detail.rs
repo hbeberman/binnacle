@@ -223,6 +223,17 @@ impl NodeDetailView {
         self.edge_list_state.select(Some(self.edge_selection));
     }
 
+    /// Select edge at specific index (for mouse clicks)
+    pub fn select_edge_at(&mut self, index: usize) {
+        if self.edges.is_empty() {
+            return;
+        }
+        if index < self.edges.len() {
+            self.edge_selection = index;
+            self.edge_list_state.select(Some(self.edge_selection));
+        }
+    }
+
     /// Scroll content up (for future use with long descriptions)
     #[allow(dead_code)]
     pub fn scroll_up(&mut self) {
