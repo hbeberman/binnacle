@@ -9,7 +9,8 @@ use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
     CopilotCommands, DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands,
     IssueCommands, LinkCommands, LogCommands, McpCommands, MilestoneCommands, MissionCommands,
-    QueueCommands, SearchCommands, StoreCommands, SystemCommands, TaskCommands, TestCommands,
+    QueueCommands, SearchCommands, SessionCommands, StoreCommands, SystemCommands, TaskCommands,
+    TestCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -1719,6 +1720,102 @@ fn run_command(
                 }
             }
         },
+        Some(Commands::Session { command }) => {
+            use binnacle::cli::SessionCommands;
+            match command {
+                SessionCommands::Init {
+                    auto_global,
+                    write_agents_md,
+                    write_copilot_prompts,
+                    install_hook,
+                    write_mcp_vscode,
+                    yes,
+                } => {
+                    let result = if yes {
+                        // Non-interactive: use flags directly
+                        commands::session_init_non_interactive(
+                            repo_path,
+                            auto_global,
+                            write_agents_md,
+                            write_copilot_prompts,
+                            install_hook,
+                            write_mcp_vscode,
+                        )?
+                    } else if auto_global
+                        || write_agents_md
+                        || write_copilot_prompts
+                        || install_hook
+                        || write_mcp_vscode
+                    {
+                        // Flags provided without -y: use flags as the options
+                        commands::session_init_non_interactive(
+                            repo_path,
+                            auto_global,
+                            write_agents_md,
+                            write_copilot_prompts,
+                            install_hook,
+                            write_mcp_vscode,
+                        )?
+                    } else {
+                        // Interactive mode (default)
+                        commands::session_init(repo_path)?
+                    };
+                    output(&result, human);
+                }
+                SessionCommands::Reinit => {
+                    let result = commands::session_init_reinit(repo_path)?;
+                    output(&result, human);
+                }
+                SessionCommands::Store { command } => match command {
+                    StoreCommands::Show => {
+                        let result = commands::system_store_show(repo_path)?;
+                        output(&result, human);
+                    }
+                    StoreCommands::Export {
+                        output: out_path,
+                        format,
+                    } => {
+                        let result = commands::system_store_export(repo_path, &out_path, &format)?;
+                        // Don't output anything when writing to stdout (would corrupt the binary data)
+                        if out_path != "-" {
+                            output(&result, human);
+                        }
+                    }
+                    StoreCommands::Import {
+                        input,
+                        r#type,
+                        dry_run,
+                    } => {
+                        let result =
+                            commands::system_store_import(repo_path, &input, &r#type, dry_run)?;
+                        output(&result, human);
+                    }
+                    StoreCommands::Dump => {
+                        let result = commands::system_store_dump(repo_path)?;
+                        output(&result, human);
+                    }
+                    StoreCommands::Clear { force, no_backup } => {
+                        let result =
+                            commands::system_store_clear(repo_path, force, no_backup, human)?;
+                        output(&result, human);
+                    }
+                    StoreCommands::Archive { commit_hash } => {
+                        let result = commands::generate_commit_archive(repo_path, &commit_hash)?;
+                        output(&result, human);
+                    }
+                },
+                SessionCommands::Migrate { to, dry_run } => {
+                    let result = commands::migrate_storage(repo_path, &to, dry_run)?;
+                    output(&result, human);
+                }
+                SessionCommands::Hooks { command } => match command {
+                    HooksCommands::Uninstall => {
+                        let result = commands::hooks_uninstall(repo_path)?;
+                        output(&result, human);
+                    }
+                },
+            }
+        }
         Some(Commands::Agent { command }) => match command {
             AgentCommands::List { status } => {
                 let result = commands::agent_list(repo_path, status.as_deref())?;
@@ -3793,6 +3890,73 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "system tmux show".to_string(),
                     serde_json::json!({ "name": name }),
                 ),
+            },
+        },
+
+        Some(Commands::Session { command }) => match command {
+            SessionCommands::Init {
+                auto_global,
+                write_agents_md,
+                write_copilot_prompts,
+                install_hook,
+                write_mcp_vscode,
+                yes,
+            } => (
+                "session init".to_string(),
+                serde_json::json!({
+                    "auto_global": auto_global,
+                    "write_agents_md": write_agents_md,
+                    "write_copilot_prompts": write_copilot_prompts,
+                    "install_hook": install_hook,
+                    "write_mcp_vscode": write_mcp_vscode,
+                    "yes": yes,
+                }),
+            ),
+            SessionCommands::Reinit => ("session reinit".to_string(), serde_json::json!({})),
+            SessionCommands::Store { command } => match command {
+                StoreCommands::Show => ("session store show".to_string(), serde_json::json!({})),
+                StoreCommands::Export { output, format } => (
+                    "session store export".to_string(),
+                    serde_json::json!({
+                        "output": output,
+                        "format": format,
+                    }),
+                ),
+                StoreCommands::Import {
+                    input,
+                    r#type,
+                    dry_run,
+                } => (
+                    "session store import".to_string(),
+                    serde_json::json!({
+                        "input": input,
+                        "type": r#type,
+                        "dry_run": dry_run,
+                    }),
+                ),
+                StoreCommands::Dump => ("session store dump".to_string(), serde_json::json!({})),
+                StoreCommands::Clear { force, no_backup } => (
+                    "session store clear".to_string(),
+                    serde_json::json!({
+                        "force": force,
+                        "no_backup": no_backup,
+                    }),
+                ),
+                StoreCommands::Archive { commit_hash } => (
+                    "session store archive".to_string(),
+                    serde_json::json!({
+                        "commit_hash": commit_hash,
+                    }),
+                ),
+            },
+            SessionCommands::Migrate { to, dry_run } => (
+                "session migrate".to_string(),
+                serde_json::json!({ "to": to, "dry_run": dry_run }),
+            ),
+            SessionCommands::Hooks { command } => match command {
+                HooksCommands::Uninstall => {
+                    ("session hooks uninstall".to_string(), serde_json::json!({}))
+                }
             },
         },
 

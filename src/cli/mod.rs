@@ -285,6 +285,15 @@ pub enum Commands {
         command: SystemCommands,
     },
 
+    /// Session (repository-specific) administration commands
+    ///
+    /// These commands manage repo-specific binnacle data stored at
+    /// ~/.local/share/binnacle/<REPO_HASH>/
+    Session {
+        #[command(subcommand)]
+        command: SessionCommands,
+    },
+
     /// Agent lifecycle management
     Agent {
         #[command(subcommand)]
@@ -1972,6 +1981,70 @@ pub enum SystemCommands {
     Tmux {
         #[command(subcommand)]
         command: SystemTmuxCommands,
+    },
+}
+
+/// Session (repository-specific) administration subcommands
+#[derive(Subcommand, Debug)]
+pub enum SessionCommands {
+    /// Initialize binnacle for this repository
+    ///
+    /// Creates session storage at ~/.local/share/binnacle/<REPO_HASH>/.
+    /// Requires 'bn system host-init' to have been run first, unless
+    /// --auto-global is provided to auto-initialize with defaults.
+    Init {
+        /// Auto-initialize system config with defaults if not already done
+        ///
+        /// If ~/.config/binnacle/ doesn't exist, create it with default settings
+        /// instead of failing. Useful for AI agents.
+        #[arg(long)]
+        auto_global: bool,
+
+        /// Write binnacle section to AGENTS.md (creates file if needed)
+        #[arg(long)]
+        write_agents_md: bool,
+
+        /// Write Copilot workflow agents to .github/agents/ and .github/instructions/
+        #[arg(long)]
+        write_copilot_prompts: bool,
+
+        /// Install commit-msg hook for co-author attribution
+        #[arg(long)]
+        install_hook: bool,
+
+        /// Write VS Code MCP config to .vscode/mcp.json in the repository
+        #[arg(long)]
+        write_mcp_vscode: bool,
+
+        /// Skip interactive prompts (use flags to control what gets written)
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Re-run session initialization interactively
+    Reinit,
+
+    /// Data store management (import/export/inspect)
+    Store {
+        #[command(subcommand)]
+        command: StoreCommands,
+    },
+
+    /// Migrate data between storage backends
+    Migrate {
+        /// Target backend type (file, orphan-branch, git-notes)
+        #[arg(long)]
+        to: String,
+
+        /// Preview migration without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Manage git hooks installed by binnacle
+    Hooks {
+        #[command(subcommand)]
+        command: HooksCommands,
     },
 }
 

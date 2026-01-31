@@ -723,6 +723,253 @@ output-format "json"
     })
 }
 
+/// Result of `bn session init` command.
+#[derive(Serialize)]
+pub struct SessionInitResult {
+    /// Whether this was a fresh initialization
+    pub initialized: bool,
+    /// Session ID (repo hash)
+    pub session_id: String,
+    /// Path to session storage
+    pub storage_path: String,
+    /// Whether AGENTS.md was updated
+    pub agents_md_updated: bool,
+    /// Whether Copilot prompts were created
+    pub copilot_prompts_created: bool,
+    /// Whether commit-msg hook was installed
+    pub hook_installed: bool,
+    /// Whether MCP VS Code config was created
+    pub mcp_vscode_config_created: bool,
+    /// Number of tmux layouts copied from .binnacle/tmux/
+    pub tmux_layouts_copied: usize,
+    /// Whether system was auto-initialized
+    pub system_auto_initialized: bool,
+}
+
+impl Output for SessionInitResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        if self.system_auto_initialized {
+            lines.push("Auto-initialized system config with defaults.".to_string());
+        }
+        if self.initialized {
+            lines.push(format!("Session initialized: {}", self.session_id));
+            lines.push(format!("Storage: {}", self.storage_path));
+        } else {
+            lines.push(format!("Session already initialized: {}", self.session_id));
+            lines.push(format!("Storage: {}", self.storage_path));
+        }
+        if self.agents_md_updated {
+            lines.push("Updated AGENTS.md with binnacle reference.".to_string());
+        }
+        if self.copilot_prompts_created {
+            lines.push(
+                "Created Copilot agents at .github/agents/ and .github/instructions/".to_string(),
+            );
+        }
+        if self.hook_installed {
+            lines.push("Installed commit-msg hook for co-author attribution.".to_string());
+        }
+        if self.mcp_vscode_config_created {
+            lines.push("Created VS Code MCP config at .vscode/mcp.json".to_string());
+        }
+        if self.tmux_layouts_copied > 0 {
+            lines.push(format!(
+                "Copied {} tmux layout(s) from .binnacle/tmux/ to session.",
+                self.tmux_layouts_copied
+            ));
+        }
+        lines.join("\n")
+    }
+}
+
+/// Initialize session (repo-specific) storage with interactive prompts.
+///
+/// This is the new `bn session init` that replaces the repo-specific parts
+/// of `bn system init`. It requires system initialization unless --auto-global.
+pub fn session_init(repo_path: &Path) -> Result<SessionInitResult> {
+    // Check for system initialization
+    if !is_system_initialized() {
+        return Err(Error::Other(
+            "Error: System not initialized. Run 'bn system host-init' first,\n\
+             or use 'bn session init --auto-global' to auto-initialize with defaults."
+                .to_string(),
+        ));
+    }
+
+    // Interactive prompts for session-local setup
+    let update_agents_md = prompt_yes_no("Add binnacle reference to AGENTS.md?", true);
+    let create_copilot_prompts = prompt_yes_no(
+        "Create Copilot workflow agents at .github/agents/ and .github/instructions/?",
+        false,
+    );
+    let install_hook = prompt_yes_no("Install commit-msg hook for co-author attribution?", true);
+    let write_mcp_vscode = prompt_yes_no("Write VS Code MCP config to .vscode/mcp.json?", false);
+
+    session_init_with_options(
+        repo_path,
+        false, // auto_global - not needed, system is already initialized
+        update_agents_md,
+        create_copilot_prompts,
+        install_hook,
+        write_mcp_vscode,
+    )
+}
+
+/// Initialize session (repo-specific) storage without interactive prompts.
+///
+/// Use flags to control what gets written.
+pub fn session_init_non_interactive(
+    repo_path: &Path,
+    auto_global: bool,
+    write_agents_md: bool,
+    write_copilot_prompts: bool,
+    install_hook: bool,
+    write_mcp_vscode: bool,
+) -> Result<SessionInitResult> {
+    // Check for system initialization (unless auto_global)
+    if !auto_global && !is_system_initialized() {
+        return Err(Error::Other(
+            "Error: System not initialized. Run 'bn system host-init' first,\n\
+             or use 'bn session init --auto-global' to auto-initialize with defaults."
+                .to_string(),
+        ));
+    }
+
+    session_init_with_options(
+        repo_path,
+        auto_global,
+        write_agents_md,
+        write_copilot_prompts,
+        install_hook,
+        write_mcp_vscode,
+    )
+}
+
+/// Initialize session (repo-specific) storage for reinit.
+/// Always prompts interactively.
+pub fn session_init_reinit(repo_path: &Path) -> Result<SessionInitResult> {
+    let update_agents_md = prompt_yes_no("Add binnacle reference to AGENTS.md?", true);
+    let create_copilot_prompts = prompt_yes_no(
+        "Create Copilot workflow agents at .github/agents/ and .github/instructions/?",
+        false,
+    );
+    let install_hook = prompt_yes_no("Install commit-msg hook for co-author attribution?", true);
+    let write_mcp_vscode = prompt_yes_no("Write VS Code MCP config to .vscode/mcp.json?", false);
+
+    session_init_with_options(
+        repo_path,
+        false, // auto_global not relevant for reinit
+        update_agents_md,
+        create_copilot_prompts,
+        install_hook,
+        write_mcp_vscode,
+    )
+}
+
+/// Internal: Initialize session with explicit options.
+fn session_init_with_options(
+    repo_path: &Path,
+    auto_global: bool,
+    should_update_agents_md: bool,
+    create_copilot_prompts: bool,
+    install_hook: bool,
+    write_mcp_vscode: bool,
+) -> Result<SessionInitResult> {
+    let mut system_auto_initialized = false;
+
+    // Auto-initialize system if requested and not already done
+    if auto_global && !is_system_initialized() {
+        eprintln!("Auto-initializing system config with defaults...");
+        system_init_non_interactive(false, false, false, false, false, false)?;
+        system_auto_initialized = true;
+    }
+
+    // Compute session ID (repo hash)
+    let session_id = crate::storage::compute_repo_hash(repo_path)?;
+    let storage_dir = crate::storage::get_storage_dir(repo_path)?;
+    let storage_path = storage_dir.to_string_lossy().to_string();
+
+    // Initialize storage (creates directory structure)
+    let initialized = !storage_dir.exists();
+    let _storage = Storage::init(repo_path)?;
+
+    // Copy tmux layouts from .binnacle/tmux/ to session if present
+    let tmux_layouts_copied = copy_project_tmux_layouts(repo_path, &storage_dir)?;
+
+    // Update AGENTS.md if requested
+    let agents_md_updated = if should_update_agents_md {
+        update_agents_md(repo_path)?
+    } else {
+        false
+    };
+
+    // Create Copilot prompts if requested
+    let copilot_prompts_created = if create_copilot_prompts {
+        create_copilot_prompt_files(repo_path)?
+    } else {
+        false
+    };
+
+    // Install commit-msg hook if requested
+    let hook_installed = if install_hook {
+        install_commit_msg_hook(repo_path)?
+    } else {
+        false
+    };
+
+    // Create VS Code MCP config if requested
+    let mcp_vscode_config_created = if write_mcp_vscode {
+        write_mcp_vscode_config(repo_path)?
+    } else {
+        false
+    };
+
+    Ok(SessionInitResult {
+        initialized,
+        session_id,
+        storage_path,
+        agents_md_updated,
+        copilot_prompts_created,
+        hook_installed,
+        mcp_vscode_config_created,
+        tmux_layouts_copied,
+        system_auto_initialized,
+    })
+}
+
+/// Copy tmux layouts from .binnacle/tmux/ to session storage.
+/// Returns the number of layouts copied.
+fn copy_project_tmux_layouts(repo_path: &Path, storage_dir: &Path) -> Result<usize> {
+    let project_tmux_dir = repo_path.join(".binnacle").join("tmux");
+    if !project_tmux_dir.exists() || !project_tmux_dir.is_dir() {
+        return Ok(0);
+    }
+
+    let session_tmux_dir = storage_dir.join("tmux");
+    fs::create_dir_all(&session_tmux_dir)?;
+
+    let mut copied = 0;
+    for entry in fs::read_dir(&project_tmux_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("kdl") {
+            let dest = session_tmux_dir.join(entry.file_name());
+            // Only copy if not already present in session
+            if !dest.exists() {
+                fs::copy(&path, &dest)?;
+                copied += 1;
+            }
+        }
+    }
+
+    Ok(copied)
+}
+
 /// Result of `bn system sessions` command.
 #[derive(Serialize)]
 pub struct SystemSessionsResult {
