@@ -2046,6 +2046,42 @@ pub enum SessionCommands {
         #[command(subcommand)]
         command: HooksCommands,
     },
+
+    /// Tmux layout management (requires --features tmux)
+    ///
+    /// Session-level tmux commands operate exclusively on
+    /// ~/.local/share/binnacle/<REPO_HASH>/tmux/ for repo-specific layouts.
+    #[cfg(feature = "tmux")]
+    Tmux {
+        #[command(subcommand)]
+        command: SessionTmuxCommands,
+    },
+}
+
+/// Session-level tmux layout management subcommands (feature-gated)
+///
+/// These commands operate exclusively on ~/.local/share/binnacle/<REPO_HASH>/tmux/
+/// for repo-specific layouts that persist across sessions for this repository.
+#[cfg(feature = "tmux")]
+#[derive(Subcommand, Debug)]
+pub enum SessionTmuxCommands {
+    /// Save current tmux layout to ~/.local/share/binnacle/<REPO_HASH>/tmux/
+    Save {
+        /// Layout name (default: current session name)
+        name: Option<String>,
+    },
+    /// Load a tmux layout from ~/.local/share/binnacle/<REPO_HASH>/tmux/
+    Load {
+        /// Layout name to load
+        name: String,
+    },
+    /// List tmux layouts in ~/.local/share/binnacle/<REPO_HASH>/tmux/
+    List,
+    /// Show detailed information about a layout
+    Show {
+        /// Layout name to show
+        name: String,
+    },
 }
 
 /// Copilot management subcommands

@@ -4,6 +4,8 @@ use binnacle::action_log;
 #[cfg(feature = "gui")]
 use binnacle::cli::GuiCommands;
 #[cfg(feature = "tmux")]
+use binnacle::cli::SessionTmuxCommands;
+#[cfg(feature = "tmux")]
 use binnacle::cli::SystemTmuxCommands;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
@@ -1834,6 +1836,409 @@ fn run_command(
                         output(&result, human);
                     }
                 },
+                #[cfg(feature = "tmux")]
+                SessionCommands::Tmux { command } => {
+                    use binnacle::cli::SessionTmuxCommands;
+                    use binnacle::storage::get_storage_dir;
+
+                    // Get session-level tmux directory
+                    let storage_dir = get_storage_dir(repo_path)?;
+                    let session_tmux_dir = storage_dir.join("tmux");
+
+                    match command {
+                        SessionTmuxCommands::Save { name } => {
+                            // Check tmux binary first
+                            binnacle::tmux::check_tmux_binary()?;
+                            // Capture current tmux session
+                            let layout = binnacle::tmux::save::capture_session()?;
+
+                            // Use provided name or session name
+                            let layout_name = name.clone().unwrap_or_else(|| layout.name.clone());
+                            let filename = format!("{}.kdl", layout_name);
+                            let save_path = session_tmux_dir.join(&filename);
+
+                            // Ensure directory exists
+                            std::fs::create_dir_all(&session_tmux_dir).map_err(|e| {
+                                binnacle::Error::Other(format!(
+                                    "Failed to create directory {}: {}",
+                                    session_tmux_dir.display(),
+                                    e
+                                ))
+                            })?;
+
+                            // Check for existing file and warn
+                            if save_path.exists() {
+                                let metadata = std::fs::metadata(&save_path).map_err(|e| {
+                                    binnacle::Error::Other(format!(
+                                        "Failed to read file metadata: {}",
+                                        e
+                                    ))
+                                })?;
+                                let modified = metadata
+                                    .modified()
+                                    .map(|t| {
+                                        use std::time::SystemTime;
+                                        let duration =
+                                            t.duration_since(SystemTime::UNIX_EPOCH).ok()?;
+                                        chrono::DateTime::from_timestamp(
+                                            duration.as_secs() as i64,
+                                            0,
+                                        )
+                                    })
+                                    .ok()
+                                    .flatten();
+
+                                eprintln!("Warning: Layout file already exists:");
+                                eprintln!("  Path: {}", save_path.display());
+                                if let Some(mod_time) = modified {
+                                    eprintln!(
+                                        "  Modified: {}",
+                                        mod_time.format("%Y-%m-%d %H:%M:%S")
+                                    );
+                                }
+                                eprintln!();
+                                eprint!("Overwrite? [y/N] ");
+                                use std::io::{self, BufRead};
+                                let stdin = io::stdin();
+                                let mut handle = stdin.lock();
+                                let mut response = String::new();
+                                handle.read_line(&mut response).map_err(|e| {
+                                    binnacle::Error::Other(format!("Failed to read input: {}", e))
+                                })?;
+
+                                if !response.trim().eq_ignore_ascii_case("y") {
+                                    eprintln!("Cancelled.");
+                                    return Ok(());
+                                }
+                            }
+
+                            // Save layout
+                            binnacle::tmux::save::save_layout_to_file(&layout, &save_path)?;
+
+                            let result = commands::TmuxSaveResult {
+                                saved: true,
+                                path: save_path.display().to_string(),
+                                layout_name,
+                            };
+                            output(&result, human);
+                        }
+                        SessionTmuxCommands::Load { name } => {
+                            // Check tmux binary first
+                            binnacle::tmux::check_tmux_binary()?;
+                            use binnacle::tmux::command::TmuxCommand;
+                            use binnacle::tmux::layout::{
+                                DiscoveredLayout, LayoutSource, load_layout,
+                            };
+                            use std::process::Command;
+
+                            // Look only in session-level directory
+                            let filename = format!("{}.kdl", name);
+                            let layout_path = session_tmux_dir.join(&filename);
+                            if !layout_path.exists() {
+                                return Err(binnacle::Error::Other(format!(
+                                    "Layout '{}' not found at: {}",
+                                    name,
+                                    layout_path.display()
+                                )));
+                            }
+
+                            let discovered = DiscoveredLayout {
+                                name: name.clone(),
+                                path: layout_path,
+                                source: LayoutSource::Session,
+                            };
+
+                            // Load and parse the layout
+                            let layout = load_layout(&discovered)?;
+                            let session_name = layout.name.clone();
+
+                            // Resolve the layout with current directory as base
+                            let cwd = std::env::current_dir().map_err(|e| {
+                                binnacle::Error::Other(format!(
+                                    "Failed to get current directory: {}",
+                                    e
+                                ))
+                            })?;
+                            let resolved =
+                                binnacle::tmux::layout::ResolvedLayout::from_layout(layout, &cwd)?;
+
+                            // Check if session already exists
+                            let has_session_cmd = TmuxCommand::has_session(&session_name);
+                            let session_exists = Command::new("tmux")
+                                .args(&has_session_cmd.args()[1..]) // skip "tmux"
+                                .stdout(std::process::Stdio::null())
+                                .stderr(std::process::Stdio::null())
+                                .status()
+                                .map(|s| s.success())
+                                .unwrap_or(false);
+
+                            // Check if we're already inside tmux
+                            let in_tmux = std::env::var("TMUX").is_ok();
+
+                            // Compute repo hash for env var
+                            let repo_hash = binnacle::storage::compute_repo_hash(repo_path)?;
+
+                            // Check for repo mismatch if session exists
+                            let mut warning = None;
+                            if session_exists {
+                                // Check if session was created for a different repo
+                                let show_env_cmd = TmuxCommand::show_environment(
+                                    Some(&session_name),
+                                    "BINNACLE_REPO_HASH",
+                                );
+                                if let Ok(output) = Command::new("tmux")
+                                    .args(&show_env_cmd.args()[1..])
+                                    .output()
+                                {
+                                    let stdout = String::from_utf8_lossy(&output.stdout);
+                                    if let Some(existing_hash) =
+                                        stdout.trim().strip_prefix("BINNACLE_REPO_HASH=")
+                                        && existing_hash != repo_hash
+                                    {
+                                        warning = Some(format!(
+                                            "Session '{}' was created for a different repository",
+                                            session_name
+                                        ));
+                                    }
+                                }
+
+                                // Session exists - just attach
+                                if !in_tmux {
+                                    let attach_cmd = TmuxCommand::attach_session(&session_name);
+                                    let status = Command::new("tmux")
+                                        .args(&attach_cmd.args()[1..])
+                                        .status()
+                                        .map_err(|e| {
+                                            binnacle::Error::Other(format!(
+                                                "Failed to attach to session: {}",
+                                                e
+                                            ))
+                                        })?;
+
+                                    if !status.success() {
+                                        return Err(binnacle::Error::Other(
+                                            "Failed to attach to tmux session".to_string(),
+                                        ));
+                                    }
+                                }
+
+                                let result = commands::TmuxLoadResult {
+                                    created: false,
+                                    session_name: session_name.clone(),
+                                    layout_name: name.clone(),
+                                    source: discovered.source.to_string(),
+                                    path: discovered.path.display().to_string(),
+                                    warning,
+                                    in_tmux,
+                                    commands: if in_tmux {
+                                        Some(vec![format!(
+                                            "tmux switch-client -t {}",
+                                            session_name
+                                        )])
+                                    } else {
+                                        None
+                                    },
+                                };
+                                output(&result, human);
+                            } else {
+                                // Create new session
+                                let commands = resolved.to_commands();
+
+                                // Execute all commands
+                                for cmd in &commands {
+                                    let args = cmd.args();
+                                    let status = Command::new(&args[0])
+                                        .args(&args[1..])
+                                        .status()
+                                        .map_err(|e| {
+                                        binnacle::Error::Other(format!(
+                                            "Failed to execute '{}': {}",
+                                            cmd.clone().build(),
+                                            e
+                                        ))
+                                    })?;
+
+                                    if !status.success() {
+                                        return Err(binnacle::Error::Other(format!(
+                                            "Tmux command failed: {}",
+                                            cmd.clone().build()
+                                        )));
+                                    }
+                                }
+
+                                // Set BINNACLE_REPO_HASH environment variable
+                                let set_env_cmd = TmuxCommand::set_environment(
+                                    Some(&session_name),
+                                    "BINNACLE_REPO_HASH",
+                                    &repo_hash,
+                                    false,
+                                );
+                                let _ =
+                                    Command::new("tmux").args(&set_env_cmd.args()[1..]).status();
+
+                                // Auto-attach if not already in tmux
+                                if !in_tmux {
+                                    let attach_cmd = TmuxCommand::attach_session(&session_name);
+                                    let status = Command::new("tmux")
+                                        .args(&attach_cmd.args()[1..])
+                                        .status()
+                                        .map_err(|e| {
+                                            binnacle::Error::Other(format!(
+                                                "Failed to attach to session: {}",
+                                                e
+                                            ))
+                                        })?;
+
+                                    if !status.success() {
+                                        return Err(binnacle::Error::Other(
+                                            "Failed to attach to tmux session".to_string(),
+                                        ));
+                                    }
+                                }
+
+                                let result = commands::TmuxLoadResult {
+                                    created: true,
+                                    session_name: session_name.clone(),
+                                    layout_name: name.clone(),
+                                    source: discovered.source.to_string(),
+                                    path: discovered.path.display().to_string(),
+                                    warning: None,
+                                    in_tmux,
+                                    commands: if in_tmux {
+                                        Some(vec![format!(
+                                            "tmux switch-client -t {}",
+                                            session_name
+                                        )])
+                                    } else {
+                                        None
+                                    },
+                                };
+                                output(&result, human);
+                            }
+                        }
+                        SessionTmuxCommands::List => {
+                            use binnacle::tmux::layout::{
+                                DiscoveredLayout, LayoutSource, load_layout,
+                            };
+
+                            let mut summaries = Vec::new();
+
+                            if session_tmux_dir.exists() {
+                                for entry in std::fs::read_dir(&session_tmux_dir).map_err(|e| {
+                                    binnacle::Error::Other(format!(
+                                        "Failed to read directory {}: {}",
+                                        session_tmux_dir.display(),
+                                        e
+                                    ))
+                                })? {
+                                    let entry = entry.map_err(|e| {
+                                        binnacle::Error::Other(format!(
+                                            "Failed to read entry: {}",
+                                            e
+                                        ))
+                                    })?;
+                                    let path = entry.path();
+                                    if path.extension().is_some_and(|ext| ext == "kdl") {
+                                        let name = path
+                                            .file_stem()
+                                            .map(|s| s.to_string_lossy().to_string())
+                                            .unwrap_or_default();
+
+                                        let discovered = DiscoveredLayout {
+                                            name: name.clone(),
+                                            path: path.clone(),
+                                            source: LayoutSource::Session,
+                                        };
+
+                                        // Try to load layout to get window/pane counts
+                                        let (window_count, pane_count) =
+                                            match load_layout(&discovered) {
+                                                Ok(layout) => {
+                                                    let windows = layout.windows.len();
+                                                    let panes: usize = layout
+                                                        .windows
+                                                        .iter()
+                                                        .map(|w| w.panes.len())
+                                                        .sum();
+                                                    (windows, panes)
+                                                }
+                                                Err(_) => (0, 0),
+                                            };
+
+                                        summaries.push(commands::TmuxLayoutSummary {
+                                            name,
+                                            source: "session".to_string(),
+                                            path: path.display().to_string(),
+                                            window_count,
+                                            pane_count,
+                                        });
+                                    }
+                                }
+                            }
+
+                            let result = commands::TmuxListResult { layouts: summaries };
+                            output(&result, human);
+                        }
+                        SessionTmuxCommands::Show { name } => {
+                            use binnacle::tmux::layout::{
+                                DiscoveredLayout, LayoutSource, load_layout,
+                            };
+                            use binnacle::tmux::schema::Size;
+
+                            // Look only in session-level directory
+                            let filename = format!("{}.kdl", name);
+                            let layout_path = session_tmux_dir.join(&filename);
+                            if !layout_path.exists() {
+                                return Err(binnacle::Error::Other(format!(
+                                    "Layout '{}' not found at: {}",
+                                    name,
+                                    layout_path.display()
+                                )));
+                            }
+
+                            let discovered = DiscoveredLayout {
+                                name: name.clone(),
+                                path: layout_path,
+                                source: LayoutSource::Session,
+                            };
+
+                            // Load and parse the layout
+                            let layout = load_layout(&discovered)?;
+
+                            // Convert to detail structs
+                            let windows: Vec<commands::TmuxWindowDetail> = layout
+                                .windows
+                                .into_iter()
+                                .map(|w| commands::TmuxWindowDetail {
+                                    name: w.name,
+                                    panes: w
+                                        .panes
+                                        .into_iter()
+                                        .map(|p| commands::TmuxPaneDetail {
+                                            split: p
+                                                .split
+                                                .map(|s| format!("{:?}", s).to_lowercase()),
+                                            size: p.size.map(|s| match s {
+                                                Size::Percentage(v) => format!("{}%", v),
+                                                Size::Lines(v) => format!("{}", v),
+                                            }),
+                                            dir: p.dir.map(|d| d.display().to_string()),
+                                            command: p.command,
+                                        })
+                                        .collect(),
+                                })
+                                .collect();
+
+                            let result = commands::TmuxShowResult {
+                                name: layout.name,
+                                source: discovered.source.to_string(),
+                                path: discovered.path.display().to_string(),
+                                windows,
+                            };
+                            output(&result, human);
+                        }
+                    }
+                }
             }
         }
         Some(Commands::Agent { command }) => match command {
@@ -3977,6 +4382,24 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 HooksCommands::Uninstall => {
                     ("session hooks uninstall".to_string(), serde_json::json!({}))
                 }
+            },
+            #[cfg(feature = "tmux")]
+            SessionCommands::Tmux { command } => match command {
+                SessionTmuxCommands::Save { name } => (
+                    "session tmux save".to_string(),
+                    serde_json::json!({ "name": name }),
+                ),
+                SessionTmuxCommands::Load { name } => (
+                    "session tmux load".to_string(),
+                    serde_json::json!({ "name": name }),
+                ),
+                SessionTmuxCommands::List => {
+                    ("session tmux list".to_string(), serde_json::json!({}))
+                }
+                SessionTmuxCommands::Show { name } => (
+                    "session tmux show".to_string(),
+                    serde_json::json!({ "name": name }),
+                ),
             },
         },
 
