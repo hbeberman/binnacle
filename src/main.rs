@@ -1262,6 +1262,9 @@ fn run_command(
                 }
             }
             SystemCommands::Migrate { to, dry_run } => {
+                eprintln!(
+                    "Warning: 'bn system migrate' is deprecated. Use 'bn session migrate' instead."
+                );
                 let result = commands::migrate_storage(repo_path, &to, dry_run)?;
                 output(&result, human);
             }

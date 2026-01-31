@@ -1897,7 +1897,7 @@ pub enum SystemCommands {
         template: EmitTemplate,
     },
 
-    /// Migrate data between storage backends
+    /// [DEPRECATED: use 'bn session migrate'] Migrate data between storage backends
     Migrate {
         /// Target backend type (file, orphan-branch, git-notes)
         #[arg(long)]
