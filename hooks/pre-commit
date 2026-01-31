@@ -72,7 +72,13 @@ elif [ -n "$expected_section" ]; then
     elif ! diff -q <(echo "$current_section") <(echo "$expected_section") >/dev/null 2>&1; then
         echo ""
         echo "❌ AGENTS.md binnacle section is out of sync!"
-        echo "   Run 'cargo run -- system init --write-agents-md -y' to update, then stage AGENTS.md"
+        echo ""
+        echo "   If you modified AGENTS_MD_BLURB in src/commands/mod.rs:"
+        echo "     Run 'cargo run -- system emit agents > /tmp/agents.md' and copy the section to AGENTS.md"
+        echo ""
+        echo "   If you did NOT modify the embedded blurb:"
+        echo "     This error means someone else updated the blurb. Run 'git checkout AGENTS.md'"
+        echo "     to restore the correct version, or rebase your branch."
         exit 1
     fi
 fi

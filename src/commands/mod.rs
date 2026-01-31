@@ -1393,6 +1393,7 @@ Binnacle has two administrative namespaces:
 
 - **NEVER run `git push`** - The human operator handles all pushes. Your job is to commit locally.
 - **NEVER run `git config user.email` or `git config user.name`** - Git identity is provided by the host. If git complains about missing identity, report the error - do not attempt to fix it.
+- **NEVER modify AGENTS.md** - This file is maintained by the repo owner. If pre-commit fails with "AGENTS.md out of sync", that means YOUR code changes broke the sync - revert any changes to AGENTS.md and fix your code instead.
 - Commit early and often with clear messages
 - Always run `just check` before committing
 
