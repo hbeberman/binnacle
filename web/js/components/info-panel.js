@@ -9,7 +9,7 @@
 
 import { createClickableId } from '../utils/clickable-ids.js';
 import { collapseFamilyReveal } from '../utils/family-collapse.js';
-import { getNodeWithEdges } from '../state.js';
+import { getNodeWithEdges, subscribe } from '../state.js';
 
 /**
  * Format a date timestamp for display
@@ -56,6 +56,67 @@ function formatEdgeType(edgeType) {
         'informational': 'informational'
     };
     return typeNames[edgeType] || edgeType.replace(/_/g, ' ');
+}
+
+/**
+ * Update the relationships section of an info panel with current edge data
+ * @param {HTMLElement} panel - The info panel element
+ * @param {string} nodeId - The ID of the node to show relationships for
+ */
+function updateRelationshipsSection(panel, nodeId) {
+    if (!nodeId) return;
+    
+    const node = getNodeWithEdges(nodeId);
+    if (!node) return;
+    
+    const relationshipsSection = panel.querySelector('#info-panel-relationships-section');
+    const relationshipsEl = panel.querySelector('#info-panel-relationships');
+    
+    if (!relationshipsSection || !relationshipsEl) return;
+    
+    if (node.edges && node.edges.length > 0) {
+        relationshipsSection.style.display = 'block';
+        relationshipsEl.innerHTML = '';
+        node.edges.forEach(edge => {
+            const li = document.createElement('li');
+            li.className = 'relationship-item';
+            li.dataset.nodeId = edge.related_id;
+            
+            const direction = edge.direction === 'outbound' ? '→' : '←';
+            const edgeTypeFormatted = formatEdgeType(edge.edge_type);
+            
+            const dirSpan = document.createElement('span');
+            dirSpan.className = 'relationship-direction';
+            dirSpan.textContent = direction;
+            
+            const idSpan = createClickableId(edge.related_id);
+            idSpan.className = 'relationship-id clickable-id';
+            
+            // Override the default click behavior to dispatch relationship-click event
+            const newIdSpan = idSpan.cloneNode(true);
+            newIdSpan.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                panel.dispatchEvent(new CustomEvent('relationship-click', {
+                    detail: { nodeId: edge.related_id }
+                }));
+            });
+            
+            const typeSpan = document.createElement('span');
+            typeSpan.className = 'relationship-type';
+            typeSpan.textContent = `(${edgeTypeFormatted})`;
+            
+            li.appendChild(dirSpan);
+            li.appendChild(document.createTextNode(' '));
+            li.appendChild(newIdSpan);
+            li.appendChild(document.createTextNode(' '));
+            li.appendChild(typeSpan);
+            
+            relationshipsEl.appendChild(li);
+        });
+    } else {
+        relationshipsSection.style.display = 'none';
+    }
 }
 
 /**
@@ -313,6 +374,18 @@ export function initializeInfoPanel(panel, options = {}) {
             }
         });
     }
+    
+    // Subscribe to edge changes to update relationships section when edges are added/removed
+    // This ensures the panel reflects the current state while it's open
+    subscribe('edges', () => {
+        // Only update if panel is visible and has a current node
+        if (panel.classList.contains('visible')) {
+            const nodeId = panel.dataset.currentNodeId;
+            if (nodeId) {
+                updateRelationshipsSection(panel, nodeId);
+            }
+        }
+    });
     
     // Restore last active tab
     const lastTab = loadActiveTab();
@@ -716,54 +789,8 @@ export function updateInfoPanelContent(panel, node, selectedNodes = []) {
         depsSection.style.display = 'none';
     }
     
-    // Update relationships (edges)
-    const relationshipsSection = panel.querySelector('#info-panel-relationships-section');
-    const relationshipsEl = panel.querySelector('#info-panel-relationships');
-    if (node.edges && node.edges.length > 0) {
-        relationshipsSection.style.display = 'block';
-        relationshipsEl.innerHTML = '';
-        node.edges.forEach(edge => {
-            const li = document.createElement('li');
-            li.className = 'relationship-item';
-            li.dataset.nodeId = edge.related_id;
-            
-            const direction = edge.direction === 'outbound' ? '→' : '←';
-            const edgeTypeFormatted = formatEdgeType(edge.edge_type);
-            
-            const dirSpan = document.createElement('span');
-            dirSpan.className = 'relationship-direction';
-            dirSpan.textContent = direction;
-            
-            const idSpan = createClickableId(edge.related_id);
-            idSpan.className = 'relationship-id clickable-id';
-            
-            // Override the default click behavior to dispatch relationship-click event
-            // Remove the default click listener and add our custom one
-            const newIdSpan = idSpan.cloneNode(true); // Clone to remove listeners
-            newIdSpan.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                // Dispatch custom event for relationship clicks
-                panel.dispatchEvent(new CustomEvent('relationship-click', {
-                    detail: { nodeId: edge.related_id }
-                }));
-            });
-            
-            const typeSpan = document.createElement('span');
-            typeSpan.className = 'relationship-type';
-            typeSpan.textContent = `(${edgeTypeFormatted})`;
-            
-            li.appendChild(dirSpan);
-            li.appendChild(document.createTextNode(' '));
-            li.appendChild(newIdSpan);
-            li.appendChild(document.createTextNode(' '));
-            li.appendChild(typeSpan);
-            
-            relationshipsEl.appendChild(li);
-        });
-    } else {
-        relationshipsSection.style.display = 'none';
-    }
+    // Update relationships (edges) - use the node.id to get fresh edge data
+    updateRelationshipsSection(panel, node.id);
     
     // Update closed reason (if closed)
     const closedSection = panel.querySelector('#info-panel-closed-section');
