@@ -3477,12 +3477,27 @@ impl Storage {
 
     // === KDL Config File Operations ===
 
-    /// Get the path to the config.kdl file.
+    /// Get the path to the session config.kdl file.
+    /// This is the per-repository config at ~/.local/share/binnacle/<hash>/config.kdl
     pub fn config_kdl_path(&self) -> PathBuf {
         self.root.join("config.kdl")
     }
 
-    /// Read and parse the config.kdl file, or return an empty document if it doesn't exist.
+    /// Get the path to the system config.kdl file.
+    /// This is the global config at ~/.config/binnacle/config.kdl
+    pub fn system_config_kdl_path() -> Option<PathBuf> {
+        // Respect BN_CONFIG_DIR override for testing
+        if let Ok(override_dir) = std::env::var("BN_CONFIG_DIR") {
+            return Some(
+                PathBuf::from(override_dir)
+                    .join("binnacle")
+                    .join("config.kdl"),
+            );
+        }
+        dirs::config_dir().map(|d| d.join("binnacle").join("config.kdl"))
+    }
+
+    /// Read and parse the session config.kdl file, or return an empty document if it doesn't exist.
     pub fn read_config_kdl(&self) -> Result<KdlDocument> {
         let path = self.config_kdl_path();
         if !path.exists() {
@@ -3491,10 +3506,24 @@ impl Storage {
         let content = fs::read_to_string(&path)?;
         content
             .parse::<KdlDocument>()
-            .map_err(|e| Error::Other(format!("Failed to parse config.kdl: {}", e)))
+            .map_err(|e| Error::Other(format!("Failed to parse session config.kdl: {}", e)))
     }
 
-    /// Write the config.kdl file.
+    /// Read and parse the system config.kdl file, or return an empty document if it doesn't exist.
+    pub fn read_system_config_kdl() -> Result<KdlDocument> {
+        let Some(path) = Self::system_config_kdl_path() else {
+            return Ok(KdlDocument::new());
+        };
+        if !path.exists() {
+            return Ok(KdlDocument::new());
+        }
+        let content = fs::read_to_string(&path)?;
+        content
+            .parse::<KdlDocument>()
+            .map_err(|e| Error::Other(format!("Failed to parse system config.kdl: {}", e)))
+    }
+
+    /// Write the session config.kdl file.
     pub fn write_config_kdl(&self, doc: &KdlDocument) -> Result<()> {
         let path = self.config_kdl_path();
         fs::write(&path, doc.to_string())?;
@@ -3502,13 +3531,22 @@ impl Storage {
     }
 
     /// Get agent scaling config from config.kdl.
-    /// Returns (min, max) for the specified agent type, or defaults (0, 1) if not found.
-    /// Get agent scaling config from config.kdl.
+    /// Checks session config first, then falls back to system config.
     /// Returns Some((min, max)) if the agent type is explicitly configured, None otherwise.
     pub fn get_agent_scaling_kdl(&self, agent_type: &str) -> Result<Option<(u32, u32)>> {
+        // First try session config
         let doc = self.read_config_kdl()?;
+        if let Some(result) = Self::get_agent_scaling_from_doc(&doc, agent_type) {
+            return Ok(Some(result));
+        }
 
-        // Look for agents { worker min=X max=Y; ... }
+        // Fall back to system config
+        let system_doc = Self::read_system_config_kdl()?;
+        Ok(Self::get_agent_scaling_from_doc(&system_doc, agent_type))
+    }
+
+    /// Helper to extract agent scaling from a KDL document.
+    fn get_agent_scaling_from_doc(doc: &KdlDocument, agent_type: &str) -> Option<(u32, u32)> {
         if let Some(agents_node) = doc.get("agents")
             && let Some(children) = agents_node.children()
             && let Some(type_node) = children.get(agent_type)
@@ -3521,11 +3559,19 @@ impl Storage {
                 .get("max")
                 .and_then(|v| v.as_integer())
                 .unwrap_or(1) as u32;
-            return Ok(Some((min, max)));
+            return Some((min, max));
         }
+        None
+    }
 
-        // Not configured in KDL
-        Ok(None)
+    /// Get agent scaling config from session config only (no system fallback).
+    /// Returns Some((min, max)) if the agent type is explicitly configured in session, None otherwise.
+    pub fn get_agent_scaling_kdl_session_only(
+        &self,
+        agent_type: &str,
+    ) -> Result<Option<(u32, u32)>> {
+        let doc = self.read_config_kdl()?;
+        Ok(Self::get_agent_scaling_from_doc(&doc, agent_type))
     }
 
     /// Set agent scaling config in config.kdl.
@@ -3578,10 +3624,26 @@ impl Storage {
     }
 
     /// Get all agent scaling configs from config.kdl.
+    /// Merges system and session configs, with session values overriding system values.
     pub fn get_all_agent_scaling_kdl(&self) -> Result<Vec<(String, u32, u32)>> {
-        let doc = self.read_config_kdl()?;
-        let mut results = Vec::new();
+        use std::collections::HashMap;
+        let mut results_map: HashMap<String, (u32, u32)> = HashMap::new();
 
+        // First load system config (defaults)
+        let system_doc = Self::read_system_config_kdl()?;
+        if let Some(agents_node) = system_doc.get("agents")
+            && let Some(children) = agents_node.children()
+        {
+            for node in children.nodes() {
+                let agent_type = node.name().value().to_string();
+                let min = node.get("min").and_then(|v| v.as_integer()).unwrap_or(0) as u32;
+                let max = node.get("max").and_then(|v| v.as_integer()).unwrap_or(1) as u32;
+                results_map.insert(agent_type, (min, max));
+            }
+        }
+
+        // Then load session config (overrides)
+        let doc = self.read_config_kdl()?;
         if let Some(agents_node) = doc.get("agents")
             && let Some(children) = agents_node.children()
         {
@@ -3589,19 +3651,42 @@ impl Storage {
                 let agent_type = node.name().value().to_string();
                 let min = node.get("min").and_then(|v| v.as_integer()).unwrap_or(0) as u32;
                 let max = node.get("max").and_then(|v| v.as_integer()).unwrap_or(1) as u32;
-                results.push((agent_type, min, max));
+                results_map.insert(agent_type, (min, max));
             }
         }
+
+        // Convert to vec
+        let results: Vec<(String, u32, u32)> = results_map
+            .into_iter()
+            .map(|(k, (min, max))| (k, min, max))
+            .collect();
 
         Ok(results)
     }
 
     /// Get copilot version from config.kdl.
+    /// Checks session config first, then falls back to system config.
     /// Supports both old attribute format (`copilot version="v1.2.0"`) and new block format (`copilot { version "v1.2.0" }`).
-    /// Returns "latest" if not specified.
+    /// Returns "latest" if not specified in either config.
     pub fn get_copilot_version_kdl(&self) -> Result<String> {
+        // First try session config
         let doc = self.read_config_kdl()?;
+        if let Some(version) = Self::get_copilot_version_from_doc(&doc) {
+            return Ok(version);
+        }
 
+        // Fall back to system config
+        let system_doc = Self::read_system_config_kdl()?;
+        if let Some(version) = Self::get_copilot_version_from_doc(&system_doc) {
+            return Ok(version);
+        }
+
+        // Default to "latest" if not specified
+        Ok("latest".to_string())
+    }
+
+    /// Helper to extract copilot version from a KDL document.
+    fn get_copilot_version_from_doc(doc: &KdlDocument) -> Option<String> {
         if let Some(copilot_node) = doc.get("copilot") {
             // Try new block format: copilot { version "v1.2.0" }
             if let Some(children) = copilot_node.children()
@@ -3612,18 +3697,16 @@ impl Storage {
                 if let Some(first_entry) = entries.first()
                     && let Some(version_str) = first_entry.value().as_string()
                 {
-                    return Ok(version_str.to_string());
+                    return Some(version_str.to_string());
                 }
             }
 
             // Fall back to old attribute format: copilot version="v1.2.0"
             if let Some(version_str) = copilot_node.get("version").and_then(|e| e.as_string()) {
-                return Ok(version_str.to_string());
+                return Some(version_str.to_string());
             }
         }
-
-        // Default to "latest" if not specified
-        Ok("latest".to_string())
+        None
     }
 
     /// Set copilot version in config.kdl using block format.
@@ -3676,6 +3759,61 @@ impl Storage {
         }
 
         self.write_config_kdl(&doc)
+    }
+
+    /// Get a string config value from config.kdl.
+    /// Checks session config first, then falls back to system config.
+    /// Returns None if not found in either config.
+    pub fn get_config_string(&self, key: &str) -> Result<Option<String>> {
+        // First try session config
+        let doc = self.read_config_kdl()?;
+        if let Some(value) = Self::get_string_from_doc(&doc, key) {
+            return Ok(Some(value));
+        }
+
+        // Fall back to system config
+        let system_doc = Self::read_system_config_kdl()?;
+        Ok(Self::get_string_from_doc(&system_doc, key))
+    }
+
+    /// Helper to extract a string value from a KDL document.
+    fn get_string_from_doc(doc: &KdlDocument, key: &str) -> Option<String> {
+        if let Some(node) = doc.get(key) {
+            // Check for positional entry: key "value"
+            if let Some(first_entry) = node.entries().first()
+                && let Some(value_str) = first_entry.value().as_string()
+            {
+                return Some(value_str.to_string());
+            }
+        }
+        None
+    }
+
+    /// Set a string config value in session config.kdl.
+    pub fn set_config_string(&self, key: &str, value: &str) -> Result<()> {
+        let mut doc = self.read_config_kdl()?;
+
+        // Find or create key node
+        let key_idx = doc.nodes().iter().position(|n| n.name().value() == key);
+
+        let mut new_node = KdlNode::new(key);
+        new_node.push(KdlEntry::new(KdlValue::String(value.to_string())));
+
+        if let Some(idx) = key_idx {
+            doc.nodes_mut()[idx] = new_node;
+        } else {
+            doc.nodes_mut().push(new_node);
+        }
+
+        self.write_config_kdl(&doc)
+    }
+
+    /// Get the effective output format from config.
+    /// Returns "json" or "human", defaulting to "json".
+    pub fn get_output_format(&self) -> Result<String> {
+        Ok(self
+            .get_config_string("output-format")?
+            .unwrap_or_else(|| "json".to_string()))
     }
 
     // === Log Operations ===

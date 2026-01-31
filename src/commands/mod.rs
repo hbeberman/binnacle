@@ -29347,6 +29347,195 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_config_inherits_from_system() {
+        // Use separate temp dirs for system and session
+        let temp = setup();
+        let system_temp = tempfile::tempdir().unwrap();
+
+        // Set up system config
+        let system_config_dir = system_temp.path().join("binnacle");
+        std::fs::create_dir_all(&system_config_dir).unwrap();
+        let system_config_file = system_config_dir.join("config.kdl");
+        std::fs::write(
+            &system_config_file,
+            "// System config\noutput-format \"human\"\ncopilot {\n    version \"v1.0.0\"\n}\nagents {\n    worker min=1 max=4\n}\n",
+        )
+        .unwrap();
+
+        // Set BN_CONFIG_DIR to point to our test system config
+        // SAFETY: These tests use #[serial] to avoid concurrent access to env vars
+        unsafe {
+            std::env::set_var("BN_CONFIG_DIR", system_temp.path());
+        }
+
+        // Create storage for session (no session config.kdl yet)
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Should read from system config since session has no config
+        let output_format = storage.get_output_format().unwrap();
+        assert_eq!(
+            output_format, "human",
+            "Should inherit output-format from system config"
+        );
+
+        let copilot_version = storage.get_copilot_version_kdl().unwrap();
+        assert_eq!(
+            copilot_version, "v1.0.0",
+            "Should inherit copilot version from system config"
+        );
+
+        let scaling = storage.get_agent_scaling_kdl("worker").unwrap();
+        assert_eq!(
+            scaling,
+            Some((1, 4)),
+            "Should inherit agent scaling from system config"
+        );
+
+        // Clean up env var
+        // SAFETY: These tests use #[serial] to avoid concurrent access to env vars
+        unsafe {
+            std::env::remove_var("BN_CONFIG_DIR");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_session_config_overrides_system() {
+        // Use separate temp dirs for system and session
+        let temp = setup();
+        let system_temp = tempfile::tempdir().unwrap();
+
+        // Set up system config
+        let system_config_dir = system_temp.path().join("binnacle");
+        std::fs::create_dir_all(&system_config_dir).unwrap();
+        let system_config_file = system_config_dir.join("config.kdl");
+        std::fs::write(
+            &system_config_file,
+            "// System config\noutput-format \"human\"\ncopilot {\n    version \"v1.0.0\"\n}\nagents {\n    worker min=1 max=4\n    planner min=0 max=1\n}\n",
+        )
+        .unwrap();
+
+        // Set BN_CONFIG_DIR to point to our test system config
+        // SAFETY: These tests use #[serial] to avoid concurrent access to env vars
+        unsafe {
+            std::env::set_var("BN_CONFIG_DIR", system_temp.path());
+        }
+
+        // Create storage for session with overrides
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Write session config with overrides for some values
+        std::fs::write(
+            storage.config_kdl_path(),
+            "// Session config (overrides)\noutput-format \"json\"\nagents {\n    worker min=2 max=8\n}\n",
+        )
+        .unwrap();
+
+        // output-format should be overridden by session
+        let output_format = storage.get_output_format().unwrap();
+        assert_eq!(
+            output_format, "json",
+            "Session should override system output-format"
+        );
+
+        // copilot version should still come from system (not overridden in session)
+        let copilot_version = storage.get_copilot_version_kdl().unwrap();
+        assert_eq!(
+            copilot_version, "v1.0.0",
+            "Should still get copilot version from system"
+        );
+
+        // worker scaling should be overridden
+        let worker_scaling = storage.get_agent_scaling_kdl("worker").unwrap();
+        assert_eq!(
+            worker_scaling,
+            Some((2, 8)),
+            "Session should override worker scaling"
+        );
+
+        // planner scaling should come from system (not in session)
+        let planner_scaling = storage.get_agent_scaling_kdl("planner").unwrap();
+        assert_eq!(
+            planner_scaling,
+            Some((0, 1)),
+            "Should inherit planner scaling from system"
+        );
+
+        // Clean up env var
+        // SAFETY: These tests use #[serial] to avoid concurrent access to env vars
+        unsafe {
+            std::env::remove_var("BN_CONFIG_DIR");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_all_agent_scaling_merges_system_and_session() {
+        // Use separate temp dirs for system and session
+        let temp = setup();
+        let system_temp = tempfile::tempdir().unwrap();
+
+        // Set up system config with worker and planner
+        let system_config_dir = system_temp.path().join("binnacle");
+        std::fs::create_dir_all(&system_config_dir).unwrap();
+        let system_config_file = system_config_dir.join("config.kdl");
+        std::fs::write(
+            &system_config_file,
+            "agents {\n    worker min=1 max=4\n    planner min=0 max=2\n}\n",
+        )
+        .unwrap();
+
+        // Set BN_CONFIG_DIR to point to our test system config
+        // SAFETY: These tests use #[serial] to avoid concurrent access to env vars
+        unsafe {
+            std::env::set_var("BN_CONFIG_DIR", system_temp.path());
+        }
+
+        // Create storage for session with buddy added and worker overridden
+        let storage = Storage::open(temp.path()).unwrap();
+        std::fs::write(
+            storage.config_kdl_path(),
+            "agents {\n    worker min=2 max=8\n    buddy min=1 max=1\n}\n",
+        )
+        .unwrap();
+
+        // Get all scaling configs
+        let all_scaling = storage.get_all_agent_scaling_kdl().unwrap();
+
+        // Should have 3 agent types: worker (overridden), planner (from system), buddy (from session)
+        assert_eq!(all_scaling.len(), 3, "Should have 3 agent types");
+
+        // Convert to map for easier checking
+        let map: std::collections::HashMap<String, (u32, u32)> = all_scaling
+            .into_iter()
+            .map(|(k, min, max)| (k, (min, max)))
+            .collect();
+
+        assert_eq!(
+            map.get("worker"),
+            Some(&(2, 8)),
+            "Worker should be overridden by session"
+        );
+        assert_eq!(
+            map.get("planner"),
+            Some(&(0, 2)),
+            "Planner should come from system"
+        );
+        assert_eq!(
+            map.get("buddy"),
+            Some(&(1, 1)),
+            "Buddy should come from session"
+        );
+
+        // Clean up env var
+        // SAFETY: These tests use #[serial] to avoid concurrent access to env vars
+        unsafe {
+            std::env::remove_var("BN_CONFIG_DIR");
+        }
+    }
+
+    #[test]
+    #[serial]
     fn test_parent_of_rejects_multiple_parents() {
         let temp = setup();
 
