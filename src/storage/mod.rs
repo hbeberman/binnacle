@@ -5601,23 +5601,58 @@ pub fn find_git_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Check if test mode is enabled via BN_TEST_MODE environment variable.
+pub fn is_test_mode() -> bool {
+    std::env::var("BN_TEST_MODE")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
+}
+
+/// Get the test ID from BN_TEST_ID environment variable, if set.
+pub fn get_test_id() -> Option<String> {
+    std::env::var("BN_TEST_ID").ok().filter(|s| !s.is_empty())
+}
+
+/// Get test mode information (test_mode flag, test_id, and data_root).
+/// Returns (is_test_mode, test_id, data_root_path).
+pub fn get_test_mode_info(repo_path: &Path) -> Result<(bool, Option<String>, PathBuf)> {
+    let test_mode = is_test_mode();
+    let test_id = get_test_id();
+    let storage_dir = get_storage_dir(repo_path)?;
+    Ok((test_mode, test_id, storage_dir))
+}
+
 /// Get the storage directory for a repository.
 ///
 /// Uses a hash of the repository path to create a unique directory.
 /// The base directory is determined by:
 /// 1. `BN_DATA_DIR` environment variable (if set) - highest priority for test isolation
-/// 2. `BN_CONTAINER_MODE` environment variable (if set, uses `/binnacle`)
-/// 3. `/binnacle` path exists (auto-detect container environment)
-/// 4. Falls back to `~/.local/share/binnacle/`
+/// 2. `BN_TEST_MODE=1` - uses `~/.local/share/binnacle-test/` (or with `BN_TEST_ID`, `~/.local/share/binnacle-test/<id>/`)
+/// 3. `BN_CONTAINER_MODE` environment variable (if set, uses `/binnacle`)
+/// 4. `/binnacle` path exists (auto-detect container environment)
+/// 5. Falls back to `~/.local/share/binnacle/`
 ///
 /// The provided path is used directly; git root detection (if desired)
 /// should be done by the caller before invoking this function.
 pub fn get_storage_dir(repo_path: &Path) -> Result<PathBuf> {
     let container_path = Path::new("/binnacle");
 
-    // BN_DATA_DIR takes highest priority - enables test isolation even in containers
+    // BN_DATA_DIR takes highest priority - enables explicit test isolation even in containers
     let base_dir = if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
         PathBuf::from(override_dir)
+    } else if is_test_mode() {
+        // Test mode: use binnacle-test/ root to isolate test data from production
+        let data_dir = dirs::data_dir()
+            .ok_or_else(|| Error::Other("Could not determine data directory".to_string()))?;
+
+        let test_root = data_dir.join("binnacle-test");
+
+        // If BN_TEST_ID is set, add it as a namespace under the test root
+        if let Some(test_id) = get_test_id() {
+            test_root.join(test_id)
+        } else {
+            test_root
+        }
     } else if std::env::var("BN_CONTAINER_MODE").is_ok() {
         // Container mode: use /binnacle as base directory
         PathBuf::from("/binnacle")
@@ -8306,5 +8341,101 @@ mod tests {
         let storage = env.init_storage();
 
         assert!(storage.root.join("issues.jsonl").exists());
+    }
+
+    // Tests for BN_TEST_MODE environment variable support
+    mod test_mode_tests {
+        use super::*;
+        use serial_test::serial;
+
+        #[test]
+        #[serial]
+        fn test_is_test_mode_unset() {
+            // Clean up any existing env var
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::remove_var("BN_TEST_MODE") };
+
+            assert!(!is_test_mode());
+        }
+
+        #[test]
+        #[serial]
+        fn test_is_test_mode_set_to_1() {
+            // Set the env var, test, then clean up
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::set_var("BN_TEST_MODE", "1") };
+            let result = is_test_mode();
+            unsafe { std::env::remove_var("BN_TEST_MODE") };
+
+            assert!(result);
+        }
+
+        #[test]
+        #[serial]
+        fn test_is_test_mode_set_to_true() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::set_var("BN_TEST_MODE", "true") };
+            let result = is_test_mode();
+            unsafe { std::env::remove_var("BN_TEST_MODE") };
+
+            assert!(result);
+        }
+
+        #[test]
+        #[serial]
+        fn test_is_test_mode_set_to_false() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::set_var("BN_TEST_MODE", "false") };
+            let result = is_test_mode();
+            unsafe { std::env::remove_var("BN_TEST_MODE") };
+
+            assert!(!result);
+        }
+
+        #[test]
+        #[serial]
+        fn test_is_test_mode_set_to_0() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::set_var("BN_TEST_MODE", "0") };
+            let result = is_test_mode();
+            unsafe { std::env::remove_var("BN_TEST_MODE") };
+
+            assert!(!result);
+        }
+
+        #[test]
+        #[serial]
+        fn test_get_test_id_unset() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::remove_var("BN_TEST_ID") };
+
+            assert!(get_test_id().is_none());
+        }
+
+        #[test]
+        #[serial]
+        fn test_get_test_id_set() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::set_var("BN_TEST_ID", "my-test-123") };
+            let result = get_test_id();
+            unsafe { std::env::remove_var("BN_TEST_ID") };
+
+            assert_eq!(result, Some("my-test-123".to_string()));
+        }
+
+        #[test]
+        #[serial]
+        fn test_get_test_id_empty() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe { std::env::set_var("BN_TEST_ID", "") };
+            let result = get_test_id();
+            unsafe { std::env::remove_var("BN_TEST_ID") };
+
+            assert!(result.is_none());
+        }
+
+        // Note: Integration tests for actual path construction with BN_TEST_MODE
+        // are in tests/integration/ since they require more complex setup
+        // to avoid interfering with other tests that may also manipulate env vars.
     }
 }
