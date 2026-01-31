@@ -4,10 +4,12 @@
 //! - Terminal setup and restoration
 //! - WebSocket connection handling
 //! - Event loop for keyboard and server messages
+//! - View switching between Queue/Ready and Recently Completed
 
 use std::io::{self, stdout};
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use crossterm::{
     ExecutableCommand,
     event::{self, Event, KeyCode, KeyEventKind},
@@ -22,15 +24,26 @@ use serde::Deserialize;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use super::connection::ConnectionState;
-use super::views::{QueueReadyView, WorkItem};
+use super::views::{CompletedItem, QueueReadyView, RecentlyCompletedView, WorkItem};
 
 /// Default server port
 pub const DEFAULT_PORT: u16 = 3030;
+
+/// Active view in the TUI
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveView {
+    QueueReady,
+    RecentlyCompleted,
+}
 
 /// Response from /api/ready endpoint
 #[derive(Debug, Deserialize)]
 struct ReadyResponse {
     tasks: Vec<TaskData>,
+    #[serde(default)]
+    recently_completed_tasks: Vec<CompletedTaskData>,
+    #[serde(default)]
+    recently_completed_bugs: Vec<CompletedBugData>,
 }
 
 /// Response from /api/queue endpoint (for future use)
@@ -69,6 +82,69 @@ struct TaskCore {
     short_name: Option<String>,
     #[serde(default, rename = "type")]
     entity_type: Option<String>,
+}
+
+/// Completed task data from API
+#[derive(Debug, Clone, Deserialize)]
+struct CompletedTaskData {
+    #[serde(flatten)]
+    core: CompletedCore,
+    priority: u8,
+    #[serde(default)]
+    closed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    closed_reason: Option<String>,
+}
+
+/// Completed bug data from API
+#[derive(Debug, Clone, Deserialize)]
+struct CompletedBugData {
+    #[serde(flatten)]
+    core: CompletedCore,
+    priority: u8,
+    #[serde(default)]
+    closed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    closed_reason: Option<String>,
+}
+
+/// Core fields for completed items
+#[derive(Debug, Clone, Deserialize)]
+struct CompletedCore {
+    id: String,
+    title: String,
+    #[serde(default)]
+    short_name: Option<String>,
+    #[serde(default, rename = "type")]
+    entity_type: Option<String>,
+}
+
+impl From<CompletedTaskData> for CompletedItem {
+    fn from(task: CompletedTaskData) -> Self {
+        CompletedItem {
+            id: task.core.id,
+            title: task.core.title,
+            short_name: task.core.short_name,
+            priority: task.priority,
+            closed_at: task.closed_at,
+            closed_reason: task.closed_reason,
+            entity_type: task.core.entity_type.or(Some("task".to_string())),
+        }
+    }
+}
+
+impl From<CompletedBugData> for CompletedItem {
+    fn from(bug: CompletedBugData) -> Self {
+        CompletedItem {
+            id: bug.core.id,
+            title: bug.core.title,
+            short_name: bug.core.short_name,
+            priority: bug.priority,
+            closed_at: bug.closed_at,
+            closed_reason: bug.closed_reason,
+            entity_type: bug.core.entity_type.or(Some("bug".to_string())),
+        }
+    }
 }
 
 impl From<TaskData> for WorkItem {
@@ -166,8 +242,12 @@ pub struct TuiApp {
     connection_state: ConnectionState,
     /// Whether to quit the application
     should_quit: bool,
+    /// Active view
+    active_view: ActiveView,
     /// Queue/Ready view
     queue_ready_view: QueueReadyView,
+    /// Recently Completed view
+    recently_completed_view: RecentlyCompletedView,
     /// HTTP base URL for API requests
     api_base: String,
     /// Flag indicating data needs refresh
@@ -182,40 +262,81 @@ impl TuiApp {
         Self {
             connection_state: ConnectionState::Disconnected,
             should_quit: false,
+            active_view: ActiveView::QueueReady,
             queue_ready_view: QueueReadyView::new(),
+            recently_completed_view: RecentlyCompletedView::new(),
             api_base: format!("http://{}:{}", host, port),
             needs_refresh: true,
             last_key: None,
         }
     }
 
+    /// Switch to the next view
+    fn next_view(&mut self) {
+        self.active_view = match self.active_view {
+            ActiveView::QueueReady => ActiveView::RecentlyCompleted,
+            ActiveView::RecentlyCompleted => ActiveView::QueueReady,
+        };
+    }
+
     /// Handle keyboard events
     fn handle_key(&mut self, key: KeyCode) {
         match key {
             KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
+            // View switching
+            KeyCode::Tab => {
+                self.next_view();
+                self.last_key = Some(key);
+            }
+            KeyCode::Char('1') => {
+                self.active_view = ActiveView::QueueReady;
+                self.last_key = Some(key);
+            }
+            KeyCode::Char('2') => {
+                self.active_view = ActiveView::RecentlyCompleted;
+                self.last_key = Some(key);
+            }
+            // Navigation
             KeyCode::Char('j') | KeyCode::Down => {
-                self.queue_ready_view.select_next();
+                match self.active_view {
+                    ActiveView::QueueReady => self.queue_ready_view.select_next(),
+                    ActiveView::RecentlyCompleted => self.recently_completed_view.select_next(),
+                }
                 self.last_key = Some(key);
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.queue_ready_view.select_previous();
+                match self.active_view {
+                    ActiveView::QueueReady => self.queue_ready_view.select_previous(),
+                    ActiveView::RecentlyCompleted => self.recently_completed_view.select_previous(),
+                }
                 self.last_key = Some(key);
             }
             KeyCode::Char('g') => {
                 // Check for gg sequence
                 if self.last_key == Some(KeyCode::Char('g')) {
-                    self.queue_ready_view.select_first();
+                    match self.active_view {
+                        ActiveView::QueueReady => self.queue_ready_view.select_first(),
+                        ActiveView::RecentlyCompleted => {
+                            self.recently_completed_view.select_first()
+                        }
+                    }
                     self.last_key = None;
                 } else {
                     self.last_key = Some(key);
                 }
             }
             KeyCode::Char('G') | KeyCode::End => {
-                self.queue_ready_view.select_last();
+                match self.active_view {
+                    ActiveView::QueueReady => self.queue_ready_view.select_last(),
+                    ActiveView::RecentlyCompleted => self.recently_completed_view.select_last(),
+                }
                 self.last_key = Some(key);
             }
             KeyCode::Home => {
-                self.queue_ready_view.select_first();
+                match self.active_view {
+                    ActiveView::QueueReady => self.queue_ready_view.select_first(),
+                    ActiveView::RecentlyCompleted => self.recently_completed_view.select_first(),
+                }
                 self.last_key = Some(key);
             }
             KeyCode::Char('r') => {
@@ -304,6 +425,21 @@ impl TuiApp {
         ready.sort_by_key(|item| item.priority);
 
         self.queue_ready_view.update_items(queued, ready);
+
+        // Convert recently completed items
+        let completed_tasks: Vec<CompletedItem> = ready_data
+            .recently_completed_tasks
+            .into_iter()
+            .map(|t| t.into())
+            .collect();
+        let completed_bugs: Vec<CompletedItem> = ready_data
+            .recently_completed_bugs
+            .into_iter()
+            .map(|b| b.into())
+            .collect();
+
+        self.recently_completed_view
+            .update_items(completed_tasks, completed_bugs);
         self.needs_refresh = false;
 
         Ok(())
@@ -336,8 +472,11 @@ impl TuiApp {
         // Title bar with connection status
         self.render_title_bar(frame, chunks[0]);
 
-        // Main content: Queue/Ready view
-        self.queue_ready_view.render(frame, chunks[1]);
+        // Main content: render active view
+        match self.active_view {
+            ActiveView::QueueReady => self.queue_ready_view.render(frame, chunks[1]),
+            ActiveView::RecentlyCompleted => self.recently_completed_view.render(frame, chunks[1]),
+        }
 
         // Status bar with keybindings
         self.render_status_bar(frame, chunks[2]);
@@ -363,15 +502,31 @@ impl TuiApp {
             ConnectionState::Disconnected => "Disconnected".to_string(),
         };
 
+        // Current view name and view switcher hint
+        let (view_name, view_hint) = match self.active_view {
+            ActiveView::QueueReady => (" [1] Queue/Ready", "[2] Completed"),
+            ActiveView::RecentlyCompleted => ("[1] Queue/Ready", " [2] Completed"),
+        };
+
         // Calculate padding to right-align status
-        let title_text = " Queue/Ready";
+        let title_text = format!("{} | {}", view_name, view_hint);
         let status_display = format!("[{}] {}", status_indicator, status_text);
         let padding = area
             .width
             .saturating_sub(title_text.len() as u16 + status_display.len() as u16 + 4);
 
+        let view_style = Style::default().add_modifier(Modifier::BOLD);
+        let inactive_style = Style::default().fg(Color::DarkGray);
+
+        let (left_style, right_style) = match self.active_view {
+            ActiveView::QueueReady => (view_style, inactive_style),
+            ActiveView::RecentlyCompleted => (inactive_style, view_style),
+        };
+
         let title = Paragraph::new(Line::from(vec![
-            Span::styled(title_text, Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" {}", view_name), left_style),
+            Span::raw(" | "),
+            Span::styled(view_hint, right_style),
             Span::raw(" ".repeat(padding as usize)),
             Span::styled(status_display, Style::default().fg(status_color)),
         ]))
@@ -382,9 +537,11 @@ impl TuiApp {
 
     /// Render the status bar with keybindings
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
-        let status = Paragraph::new(" j/k:Navigate  gg/G:Top/Bottom  r:Refresh  q:Quit")
-            .style(Style::default().fg(Color::DarkGray))
-            .block(Block::default().borders(Borders::ALL));
+        let status = Paragraph::new(
+            " Tab/1/2:Switch View  j/k:Navigate  gg/G:Top/Bottom  r:Refresh  q:Quit",
+        )
+        .style(Style::default().fg(Color::DarkGray))
+        .block(Block::default().borders(Borders::ALL));
         frame.render_widget(status, area);
     }
 }

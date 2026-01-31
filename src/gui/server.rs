@@ -535,7 +535,15 @@ async fn get_ready(State(state): State<AppState>) -> Result<Json<serde_json::Val
         .get_ready_tasks()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(serde_json::json!({ "tasks": ready })))
+    // Include recently completed items for TUI display
+    let recently_completed_tasks = storage.get_recently_completed_tasks().unwrap_or_default();
+    let recently_completed_bugs = storage.get_recently_completed_bugs().unwrap_or_default();
+
+    Ok(Json(serde_json::json!({
+        "tasks": ready,
+        "recently_completed_tasks": recently_completed_tasks,
+        "recently_completed_bugs": recently_completed_bugs
+    })))
 }
 
 /// Get available work counts broken down by entity type

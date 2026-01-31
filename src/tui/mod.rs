@@ -14,4 +14,6 @@ mod views;
 #[cfg(feature = "tui")]
 pub use app::run_tui;
 #[cfg(feature = "tui")]
+pub use views::CompletedItem;
+#[cfg(feature = "tui")]
 pub use views::WorkItem;
