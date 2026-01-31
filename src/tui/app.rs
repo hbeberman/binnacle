@@ -446,7 +446,7 @@ impl TuiApp {
                 self.notifications.toggle_history();
                 self.last_key = Some(key);
             }
-            KeyCode::Char('l') => {
+            KeyCode::Char('L') => {
                 // Toggle log panel collapsed state
                 self.log_panel.toggle_collapsed();
                 self.last_key = Some(key);
@@ -1155,7 +1155,7 @@ impl TuiApp {
                 Span::raw("Toggle notification history"),
             ]),
             Line::from(vec![
-                Span::styled("    l      ", Style::default().fg(Color::Yellow)),
+                Span::styled("    L      ", Style::default().fg(Color::Yellow)),
                 Span::raw("Toggle log panel collapse"),
             ]),
             Line::from(vec![
@@ -1278,10 +1278,10 @@ impl TuiApp {
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
         let help_text = match self.active_view {
             ActiveView::QueueReady | ActiveView::RecentlyCompleted => {
-                " Tab:View  j/k:Nav  Enter:Detail  r:Refresh  l:Log  n:History  ?:Help  q:Quit"
+                " Tab:View  j/k:Nav  Enter:Detail  r:Refresh  L:Log  n:History  ?:Help  q:Quit"
             }
             ActiveView::NodeDetail => {
-                " j/k:Nav  Enter:Go  Esc:Back  r:Refresh  l:Log  n:History  ?:Help  q:Quit"
+                " j/k:Nav  Enter:Go  Esc:Back  r:Refresh  L:Log  n:History  ?:Help  q:Quit"
             }
         };
         let status = Paragraph::new(help_text)
