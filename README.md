@@ -46,14 +46,20 @@ copilot
 ```
 
 ### Hello Binnacle
-```
+```bash
 # Setup a git repo for binnacle to work in (or navigate to an existing one)
 mkdir hello
 cd hello
 git init
 
-# Setup binnacle configs and pull a pinned version of copilot-cli
+# First-time setup (once per machine) - sets up global config
 bn system init
+
+# Initialize binnacle for this repository
+bn session init
+
+# Or use the shorthand that does both (auto-initializes system if needed)
+bn orient
 
 # Use some tools!
 bn-agent buddy                  # Run your helpful binnacle assistant to interact with the graph
@@ -105,8 +111,13 @@ cargo install --path .
 
 ## Usage
 
+Binnacle has two administrative namespaces:
+- **`bn system`** - Host-global operations (first-time setup, copilot management)
+- **`bn session`** - Repo-specific operations (store, migrate, hooks)
+
 ```bash
-bn system init                  # set up in your project
+bn system init                  # first-time setup (once per machine)
+bn session init                 # set up in your project
 bn task create "Do the thing"   # create a task
 bn ready                        # see what's actionable
 bn task close bn-xxxx           # mark done
@@ -453,8 +464,8 @@ bn gui kill
 Export your task graph and view it in any browser—no server needed:
 
 ```bash
-just build-viewer                # build the standalone viewer
-bn system store export data.bng  # export your project data
+just build-viewer                 # build the standalone viewer
+bn session store export data.bng  # export your project data
 # open target/viewer/viewer.html, drop in data.bng
 ```
 

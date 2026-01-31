@@ -51,12 +51,23 @@ git add .gitignore && git commit -m "Initial commit"
 ### Step 2: Initialize Binnacle
 
 ```bash
-# Interactive setup (recommended for first-time users)
+# First-time setup (once per machine) - sets up global config
 bn system init
+
+# Initialize binnacle for this specific repo
+bn session init
+```
+
+Alternatively, you can use the shorthand that does both:
+
+```bash
+# Auto-initializes system with defaults if needed, then initializes the repo
+bn session init --auto-global
 ```
 
 This will:
-- Create the binnacle data store for your repo
+- Create global config at `~/.config/binnacle/` (if not present)
+- Create the binnacle data store for your repo at `~/.local/share/binnacle/<REPO_HASH>/`
 - Set up AGENTS.md with instructions for AI agents
 - Optionally configure hooks and other settings
 
