@@ -18742,9 +18742,51 @@ pub fn agent_spawn(
     let containerd_mode = detect_containerd_mode();
     warn_system_containerd_mode(&containerd_mode);
 
+    // Discover container definitions and compute image name (same logic as container_run)
+    use crate::container::{DefinitionSource, discover_definitions, generate_image_name};
+
+    let defs_with_source = discover_definitions(repo_path)?;
+
+    // Find preferred definition (project > host > embedded)
+    let preferred = defs_with_source
+        .iter()
+        .find(|d| d.source == DefinitionSource::Project)
+        .or_else(|| {
+            defs_with_source
+                .iter()
+                .find(|d| d.source == DefinitionSource::Host)
+        })
+        .or_else(|| {
+            defs_with_source
+                .iter()
+                .find(|d| d.source == DefinitionSource::Embedded)
+        });
+
+    let (image_name, def_name) = match preferred {
+        Some(def_src) => {
+            if def_src.source == DefinitionSource::Embedded {
+                (
+                    "localhost/binnacle-worker:latest".to_string(),
+                    def_src.definition.name.clone(),
+                )
+            } else {
+                (
+                    generate_image_name(repo_path, &def_src.definition.name)?,
+                    def_src.definition.name.clone(),
+                )
+            }
+        }
+        None => {
+            // Fallback to embedded
+            (
+                "localhost/binnacle-worker:latest".to_string(),
+                "binnacle".to_string(),
+            )
+        }
+    };
+
     // Check if the worker image exists in containerd
-    let image_name = "localhost/binnacle-worker:latest";
-    if !container_image_exists(image_name) {
+    if !container_image_exists(&image_name) {
         return Ok(AgentSpawnResult {
             success: false,
             agent_id: None,
@@ -18753,8 +18795,8 @@ pub fn agent_spawn(
             container_name: None,
             log_path: None,
             error: Some(format!(
-                "Image '{}' not found in containerd.\n\nRun 'bn container build' first to build the worker image.",
-                image_name
+                "Image '{}' not found in containerd.\n\nRun 'bn container build {}' first to build the worker image.",
+                image_name, def_name
             )),
         });
     }
@@ -19030,7 +19072,7 @@ pub fn agent_spawn(
     }
 
     // Add image and container name
-    args.push("localhost/binnacle-worker:latest".to_string());
+    args.push(image_name.clone());
     args.push(container_name.clone());
 
     // Create agent logs directory and log file
@@ -21677,7 +21719,7 @@ pub fn container_run(
     }
 
     // Add image and container name
-    args.push("localhost/binnacle-worker:latest".to_string());
+    args.push(image_name.clone());
     args.push(container_name.clone());
 
     // For shell mode, override the entrypoint to run bash with "shell" argument
