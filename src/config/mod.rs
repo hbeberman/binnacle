@@ -33,9 +33,16 @@
 //!
 //! For tokens: env var > session state > system state
 //! For preferences: CLI flag > session config > system config > defaults
+//!
+//! Use the [`resolver`] module for unified precedence resolution.
 
+pub mod resolver;
 pub mod schema;
 
+pub use resolver::{
+    COPILOT_GITHUB_TOKEN_ENV, ConfigOverrides, Resolved, ResolvedConfig, ResolvedSettings,
+    ResolvedState, ValueSource, resolve_config, resolve_state, resolve_state_with_override,
+};
 pub use schema::{BinnacleConfig, BinnacleState, OutputFormat};
 #[cfg(unix)]
 pub use schema::{CONFIG_FILE_MODE, STATE_FILE_MODE};
