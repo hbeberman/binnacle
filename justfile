@@ -16,12 +16,13 @@ build mode="debug" features="":
         fi \
     fi
 
-# Install release build with GUI to ~/.local/bin
-install: (build "release" "gui")
+# Install release build with all features to ~/.local/bin
+install:
+    cargo build --release --all-features
     mkdir -p ~/.local/bin
     cp target/release/bn ~/.local/bin/bn.tmp
     mv ~/.local/bin/bn.tmp ~/.local/bin/bn
-    @echo "Installed bn to ~/.local/bin/bn (with GUI feature)"
+    @echo "Installed bn to ~/.local/bin/bn (with all features)"
 
 # Install devtunnel CLI for tunnel support
 # macOS/Linux: downloads binary to ~/.local/bin
@@ -90,7 +91,7 @@ install-devtunnel:
 # Run GUI in development mode (serves from filesystem, auto-reloads on changes)
 dev-gui:
     @echo "Starting GUI in development mode..."
-    cargo run --features gui -- gui --dev
+    cargo run --all-features -- gui --dev
 
 gui nobuild="" tunnel="":
     #!/usr/bin/env bash
