@@ -2370,11 +2370,34 @@ async fn summarize_action(
 ///
 /// This server provides only the WebSocket endpoint at `/ws` for real-time
 /// graph updates and command execution. Used by TUI and programmatic clients.
+///
+/// # Arguments
+/// * `repo_path` - Path to the repository root
+/// * `port` - Port to listen on
+/// * `host` - Host address to bind to
+/// * `tunnel` - If true, create a public URL via devtunnel
 pub async fn start_session_server(
     repo_path: &Path,
     port: u16,
     host: &str,
+    tunnel: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Start tunnel if requested
+    let _tunnel_manager = if tunnel {
+        match crate::gui::TunnelManager::start(port, repo_path) {
+            Ok(tm) => {
+                if let Some(url) = tm.public_url() {
+                    eprintln!("Public tunnel URL: {}", url);
+                }
+                Some(tm)
+            }
+            Err(e) => {
+                return Err(format!("Failed to start tunnel: {}", e).into());
+            }
+        }
+    } else {
+        None
+    };
     let storage = Storage::open(repo_path)?;
     let storage_dir = crate::storage::get_storage_dir(repo_path)?;
     let (update_tx, _) = broadcast::channel(100);

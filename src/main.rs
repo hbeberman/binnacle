@@ -1730,7 +1730,7 @@ fn run_command(
                     port,
                     host,
                     public,
-                    tunnel: _,   // TODO: Implement tunnel support
+                    tunnel,
                     upstream: _, // TODO: Implement upstream hub support
                 } => {
                     // Ensure storage is initialized
@@ -1748,11 +1748,16 @@ fn run_command(
                             binnacle::Error::Other(format!("Failed to create runtime: {}", e))
                         })?
                         .block_on(async {
-                            binnacle::gui::start_session_server(repo_path, port, actual_host)
-                                .await
-                                .map_err(|e| {
-                                    binnacle::Error::Other(format!("Session server error: {}", e))
-                                })
+                            binnacle::gui::start_session_server(
+                                repo_path,
+                                port,
+                                actual_host,
+                                tunnel,
+                            )
+                            .await
+                            .map_err(|e| {
+                                binnacle::Error::Other(format!("Session server error: {}", e))
+                            })
                         });
 
                     result?;
