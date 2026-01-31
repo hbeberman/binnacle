@@ -4908,6 +4908,50 @@ pub fn task_update(
             }
         }
 
+        // If setting status to done, check for incomplete dependencies (both legacy and edge-based)
+        if new_status == TaskStatus::Done && !force {
+            let mut incomplete_deps: Vec<Task> = task
+                .depends_on
+                .iter()
+                .filter_map(|dep_id| storage.get_task(dep_id).ok())
+                .filter(|dep| dep.status != TaskStatus::Done && dep.status != TaskStatus::Cancelled)
+                .collect();
+
+            // Also check edge-based dependencies
+            let edge_deps = storage.get_edge_dependencies(id).unwrap_or_default();
+            for dep_id in edge_deps {
+                if let Ok(dep) = storage.get_task(&dep_id)
+                    && dep.status != TaskStatus::Done
+                    && dep.status != TaskStatus::Cancelled
+                    // Avoid duplicates if dependency exists in both legacy and edge-based
+                    && !incomplete_deps.iter().any(|d| d.core.id == dep.core.id)
+                {
+                    incomplete_deps.push(dep);
+                }
+            }
+
+            if !incomplete_deps.is_empty() {
+                let dep_list: Vec<String> = incomplete_deps
+                    .iter()
+                    .map(|d| {
+                        format!(
+                            "{}: \"{}\" ({})",
+                            d.core.id,
+                            d.core.title,
+                            format!("{:?}", d.status).to_lowercase()
+                        )
+                    })
+                    .collect();
+
+                return Err(Error::Other(format!(
+                    "Cannot set status to done for task {}. It has {} incomplete dependencies:\n  - {}\n\nUse --force to set done anyway, or complete the dependencies first.",
+                    id,
+                    incomplete_deps.len(),
+                    dep_list.join("\n  - ")
+                )));
+            }
+        }
+
         // If setting status to done, also set closed_at
         if new_status == TaskStatus::Done {
             task.closed_at = Some(Utc::now());

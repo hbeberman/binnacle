@@ -2080,6 +2080,209 @@ fn test_task_update_status_cancelled_ignores_commit_requirement() {
         .stdout(predicate::str::contains("\"updated_fields\""));
 }
 
+#[test]
+fn test_task_update_status_done_fails_with_incomplete_deps() {
+    let temp = init_binnacle();
+
+    // Create task A (will be the dependency)
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Dependency task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    // Create task B
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Dependent task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "-t",
+            "depends_on",
+            "--reason",
+            "B needs A",
+        ])
+        .assert()
+        .success();
+
+    // Try to set B status to done without force (A is still pending)
+    bn_in(&temp)
+        .args(["task", "update", &id_b, "--status", "done"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("incomplete dependencies"))
+        .stderr(predicate::str::contains(&id_a));
+}
+
+#[test]
+fn test_task_update_status_done_force_bypasses_incomplete_deps() {
+    let temp = init_binnacle();
+
+    // Create task A (will be the dependency)
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Dependency task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    // Create task B
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Dependent task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "-t",
+            "depends_on",
+            "--reason",
+            "B needs A",
+        ])
+        .assert()
+        .success();
+
+    // Set B status to done with --force (A is still pending)
+    bn_in(&temp)
+        .args(["task", "update", &id_b, "--status", "done", "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"updated_fields\""));
+
+    // Verify task is actually done
+    bn_in(&temp)
+        .args(["task", "show", &id_b])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"done\""));
+}
+
+#[test]
+fn test_task_update_status_done_succeeds_when_deps_complete() {
+    let temp = init_binnacle();
+
+    // Create task A (will be the dependency)
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Dependency task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    // Create task B
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Dependent task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "-t",
+            "depends_on",
+            "--reason",
+            "B needs A",
+        ])
+        .assert()
+        .success();
+
+    // Complete A first
+    bn_in(&temp)
+        .args(["task", "close", &id_a, "--reason", "done"])
+        .assert()
+        .success();
+
+    // Now setting B to done should succeed without --force
+    bn_in(&temp)
+        .args(["task", "update", &id_b, "--status", "done"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"updated_fields\""));
+}
+
+#[test]
+fn test_task_update_status_done_succeeds_when_deps_cancelled() {
+    let temp = init_binnacle();
+
+    // Create task A (will be the dependency)
+    let output_a = bn_in(&temp)
+        .args(["task", "create", "Dependency task A"])
+        .output()
+        .unwrap();
+    let id_a = extract_task_id(&output_a);
+
+    // Create task B
+    let output_b = bn_in(&temp)
+        .args(["task", "create", "Dependent task B"])
+        .output()
+        .unwrap();
+    let id_b = extract_task_id(&output_b);
+
+    // B depends on A
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &id_b,
+            &id_a,
+            "-t",
+            "depends_on",
+            "--reason",
+            "B needs A",
+        ])
+        .assert()
+        .success();
+
+    // Cancel A (cancelled dependencies should not block)
+    bn_in(&temp)
+        .args(["task", "close", &id_a, "--reason", "cancelled", "--force"])
+        .assert()
+        .success();
+
+    // Verify A is cancelled
+    bn_in(&temp)
+        .args(["task", "show", &id_a])
+        .assert()
+        .success();
+
+    // Update A's status to cancelled explicitly
+    bn_in(&temp)
+        .args([
+            "task",
+            "update",
+            &id_a,
+            "--status",
+            "cancelled",
+            "--keep-closed",
+        ])
+        .assert()
+        .success();
+
+    // Now setting B to done should succeed without --force
+    bn_in(&temp)
+        .args(["task", "update", &id_b, "--status", "done"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"updated_fields\""));
+}
+
 // === Closed Task Update Protection Tests ===
 
 #[test]
