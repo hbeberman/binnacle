@@ -63,13 +63,24 @@ pub(crate) mod test_utils {
         ///
         /// IMPORTANT: Tests using this MUST be marked with #[serial] to avoid
         /// environment variable races between parallel tests.
+        ///
+        /// This also sets `BN_TEST_MODE=1` and `BN_TEST_ID` for test mode isolation.
         pub fn new_with_env() -> Self {
             let env = Self::new();
-            // Set BN_DATA_DIR to this test's isolated data directory
+            // Extract a unique test ID from the data directory name
+            let test_id = env
+                .data_path()
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            // Set environment variables for test isolation
             // Clear agent-specific env vars to ensure test isolation
             // SAFETY: This is safe because tests using new_with_env() are marked #[serial]
             unsafe {
                 std::env::set_var("BN_DATA_DIR", env.data_path());
+                std::env::set_var("BN_TEST_MODE", "1");
+                std::env::set_var("BN_TEST_ID", &test_id);
                 std::env::remove_var("BN_AGENT_ID");
                 std::env::remove_var("BN_AGENT_NAME");
                 std::env::remove_var("BN_AGENT_TYPE");

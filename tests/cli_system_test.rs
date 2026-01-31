@@ -2098,9 +2098,8 @@ fn test_store_archive_explicitly_disabled() {
 fn test_store_archive_with_config() {
     let env = init_binnacle();
 
-    // Create archive directory OUTSIDE repo
-    let parent_dir = env.path().parent().unwrap();
-    let archive_dir = parent_dir.join("archives");
+    // Create archive directory inside data_dir to avoid parallel test conflicts
+    let archive_dir = env.data_path().join("test_archives");
     fs::create_dir_all(&archive_dir).unwrap();
 
     // Configure archive directory
@@ -2185,9 +2184,9 @@ fn test_store_archive_human_readable_disabled() {
 fn test_store_archive_creates_directory() {
     let env = init_binnacle();
 
-    // Configure archive directory that doesn't exist yet (must be outside repo)
-    let parent_dir = env.path().parent().unwrap();
-    let archive_dir = parent_dir.join("new_archives");
+    // Configure archive directory that doesn't exist yet - use unique path based on data_dir
+    // to avoid conflicts with parallel test runs
+    let archive_dir = env.data_path().join("new_archives_test");
     bn_in(&env)
         .args([
             "config",

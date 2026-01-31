@@ -75,38 +75,24 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_stop_when_not_running_json() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Stop should report not running (JSON)
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("stop");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "stop"])
+            .assert()
             .success()
             .stdout(predicates::str::contains(r#""status":"not_running""#));
     }
 
     #[test]
     fn test_gui_stop_when_not_running_human() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Stop should report not running (human-readable)
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("stop").arg("-H");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "stop", "-H"])
+            .assert()
             .success()
             .stdout(predicates::str::contains("not running"));
     }
@@ -148,38 +134,24 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_status_when_not_running_json() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Status should report not running (JSON)
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("status");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "status"])
+            .assert()
             .success()
             .stdout(predicates::str::contains(r#""status":"not_running""#));
     }
 
     #[test]
     fn test_gui_status_when_not_running_human() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Status should report not running (human-readable)
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("status").arg("-H");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "status", "-H"])
+            .assert()
             .success()
             .stdout(predicates::str::contains("not running"));
     }
@@ -441,57 +413,36 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_kill_when_not_running() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Kill should report not running (JSON)
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "kill"])
+            .assert()
             .success()
             .stdout(predicates::str::contains(r#""status":"not_running""#));
     }
 
     #[test]
     fn test_gui_kill_force_when_not_running() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Kill --force should also report not running
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill").arg("--force");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "kill", "--force"])
+            .assert()
             .success()
             .stdout(predicates::str::contains(r#""status":"not_running""#));
     }
 
     #[test]
     fn test_gui_kill_9_flag_when_not_running() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Kill -9 should also work
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill").arg("-9");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "kill", "-9"])
+            .assert()
             .success()
             .stdout(predicates::str::contains(r#""status":"not_running""#));
     }
@@ -527,57 +478,36 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_kill_when_not_running_human() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Kill should report not running (human-readable)
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill").arg("-H");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "kill", "-H"])
+            .assert()
             .success()
             .stdout(predicates::str::contains("not running"));
     }
 
     #[test]
     fn test_gui_kill_force_when_not_running_human() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Kill --force should also report not running (human-readable)
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill").arg("--force").arg("-H");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "kill", "--force", "-H"])
+            .assert()
             .success()
             .stdout(predicates::str::contains("not running"));
     }
 
     #[test]
     fn test_gui_kill_9_flag_when_not_running_human() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Kill -9 -H should report not running (human-readable)
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill").arg("-9").arg("-H");
-        cmd.assert()
+        env.bn()
+            .args(["gui", "kill", "-9", "-H"])
+            .assert()
             .success()
             .stdout(predicates::str::contains("not running"));
     }
@@ -614,19 +544,10 @@ mod gui_enabled {
 
     #[test]
     fn test_gui_kill_json_output_structure_not_running() {
-        let temp = tempfile::tempdir().unwrap();
-
-        // Initialize binnacle first
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("system").arg("init");
-        cmd.assert().success();
+        let env = TestEnv::init();
 
         // Verify JSON structure when not running (no PID file)
-        let mut cmd = bn_isolated();
-        cmd.current_dir(&temp);
-        cmd.arg("gui").arg("kill");
-        let output = cmd.assert().success();
+        let output = env.bn().args(["gui", "kill"]).assert().success();
         let stdout = String::from_utf8_lossy(&output.get_output().stdout);
         let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
 

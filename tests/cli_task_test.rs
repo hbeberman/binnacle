@@ -43,7 +43,7 @@ fn test_init_human_readable() {
         .args(["session", "init", "--auto-global", "-H"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Initialized binnacle"));
+        .stdout(predicate::str::contains("Session initialized"));
 }
 
 #[test]

@@ -30267,8 +30267,20 @@ mod tests {
             .output()
             .unwrap();
 
+        // Clear test mode for this test since we're testing actual sync behavior
+        // SAFETY: This test is marked #[serial] so no concurrent access
+        unsafe {
+            std::env::remove_var("BN_TEST_MODE");
+        }
+
         // Sync should fail gracefully
         let result = sync(temp.path(), None, false, false).unwrap();
+
+        // Restore test mode
+        unsafe {
+            std::env::set_var("BN_TEST_MODE", "1");
+        }
+
         assert!(result.error.is_some());
         assert!(result.error.unwrap().contains("binnacle-data"));
     }
