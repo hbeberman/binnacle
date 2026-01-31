@@ -1738,33 +1738,38 @@ const COMMIT_MSG_HOOK_CONTENT: &str = r#"
 # Automatically appends Co-authored-by trailer when an agent session is active
 # and a human identity is being used (not the default binnacle-bot identity)
 
-# Check if co-author feature is enabled (default: true)
-enabled_value=$(bn config get co-author.enabled 2>/dev/null | grep -o '"value":[^,}]*' | cut -d':' -f2 | tr -d ' "' || echo "null")
-
-# If explicitly set to false/no/0, skip
-if [[ "$enabled_value" == "false" ]] || [[ "$enabled_value" == "no" ]] || [[ "$enabled_value" == "0" ]]; then
-    : # Skip binnacle co-author, continue to rest of hook
+# Skip entirely if we're in anonymous identity mode (no human to attribute)
+if [[ "$BINNACLE_ANONYMOUS_IDENTITY" == "1" ]]; then
+    : # Skip co-author trailer in anonymous mode
 else
-    # Check for active agent session via BN_AGENT_SESSION environment variable
-    # Also skip if using default identity (no human to attribute as co-author)
-    if [[ -n "$BN_AGENT_SESSION" ]] && [[ "$BN_AGENT_SESSION" == "1" ]] && [[ -z "$BN_USING_DEFAULT_IDENTITY" ]]; then
-        # Agent is active with human identity - append Co-authored-by trailer if not already present
-        co_author_name=$(bn config get co-author.name 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
-        if [[ -z "$co_author_name" ]] || [[ "$co_author_name" == "null" ]]; then
-            co_author_name="binnacle-bot"
-        fi
+    # Check if co-author feature is enabled (default: true)
+    enabled_value=$(bn config get git.co-author.enabled 2>/dev/null | grep -o '"value":[^,}]*' | cut -d':' -f2 | tr -d ' "' || echo "null")
 
-        co_author_email=$(bn config get co-author.email 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
-        if [[ -z "$co_author_email" ]] || [[ "$co_author_email" == "null" ]]; then
-            co_author_email="noreply@binnacle.bot"
-        fi
+    # If explicitly set to false/no/0, skip
+    if [[ "$enabled_value" == "false" ]] || [[ "$enabled_value" == "no" ]] || [[ "$enabled_value" == "0" ]]; then
+        : # Skip binnacle co-author, continue to rest of hook
+    else
+        # Check for active agent session via BN_AGENT_SESSION environment variable
+        # Also skip if using default identity (no human to attribute as co-author)
+        if [[ -n "$BN_AGENT_SESSION" ]] && [[ "$BN_AGENT_SESSION" == "1" ]] && [[ -z "$BN_USING_DEFAULT_IDENTITY" ]]; then
+            # Agent is active with human identity - append Co-authored-by trailer if not already present
+            co_author_name=$(bn config get git-bot.name 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
+            if [[ -z "$co_author_name" ]] || [[ "$co_author_name" == "null" ]]; then
+                co_author_name="binnacle-bot"
+            fi
 
-        trailer="Co-authored-by: $co_author_name <$co_author_email>"
+            co_author_email=$(bn config get git-bot.email 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
+            if [[ -z "$co_author_email" ]] || [[ "$co_author_email" == "null" ]]; then
+                co_author_email="noreply@binnacle.bot"
+            fi
 
-        # Check if trailer already exists (for amend case)
-        if ! grep -qF "$trailer" "$1" 2>/dev/null; then
-            echo "" >> "$1"
-            echo "$trailer" >> "$1"
+            trailer="Co-authored-by: $co_author_name <$co_author_email>"
+
+            # Check if trailer already exists (for amend case)
+            if ! grep -qF "$trailer" "$1" 2>/dev/null; then
+                echo "" >> "$1"
+                echo "$trailer" >> "$1"
+            fi
         fi
     fi
 fi
@@ -14804,7 +14809,8 @@ pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet>
         "action_log_enabled"
         | "action_log_sanitize"
         | "require_commit_for_close"
-        | "co-author.enabled" => {
+        | "git.co-author.enabled"
+        | "git.anonymous.allow" => {
             // Validate boolean values
             let value_lower = value.to_lowercase();
             if value_lower != "true"
@@ -14850,7 +14856,7 @@ pub fn config_set(repo_path: &Path, key: &str, value: &str) -> Result<ConfigSet>
                 return Err(Error::Other("action_log_path cannot be empty".to_string()));
             }
         }
-        "co-author.name" | "co-author.email" => {
+        "git-bot.name" | "git-bot.email" => {
             // Validate non-empty strings
             if value.trim().is_empty() {
                 return Err(Error::Other(format!("{} cannot be empty", key)));
@@ -24186,7 +24192,7 @@ mod tests {
         let temp = setup();
 
         // Storage now initializes with 4 default configs
-        let default_count = 4;
+        let default_count = 6;
 
         config_set(temp.path(), "key1", "value1").unwrap();
         config_set(temp.path(), "key2", "value2").unwrap();
@@ -24214,7 +24220,7 @@ mod tests {
 
         // Verify default configs are present after initialization
         let result = config_list(temp.path()).unwrap();
-        assert_eq!(result.count, 4); // 4 default configs
+        assert_eq!(result.count, 6); // 6 default configs
 
         // Verify specific defaults
         assert!(
@@ -24233,13 +24239,25 @@ mod tests {
             result
                 .configs
                 .iter()
-                .any(|(k, v)| k == "co-author.enabled" && v == "yes")
+                .any(|(k, v)| k == "git.co-author.enabled" && v == "yes")
         );
         assert!(
             result
                 .configs
                 .iter()
-                .any(|(k, v)| k == "co-author.name" && v == "binnacle-bot")
+                .any(|(k, v)| k == "git-bot.name" && v == "binnacle-bot")
+        );
+        assert!(
+            result
+                .configs
+                .iter()
+                .any(|(k, v)| k == "git-bot.email" && v == "noreply@binnacle.bot")
+        );
+        assert!(
+            result
+                .configs
+                .iter()
+                .any(|(k, v)| k == "git.anonymous.allow" && v == "true")
         );
     }
 
@@ -27902,44 +27920,62 @@ mod tests {
         let temp = setup();
 
         // Valid boolean values should work
-        assert!(config_set(temp.path(), "co-author.enabled", "true").is_ok());
-        assert!(config_set(temp.path(), "co-author.enabled", "false").is_ok());
-        assert!(config_set(temp.path(), "co-author.enabled", "1").is_ok());
-        assert!(config_set(temp.path(), "co-author.enabled", "0").is_ok());
-        assert!(config_set(temp.path(), "co-author.enabled", "yes").is_ok());
-        assert!(config_set(temp.path(), "co-author.enabled", "no").is_ok());
+        assert!(config_set(temp.path(), "git.co-author.enabled", "true").is_ok());
+        assert!(config_set(temp.path(), "git.co-author.enabled", "false").is_ok());
+        assert!(config_set(temp.path(), "git.co-author.enabled", "1").is_ok());
+        assert!(config_set(temp.path(), "git.co-author.enabled", "0").is_ok());
+        assert!(config_set(temp.path(), "git.co-author.enabled", "yes").is_ok());
+        assert!(config_set(temp.path(), "git.co-author.enabled", "no").is_ok());
 
         // Invalid values should fail
-        assert!(config_set(temp.path(), "co-author.enabled", "invalid").is_err());
-        assert!(config_set(temp.path(), "co-author.enabled", "maybe").is_err());
+        assert!(config_set(temp.path(), "git.co-author.enabled", "invalid").is_err());
+        assert!(config_set(temp.path(), "git.co-author.enabled", "maybe").is_err());
     }
 
     #[test]
     #[serial]
-    fn test_co_author_name_config_validation() {
+    fn test_git_bot_name_config_validation() {
         let temp = setup();
 
         // Valid non-empty name should work
-        assert!(config_set(temp.path(), "co-author.name", "my-bot").is_ok());
-        assert!(config_set(temp.path(), "co-author.name", "binnacle-bot").is_ok());
+        assert!(config_set(temp.path(), "git-bot.name", "my-bot").is_ok());
+        assert!(config_set(temp.path(), "git-bot.name", "binnacle-bot").is_ok());
 
         // Empty name should fail
-        assert!(config_set(temp.path(), "co-author.name", "").is_err());
-        assert!(config_set(temp.path(), "co-author.name", "   ").is_err());
+        assert!(config_set(temp.path(), "git-bot.name", "").is_err());
+        assert!(config_set(temp.path(), "git-bot.name", "   ").is_err());
     }
 
     #[test]
     #[serial]
-    fn test_co_author_email_config_validation() {
+    fn test_git_bot_email_config_validation() {
         let temp = setup();
 
         // Valid non-empty email should work
-        assert!(config_set(temp.path(), "co-author.email", "bot@example.com").is_ok());
-        assert!(config_set(temp.path(), "co-author.email", "noreply@binnacle.bot").is_ok());
+        assert!(config_set(temp.path(), "git-bot.email", "bot@example.com").is_ok());
+        assert!(config_set(temp.path(), "git-bot.email", "noreply@binnacle.bot").is_ok());
 
         // Empty email should fail
-        assert!(config_set(temp.path(), "co-author.email", "").is_err());
-        assert!(config_set(temp.path(), "co-author.email", "   ").is_err());
+        assert!(config_set(temp.path(), "git-bot.email", "").is_err());
+        assert!(config_set(temp.path(), "git-bot.email", "   ").is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn test_git_anonymous_allow_config_validation() {
+        let temp = setup();
+
+        // Valid boolean values should work
+        assert!(config_set(temp.path(), "git.anonymous.allow", "true").is_ok());
+        assert!(config_set(temp.path(), "git.anonymous.allow", "false").is_ok());
+        assert!(config_set(temp.path(), "git.anonymous.allow", "1").is_ok());
+        assert!(config_set(temp.path(), "git.anonymous.allow", "0").is_ok());
+        assert!(config_set(temp.path(), "git.anonymous.allow", "yes").is_ok());
+        assert!(config_set(temp.path(), "git.anonymous.allow", "no").is_ok());
+
+        // Invalid values should fail
+        assert!(config_set(temp.path(), "git.anonymous.allow", "invalid").is_err());
+        assert!(config_set(temp.path(), "git.anonymous.allow", "maybe").is_err());
     }
 
     #[test]
@@ -27949,11 +27985,11 @@ mod tests {
 
         // Non-existent key should return default
         assert_eq!(
-            config_get_string(temp.path(), "co-author.name", "binnacle-bot"),
+            config_get_string(temp.path(), "git-bot.name", "binnacle-bot"),
             "binnacle-bot"
         );
         assert_eq!(
-            config_get_string(temp.path(), "co-author.email", "noreply@binnacle.bot"),
+            config_get_string(temp.path(), "git-bot.email", "noreply@binnacle.bot"),
             "noreply@binnacle.bot"
         );
     }
@@ -27964,16 +28000,16 @@ mod tests {
         let temp = setup();
 
         // Set custom values
-        config_set(temp.path(), "co-author.name", "my-bot").unwrap();
-        config_set(temp.path(), "co-author.email", "bot@example.com").unwrap();
+        config_set(temp.path(), "git-bot.name", "my-bot").unwrap();
+        config_set(temp.path(), "git-bot.email", "bot@example.com").unwrap();
 
         // Should return the set values, not defaults
         assert_eq!(
-            config_get_string(temp.path(), "co-author.name", "binnacle-bot"),
+            config_get_string(temp.path(), "git-bot.name", "binnacle-bot"),
             "my-bot"
         );
         assert_eq!(
-            config_get_string(temp.path(), "co-author.email", "noreply@binnacle.bot"),
+            config_get_string(temp.path(), "git-bot.email", "noreply@binnacle.bot"),
             "bot@example.com"
         );
     }

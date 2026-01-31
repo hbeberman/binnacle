@@ -468,7 +468,7 @@ fn test_config_list_empty() {
         .args(["config", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"count\":4")); // 4 default values
+        .stdout(predicate::str::contains("\"count\":6")); // 6 default values
 }
 
 #[test]
@@ -488,7 +488,7 @@ fn test_config_list() {
         .args(["config", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"count\":6")) // 2 set + 4 defaults
+        .stdout(predicate::str::contains("\"count\":8")) // 2 set + 6 defaults
         .stdout(predicate::str::contains("key1"))
         .stdout(predicate::str::contains("key2"));
 }
@@ -510,7 +510,7 @@ fn test_config_list_human() {
         .args(["-H", "config", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("6 configuration value(s)")) // 2 set + 4 defaults
+        .stdout(predicate::str::contains("8 configuration value(s)")) // 2 set + 6 defaults
         .stdout(predicate::str::contains("alpha = 1"))
         .stdout(predicate::str::contains("beta = 2"));
 }
@@ -523,7 +523,7 @@ fn test_config_list_empty_human() {
         .args(["-H", "config", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("4 configuration value(s)")); // 4 default values
+        .stdout(predicate::str::contains("6 configuration value(s)")); // 6 default values
 }
 
 #[test]

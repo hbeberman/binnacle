@@ -802,8 +802,10 @@ impl Storage {
             r#"
             INSERT OR IGNORE INTO config (key, value) VALUES ('agents.worker.min', '0');
             INSERT OR IGNORE INTO config (key, value) VALUES ('agents.worker.max', '1');
-            INSERT OR IGNORE INTO config (key, value) VALUES ('co-author.enabled', 'yes');
-            INSERT OR IGNORE INTO config (key, value) VALUES ('co-author.name', 'binnacle-bot');
+            INSERT OR IGNORE INTO config (key, value) VALUES ('git.co-author.enabled', 'yes');
+            INSERT OR IGNORE INTO config (key, value) VALUES ('git-bot.name', 'binnacle-bot');
+            INSERT OR IGNORE INTO config (key, value) VALUES ('git-bot.email', 'noreply@binnacle.bot');
+            INSERT OR IGNORE INTO config (key, value) VALUES ('git.anonymous.allow', 'true');
             "#,
         )?;
         Ok(())
@@ -6539,9 +6541,10 @@ mod tests {
     fn test_config_list() {
         let (_temp_dir, mut storage) = create_test_storage();
 
-        // Note: Storage initializes with 4 default configs:
-        // agents.worker.min, agents.worker.max, co-author.enabled, co-author.name
-        let default_count = 4;
+        // Note: Storage initializes with 6 default configs:
+        // agents.worker.min, agents.worker.max, git.co-author.enabled, git-bot.name,
+        // git-bot.email, git.anonymous.allow
+        let default_count = 6;
 
         storage.set_config("alpha", "1").unwrap();
         storage.set_config("beta", "2").unwrap();
@@ -7802,12 +7805,20 @@ mod tests {
             Some("1".to_string())
         );
         assert_eq!(
-            storage.get_config("co-author.enabled").unwrap(),
+            storage.get_config("git.co-author.enabled").unwrap(),
             Some("yes".to_string())
         );
         assert_eq!(
-            storage.get_config("co-author.name").unwrap(),
+            storage.get_config("git-bot.name").unwrap(),
             Some("binnacle-bot".to_string())
+        );
+        assert_eq!(
+            storage.get_config("git-bot.email").unwrap(),
+            Some("noreply@binnacle.bot".to_string())
+        );
+        assert_eq!(
+            storage.get_config("git.anonymous.allow").unwrap(),
+            Some("true".to_string())
         );
     }
 
@@ -7818,7 +7829,7 @@ mod tests {
 
         // Set custom values
         storage.set_config("agents.worker.max", "5").unwrap();
-        storage.set_config("co-author.name", "custom-bot").unwrap();
+        storage.set_config("git-bot.name", "custom-bot").unwrap();
 
         // Re-open storage (which runs init_schema and set_default_configs)
         drop(storage);
@@ -7830,7 +7841,7 @@ mod tests {
             Some("5".to_string())
         );
         assert_eq!(
-            storage2.get_config("co-author.name").unwrap(),
+            storage2.get_config("git-bot.name").unwrap(),
             Some("custom-bot".to_string())
         );
     }
