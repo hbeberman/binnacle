@@ -1136,6 +1136,9 @@ fn run_command(
                 build_container,
                 yes,
             } => {
+                eprintln!(
+                    "Warning: 'bn system init' is deprecated. Use 'bn session init' instead."
+                );
                 // Expand --write-mcp-all into individual MCP flags
                 let write_mcp_vscode = write_mcp_vscode || write_mcp_all;
                 let write_mcp_copilot = write_mcp_copilot || write_mcp_all;
@@ -1188,6 +1191,9 @@ fn run_command(
                 output(&result, human);
             }
             SystemCommands::Reinit => {
+                eprintln!(
+                    "Warning: 'bn system reinit' is deprecated. Use 'bn session reinit' instead."
+                );
                 let result = commands::init_reinit(repo_path)?;
                 output(&result, human);
             }

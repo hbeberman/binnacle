@@ -1827,7 +1827,7 @@ pub enum SearchCommands {
 /// System administration subcommands (human-operated)
 #[derive(Subcommand, Debug)]
 pub enum SystemCommands {
-    /// Initialize binnacle for this repository
+    /// [DEPRECATED: use 'bn session init'] Initialize binnacle for this repository
     Init {
         /// Write binnacle section to AGENTS.md (creates file if needed)
         #[arg(long)]
@@ -1878,7 +1878,7 @@ pub enum SystemCommands {
         yes: bool,
     },
 
-    /// Re-run full interactive initialization (global + repo)
+    /// [DEPRECATED: use 'bn session reinit'] Re-run full interactive initialization (global + repo)
     ///
     /// Use this to reconfigure global binnacle setup (skills files, MCP configs,
     /// Copilot CLI installation) or if you want to change previous answers.
