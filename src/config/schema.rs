@@ -166,6 +166,194 @@ impl BinnacleConfig {
     }
 }
 
+/// Session server state stored in the `serve` block of state.kdl.
+///
+/// Tracks information about a running session server for discovery,
+/// health checking, and auto-launch coordination.
+///
+/// # KDL Schema
+///
+/// ```kdl
+/// serve {
+///   pid 12345
+///   port 3030
+///   host "127.0.0.1"
+///   started-at "2026-01-31T10:00:00Z"
+///   repo-name "binnacle"
+///   branch "main"
+///   last-heartbeat "2026-01-31T10:30:00Z"
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServeState {
+    /// Process ID of the running server
+    pub pid: u32,
+
+    /// Port the server is listening on
+    pub port: u16,
+
+    /// Host address the server is bound to
+    pub host: String,
+
+    /// Timestamp when the server started
+    pub started_at: DateTime<Utc>,
+
+    /// Repository name (derived from git remote)
+    pub repo_name: String,
+
+    /// Git branch name
+    pub branch: String,
+
+    /// Timestamp of last heartbeat update
+    pub last_heartbeat: DateTime<Utc>,
+}
+
+impl ServeState {
+    /// Create a new serve state with current timestamp.
+    pub fn new(pid: u32, port: u16, host: String, repo_name: String, branch: String) -> Self {
+        let now = Utc::now();
+        Self {
+            pid,
+            port,
+            host,
+            started_at: now,
+            repo_name,
+            branch,
+            last_heartbeat: now,
+        }
+    }
+
+    /// Update the heartbeat timestamp to now.
+    pub fn touch_heartbeat(&mut self) {
+        self.last_heartbeat = Utc::now();
+    }
+
+    /// Check if the heartbeat is stale (older than threshold).
+    pub fn is_heartbeat_stale(&self, threshold_secs: i64) -> bool {
+        let elapsed = Utc::now()
+            .signed_duration_since(self.last_heartbeat)
+            .num_seconds();
+        elapsed > threshold_secs
+    }
+
+    /// Parse serve state from a KDL node (the `serve` block).
+    pub fn from_kdl_node(node: &KdlNode) -> Option<Self> {
+        let children = node.children()?;
+
+        let pid = children
+            .get("pid")?
+            .entries()
+            .first()?
+            .value()
+            .as_integer()? as u32;
+
+        let port = children
+            .get("port")?
+            .entries()
+            .first()?
+            .value()
+            .as_integer()? as u16;
+
+        let host = children
+            .get("host")?
+            .entries()
+            .first()?
+            .value()
+            .as_string()?
+            .to_string();
+
+        let started_at_str = children
+            .get("started-at")?
+            .entries()
+            .first()?
+            .value()
+            .as_string()?;
+        let started_at = started_at_str.parse::<DateTime<Utc>>().ok()?;
+
+        let repo_name = children
+            .get("repo-name")?
+            .entries()
+            .first()?
+            .value()
+            .as_string()?
+            .to_string();
+
+        let branch = children
+            .get("branch")?
+            .entries()
+            .first()?
+            .value()
+            .as_string()?
+            .to_string();
+
+        let last_heartbeat_str = children
+            .get("last-heartbeat")?
+            .entries()
+            .first()?
+            .value()
+            .as_string()?;
+        let last_heartbeat = last_heartbeat_str.parse::<DateTime<Utc>>().ok()?;
+
+        Some(Self {
+            pid,
+            port,
+            host,
+            started_at,
+            repo_name,
+            branch,
+            last_heartbeat,
+        })
+    }
+
+    /// Convert serve state to a KDL node (the `serve` block).
+    pub fn to_kdl_node(&self) -> KdlNode {
+        let mut node = KdlNode::new("serve");
+        let mut children = KdlDocument::new();
+
+        // pid
+        let mut pid_node = KdlNode::new("pid");
+        pid_node.push(KdlEntry::new(KdlValue::Integer(self.pid as i128)));
+        children.nodes_mut().push(pid_node);
+
+        // port
+        let mut port_node = KdlNode::new("port");
+        port_node.push(KdlEntry::new(KdlValue::Integer(self.port as i128)));
+        children.nodes_mut().push(port_node);
+
+        // host
+        let mut host_node = KdlNode::new("host");
+        host_node.push(KdlEntry::new(KdlValue::String(self.host.clone())));
+        children.nodes_mut().push(host_node);
+
+        // started-at
+        let mut started_at_node = KdlNode::new("started-at");
+        started_at_node.push(KdlEntry::new(KdlValue::String(
+            self.started_at.to_rfc3339(),
+        )));
+        children.nodes_mut().push(started_at_node);
+
+        // repo-name
+        let mut repo_name_node = KdlNode::new("repo-name");
+        repo_name_node.push(KdlEntry::new(KdlValue::String(self.repo_name.clone())));
+        children.nodes_mut().push(repo_name_node);
+
+        // branch
+        let mut branch_node = KdlNode::new("branch");
+        branch_node.push(KdlEntry::new(KdlValue::String(self.branch.clone())));
+        children.nodes_mut().push(branch_node);
+
+        // last-heartbeat
+        let mut heartbeat_node = KdlNode::new("last-heartbeat");
+        heartbeat_node.push(KdlEntry::new(KdlValue::String(
+            self.last_heartbeat.to_rfc3339(),
+        )));
+        children.nodes_mut().push(heartbeat_node);
+
+        node.set_children(children);
+        node
+    }
+}
+
 /// Runtime state stored in state.kdl.
 ///
 /// This file contains machine-specific state and secrets.
@@ -178,6 +366,16 @@ impl BinnacleConfig {
 /// github-token "ghp_xxxxxxxxxxxxxxxxxxxx"
 /// token-validated-at "2026-01-31T09:00:00Z"
 /// last-copilot-version "1.0.0"
+///
+/// serve {
+///   pid 12345
+///   port 3030
+///   host "127.0.0.1"
+///   started-at "2026-01-31T10:00:00Z"
+///   repo-name "binnacle"
+///   branch "main"
+///   last-heartbeat "2026-01-31T10:30:00Z"
+/// }
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BinnacleState {
@@ -189,6 +387,9 @@ pub struct BinnacleState {
 
     /// Last known Copilot CLI version
     pub last_copilot_version: Option<String>,
+
+    /// Session server state (if a server is running)
+    pub serve: Option<ServeState>,
 }
 
 impl BinnacleState {
@@ -250,6 +451,11 @@ impl BinnacleState {
             }
         }
 
+        // Parse serve block
+        if let Some(node) = doc.get("serve") {
+            state.serve = ServeState::from_kdl_node(node);
+        }
+
         state
     }
 
@@ -275,6 +481,10 @@ impl BinnacleState {
             doc.nodes_mut().push(node);
         }
 
+        if let Some(ref serve) = self.serve {
+            doc.nodes_mut().push(serve.to_kdl_node());
+        }
+
         doc
     }
 
@@ -289,6 +499,30 @@ impl BinnacleState {
         }
         if other.last_copilot_version.is_some() {
             self.last_copilot_version = other.last_copilot_version.clone();
+        }
+        if other.serve.is_some() {
+            self.serve = other.serve.clone();
+        }
+    }
+
+    /// Set the serve state (for session server startup).
+    pub fn set_serve(&mut self, serve: ServeState) {
+        self.serve = Some(serve);
+    }
+
+    /// Clear the serve state (for session server shutdown).
+    pub fn clear_serve(&mut self) {
+        self.serve = None;
+    }
+
+    /// Update the heartbeat timestamp in serve state.
+    /// Returns false if no serve state exists.
+    pub fn touch_heartbeat(&mut self) -> bool {
+        if let Some(ref mut serve) = self.serve {
+            serve.touch_heartbeat();
+            true
+        } else {
+            false
         }
     }
 }
@@ -457,6 +691,7 @@ mod tests {
         assert_eq!(state.github_token, None);
         assert_eq!(state.token_validated_at, None);
         assert_eq!(state.last_copilot_version, None);
+        assert_eq!(state.serve, None);
     }
 
     #[test]
@@ -520,6 +755,7 @@ mod tests {
             github_token: Some("ghp_test".to_string()),
             token_validated_at: Some(Utc::now()),
             last_copilot_version: Some("2.0.0".to_string()),
+            serve: None,
         };
 
         let doc = state.to_kdl();
@@ -529,6 +765,7 @@ mod tests {
         // Note: DateTime comparison may have precision differences due to formatting
         assert!(parsed.token_validated_at.is_some());
         assert_eq!(state.last_copilot_version, parsed.last_copilot_version);
+        assert_eq!(state.serve, parsed.serve);
     }
 
     #[test]
@@ -537,12 +774,20 @@ mod tests {
             github_token: Some("old_token".to_string()),
             token_validated_at: None,
             last_copilot_version: Some("1.0.0".to_string()),
+            serve: None,
         };
 
         let override_state = BinnacleState {
             github_token: Some("new_token".to_string()),
             token_validated_at: Some(Utc::now()),
             last_copilot_version: None,
+            serve: Some(ServeState::new(
+                123,
+                3030,
+                "127.0.0.1".to_string(),
+                "test-repo".to_string(),
+                "main".to_string(),
+            )),
         };
 
         base.merge(&override_state);
@@ -550,6 +795,195 @@ mod tests {
         assert_eq!(base.github_token, Some("new_token".to_string())); // Overridden
         assert!(base.token_validated_at.is_some()); // Overridden
         assert_eq!(base.last_copilot_version, Some("1.0.0".to_string())); // Not overridden
+        assert!(base.serve.is_some()); // Overridden
+    }
+
+    // ==================== ServeState Tests ====================
+
+    #[test]
+    fn test_serve_state_new() {
+        let serve = ServeState::new(
+            1234,
+            3030,
+            "127.0.0.1".to_string(),
+            "binnacle".to_string(),
+            "main".to_string(),
+        );
+
+        assert_eq!(serve.pid, 1234);
+        assert_eq!(serve.port, 3030);
+        assert_eq!(serve.host, "127.0.0.1");
+        assert_eq!(serve.repo_name, "binnacle");
+        assert_eq!(serve.branch, "main");
+        // started_at and last_heartbeat should be set to now
+        assert!(serve.started_at <= Utc::now());
+        assert_eq!(serve.started_at, serve.last_heartbeat);
+    }
+
+    #[test]
+    fn test_serve_state_touch_heartbeat() {
+        let mut serve = ServeState::new(
+            1234,
+            3030,
+            "127.0.0.1".to_string(),
+            "binnacle".to_string(),
+            "main".to_string(),
+        );
+
+        let original_heartbeat = serve.last_heartbeat;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        serve.touch_heartbeat();
+
+        assert!(serve.last_heartbeat >= original_heartbeat);
+        assert_eq!(serve.started_at, original_heartbeat); // started_at unchanged
+    }
+
+    #[test]
+    fn test_serve_state_is_heartbeat_stale() {
+        let serve = ServeState {
+            pid: 1234,
+            port: 3030,
+            host: "127.0.0.1".to_string(),
+            started_at: Utc::now(),
+            repo_name: "binnacle".to_string(),
+            branch: "main".to_string(),
+            last_heartbeat: Utc::now() - chrono::Duration::seconds(60),
+        };
+
+        assert!(serve.is_heartbeat_stale(30)); // Stale if threshold is 30s
+        assert!(!serve.is_heartbeat_stale(120)); // Not stale if threshold is 120s
+    }
+
+    #[test]
+    fn test_serve_state_kdl_roundtrip() {
+        let serve = ServeState::new(
+            12345,
+            3030,
+            "0.0.0.0".to_string(),
+            "test-repo".to_string(),
+            "feature/test".to_string(),
+        );
+
+        let node = serve.to_kdl_node();
+        let parsed = ServeState::from_kdl_node(&node).unwrap();
+
+        assert_eq!(serve.pid, parsed.pid);
+        assert_eq!(serve.port, parsed.port);
+        assert_eq!(serve.host, parsed.host);
+        assert_eq!(serve.repo_name, parsed.repo_name);
+        assert_eq!(serve.branch, parsed.branch);
+        // DateTime precision may differ due to RFC3339 formatting
+    }
+
+    #[test]
+    fn test_serve_state_from_kdl_full_document() {
+        let kdl = r#"
+            github-token "ghp_test123"
+            serve {
+                pid 9999
+                port 8080
+                host "localhost"
+                started-at "2026-01-31T10:00:00Z"
+                repo-name "my-project"
+                branch "develop"
+                last-heartbeat "2026-01-31T10:30:00Z"
+            }
+        "#;
+        let doc: KdlDocument = kdl.parse().unwrap();
+        let state = BinnacleState::from_kdl(&doc);
+
+        assert!(state.serve.is_some());
+        let serve = state.serve.unwrap();
+        assert_eq!(serve.pid, 9999);
+        assert_eq!(serve.port, 8080);
+        assert_eq!(serve.host, "localhost");
+        assert_eq!(serve.repo_name, "my-project");
+        assert_eq!(serve.branch, "develop");
+    }
+
+    #[test]
+    fn test_serve_state_to_kdl_in_full_document() {
+        let state = BinnacleState {
+            github_token: Some("ghp_test".to_string()),
+            token_validated_at: None,
+            last_copilot_version: None,
+            serve: Some(ServeState::new(
+                4567,
+                3030,
+                "127.0.0.1".to_string(),
+                "binnacle".to_string(),
+                "main".to_string(),
+            )),
+        };
+
+        let doc = state.to_kdl();
+        let kdl_str = doc.to_string();
+
+        assert!(kdl_str.contains("serve"));
+        assert!(kdl_str.contains("pid 4567"));
+        assert!(kdl_str.contains("port 3030"));
+        assert!(kdl_str.contains("host \"127.0.0.1\""));
+
+        // Roundtrip test
+        let parsed = BinnacleState::from_kdl(&doc);
+        assert!(parsed.serve.is_some());
+        assert_eq!(parsed.serve.unwrap().pid, 4567);
+    }
+
+    #[test]
+    fn test_binnacle_state_set_serve() {
+        let mut state = BinnacleState::default();
+        assert!(state.serve.is_none());
+
+        let serve = ServeState::new(
+            123,
+            3030,
+            "127.0.0.1".to_string(),
+            "test".to_string(),
+            "main".to_string(),
+        );
+        state.set_serve(serve);
+
+        assert!(state.serve.is_some());
+        assert_eq!(state.serve.as_ref().unwrap().pid, 123);
+    }
+
+    #[test]
+    fn test_binnacle_state_clear_serve() {
+        let mut state = BinnacleState {
+            serve: Some(ServeState::new(
+                123,
+                3030,
+                "127.0.0.1".to_string(),
+                "test".to_string(),
+                "main".to_string(),
+            )),
+            ..Default::default()
+        };
+        assert!(state.serve.is_some());
+
+        state.clear_serve();
+        assert!(state.serve.is_none());
+    }
+
+    #[test]
+    fn test_binnacle_state_touch_heartbeat() {
+        let mut state = BinnacleState {
+            serve: Some(ServeState::new(
+                123,
+                3030,
+                "127.0.0.1".to_string(),
+                "test".to_string(),
+                "main".to_string(),
+            )),
+            ..Default::default()
+        };
+
+        assert!(state.touch_heartbeat());
+
+        // Test with no serve state
+        let mut empty_state = BinnacleState::default();
+        assert!(!empty_state.touch_heartbeat());
     }
 
     // ==================== Permission Constant Tests ====================

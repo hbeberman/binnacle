@@ -23,6 +23,7 @@
 //! - `github-token` - GitHub PAT for API access
 //! - `token-validated-at` - ISO 8601 timestamp of last token validation
 //! - `last-copilot-version` - Last known Copilot CLI version
+//! - `serve` block - Session server state (pid, port, host, etc.)
 //!
 //! ## Security
 //!
@@ -43,6 +44,6 @@ pub use resolver::{
     COPILOT_GITHUB_TOKEN_ENV, ConfigOverrides, Resolved, ResolvedConfig, ResolvedSettings,
     ResolvedState, ValueSource, resolve_config, resolve_state, resolve_state_with_override,
 };
-pub use schema::{BinnacleConfig, BinnacleState, OutputFormat};
+pub use schema::{BinnacleConfig, BinnacleState, OutputFormat, ServeState};
 #[cfg(unix)]
 pub use schema::{CONFIG_FILE_MODE, STATE_FILE_MODE};

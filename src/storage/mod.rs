@@ -8914,6 +8914,7 @@ mod tests {
             github_token: Some("ghp_test123456789012345".to_string()),
             token_validated_at: Some(chrono::Utc::now()),
             last_copilot_version: Some("1.0.0".to_string()),
+            serve: None,
         };
 
         // Write and read back
@@ -8946,6 +8947,7 @@ mod tests {
             github_token: Some("ghp_original".to_string()),
             token_validated_at: None,
             last_copilot_version: Some("1.0.0".to_string()),
+            serve: None,
         };
         storage.write_binnacle_state(&initial).unwrap();
 
@@ -9066,6 +9068,7 @@ mod tests {
             github_token: Some("ghp_session_token".to_string()), // Override
             token_validated_at: None,
             last_copilot_version: None, // Don't override
+            serve: None,
         };
         storage.write_binnacle_state(&session_state).unwrap();
 
