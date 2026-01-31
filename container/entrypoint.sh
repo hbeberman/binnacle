@@ -93,9 +93,9 @@ fi
 # - Claude skills file (~/.claude/skills/binnacle/SKILL.md)
 # - Copilot MCP config (~/.copilot/mcp-config.json) - merges with existing
 echo "📝 Initializing binnacle configuration..."
-if ! bn system init --write-agents-md --write-claude-skills --write-mcp-copilot -y > /dev/null 2>&1; then
+if ! bn system host-init --write-agents-md --write-claude-skills --write-mcp-copilot -y > /dev/null 2>&1; then
     echo "❌ Failed to initialize binnacle configuration"
-    echo "   bn system init failed"
+    echo "   bn system host-init failed"
     exit 1
 fi
 echo "✅ Binnacle configuration initialized"
