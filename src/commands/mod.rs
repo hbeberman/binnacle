@@ -485,10 +485,12 @@ pub struct SystemInitResult {
     pub bn_agent_installed: bool,
     /// Whether container image was built
     pub container_built: bool,
-    /// Whether a token was stored (via --token-non-validated)
+    /// Whether a token was stored (via --token or --token-non-validated)
     pub token_stored: bool,
     /// GitHub username if token was validated and stored
     pub token_username: Option<String>,
+    /// Whether Copilot access was validated (--token) vs just GitHub user (--token-non-validated)
+    pub copilot_validated: bool,
 }
 
 impl Output for SystemInitResult {
@@ -537,9 +539,14 @@ impl Output for SystemInitResult {
         }
         if self.token_stored {
             if let Some(ref username) = self.token_username {
+                let validation_type = if self.copilot_validated {
+                    "Copilot access confirmed"
+                } else {
+                    "GitHub user validated"
+                };
                 lines.push(format!(
-                    "Stored GitHub token (validated as user '{}')",
-                    username
+                    "Stored GitHub token for '{}' ({})",
+                    username, validation_type
                 ));
             } else {
                 lines.push("Stored GitHub token".to_string());
@@ -607,6 +614,7 @@ pub fn system_init() -> Result<SystemInitResult> {
         install_copilot,
         install_bn_agent,
         build_container,
+        None, // token not supported in interactive mode
         None, // token_non_validated not supported in interactive mode
     )
 }
@@ -614,6 +622,7 @@ pub fn system_init() -> Result<SystemInitResult> {
 /// Initialize host-global binnacle configuration (non-interactive mode).
 ///
 /// Use flags to control what gets set up.
+#[allow(clippy::too_many_arguments)]
 pub fn system_init_non_interactive(
     write_claude_skills: bool,
     write_codex_skills: bool,
@@ -621,6 +630,7 @@ pub fn system_init_non_interactive(
     install_copilot: bool,
     install_bn_agent: bool,
     build_container: bool,
+    token: Option<&str>,
     token_non_validated: Option<&str>,
 ) -> Result<SystemInitResult> {
     system_init_with_options(
@@ -630,11 +640,13 @@ pub fn system_init_non_interactive(
         install_copilot,
         install_bn_agent,
         build_container,
+        token,
         token_non_validated,
     )
 }
 
 /// Initialize host-global binnacle configuration with explicit options.
+#[allow(clippy::too_many_arguments)]
 fn system_init_with_options(
     create_claude_skills: bool,
     create_codex_skills: bool,
@@ -642,6 +654,7 @@ fn system_init_with_options(
     install_copilot: bool,
     install_bn_agent: bool,
     build_container: bool,
+    token: Option<&str>,
     token_non_validated: Option<&str>,
 ) -> Result<SystemInitResult> {
     let config_dir = get_system_config_dir()?;
@@ -730,15 +743,35 @@ output-format "json"
     };
 
     // Validate and store token if provided
-    let (token_stored, token_username) = if let Some(token) = token_non_validated {
-        match crate::github::validate_github_user(token) {
+    // --token uses full Copilot validation, --token-non-validated uses lightweight GitHub user validation
+    let (token_stored, token_username, copilot_validated) = if let Some(tok) = token {
+        // Full Copilot validation
+        match crate::github::validate_copilot_token(tok) {
             Ok(result) => {
                 // Store the token in system state.kdl
                 let mut state = Storage::read_system_binnacle_state().unwrap_or_default();
-                state.github_token = Some(token.to_string());
+                state.github_token = Some(tok.to_string());
                 state.token_validated_at = Some(Utc::now());
                 Storage::write_system_binnacle_state(&state)?;
-                (true, Some(result.user.login))
+                (true, Some(result.user.login), true)
+            }
+            Err(e) => {
+                return Err(Error::Other(format!(
+                    "Copilot token validation failed: {}. Ensure you have an active GitHub Copilot subscription and your token has the required permissions.",
+                    e
+                )));
+            }
+        }
+    } else if let Some(tok) = token_non_validated {
+        // Lightweight GitHub user validation
+        match crate::github::validate_github_user(tok) {
+            Ok(result) => {
+                // Store the token in system state.kdl
+                let mut state = Storage::read_system_binnacle_state().unwrap_or_default();
+                state.github_token = Some(tok.to_string());
+                state.token_validated_at = Some(Utc::now());
+                Storage::write_system_binnacle_state(&state)?;
+                (true, Some(result.user.login), false)
             }
             Err(e) => {
                 return Err(Error::Other(format!(
@@ -748,7 +781,7 @@ output-format "json"
             }
         }
     } else {
-        (false, None)
+        (false, None, false)
     };
 
     // Mark global init as done
@@ -765,6 +798,7 @@ output-format "json"
         container_built,
         token_stored,
         token_username,
+        copilot_validated,
     })
 }
 
@@ -930,7 +964,7 @@ fn session_init_with_options(
     // Auto-initialize system if requested and not already done
     if auto_global && !is_system_initialized() {
         eprintln!("Auto-initializing system config with defaults...");
-        system_init_non_interactive(false, false, false, false, false, false, None)?;
+        system_init_non_interactive(false, false, false, false, false, false, None, None)?;
         system_auto_initialized = true;
     }
 

@@ -1180,6 +1180,7 @@ fn run_command(
                 install_bn_agent,
                 build_container,
                 yes,
+                token,
                 token_non_validated,
             } => {
                 let result = if yes {
@@ -1191,6 +1192,7 @@ fn run_command(
                         install_copilot,
                         install_bn_agent,
                         build_container,
+                        token.as_deref(),
                         token_non_validated.as_deref(),
                     )?
                 } else if write_claude_skills
@@ -1199,6 +1201,7 @@ fn run_command(
                     || install_copilot
                     || install_bn_agent
                     || build_container
+                    || token.is_some()
                     || token_non_validated.is_some()
                 {
                     // Flags provided without -y: use flags as the options
@@ -1209,6 +1212,7 @@ fn run_command(
                         install_copilot,
                         install_bn_agent,
                         build_container,
+                        token.as_deref(),
                         token_non_validated.as_deref(),
                     )?
                 } else {
@@ -4096,6 +4100,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 install_bn_agent,
                 build_container,
                 yes,
+                token,
                 token_non_validated,
             } => (
                 "system host-init".to_string(),
@@ -4107,6 +4112,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "install_bn_agent": install_bn_agent,
                     "build_container": build_container,
                     "yes": yes,
+                    "token": token,
                     "token_non_validated": token_non_validated,
                 }),
             ),

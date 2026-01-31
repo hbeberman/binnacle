@@ -2778,6 +2778,69 @@ fn test_system_host_init_token_non_validated_triggers_non_interactive() {
         .stderr(predicate::str::contains("Token validation failed"));
 }
 
+#[test]
+fn test_system_host_init_token_copilot_validation_invalid() {
+    let temp = TestEnv::new();
+
+    // Try to store a token with --token (Copilot validation) - should fail
+    // because the token is invalid and won't pass GitHub user validation
+    bn_in(&temp)
+        .args(["system", "host-init", "--token", "invalid_token_12345"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Copilot token validation failed"));
+}
+
+#[test]
+fn test_system_host_init_token_triggers_non_interactive() {
+    let temp = TestEnv::new();
+
+    // Providing --token should trigger non-interactive mode
+    // (even without -y flag), but it will fail because the token is invalid
+    bn_in(&temp)
+        .args(["system", "host-init", "--token", "bad_token"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Copilot token validation failed"));
+}
+
+#[test]
+fn test_system_host_init_token_flags_conflict() {
+    let temp = TestEnv::new();
+
+    // --token and --token-non-validated should conflict
+    bn_in(&temp)
+        .args([
+            "system",
+            "host-init",
+            "--token",
+            "token1",
+            "--token-non-validated",
+            "token2",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn test_system_host_init_json_includes_copilot_validated_field() {
+    let temp = TestEnv::new();
+
+    // Run host-init without token
+    let output = bn_in(&temp)
+        .args(["system", "host-init", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    // Verify the copilot_validated field is present
+    assert_eq!(json["copilot_validated"], false);
+}
+
 // ============================================================================
 // bn system sessions Tests
 // ============================================================================
