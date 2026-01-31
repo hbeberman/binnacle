@@ -18191,6 +18191,77 @@ impl Output for AgentSpawnResult {
     }
 }
 
+/// Result of resolving git identity for agent containers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GitIdentityResolution {
+    /// Effective git user name
+    pub name: String,
+    /// Effective git email
+    pub email: String,
+    /// Whether the identity came from anonymous mode (bot identity)
+    pub is_anonymous: bool,
+}
+
+/// Resolve the git identity to use for agent containers.
+///
+/// Resolution order:
+/// 1. If host git identity (name AND email) is provided, use it
+/// 2. If no host identity and anonymous mode is allowed, use bot identity from config
+/// 3. If no host identity and anonymous mode is disabled, return error
+///
+/// This function is extracted from agent_spawn for testability.
+pub fn resolve_git_identity(
+    host_name: Option<&str>,
+    host_email: Option<&str>,
+    storage: &Storage,
+) -> Result<GitIdentityResolution> {
+    // Use host git identity if both name and email are available
+    if let (Some(name), Some(email)) = (host_name, host_email) {
+        if !name.is_empty() && !email.is_empty() {
+            return Ok(GitIdentityResolution {
+                name: name.to_string(),
+                email: email.to_string(),
+                is_anonymous: false,
+            });
+        }
+    }
+
+    // No host git identity - check config for anonymous mode
+    let anonymous_allowed = storage
+        .get_config("git.anonymous.allow")
+        .ok()
+        .flatten()
+        .map(|v| v == "true" || v == "yes" || v == "1")
+        .unwrap_or(true); // Default to allowing anonymous
+
+    if !anonymous_allowed {
+        return Err(Error::InvalidInput(
+            "Git identity not configured on host and anonymous commits are disabled.\n\
+             Set git user.name and user.email, or enable anonymous mode with:\n\
+             bn config set git.anonymous.allow true"
+                .to_string(),
+        ));
+    }
+
+    // Use git-bot identity from config (with fallback defaults)
+    let bot_name = storage
+        .get_config("git-bot.name")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "binnacle-bot".to_string());
+    let bot_email = storage
+        .get_config("git-bot.email")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "noreply@binnacle.bot".to_string());
+
+    Ok(GitIdentityResolution {
+        name: bot_name,
+        email: bot_email,
+        is_anonymous: true,
+    })
+}
+
 /// Manually spawn an agent container (bypasses min/max scaling).
 ///
 /// This command:
@@ -18458,55 +18529,30 @@ pub fn agent_spawn(
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty());
 
-    // Use host git identity if available, otherwise check if anonymous commits are allowed
-    let (effective_name, effective_email, using_anonymous_identity) = match (&git_name, &git_email)
-    {
-        (Some(name), Some(email)) => (name.clone(), email.clone(), false),
-        _ => {
-            // No host git identity - check config for anonymous mode
-            let storage = Storage::open(repo_path)?;
-            let anonymous_allowed = storage
-                .get_config("git.anonymous.allow")
-                .ok()
-                .flatten()
-                .map(|v| v == "true" || v == "yes" || v == "1")
-                .unwrap_or(true); // Default to allowing anonymous
+    // Resolve effective git identity using the extracted helper function
+    let storage = Storage::open(repo_path)?;
+    let identity_result = resolve_git_identity(git_name.as_deref(), git_email.as_deref(), &storage);
 
-            if !anonymous_allowed {
-                return Ok(AgentSpawnResult {
-                    success: false,
-                    agent_id: None,
-                    name: None,
-                    agent_type: agent_type.to_string(),
-                    container_name: None,
-                    log_path: None,
-                    error: Some(
-                        "Git identity not configured on host and anonymous commits are disabled.\n\
-                         Set git user.name and user.email, or enable anonymous mode with:\n\
-                         bn config set git.anonymous.allow true"
-                            .to_string(),
-                    ),
-                });
+    let (effective_name, effective_email, using_anonymous_identity) = match identity_result {
+        Ok(identity) => {
+            if identity.is_anonymous {
+                eprintln!(
+                    "Info: No Git identity found, using {} <{}>",
+                    identity.name, identity.email
+                );
             }
-
-            // Use git-bot identity from config (with fallback defaults)
-            let bot_name = storage
-                .get_config("git-bot.name")
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| "binnacle-bot".to_string());
-            let bot_email = storage
-                .get_config("git-bot.email")
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| "noreply@binnacle.bot".to_string());
-
-            eprintln!(
-                "Info: No Git identity found, using {} <{}>",
-                bot_name, bot_email
-            );
-
-            (bot_name, bot_email, true)
+            (identity.name, identity.email, identity.is_anonymous)
+        }
+        Err(e) => {
+            return Ok(AgentSpawnResult {
+                success: false,
+                agent_id: None,
+                name: None,
+                agent_type: agent_type.to_string(),
+                container_name: None,
+                log_path: None,
+                error: Some(e.to_string()),
+            });
         }
     };
 
@@ -28052,6 +28098,127 @@ mod tests {
         // Invalid values should fail
         assert!(config_set(temp.path(), "git.anonymous.allow", "invalid").is_err());
         assert!(config_set(temp.path(), "git.anonymous.allow", "maybe").is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn test_resolve_git_identity_with_host_identity() {
+        let temp = setup();
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // When host identity is provided, it should be used regardless of config
+        let result =
+            resolve_git_identity(Some("Host User"), Some("host@example.com"), &storage).unwrap();
+
+        assert_eq!(result.name, "Host User");
+        assert_eq!(result.email, "host@example.com");
+        assert!(!result.is_anonymous);
+    }
+
+    #[test]
+    #[serial]
+    fn test_resolve_git_identity_anonymous_allowed_no_host() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Set anonymous mode to true (explicitly)
+        storage.set_config("git.anonymous.allow", "true").unwrap();
+
+        // When no host identity and anonymous is allowed, use bot identity
+        let result = resolve_git_identity(None, None, &storage).unwrap();
+
+        assert_eq!(result.name, "binnacle-bot");
+        assert_eq!(result.email, "noreply@binnacle.bot");
+        assert!(result.is_anonymous);
+    }
+
+    #[test]
+    #[serial]
+    fn test_resolve_git_identity_anonymous_disallowed_no_host() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Disable anonymous mode
+        storage.set_config("git.anonymous.allow", "false").unwrap();
+
+        // When no host identity and anonymous is disallowed, return error
+        let result = resolve_git_identity(None, None, &storage);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("anonymous commits are disabled"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_resolve_git_identity_uses_custom_bot_config() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Set custom bot identity
+        storage.set_config("git-bot.name", "custom-bot").unwrap();
+        storage
+            .set_config("git-bot.email", "custom@bot.io")
+            .unwrap();
+        storage.set_config("git.anonymous.allow", "true").unwrap();
+
+        // When no host identity, use custom bot identity
+        let result = resolve_git_identity(None, None, &storage).unwrap();
+
+        assert_eq!(result.name, "custom-bot");
+        assert_eq!(result.email, "custom@bot.io");
+        assert!(result.is_anonymous);
+    }
+
+    #[test]
+    #[serial]
+    fn test_resolve_git_identity_host_takes_precedence_over_config() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+
+        // Even with anonymous disallowed, host identity should work
+        storage.set_config("git.anonymous.allow", "false").unwrap();
+
+        let result =
+            resolve_git_identity(Some("Host User"), Some("host@example.com"), &storage).unwrap();
+
+        assert_eq!(result.name, "Host User");
+        assert_eq!(result.email, "host@example.com");
+        assert!(!result.is_anonymous);
+    }
+
+    #[test]
+    #[serial]
+    fn test_resolve_git_identity_partial_host_identity_uses_bot() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+        storage.set_config("git.anonymous.allow", "true").unwrap();
+
+        // Only name provided, no email - should fall back to bot
+        let result = resolve_git_identity(Some("Host User"), None, &storage).unwrap();
+        assert!(result.is_anonymous);
+        assert_eq!(result.name, "binnacle-bot");
+
+        // Only email provided, no name - should fall back to bot
+        let result = resolve_git_identity(None, Some("host@example.com"), &storage).unwrap();
+        assert!(result.is_anonymous);
+        assert_eq!(result.name, "binnacle-bot");
+    }
+
+    #[test]
+    #[serial]
+    fn test_resolve_git_identity_empty_strings_treated_as_missing() {
+        let temp = setup();
+        let mut storage = Storage::open(temp.path()).unwrap();
+        storage.set_config("git.anonymous.allow", "true").unwrap();
+
+        // Empty strings should be treated as missing identity
+        let result = resolve_git_identity(Some(""), Some(""), &storage).unwrap();
+        assert!(result.is_anonymous);
+        assert_eq!(result.name, "binnacle-bot");
+
+        let result = resolve_git_identity(Some("Host User"), Some(""), &storage).unwrap();
+        assert!(result.is_anonymous);
     }
 
     #[test]
