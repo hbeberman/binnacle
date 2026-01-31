@@ -2924,3 +2924,140 @@ fn test_system_sessions_human_format() {
         .success()
         .stdout(predicate::str::contains("session(s) found"));
 }
+
+// === Token Management Tests ===
+
+#[test]
+fn test_system_token_show_no_token() {
+    let temp = TestEnv::new();
+
+    // Token show when no token is set
+    let output = bn_in(&temp)
+        .args(["system", "token", "show"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["has_token"], false);
+    assert!(json.get("masked_token").is_none() || json["masked_token"].is_null());
+}
+
+#[test]
+fn test_system_token_show_no_token_human() {
+    let temp = TestEnv::new();
+
+    // Token show in human format when no token is set
+    bn_in(&temp)
+        .args(["-H", "system", "token", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No token configured"))
+        .stdout(predicate::str::contains("bn system token set"));
+}
+
+#[test]
+fn test_system_token_clear_no_token() {
+    let temp = TestEnv::new();
+
+    // Clearing when no token exists
+    let output = bn_in(&temp)
+        .args(["system", "token", "clear"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["cleared"], false);
+}
+
+#[test]
+fn test_system_token_clear_no_token_human() {
+    let temp = TestEnv::new();
+
+    // Clearing when no token exists (human format)
+    bn_in(&temp)
+        .args(["-H", "system", "token", "clear"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No token was configured"));
+}
+
+#[test]
+fn test_system_token_test_no_token() {
+    let temp = TestEnv::new();
+
+    // Testing when no token is set
+    let output = bn_in(&temp)
+        .args(["system", "token", "test"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["valid"], false);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("No token configured")
+    );
+}
+
+#[test]
+fn test_system_token_test_no_token_human() {
+    let temp = TestEnv::new();
+
+    // Testing when no token is set (human format)
+    bn_in(&temp)
+        .args(["-H", "system", "token", "test"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Token validation failed"))
+        .stdout(predicate::str::contains("No token configured"));
+}
+
+#[test]
+fn test_system_token_set_invalid_token() {
+    let temp = TestEnv::new();
+
+    // Setting an invalid token
+    bn_in(&temp)
+        .args(["system", "token", "set", "invalid_token_12345"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Token validation failed"));
+}
+
+#[test]
+fn test_system_token_set_invalid_token_shows_guidance() {
+    let temp = TestEnv::new();
+
+    // Setting an invalid token should show guidance
+    bn_in(&temp)
+        .args(["system", "token", "set", "invalid_token_12345"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("github.com/settings/tokens"));
+}
+
+#[test]
+fn test_system_token_help() {
+    let temp = TestEnv::new();
+
+    // Token help should show all subcommands
+    bn_in(&temp)
+        .args(["system", "token", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("show"))
+        .stdout(predicate::str::contains("set"))
+        .stdout(predicate::str::contains("clear"))
+        .stdout(predicate::str::contains("test"));
+}

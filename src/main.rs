@@ -12,7 +12,7 @@ use binnacle::cli::{
     CopilotCommands, DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands,
     IssueCommands, LinkCommands, LogCommands, McpCommands, MilestoneCommands, MissionCommands,
     QueueCommands, SearchCommands, SessionCommands, StoreCommands, SystemCommands, TaskCommands,
-    TestCommands,
+    TestCommands, TokenCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -1236,6 +1236,24 @@ fn run_command(
                 }
                 CopilotCommands::Version => {
                     let result = commands::copilot_version_list(repo_path)?;
+                    output(&result, human);
+                }
+            },
+            SystemCommands::Token { command } => match command {
+                TokenCommands::Show => {
+                    let result = commands::token_show()?;
+                    output(&result, human);
+                }
+                TokenCommands::Set { token } => {
+                    let result = commands::token_set(&token)?;
+                    output(&result, human);
+                }
+                TokenCommands::Clear => {
+                    let result = commands::token_clear()?;
+                    output(&result, human);
+                }
+                TokenCommands::Test => {
+                    let result = commands::token_test()?;
                     output(&result, human);
                 }
             },
@@ -4126,6 +4144,15 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 CopilotCommands::Version => {
                     ("system copilot version".to_string(), serde_json::json!({}))
                 }
+            },
+            SystemCommands::Token { command } => match command {
+                TokenCommands::Show => ("system token show".to_string(), serde_json::json!({})),
+                TokenCommands::Set { token: _ } => {
+                    // Don't log the actual token for security
+                    ("system token set".to_string(), serde_json::json!({}))
+                }
+                TokenCommands::Clear => ("system token clear".to_string(), serde_json::json!({})),
+                TokenCommands::Test => ("system token test".to_string(), serde_json::json!({})),
             },
             #[cfg(feature = "tmux")]
             SystemCommands::Tmux { command } => match command {

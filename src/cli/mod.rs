@@ -1927,6 +1927,15 @@ pub enum SystemCommands {
         command: CopilotCommands,
     },
 
+    /// Manage GitHub token for Copilot API access
+    ///
+    /// Show, set, clear, or test the GitHub Personal Access Token used for
+    /// Copilot API access. The token is stored in ~/.config/binnacle/state.kdl.
+    Token {
+        #[command(subcommand)]
+        command: TokenCommands,
+    },
+
     /// Tmux layout management (requires --features tmux)
     ///
     /// System-level tmux commands operate exclusively on ~/.config/binnacle/tmux/
@@ -2062,6 +2071,39 @@ pub enum CopilotCommands {
     Path,
     /// List all installed Copilot CLI versions with active indicator
     Version,
+}
+
+/// Token management subcommands for `bn system token`
+#[derive(Subcommand, Debug)]
+pub enum TokenCommands {
+    /// Show current token (masked for security)
+    ///
+    /// Displays the currently configured GitHub token with middle characters
+    /// replaced by asterisks. Also shows validation timestamp if available.
+    Show,
+
+    /// Set a new GitHub token with Copilot API validation
+    ///
+    /// Validates the token can access the Copilot API by attempting to exchange
+    /// it for a Copilot token. This confirms the user has an active Copilot
+    /// subscription and the token has appropriate permissions.
+    Set {
+        /// GitHub Personal Access Token to store
+        token: String,
+    },
+
+    /// Clear the stored token
+    ///
+    /// Removes the GitHub token from state.kdl. After clearing, you'll need
+    /// to set the COPILOT_GITHUB_TOKEN environment variable or run
+    /// `bn system token set` again before spawning agents.
+    Clear,
+
+    /// Test the current token against the Copilot API
+    ///
+    /// Validates the currently stored token can access the Copilot API.
+    /// Useful to verify your token still works after some time has passed.
+    Test,
 }
 
 /// Tmux layout management subcommands (feature-gated)

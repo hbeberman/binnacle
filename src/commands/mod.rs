@@ -3528,6 +3528,220 @@ pub fn copilot_version_list(repo_path: &Path) -> Result<CopilotVersionResult> {
     })
 }
 
+// === Token Management Commands ===
+
+/// Result of `bn system token show`
+#[derive(Debug, Serialize)]
+pub struct TokenShowResult {
+    /// Whether a token is configured
+    pub has_token: bool,
+    /// Masked token (e.g., "ghp_...xxxx") if present
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub masked_token: Option<String>,
+    /// When the token was last validated
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validated_at: Option<String>,
+}
+
+impl Output for TokenShowResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if !self.has_token {
+            return "No token configured.\n\nTo set a token, run:\n  bn system token set <your-github-pat>".to_string();
+        }
+
+        let mut lines = vec![];
+        if let Some(ref masked) = self.masked_token {
+            lines.push(format!("Token: {}", masked));
+        }
+        if let Some(ref validated) = self.validated_at {
+            lines.push(format!("Validated: {}", validated));
+        }
+        lines.join("\n")
+    }
+}
+
+/// Show the currently configured token (masked for security)
+pub fn token_show() -> Result<TokenShowResult> {
+    let state = Storage::read_system_binnacle_state().unwrap_or_default();
+
+    Ok(TokenShowResult {
+        has_token: state.github_token.is_some(),
+        masked_token: state.masked_token(),
+        validated_at: state.token_validated_at.map(|dt| dt.to_rfc3339()),
+    })
+}
+
+/// Result of `bn system token set`
+#[derive(Debug, Serialize)]
+pub struct TokenSetResult {
+    /// Whether the token was successfully set
+    pub success: bool,
+    /// GitHub username the token belongs to
+    pub username: String,
+    /// Whether Copilot access was confirmed
+    pub copilot_access: bool,
+    /// Masked token for confirmation
+    pub masked_token: String,
+}
+
+impl Output for TokenSetResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.success {
+            format!(
+                "✓ Token set successfully\n  User: {}\n  Copilot access: {}\n  Stored as: {}",
+                self.username,
+                if self.copilot_access {
+                    "confirmed"
+                } else {
+                    "not verified"
+                },
+                self.masked_token
+            )
+        } else {
+            "✗ Failed to set token".to_string()
+        }
+    }
+}
+
+/// Set a new GitHub token with Copilot API validation
+pub fn token_set(token: &str) -> Result<TokenSetResult> {
+    use chrono::Utc;
+
+    // Validate the token via Copilot API
+    let validation = crate::github::validate_copilot_token(token).map_err(|e| {
+        Error::Other(format!(
+            "Token validation failed: {}\n\nTo acquire a valid token:\n  1. Go to https://github.com/settings/tokens\n  2. Create a new token with 'copilot' scope\n  3. Ensure you have an active GitHub Copilot subscription",
+            e
+        ))
+    })?;
+
+    // Store the token in system state.kdl
+    let mut state = Storage::read_system_binnacle_state().unwrap_or_default();
+    state.github_token = Some(token.to_string());
+    state.token_validated_at = Some(Utc::now());
+    Storage::write_system_binnacle_state(&state)?;
+
+    // Get masked version for response
+    let masked_token = state.masked_token().unwrap_or_default();
+
+    Ok(TokenSetResult {
+        success: true,
+        username: validation.user.login,
+        copilot_access: validation.copilot_access_confirmed,
+        masked_token,
+    })
+}
+
+/// Result of `bn system token clear`
+#[derive(Debug, Serialize)]
+pub struct TokenClearResult {
+    /// Whether a token was cleared (false if no token was set)
+    pub cleared: bool,
+}
+
+impl Output for TokenClearResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.cleared {
+            "✓ Token cleared".to_string()
+        } else {
+            "No token was configured".to_string()
+        }
+    }
+}
+
+/// Clear the stored token
+pub fn token_clear() -> Result<TokenClearResult> {
+    let mut state = Storage::read_system_binnacle_state().unwrap_or_default();
+    let had_token = state.github_token.is_some();
+
+    state.github_token = None;
+    state.token_validated_at = None;
+    Storage::write_system_binnacle_state(&state)?;
+
+    Ok(TokenClearResult { cleared: had_token })
+}
+
+/// Result of `bn system token test`
+#[derive(Debug, Serialize)]
+pub struct TokenTestResult {
+    /// Whether the test succeeded
+    pub valid: bool,
+    /// GitHub username if valid
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    /// Whether Copilot access was confirmed
+    pub copilot_access: bool,
+    /// Error message if validation failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl Output for TokenTestResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.valid {
+            format!(
+                "✓ Token is valid\n  User: {}\n  Copilot access: confirmed",
+                self.username.as_deref().unwrap_or("unknown")
+            )
+        } else {
+            format!(
+                "✗ Token validation failed: {}",
+                self.error.as_deref().unwrap_or("unknown error")
+            )
+        }
+    }
+}
+
+/// Test the current token against the Copilot API
+pub fn token_test() -> Result<TokenTestResult> {
+    let state = Storage::read_system_binnacle_state().unwrap_or_default();
+
+    let token = match state.github_token {
+        Some(t) => t,
+        None => {
+            return Ok(TokenTestResult {
+                valid: false,
+                username: None,
+                copilot_access: false,
+                error: Some(
+                    "No token configured. Run 'bn system token set <token>' first.".to_string(),
+                ),
+            });
+        }
+    };
+
+    match crate::github::validate_copilot_token(&token) {
+        Ok(validation) => Ok(TokenTestResult {
+            valid: true,
+            username: Some(validation.user.login),
+            copilot_access: validation.copilot_access_confirmed,
+            error: None,
+        }),
+        Err(e) => Ok(TokenTestResult {
+            valid: false,
+            username: None,
+            copilot_access: false,
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
 // === Orient Command ===
 
 #[derive(Debug, Serialize)]
