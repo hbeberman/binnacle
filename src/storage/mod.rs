@@ -22,6 +22,9 @@ pub use backend::{BackendType, StorageBackend};
 pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
+use crate::config::BinnacleConfig;
+#[cfg(unix)]
+use crate::config::CONFIG_FILE_MODE;
 use crate::models::{
     Agent, AgentStatus, Bug, CommitLink, Doc, DocType, Edge, EdgeDirection, EdgeType, HydratedEdge,
     Idea, IdeaStatus, Issue, LogAnnotation, Milestone, MilestoneProgress, Mission, MissionProgress,
@@ -3523,11 +3526,52 @@ impl Storage {
             .map_err(|e| Error::Other(format!("Failed to parse system config.kdl: {}", e)))
     }
 
-    /// Write the session config.kdl file.
+    /// Write the session config.kdl file with 0644 permissions.
     pub fn write_config_kdl(&self, doc: &KdlDocument) -> Result<()> {
         let path = self.config_kdl_path();
-        fs::write(&path, doc.to_string())?;
+        Self::write_config_kdl_to_path(&path, doc)
+    }
+
+    /// Write a config.kdl document to a specific path with 0644 permissions.
+    #[cfg(unix)]
+    fn write_config_kdl_to_path(path: &Path, doc: &KdlDocument) -> Result<()> {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        // Write with 0644 permissions (rw-r--r--)
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(CONFIG_FILE_MODE)
+            .open(path)?;
+        file.write_all(doc.to_string().as_bytes())?;
         Ok(())
+    }
+
+    /// Write a config.kdl document to a specific path (non-Unix fallback).
+    #[cfg(not(unix))]
+    fn write_config_kdl_to_path(path: &Path, doc: &KdlDocument) -> Result<()> {
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, doc.to_string())?;
+        Ok(())
+    }
+
+    /// Write the system config.kdl file with 0644 permissions.
+    pub fn write_system_config_kdl(doc: &KdlDocument) -> Result<()> {
+        let Some(path) = Self::system_config_kdl_path() else {
+            return Err(Error::Other(
+                "Could not determine system config directory".to_string(),
+            ));
+        };
+        Self::write_config_kdl_to_path(&path, doc)
     }
 
     /// Get agent scaling config from config.kdl.
@@ -3814,6 +3858,75 @@ impl Storage {
         Ok(self
             .get_config_string("output-format")?
             .unwrap_or_else(|| "json".to_string()))
+    }
+
+    // === BinnacleConfig Operations ===
+
+    /// Read the session config.kdl as a BinnacleConfig struct.
+    /// Returns an empty config if the file doesn't exist.
+    pub fn read_binnacle_config(&self) -> Result<BinnacleConfig> {
+        let doc = self.read_config_kdl()?;
+        Ok(BinnacleConfig::from_kdl(&doc))
+    }
+
+    /// Read the system config.kdl as a BinnacleConfig struct.
+    /// Returns an empty config if the file doesn't exist.
+    pub fn read_system_binnacle_config() -> Result<BinnacleConfig> {
+        let doc = Self::read_system_config_kdl()?;
+        Ok(BinnacleConfig::from_kdl(&doc))
+    }
+
+    /// Get the effective BinnacleConfig, merging system and session configs.
+    ///
+    /// Precedence (highest to lowest):
+    /// 1. Session config (~/.local/share/binnacle/<hash>/config.kdl)
+    /// 2. System config (~/.config/binnacle/config.kdl)
+    /// 3. Built-in defaults
+    pub fn get_effective_config(&self) -> Result<BinnacleConfig> {
+        // Start with system config
+        let mut config = Self::read_system_binnacle_config()?;
+
+        // Merge session config (overrides system values)
+        let session_config = self.read_binnacle_config()?;
+        config.merge(&session_config);
+
+        Ok(config)
+    }
+
+    /// Write a BinnacleConfig to the session config.kdl file.
+    /// Validates the config before writing.
+    pub fn write_binnacle_config(&self, config: &BinnacleConfig) -> Result<()> {
+        config
+            .validate()
+            .map_err(|e| Error::Other(format!("Invalid config: {}", e)))?;
+        let doc = config.to_kdl();
+        self.write_config_kdl(&doc)
+    }
+
+    /// Write a BinnacleConfig to the system config.kdl file.
+    /// Validates the config before writing.
+    pub fn write_system_binnacle_config(config: &BinnacleConfig) -> Result<()> {
+        config
+            .validate()
+            .map_err(|e| Error::Other(format!("Invalid config: {}", e)))?;
+        let doc = config.to_kdl();
+        Self::write_system_config_kdl(&doc)
+    }
+
+    /// Update a single field in the session config.kdl.
+    /// Preserves existing values for other fields.
+    pub fn update_binnacle_config(&self, updater: impl FnOnce(&mut BinnacleConfig)) -> Result<()> {
+        let mut config = self.read_binnacle_config()?;
+        updater(&mut config);
+        self.write_binnacle_config(&config)
+    }
+
+    /// Update a single field in the system config.kdl.
+    /// Preserves existing values for other fields.
+    pub fn update_system_binnacle_config(updater: impl FnOnce(&mut BinnacleConfig)) -> Result<()> {
+        let mut config = Self::read_system_binnacle_config()?;
+        updater(&mut config);
+        Self::write_system_binnacle_config(&config)
     }
 
     // === Log Operations ===
@@ -8224,6 +8337,148 @@ mod tests {
 
         // Should not error when deleting non-existent key
         storage.delete_config("does.not.exist").unwrap();
+    }
+
+    // === BinnacleConfig Tests ===
+
+    #[test]
+    fn test_read_binnacle_config_empty() {
+        let (_temp_dir, storage) = create_test_storage();
+
+        // Reading from non-existent file should return empty config
+        let config = storage.read_binnacle_config().unwrap();
+        assert_eq!(config.editor, None);
+        assert_eq!(config.output_format, None);
+        assert_eq!(config.default_priority, None);
+    }
+
+    #[test]
+    fn test_write_and_read_binnacle_config() {
+        use crate::config::OutputFormat;
+
+        let (_temp_dir, storage) = create_test_storage();
+
+        let config = BinnacleConfig {
+            editor: Some("nvim".to_string()),
+            output_format: Some(OutputFormat::Human),
+            default_priority: Some(2),
+        };
+
+        storage.write_binnacle_config(&config).unwrap();
+        let read_back = storage.read_binnacle_config().unwrap();
+
+        assert_eq!(read_back.editor, Some("nvim".to_string()));
+        assert_eq!(read_back.output_format, Some(OutputFormat::Human));
+        assert_eq!(read_back.default_priority, Some(2));
+    }
+
+    #[test]
+    fn test_write_binnacle_config_validates() {
+        let (_temp_dir, storage) = create_test_storage();
+
+        // Invalid priority should fail validation
+        let invalid_config = BinnacleConfig {
+            default_priority: Some(5), // Invalid: must be 0-4
+            ..Default::default()
+        };
+
+        let result = storage.write_binnacle_config(&invalid_config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid config"));
+    }
+
+    #[test]
+    fn test_update_binnacle_config() {
+        use crate::config::OutputFormat;
+
+        let (_temp_dir, storage) = create_test_storage();
+
+        // Write initial config
+        let initial = BinnacleConfig {
+            editor: Some("vim".to_string()),
+            output_format: Some(OutputFormat::Json),
+            default_priority: Some(2),
+        };
+        storage.write_binnacle_config(&initial).unwrap();
+
+        // Update just the editor
+        storage
+            .update_binnacle_config(|c| {
+                c.editor = Some("nvim".to_string());
+            })
+            .unwrap();
+
+        let updated = storage.read_binnacle_config().unwrap();
+        assert_eq!(updated.editor, Some("nvim".to_string()));
+        assert_eq!(updated.output_format, Some(OutputFormat::Json)); // Preserved
+        assert_eq!(updated.default_priority, Some(2)); // Preserved
+    }
+
+    #[test]
+    fn test_get_effective_config_merges_session_over_system() {
+        use crate::config::OutputFormat;
+
+        let (_temp_dir, storage) = create_test_storage();
+
+        // Create a separate "system" config directory
+        let system_config_dir = tempfile::tempdir().unwrap();
+        let system_config_path = system_config_dir.path().join("binnacle").join("config.kdl");
+        fs::create_dir_all(system_config_path.parent().unwrap()).unwrap();
+
+        // Set BN_CONFIG_DIR to point to our test system config
+        // SAFETY: We're in a test environment and this test should run serially
+        unsafe { std::env::set_var("BN_CONFIG_DIR", system_config_dir.path()) };
+
+        // Write system config
+        let system_config = BinnacleConfig {
+            editor: Some("vim".to_string()),
+            output_format: Some(OutputFormat::Json),
+            default_priority: Some(3),
+        };
+        Storage::write_system_binnacle_config(&system_config).unwrap();
+
+        // Write session config (partial override)
+        let session_config = BinnacleConfig {
+            editor: Some("nvim".to_string()), // Override
+            output_format: None,              // Don't override
+            default_priority: None,           // Don't override
+        };
+        storage.write_binnacle_config(&session_config).unwrap();
+
+        // Get effective config
+        let effective = storage.get_effective_config().unwrap();
+
+        // Session value wins where specified
+        assert_eq!(effective.editor, Some("nvim".to_string()));
+        // System value used where session is None
+        assert_eq!(effective.output_format, Some(OutputFormat::Json));
+        assert_eq!(effective.default_priority, Some(3));
+
+        // Clean up
+        // SAFETY: We're in a test environment and this test should run serially
+        unsafe { std::env::remove_var("BN_CONFIG_DIR") };
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_config_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_temp_dir, storage) = create_test_storage();
+
+        let config = BinnacleConfig {
+            editor: Some("nvim".to_string()),
+            ..Default::default()
+        };
+
+        storage.write_binnacle_config(&config).unwrap();
+
+        let path = storage.config_kdl_path();
+        let metadata = fs::metadata(&path).unwrap();
+        let mode = metadata.permissions().mode() & 0o777;
+
+        // Should have 0644 permissions (rw-r--r--)
+        assert_eq!(mode, 0o644, "config.kdl should have 0644 permissions");
     }
 
     // === Issue Storage Tests ===

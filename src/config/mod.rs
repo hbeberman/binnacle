@@ -37,3 +37,5 @@
 pub mod schema;
 
 pub use schema::{BinnacleConfig, BinnacleState, OutputFormat};
+#[cfg(unix)]
+pub use schema::{CONFIG_FILE_MODE, STATE_FILE_MODE};
