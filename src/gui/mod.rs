@@ -25,6 +25,6 @@ pub mod shared;
 #[cfg(feature = "gui")]
 pub use pid_file::{GuiPidFile, GuiPidInfo, ProcessStatus, verify_process};
 #[cfg(feature = "gui")]
-pub use server::{DEFAULT_PORT, find_available_port, start_server};
+pub use server::{DEFAULT_PORT, find_available_port, start_server, start_session_server};
 #[cfg(feature = "gui")]
 pub use tunnel::{TunnelError, TunnelManager};

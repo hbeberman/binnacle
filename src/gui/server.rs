@@ -2365,3 +2365,103 @@ async fn summarize_action(
         )),
     }
 }
+
+/// Start the session WebSocket server (minimal server without GUI)
+///
+/// This server provides only the WebSocket endpoint at `/ws` for real-time
+/// graph updates and command execution. Used by TUI and programmatic clients.
+pub async fn start_session_server(
+    repo_path: &Path,
+    port: u16,
+    host: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let storage = Storage::open(repo_path)?;
+    let storage_dir = crate::storage::get_storage_dir(repo_path)?;
+    let (update_tx, _) = broadcast::channel(100);
+
+    // Extract project name from repo path
+    let project_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Unknown")
+        .to_string();
+
+    // Get current branch for display
+    let branch = std::process::Command::new("git")
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("HEAD")
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let display_name = format!("{}@{}", project_name, branch);
+
+    let version = StateVersion::new();
+    let message_history = MessageHistory::default();
+
+    let state = AppState {
+        storage: Arc::new(Mutex::new(storage)),
+        update_tx,
+        project_name,
+        ws_metrics: Arc::new(WebSocketMetrics::new()),
+        repo_path: repo_path.to_path_buf(),
+        readonly: false, // Session server allows writes
+        version,
+        message_history: message_history.clone(),
+        summarize_session: Arc::new(Mutex::new(None)),
+    };
+
+    // Start file watcher in background
+    let watcher_tx = state.update_tx.clone();
+    let watcher_version = state.version.clone();
+    let watcher_message_history = message_history;
+    let watcher_storage_path = storage_dir.clone();
+    let watcher_repo_path = repo_path.to_path_buf();
+    tokio::spawn(async move {
+        if let Err(e) = crate::gui::watcher::watch_storage(
+            watcher_storage_path,
+            watcher_repo_path,
+            watcher_tx,
+            watcher_version,
+            watcher_message_history,
+        )
+        .await
+        {
+            eprintln!("File watcher error: {}", e);
+        }
+    });
+
+    // Build minimal router with just WebSocket and health check
+    let app = Router::new()
+        .route("/ws", get(crate::gui::websocket::ws_handler))
+        .route("/health", get(|| async { "ok" }))
+        .with_state(state);
+
+    let host_addr: std::net::IpAddr = host
+        .parse()
+        .map_err(|e| format!("Invalid host address '{}': {}", host, e))?;
+    let addr = SocketAddr::from((host_addr, port));
+
+    println!(
+        "Session server started: {} on {}:{}",
+        display_name, host, port
+    );
+    println!("WebSocket endpoint: ws://{}:{}/ws", host, port);
+    println!("Press Ctrl+C to stop");
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}

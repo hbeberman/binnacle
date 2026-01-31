@@ -1725,21 +1725,44 @@ fn run_command(
                         output(&result, human);
                     }
                 },
+                #[cfg(feature = "gui")]
                 SessionCommands::Serve {
                     port,
                     host,
                     public,
-                    tunnel,
-                    upstream,
+                    tunnel: _,   // TODO: Implement tunnel support
+                    upstream: _, // TODO: Implement upstream hub support
                 } => {
-                    let result = commands::session_serve(
-                        repo_path,
-                        port,
-                        if public { "0.0.0.0" } else { &host },
-                        tunnel,
-                        upstream.as_deref(),
-                    )?;
-                    output(&result, human);
+                    // Ensure storage is initialized
+                    if !binnacle::storage::Storage::exists(repo_path)? {
+                        return Err(binnacle::Error::NotInitialized);
+                    }
+
+                    let actual_host = if public { "0.0.0.0" } else { &host };
+
+                    // Create tokio runtime and run the session server
+                    let result = tokio::runtime::Builder::new_multi_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| {
+                            binnacle::Error::Other(format!("Failed to create runtime: {}", e))
+                        })?
+                        .block_on(async {
+                            binnacle::gui::start_session_server(repo_path, port, actual_host)
+                                .await
+                                .map_err(|e| {
+                                    binnacle::Error::Other(format!("Session server error: {}", e))
+                                })
+                        });
+
+                    result?;
+                }
+                #[cfg(not(feature = "gui"))]
+                SessionCommands::Serve { .. } => {
+                    return Err(binnacle::Error::Other(
+                        "Session serve requires the 'gui' feature. Rebuild with --features gui"
+                            .to_string(),
+                    ));
                 }
                 SessionCommands::Status => {
                     let result = commands::session_status(repo_path)?;

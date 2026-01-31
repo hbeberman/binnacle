@@ -3371,22 +3371,24 @@ pub fn hooks_uninstall(repo_path: &Path) -> Result<HooksUninstallResult> {
 
 // === Session Server Commands ===
 
-/// Start the session WebSocket server.
+// Note: `session_serve` is implemented directly in main.rs using
+// `binnacle::gui::start_session_server` async function.
+// The placeholder below is kept for non-GUI builds.
+
+/// Start the session WebSocket server (placeholder for non-GUI builds).
 ///
-/// This is a placeholder implementation that will be filled in when
-/// the WebSocket server infrastructure is implemented.
-#[allow(unused_variables)]
+/// The actual implementation is in `gui/server.rs::start_session_server()`.
+/// This sync wrapper is only used when the 'gui' feature is not enabled.
+#[allow(dead_code)]
 pub fn session_serve(
-    repo_path: &Path,
-    port: u16,
-    host: &str,
-    tunnel: bool,
-    upstream: Option<&str>,
+    _repo_path: &Path,
+    _port: u16,
+    _host: &str,
+    _tunnel: bool,
+    _upstream: Option<&str>,
 ) -> Result<SessionServeResult> {
-    // TODO: Implement actual WebSocket server startup
-    // This will reuse infrastructure from gui/websocket.rs
     Err(Error::Other(
-        "Session serve not yet implemented. Use 'bn gui' for now.".to_string(),
+        "Session serve requires the 'gui' feature. Rebuild with --features gui".to_string(),
     ))
 }
 
