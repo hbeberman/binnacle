@@ -2589,3 +2589,186 @@ fn test_system_reinit_human_format() {
         .success()
         .stdout(predicate::str::contains("Initialized binnacle"));
 }
+
+// ============================================================================
+// bn system host-init Tests
+// ============================================================================
+
+#[test]
+fn test_system_host_init_creates_config_dir() {
+    let temp = TestEnv::new();
+
+    // Run host-init in non-interactive mode (all flags off)
+    let output = bn_in(&temp)
+        .args(["system", "host-init", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["initialized"], true);
+    assert!(json["config_path"].as_str().is_some());
+    assert_eq!(json["skills_file_created"], false);
+    assert_eq!(json["codex_skills_file_created"], false);
+    assert_eq!(json["mcp_copilot_config_created"], false);
+    assert_eq!(json["copilot_installed"], false);
+    assert_eq!(json["bn_agent_installed"], false);
+    assert_eq!(json["container_built"], false);
+}
+
+#[test]
+fn test_system_host_init_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "host-init", "-y"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Initialized binnacle system config",
+        ));
+}
+
+#[test]
+fn test_system_host_init_already_exists() {
+    let temp = TestEnv::new();
+
+    // First init
+    bn_in(&temp)
+        .args(["system", "host-init", "-y"])
+        .assert()
+        .success();
+
+    // Second init should report already exists
+    let output = bn_in(&temp)
+        .args(["system", "host-init", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["initialized"], false);
+}
+
+#[test]
+fn test_system_host_init_already_exists_human() {
+    let temp = TestEnv::new();
+
+    // First init
+    bn_in(&temp)
+        .args(["system", "host-init", "-y"])
+        .assert()
+        .success();
+
+    // Second init should report already exists in human format
+    bn_in(&temp)
+        .args(["-H", "system", "host-init", "-y"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("already exists"));
+}
+
+#[test]
+fn test_system_host_init_help() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["system", "host-init", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Host-global binnacle setup"))
+        .stdout(predicate::str::contains("--write-claude-skills"))
+        .stdout(predicate::str::contains("--write-codex-skills"))
+        .stdout(predicate::str::contains("--write-mcp-copilot"))
+        .stdout(predicate::str::contains("--install-copilot"))
+        .stdout(predicate::str::contains("--install-bn-agent"))
+        .stdout(predicate::str::contains("--build-container"));
+}
+
+// ============================================================================
+// bn system sessions Tests
+// ============================================================================
+
+#[test]
+fn test_system_sessions_empty() {
+    let temp = TestEnv::new();
+
+    // No sessions initialized yet - should return empty list
+    let output = bn_in(&temp)
+        .args(["system", "sessions"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let sessions = json["sessions"]
+        .as_array()
+        .expect("sessions should be array");
+    assert!(sessions.is_empty());
+}
+
+#[test]
+fn test_system_sessions_empty_human() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "sessions"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No binnacle sessions found"));
+}
+
+#[test]
+fn test_system_sessions_with_initialized_repo() {
+    let temp = TestEnv::new();
+
+    // Initialize a repo
+    bn_in(&temp)
+        .args(["system", "init"])
+        .write_stdin("n\nn\nn\nn\nn\nn\nn\nn\n")
+        .assert()
+        .success();
+
+    // Check sessions includes the new repo
+    let output = bn_in(&temp)
+        .args(["system", "sessions"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let sessions = json["sessions"]
+        .as_array()
+        .expect("sessions should be array");
+    assert_eq!(sessions.len(), 1);
+    assert!(sessions[0]["id"].as_str().is_some());
+    assert!(sessions[0]["storage_path"].as_str().is_some());
+    assert!(sessions[0]["size_bytes"].as_u64().is_some());
+}
+
+#[test]
+fn test_system_sessions_human_format() {
+    let temp = TestEnv::new();
+
+    // Initialize a repo
+    bn_in(&temp)
+        .args(["system", "init"])
+        .write_stdin("n\nn\nn\nn\nn\nn\nn\nn\n")
+        .assert()
+        .success();
+
+    // Check sessions in human format
+    bn_in(&temp)
+        .args(["-H", "system", "sessions"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("session(s) found"));
+}

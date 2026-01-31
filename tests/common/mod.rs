@@ -15,7 +15,7 @@ pub use tempfile::TempDir;
 /// - `data_dir`: Holds binnacle's data (via `BN_DATA_DIR` env var)
 ///
 /// The `bn()` method returns a `Command` that automatically sets `BN_DATA_DIR`
-/// per-invocation, making tests parallel-safe.
+/// and `BN_CONFIG_DIR` per-invocation, making tests parallel-safe.
 pub struct TestEnv {
     pub repo_dir: TempDir,
     pub data_dir: TempDir,
@@ -39,12 +39,13 @@ impl TestEnv {
 
     /// Get a Command for the bn binary with isolated data directory.
     ///
-    /// Sets `BN_DATA_DIR` per-command for parallel safety and clears
-    /// agent-specific environment variables for test isolation.
+    /// Sets `BN_DATA_DIR` and `BN_CONFIG_DIR` per-command for parallel safety
+    /// and clears agent-specific environment variables for test isolation.
     pub fn bn(&self) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(self.repo_dir.path());
         cmd.env("BN_DATA_DIR", self.data_dir.path());
+        cmd.env("BN_CONFIG_DIR", self.data_dir.path());
         // Clear agent-specific env vars for test isolation
         cmd.env_remove("BN_AGENT_ID");
         cmd.env_remove("BN_AGENT_NAME");

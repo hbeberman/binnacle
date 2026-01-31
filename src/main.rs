@@ -1281,6 +1281,51 @@ fn run_command(
                     println!("{}", result);
                 }
             }
+            SystemCommands::HostInit {
+                write_claude_skills,
+                write_codex_skills,
+                write_mcp_copilot,
+                install_copilot,
+                install_bn_agent,
+                build_container,
+                yes,
+            } => {
+                let result = if yes {
+                    // Non-interactive: use flags directly
+                    commands::system_init_non_interactive(
+                        write_claude_skills,
+                        write_codex_skills,
+                        write_mcp_copilot,
+                        install_copilot,
+                        install_bn_agent,
+                        build_container,
+                    )?
+                } else if write_claude_skills
+                    || write_codex_skills
+                    || write_mcp_copilot
+                    || install_copilot
+                    || install_bn_agent
+                    || build_container
+                {
+                    // Flags provided without -y: use flags as the options
+                    commands::system_init_non_interactive(
+                        write_claude_skills,
+                        write_codex_skills,
+                        write_mcp_copilot,
+                        install_copilot,
+                        install_bn_agent,
+                        build_container,
+                    )?
+                } else {
+                    // Interactive mode (default)
+                    commands::system_init()?
+                };
+                output(&result, human);
+            }
+            SystemCommands::Sessions => {
+                let result = commands::system_sessions()?;
+                output(&result, human);
+            }
             SystemCommands::Hooks { command } => match command {
                 HooksCommands::Uninstall => {
                     let result = commands::hooks_uninstall(repo_path)?;
@@ -3665,6 +3710,27 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 serde_json::json!({ "dry_run": dry_run, "remove_tag": remove_tag }),
             ),
             SystemCommands::BuildInfo => ("system build-info".to_string(), serde_json::json!({})),
+            SystemCommands::HostInit {
+                write_claude_skills,
+                write_codex_skills,
+                write_mcp_copilot,
+                install_copilot,
+                install_bn_agent,
+                build_container,
+                yes,
+            } => (
+                "system host-init".to_string(),
+                serde_json::json!({
+                    "write_claude_skills": write_claude_skills,
+                    "write_codex_skills": write_codex_skills,
+                    "write_mcp_copilot": write_mcp_copilot,
+                    "install_copilot": install_copilot,
+                    "install_bn_agent": install_bn_agent,
+                    "build_container": build_container,
+                    "yes": yes,
+                }),
+            ),
+            SystemCommands::Sessions => ("system sessions".to_string(), serde_json::json!({})),
             SystemCommands::Hooks { command } => match command {
                 HooksCommands::Uninstall => {
                     ("system hooks uninstall".to_string(), serde_json::json!({}))

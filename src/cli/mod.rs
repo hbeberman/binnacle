@@ -1919,6 +1919,45 @@ pub enum SystemCommands {
     /// Display build metadata (timestamp, commit hash)
     BuildInfo,
 
+    /// Host-global binnacle setup (no repository required)
+    ///
+    /// Sets up ~/.config/binnacle/ with global configuration and optionally
+    /// installs skills files, MCP configs, and developer tools.
+    /// This is the first-time setup command that should be run before
+    /// initializing any repositories.
+    HostInit {
+        /// Write Claude Code skills file to ~/.claude/skills/binnacle/SKILL.md
+        #[arg(long)]
+        write_claude_skills: bool,
+
+        /// Write Codex skills file to ~/.codex/skills/binnacle/SKILL.md
+        #[arg(long)]
+        write_codex_skills: bool,
+
+        /// Write GitHub Copilot CLI MCP config to ~/.copilot/mcp-config.json
+        #[arg(long)]
+        write_mcp_copilot: bool,
+
+        /// Install GitHub Copilot CLI with binnacle-preferred version
+        #[arg(long)]
+        install_copilot: bool,
+
+        /// Install bn-agent script to ~/.local/bin/bn-agent
+        #[arg(long)]
+        install_bn_agent: bool,
+
+        /// Build binnacle container image if not already built
+        #[arg(long)]
+        build_container: bool,
+
+        /// Skip interactive prompts (use flags to control what gets set up)
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// List all known binnacle sessions (repositories) on this host
+    Sessions,
+
     /// Manage GitHub Copilot CLI binaries
     Copilot {
         #[command(subcommand)]

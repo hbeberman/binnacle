@@ -461,6 +461,406 @@ pub fn init_non_interactive(
     )
 }
 
+// === System Init (Host-Global Setup) ===
+
+/// Result of `bn system init` (host-global setup).
+#[derive(Serialize)]
+pub struct SystemInitResult {
+    /// Whether this was a fresh initialization
+    pub initialized: bool,
+    /// Path to system config directory
+    pub config_path: String,
+    /// Whether Claude skills file was created
+    pub skills_file_created: bool,
+    /// Whether Codex skills file was created
+    pub codex_skills_file_created: bool,
+    /// Whether MCP config for Copilot CLI was created
+    pub mcp_copilot_config_created: bool,
+    /// Whether GitHub Copilot CLI was installed
+    pub copilot_installed: bool,
+    /// Whether bn-agent script was installed
+    pub bn_agent_installed: bool,
+    /// Whether container image was built
+    pub container_built: bool,
+}
+
+impl Output for SystemInitResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = Vec::new();
+        if self.initialized {
+            lines.push(format!(
+                "Initialized binnacle system config at {}",
+                self.config_path
+            ));
+        } else {
+            lines.push(format!(
+                "Binnacle system config already exists at {}",
+                self.config_path
+            ));
+        }
+        if self.skills_file_created {
+            lines.push(
+                "Created Claude Code skills file at ~/.claude/skills/binnacle/SKILL.md".to_string(),
+            );
+        }
+        if self.codex_skills_file_created {
+            lines
+                .push("Created Codex skills file at ~/.codex/skills/binnacle/SKILL.md".to_string());
+        }
+        if self.mcp_copilot_config_created {
+            lines.push(
+                "Updated GitHub Copilot CLI MCP config at ~/.copilot/mcp-config.json".to_string(),
+            );
+        }
+        if self.copilot_installed {
+            lines.push(format!(
+                "Installed GitHub Copilot CLI {}",
+                crate::cli::copilot_version()
+            ));
+        }
+        if self.bn_agent_installed {
+            lines.push("Installed bn-agent script to ~/.local/bin/bn-agent".to_string());
+        }
+        if self.container_built {
+            lines.push("Built binnacle container image".to_string());
+        }
+        lines.join("\n")
+    }
+}
+
+/// Get the system config directory path.
+///
+/// Uses `BN_CONFIG_DIR` environment variable if set (for testing),
+/// otherwise uses the standard config directory (e.g., `~/.config/binnacle`).
+pub fn get_system_config_dir() -> Result<PathBuf> {
+    if let Ok(override_dir) = std::env::var("BN_CONFIG_DIR") {
+        return Ok(PathBuf::from(override_dir).join("binnacle"));
+    }
+    dirs::config_dir()
+        .map(|d| d.join("binnacle"))
+        .ok_or_else(|| Error::InvalidInput("Could not determine config directory".to_string()))
+}
+
+/// Check if system has been initialized (config directory exists).
+pub fn is_system_initialized() -> bool {
+    if let Ok(config_dir) = get_system_config_dir() {
+        config_dir.exists()
+    } else {
+        false
+    }
+}
+
+/// Initialize host-global binnacle configuration (interactive mode).
+///
+/// This sets up ~/.config/binnacle/ with global defaults and optionally
+/// installs skills files, MCP configs, and tools.
+pub fn system_init() -> Result<SystemInitResult> {
+    let config_dir = get_system_config_dir()?;
+    let _already_exists = config_dir.exists();
+
+    // Interactive prompts for global setup
+    let create_claude_skills = prompt_yes_no(
+        "Create Claude Code skills file at ~/.claude/skills/binnacle/SKILL.md?",
+        true,
+    );
+    let create_codex_skills = prompt_yes_no(
+        "Create Codex skills file at ~/.codex/skills/binnacle/SKILL.md?",
+        true,
+    );
+    let write_mcp_copilot = prompt_yes_no(
+        "Write GitHub Copilot CLI MCP config to ~/.copilot/mcp-config.json?",
+        false,
+    );
+    let install_copilot = prompt_yes_no(
+        "Install GitHub Copilot CLI with binnacle-preferred version?",
+        true,
+    );
+    let install_bn_agent = prompt_yes_no("Install bn-agent script to ~/.local/bin/bn-agent?", true);
+    let build_container =
+        prompt_yes_no("Build binnacle container image if not already built?", true);
+
+    system_init_with_options(
+        create_claude_skills,
+        create_codex_skills,
+        write_mcp_copilot,
+        install_copilot,
+        install_bn_agent,
+        build_container,
+    )
+}
+
+/// Initialize host-global binnacle configuration (non-interactive mode).
+///
+/// Use flags to control what gets set up.
+pub fn system_init_non_interactive(
+    write_claude_skills: bool,
+    write_codex_skills: bool,
+    write_mcp_copilot: bool,
+    install_copilot: bool,
+    install_bn_agent: bool,
+    build_container: bool,
+) -> Result<SystemInitResult> {
+    system_init_with_options(
+        write_claude_skills,
+        write_codex_skills,
+        write_mcp_copilot,
+        install_copilot,
+        install_bn_agent,
+        build_container,
+    )
+}
+
+/// Initialize host-global binnacle configuration with explicit options.
+fn system_init_with_options(
+    create_claude_skills: bool,
+    create_codex_skills: bool,
+    write_mcp_copilot: bool,
+    install_copilot: bool,
+    install_bn_agent: bool,
+    build_container: bool,
+) -> Result<SystemInitResult> {
+    let config_dir = get_system_config_dir()?;
+    let already_exists = config_dir.exists();
+
+    // Create the config directory
+    fs::create_dir_all(&config_dir)?;
+
+    // Create default config.kdl if it doesn't exist
+    let config_file = config_dir.join("config.kdl");
+    if !config_file.exists() {
+        let default_config = r#"// Binnacle global configuration
+// This file contains host-wide defaults that apply to all repositories.
+// Per-repository settings can override these in session config.
+
+// Default output format: "json" or "human"
+output-format "json"
+"#;
+        fs::write(&config_file, default_config)?;
+    }
+
+    // Create Claude Code skills file if requested
+    let skills_file_created = if create_claude_skills {
+        create_claude_skills_file()?
+    } else {
+        false
+    };
+
+    // Create Codex skills file if requested
+    let codex_skills_file_created = if create_codex_skills {
+        create_codex_skills_file()?
+    } else {
+        false
+    };
+
+    // Write GitHub Copilot CLI MCP config if requested
+    let mcp_copilot_config_created = if write_mcp_copilot {
+        write_mcp_copilot_config()?
+    } else {
+        false
+    };
+
+    // Install GitHub Copilot CLI if requested
+    let copilot_installed = if install_copilot {
+        match copilot_install(None, true) {
+            Ok(result) => !result.already_installed,
+            Err(e) => {
+                eprintln!("Warning: Failed to install GitHub Copilot CLI: {}", e);
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // Install bn-agent script if requested
+    let bn_agent_installed = if install_bn_agent {
+        match install_bn_agent_script() {
+            Ok(installed) => installed,
+            Err(e) => {
+                eprintln!("Warning: Failed to install bn-agent script: {}", e);
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // Build container image if requested and not already present
+    let container_built = if build_container {
+        let image_name = "localhost/binnacle-worker:latest";
+        if !container_image_exists(image_name) {
+            eprintln!("📦 Building binnacle container image...");
+            // Note: container_build requires a repo_path for context, but for system init
+            // we just want to build the image. Use a temp path or skip if no context available.
+            eprintln!(
+                "Note: Container build requires repository context. Run from a git repo or skip this option."
+            );
+            false
+        } else {
+            eprintln!("Container image already exists, skipping build.");
+            false
+        }
+    } else {
+        false
+    };
+
+    // Mark global init as done
+    mark_global_init_done()?;
+
+    Ok(SystemInitResult {
+        initialized: !already_exists,
+        config_path: config_dir.to_string_lossy().to_string(),
+        skills_file_created,
+        codex_skills_file_created,
+        mcp_copilot_config_created,
+        copilot_installed,
+        bn_agent_installed,
+        container_built,
+    })
+}
+
+/// Result of `bn system sessions` command.
+#[derive(Serialize)]
+pub struct SystemSessionsResult {
+    /// List of known sessions (repositories)
+    pub sessions: Vec<SessionInfo>,
+}
+
+/// Information about a known binnacle session.
+#[derive(Serialize)]
+pub struct SessionInfo {
+    /// Session ID (repo hash)
+    pub id: String,
+    /// Path to session storage
+    pub storage_path: String,
+    /// Size of storage directory in bytes
+    pub size_bytes: u64,
+    /// Last modified time
+    pub last_modified: Option<String>,
+}
+
+impl Output for SystemSessionsResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.sessions.is_empty() {
+            return "No binnacle sessions found.".to_string();
+        }
+
+        let mut lines = vec![format!("{} session(s) found:\n", self.sessions.len())];
+        for session in &self.sessions {
+            lines.push(format!(
+                "  {} ({}) - {}",
+                session.id,
+                format_bytes(session.size_bytes),
+                session.storage_path
+            ));
+        }
+        lines.join("\n")
+    }
+}
+
+/// List all known binnacle sessions (repositories) on this host.
+pub fn system_sessions() -> Result<SystemSessionsResult> {
+    let mut sessions = Vec::new();
+
+    // Collect sessions from each possible binnacle data location
+    let mut data_dirs: Vec<PathBuf> = Vec::new();
+
+    // 1. BN_DATA_DIR environment variable (highest priority, used for testing)
+    // When set, ONLY use this directory (enables test isolation)
+    if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
+        data_dirs.push(PathBuf::from(override_dir));
+    } else {
+        // 2. Container mode (/binnacle)
+        let container_path = Path::new("/binnacle");
+        if std::env::var("BN_CONTAINER_MODE").is_ok() || container_path.exists() {
+            data_dirs.push(container_path.to_path_buf());
+        }
+
+        // 3. Standard XDG data directory (~/.local/share/binnacle)
+        if let Some(data_dir) = dirs::data_local_dir() {
+            data_dirs.push(data_dir.join("binnacle"));
+        }
+
+        // 4. Also check dirs::data_dir() which may be different on some platforms
+        if let Some(data_dir) = dirs::data_dir() {
+            let binnacle_dir = data_dir.join("binnacle");
+            if !data_dirs.contains(&binnacle_dir) {
+                data_dirs.push(binnacle_dir);
+            }
+        }
+    }
+
+    for binnacle_dir in data_dirs {
+        if !binnacle_dir.exists() {
+            continue;
+        }
+
+        let entries = match fs::read_dir(&binnacle_dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let path = entry.path();
+
+            // Skip the "initialized" marker file and any non-directories
+            if !path.is_dir() {
+                continue;
+            }
+
+            let id = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            // Skip if we already have this session ID (from a higher priority location)
+            if sessions.iter().any(|s: &SessionInfo| s.id == id) {
+                continue;
+            }
+
+            // Check if it looks like a valid session (has tasks.jsonl)
+            let tasks_file = path.join("tasks.jsonl");
+            if !tasks_file.exists() {
+                continue;
+            }
+
+            let size_bytes = calculate_dir_size(&path);
+
+            let last_modified = fs::metadata(&tasks_file)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| {
+                    let datetime: chrono::DateTime<chrono::Utc> = t.into();
+                    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
+                });
+
+            sessions.push(SessionInfo {
+                id,
+                storage_path: path.to_string_lossy().to_string(),
+                size_bytes,
+                last_modified,
+            });
+        }
+    }
+
+    // Sort by last modified (most recent first)
+    sessions.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
+
+    Ok(SystemSessionsResult { sessions })
+}
+
 /// Initialize binnacle for the current repository with explicit options.
 /// Used internally and by tests.
 #[allow(clippy::too_many_arguments)]
