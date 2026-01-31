@@ -4,7 +4,7 @@
 //! - Terminal setup and restoration
 //! - WebSocket connection handling
 //! - Event loop for keyboard and server messages
-//! - View switching between Queue/Ready and Recently Completed
+//! - View switching between Queue/Ready, Recently Completed, and Node Detail
 
 use std::io::{self, stdout};
 use std::time::Duration;
@@ -24,7 +24,10 @@ use serde::Deserialize;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use super::connection::ConnectionState;
-use super::views::{CompletedItem, QueueReadyView, RecentlyCompletedView, WorkItem};
+use super::views::{
+    CompletedItem, EdgeInfo, NodeDetail, NodeDetailView, QueueReadyView, RecentlyCompletedView,
+    WorkItem,
+};
 
 /// Default server port
 pub const DEFAULT_PORT: u16 = 3030;
@@ -34,6 +37,7 @@ pub const DEFAULT_PORT: u16 = 3030;
 pub enum ActiveView {
     QueueReady,
     RecentlyCompleted,
+    NodeDetail,
 }
 
 /// Response from /api/ready endpoint
@@ -44,6 +48,13 @@ struct ReadyResponse {
     recently_completed_tasks: Vec<CompletedTaskData>,
     #[serde(default)]
     recently_completed_bugs: Vec<CompletedBugData>,
+}
+
+/// Response from /api/node/:id endpoint
+#[derive(Debug, Deserialize)]
+struct NodeResponse {
+    node: NodeDetail,
+    edges: Vec<EdgeInfo>,
 }
 
 /// Response from /api/queue endpoint (for future use)
@@ -244,14 +255,20 @@ pub struct TuiApp {
     should_quit: bool,
     /// Active view
     active_view: ActiveView,
+    /// Previous view (for returning from detail view)
+    previous_list_view: ActiveView,
     /// Queue/Ready view
     queue_ready_view: QueueReadyView,
     /// Recently Completed view
     recently_completed_view: RecentlyCompletedView,
+    /// Node Detail view
+    node_detail_view: NodeDetailView,
     /// HTTP base URL for API requests
     api_base: String,
     /// Flag indicating data needs refresh
     needs_refresh: bool,
+    /// Flag indicating node detail needs fetch
+    needs_node_fetch: Option<String>,
     /// Last key pressed (for gg detection)
     last_key: Option<KeyCode>,
 }
@@ -263,37 +280,132 @@ impl TuiApp {
             connection_state: ConnectionState::Disconnected,
             should_quit: false,
             active_view: ActiveView::QueueReady,
+            previous_list_view: ActiveView::QueueReady,
             queue_ready_view: QueueReadyView::new(),
             recently_completed_view: RecentlyCompletedView::new(),
+            node_detail_view: NodeDetailView::new(),
             api_base: format!("http://{}:{}", host, port),
             needs_refresh: true,
+            needs_node_fetch: None,
             last_key: None,
         }
     }
 
-    /// Switch to the next view
+    /// Switch to the next view (only cycles between list views, not detail)
     fn next_view(&mut self) {
-        self.active_view = match self.active_view {
-            ActiveView::QueueReady => ActiveView::RecentlyCompleted,
-            ActiveView::RecentlyCompleted => ActiveView::QueueReady,
+        // Only cycle between list views (not NodeDetail)
+        match self.active_view {
+            ActiveView::QueueReady => {
+                self.active_view = ActiveView::RecentlyCompleted;
+                self.previous_list_view = ActiveView::RecentlyCompleted;
+            }
+            ActiveView::RecentlyCompleted => {
+                self.active_view = ActiveView::QueueReady;
+                self.previous_list_view = ActiveView::QueueReady;
+            }
+            ActiveView::NodeDetail => {
+                // From detail, go back to previous list view
+                self.go_back_from_detail();
+            }
+        }
+    }
+
+    /// Open detail view for the selected item
+    fn open_detail_for_selection(&mut self) {
+        let node_id = match self.active_view {
+            ActiveView::QueueReady => self
+                .queue_ready_view
+                .selected_item()
+                .map(|item| item.id.clone()),
+            ActiveView::RecentlyCompleted => self
+                .recently_completed_view
+                .items
+                .get(self.recently_completed_view.selected)
+                .map(|item| item.id.clone()),
+            ActiveView::NodeDetail => {
+                // Navigate to selected edge
+                self.node_detail_view
+                    .selected_edge()
+                    .map(|edge| edge.related_id.clone())
+            }
         };
+
+        if let Some(id) = node_id {
+            // If we're already in detail view, push current to nav stack
+            if self.active_view == ActiveView::NodeDetail {
+                self.node_detail_view.push_navigation(false);
+            } else {
+                // Coming from a list view
+                self.previous_list_view = self.active_view;
+            }
+            self.needs_node_fetch = Some(id);
+            self.active_view = ActiveView::NodeDetail;
+        }
+    }
+
+    /// Go back from detail view
+    fn go_back_from_detail(&mut self) {
+        if let Some(entry) = self.node_detail_view.pop_navigation() {
+            if entry.from_list_view {
+                // Go back to the list view
+                self.active_view = self.previous_list_view;
+                self.node_detail_view.clear();
+            } else {
+                // Navigate back to the previous node
+                self.needs_node_fetch = Some(entry.node_id);
+            }
+        } else {
+            // Nothing in stack, go back to list view
+            self.active_view = self.previous_list_view;
+            self.node_detail_view.clear();
+        }
     }
 
     /// Handle keyboard events
     fn handle_key(&mut self, key: KeyCode) {
+        // Handle quit universally
+        if key == KeyCode::Char('q') {
+            self.should_quit = true;
+            return;
+        }
+
+        // Handle Esc based on current view
+        if key == KeyCode::Esc {
+            if self.active_view == ActiveView::NodeDetail {
+                self.go_back_from_detail();
+            } else {
+                self.should_quit = true;
+            }
+            self.last_key = Some(key);
+            return;
+        }
+
         match key {
-            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
-            // View switching
+            // View switching (only for list views)
             KeyCode::Tab => {
                 self.next_view();
                 self.last_key = Some(key);
             }
             KeyCode::Char('1') => {
                 self.active_view = ActiveView::QueueReady;
+                self.previous_list_view = ActiveView::QueueReady;
                 self.last_key = Some(key);
             }
             KeyCode::Char('2') => {
                 self.active_view = ActiveView::RecentlyCompleted;
+                self.previous_list_view = ActiveView::RecentlyCompleted;
+                self.last_key = Some(key);
+            }
+            KeyCode::Char('3') => {
+                // Only switch to detail view if we have a selection
+                if self.active_view != ActiveView::NodeDetail {
+                    self.open_detail_for_selection();
+                }
+                self.last_key = Some(key);
+            }
+            // Enter to open detail / navigate to edge
+            KeyCode::Enter => {
+                self.open_detail_for_selection();
                 self.last_key = Some(key);
             }
             // Navigation
@@ -301,6 +413,7 @@ impl TuiApp {
                 match self.active_view {
                     ActiveView::QueueReady => self.queue_ready_view.select_next(),
                     ActiveView::RecentlyCompleted => self.recently_completed_view.select_next(),
+                    ActiveView::NodeDetail => self.node_detail_view.select_next_edge(),
                 }
                 self.last_key = Some(key);
             }
@@ -308,6 +421,7 @@ impl TuiApp {
                 match self.active_view {
                     ActiveView::QueueReady => self.queue_ready_view.select_previous(),
                     ActiveView::RecentlyCompleted => self.recently_completed_view.select_previous(),
+                    ActiveView::NodeDetail => self.node_detail_view.select_previous_edge(),
                 }
                 self.last_key = Some(key);
             }
@@ -319,6 +433,7 @@ impl TuiApp {
                         ActiveView::RecentlyCompleted => {
                             self.recently_completed_view.select_first()
                         }
+                        ActiveView::NodeDetail => self.node_detail_view.select_first_edge(),
                     }
                     self.last_key = None;
                 } else {
@@ -329,6 +444,7 @@ impl TuiApp {
                 match self.active_view {
                     ActiveView::QueueReady => self.queue_ready_view.select_last(),
                     ActiveView::RecentlyCompleted => self.recently_completed_view.select_last(),
+                    ActiveView::NodeDetail => self.node_detail_view.select_last_edge(),
                 }
                 self.last_key = Some(key);
             }
@@ -336,6 +452,7 @@ impl TuiApp {
                 match self.active_view {
                     ActiveView::QueueReady => self.queue_ready_view.select_first(),
                     ActiveView::RecentlyCompleted => self.recently_completed_view.select_first(),
+                    ActiveView::NodeDetail => self.node_detail_view.select_first_edge(),
                 }
                 self.last_key = Some(key);
             }
@@ -445,6 +562,24 @@ impl TuiApp {
         Ok(())
     }
 
+    /// Fetch a single node's data from the server API
+    async fn fetch_node_data(
+        &mut self,
+        node_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let node_url = format!("{}/api/node/{}", self.api_base, node_id);
+        let node_resp = reqwest::get(&node_url).await?;
+
+        if !node_resp.status().is_success() {
+            return Err(format!("Node not found: {}", node_id).into());
+        }
+
+        let data: NodeResponse = node_resp.json().await?;
+        self.node_detail_view.set_node(data.node, data.edges);
+
+        Ok(())
+    }
+
     /// Mark connection as disconnected
     fn set_disconnected(&mut self) {
         self.connection_state = ConnectionState::Disconnected;
@@ -476,6 +611,7 @@ impl TuiApp {
         match self.active_view {
             ActiveView::QueueReady => self.queue_ready_view.render(frame, chunks[1]),
             ActiveView::RecentlyCompleted => self.recently_completed_view.render(frame, chunks[1]),
+            ActiveView::NodeDetail => self.node_detail_view.render(frame, chunks[1]),
         }
 
         // Status bar with keybindings
@@ -502,10 +638,24 @@ impl TuiApp {
             ConnectionState::Disconnected => "Disconnected".to_string(),
         };
 
-        // Current view name and view switcher hint
+        // Current view name and view switcher hint - changes based on active view
         let (view_name, view_hint) = match self.active_view {
             ActiveView::QueueReady => (" [1] Queue/Ready", "[2] Completed"),
             ActiveView::RecentlyCompleted => ("[1] Queue/Ready", " [2] Completed"),
+            ActiveView::NodeDetail => {
+                // Show node ID in title when viewing detail
+                if let Some(node) = &self.node_detail_view.node {
+                    return self.render_detail_title_bar(
+                        frame,
+                        area,
+                        &node.id,
+                        status_indicator,
+                        status_color,
+                        &status_text,
+                    );
+                }
+                (" [3] Detail", "[Esc] Back")
+            }
         };
 
         // Calculate padding to right-align status
@@ -521,6 +671,7 @@ impl TuiApp {
         let (left_style, right_style) = match self.active_view {
             ActiveView::QueueReady => (view_style, inactive_style),
             ActiveView::RecentlyCompleted => (inactive_style, view_style),
+            ActiveView::NodeDetail => (inactive_style, inactive_style),
         };
 
         let title = Paragraph::new(Line::from(vec![
@@ -535,13 +686,47 @@ impl TuiApp {
         frame.render_widget(title, area);
     }
 
+    /// Render the title bar for detail view (shows node ID)
+    fn render_detail_title_bar(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        node_id: &str,
+        status_indicator: &str,
+        status_color: Color,
+        status_text: &str,
+    ) {
+        let title_text = format!(" Node Detail: {} ", node_id);
+        let back_hint = "[Esc] Back";
+        let status_display = format!("[{}] {}", status_indicator, status_text);
+        let padding = area.width.saturating_sub(
+            title_text.len() as u16 + back_hint.len() as u16 + status_display.len() as u16 + 4,
+        );
+
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled(title_text, Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(back_hint, Style::default().fg(Color::DarkGray)),
+            Span::raw(" ".repeat(padding as usize)),
+            Span::styled(status_display, Style::default().fg(status_color)),
+        ]))
+        .block(Block::default().borders(Borders::ALL));
+
+        frame.render_widget(title, area);
+    }
+
     /// Render the status bar with keybindings
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
-        let status = Paragraph::new(
-            " Tab/1/2:Switch View  j/k:Navigate  gg/G:Top/Bottom  r:Refresh  q:Quit",
-        )
-        .style(Style::default().fg(Color::DarkGray))
-        .block(Block::default().borders(Borders::ALL));
+        let help_text = match self.active_view {
+            ActiveView::QueueReady | ActiveView::RecentlyCompleted => {
+                " Tab/1/2:Switch View  j/k:Navigate  Enter:Detail  gg/G:Top/Bottom  r:Refresh  q:Quit"
+            }
+            ActiveView::NodeDetail => {
+                " j/k:Navigate Edges  Enter:Go to Node  Esc:Back  1/2:List View  r:Refresh  q:Quit"
+            }
+        };
+        let status = Paragraph::new(help_text)
+            .style(Style::default().fg(Color::DarkGray))
+            .block(Block::default().borders(Borders::ALL));
         frame.render_widget(status, area);
     }
 }
@@ -603,6 +788,15 @@ pub async fn run_tui(
             if let Err(e) = app.fetch_data().await {
                 // Log error but don't crash - data will be stale
                 eprintln!("Error fetching data: {}", e);
+            }
+        }
+
+        // Fetch node data if needed (for detail view)
+        if let Some(node_id) = app.needs_node_fetch.take() {
+            if let Err(e) = app.fetch_node_data(&node_id).await {
+                // Log error and go back to list view
+                eprintln!("Error fetching node {}: {}", node_id, e);
+                app.go_back_from_detail();
             }
         }
 

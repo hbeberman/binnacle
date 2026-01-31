@@ -351,6 +351,7 @@ pub async fn start_server(
         .route("/api/docs", get(get_docs))
         .route("/api/docs/:id", get(get_doc))
         .route("/api/docs/:id/history", get(get_doc_history))
+        .route("/api/node/:id", get(get_node))
         .route("/api/queue", get(get_queue))
         .route("/api/queue/toggle", post(toggle_queue_membership))
         .route("/api/batch/close", post(batch_close))
@@ -715,6 +716,231 @@ async fn get_doc_history(
         "current_id": id,
         "versions": versions
     })))
+}
+
+/// Get any node by ID with its edges
+/// This endpoint returns the node data regardless of type (task, bug, idea, etc.)
+/// along with its edges for navigation purposes
+async fn get_node(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let storage = state.storage.lock().await;
+
+    // Determine the entity type
+    let entity_type = storage
+        .get_entity_type(&id)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    // Get the node data based on type
+    let node_data: serde_json::Value = match entity_type {
+        crate::storage::EntityType::Task => {
+            let task = storage.get_task(&id).map_err(|_| StatusCode::NOT_FOUND)?;
+            serde_json::json!({
+                "id": task.core.id,
+                "type": "task",
+                "title": task.core.title,
+                "short_name": task.core.short_name,
+                "description": task.core.description,
+                "status": task.status,
+                "priority": task.priority,
+                "assignee": task.assignee,
+                "tags": task.core.tags,
+                "created_at": task.core.created_at,
+                "updated_at": task.core.updated_at,
+                "closed_at": task.closed_at,
+                "closed_reason": task.closed_reason
+            })
+        }
+        crate::storage::EntityType::Bug => {
+            let bug = storage.get_bug(&id).map_err(|_| StatusCode::NOT_FOUND)?;
+            serde_json::json!({
+                "id": bug.core.id,
+                "type": "bug",
+                "title": bug.core.title,
+                "short_name": bug.core.short_name,
+                "description": bug.core.description,
+                "status": bug.status,
+                "priority": bug.priority,
+                "severity": bug.severity,
+                "assignee": bug.assignee,
+                "tags": bug.core.tags,
+                "created_at": bug.core.created_at,
+                "updated_at": bug.core.updated_at,
+                "closed_at": bug.closed_at,
+                "closed_reason": bug.closed_reason
+            })
+        }
+        crate::storage::EntityType::Idea => {
+            let idea = storage.get_idea(&id).map_err(|_| StatusCode::NOT_FOUND)?;
+            serde_json::json!({
+                "id": idea.core.id,
+                "type": "idea",
+                "title": idea.core.title,
+                "short_name": idea.core.short_name,
+                "description": idea.core.description,
+                "status": idea.status,
+                "tags": idea.core.tags,
+                "created_at": idea.core.created_at,
+                "updated_at": idea.core.updated_at
+            })
+        }
+        crate::storage::EntityType::Milestone => {
+            let ms = storage
+                .get_milestone(&id)
+                .map_err(|_| StatusCode::NOT_FOUND)?;
+            serde_json::json!({
+                "id": ms.core.id,
+                "type": "milestone",
+                "title": ms.core.title,
+                "short_name": ms.core.short_name,
+                "description": ms.core.description,
+                "status": ms.status,
+                "due_date": ms.due_date,
+                "tags": ms.core.tags,
+                "created_at": ms.core.created_at,
+                "updated_at": ms.core.updated_at,
+                "closed_at": ms.closed_at,
+                "closed_reason": ms.closed_reason
+            })
+        }
+        crate::storage::EntityType::Doc => {
+            let doc = storage.get_doc(&id).map_err(|_| StatusCode::NOT_FOUND)?;
+            let summary = doc.get_summary().unwrap_or_default();
+            serde_json::json!({
+                "id": doc.core.id,
+                "type": "doc",
+                "title": doc.core.title,
+                "short_name": doc.core.short_name,
+                "description": doc.core.description,
+                "doc_type": doc.doc_type,
+                "summary": summary,
+                "tags": doc.core.tags,
+                "created_at": doc.core.created_at,
+                "updated_at": doc.core.updated_at
+            })
+        }
+        crate::storage::EntityType::Test => {
+            let test = storage.get_test(&id).map_err(|_| StatusCode::NOT_FOUND)?;
+            serde_json::json!({
+                "id": test.id,
+                "type": "test",
+                "name": test.name,
+                "command": test.command,
+                "working_dir": test.working_dir,
+                "pattern": test.pattern,
+                "created_at": test.created_at
+            })
+        }
+        crate::storage::EntityType::Issue => {
+            let issue = storage.get_issue(&id).map_err(|_| StatusCode::NOT_FOUND)?;
+            serde_json::json!({
+                "id": issue.core.id,
+                "type": "issue",
+                "title": issue.core.title,
+                "short_name": issue.core.short_name,
+                "description": issue.core.description,
+                "status": issue.status,
+                "priority": issue.priority,
+                "assignee": issue.assignee,
+                "tags": issue.core.tags,
+                "created_at": issue.core.created_at,
+                "updated_at": issue.core.updated_at,
+                "closed_at": issue.closed_at,
+                "closed_reason": issue.closed_reason
+            })
+        }
+        crate::storage::EntityType::Queue => {
+            let queue = storage
+                .get_queue_by_id(&id)
+                .map_err(|_| StatusCode::NOT_FOUND)?;
+            serde_json::json!({
+                "id": queue.id,
+                "type": "queue",
+                "title": queue.title,
+                "description": queue.description,
+                "created_at": queue.created_at
+            })
+        }
+        crate::storage::EntityType::Agent => {
+            let agent = storage
+                .get_agent_by_id(&id)
+                .map_err(|_| StatusCode::NOT_FOUND)?;
+            serde_json::json!({
+                "id": agent.id,
+                "type": "agent",
+                "pid": agent.pid,
+                "agent_type": agent.agent_type,
+                "status": agent.status,
+                "started_at": agent.started_at,
+                "last_activity_at": agent.last_activity_at
+            })
+        }
+        crate::storage::EntityType::Edge => {
+            // Edges are not nodes, return error
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    };
+
+    // Get edges for this node
+    let edges = storage.get_edges_for_entity(&id).unwrap_or_default();
+
+    // Enrich edges with related node titles
+    let enriched_edges: Vec<serde_json::Value> = edges
+        .iter()
+        .map(|he| {
+            let (related_id, direction_str) = match he.direction {
+                crate::models::EdgeDirection::Outbound => (he.edge.target.clone(), "outbound"),
+                crate::models::EdgeDirection::Inbound => (he.edge.source.clone(), "inbound"),
+                crate::models::EdgeDirection::Both => (he.edge.target.clone(), "both"),
+            };
+
+            // Try to get the related node's title
+            let related_title = get_entity_title(&storage, &related_id);
+
+            serde_json::json!({
+                "edge_type": he.edge.edge_type,
+                "direction": direction_str,
+                "related_id": related_id,
+                "related_title": related_title
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "node": node_data,
+        "edges": enriched_edges
+    })))
+}
+
+/// Helper function to get the title of any entity by ID
+fn get_entity_title(storage: &Storage, id: &str) -> Option<String> {
+    // Try each entity type
+    if let Ok(task) = storage.get_task(id) {
+        return Some(task.core.title);
+    }
+    if let Ok(bug) = storage.get_bug(id) {
+        return Some(bug.core.title);
+    }
+    if let Ok(idea) = storage.get_idea(id) {
+        return Some(idea.core.title);
+    }
+    if let Ok(ms) = storage.get_milestone(id) {
+        return Some(ms.core.title);
+    }
+    if let Ok(doc) = storage.get_doc(id) {
+        return Some(doc.core.title);
+    }
+    if let Ok(test) = storage.get_test(id) {
+        return Some(test.name);
+    }
+    if let Ok(issue) = storage.get_issue(id) {
+        return Some(issue.core.title);
+    }
+    if let Ok(queue) = storage.get_queue_by_id(id) {
+        return Some(queue.title);
+    }
+    None
 }
 
 /// Get the queue (if it exists)

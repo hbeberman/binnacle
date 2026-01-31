@@ -16,4 +16,8 @@ pub use app::run_tui;
 #[cfg(feature = "tui")]
 pub use views::CompletedItem;
 #[cfg(feature = "tui")]
+pub use views::EdgeInfo;
+#[cfg(feature = "tui")]
+pub use views::NodeDetail;
+#[cfg(feature = "tui")]
 pub use views::WorkItem;
