@@ -11,6 +11,8 @@ pub mod cli;
 pub mod commands;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod container;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod github;
 pub mod gui;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mcp;

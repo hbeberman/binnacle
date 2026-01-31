@@ -64,6 +64,9 @@ base64 = "0.22"
 # Signal handling for graceful shutdown
 ctrlc = "3"
 
+# HTTP client for token validation (blocking for CLI use)
+ureq = { version = "2", features = ["json"] }
+
 # GUI dependencies (feature-gated)
 axum = { version = "0.7", features = ["ws"], optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
