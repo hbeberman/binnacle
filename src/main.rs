@@ -1640,8 +1640,18 @@ fn run_command(
                     install_hook,
                     write_mcp_vscode,
                     yes,
+                    token,
+                    token_non_validated,
                 } => {
-                    let result = if yes {
+                    let result = if yes
+                        || token.is_some()
+                        || token_non_validated.is_some()
+                        || auto_global
+                        || write_agents_md
+                        || write_copilot_prompts
+                        || install_hook
+                        || write_mcp_vscode
+                    {
                         // Non-interactive: use flags directly
                         commands::session_init_non_interactive(
                             repo_path,
@@ -1650,21 +1660,8 @@ fn run_command(
                             write_copilot_prompts,
                             install_hook,
                             write_mcp_vscode,
-                        )?
-                    } else if auto_global
-                        || write_agents_md
-                        || write_copilot_prompts
-                        || install_hook
-                        || write_mcp_vscode
-                    {
-                        // Flags provided without -y: use flags as the options
-                        commands::session_init_non_interactive(
-                            repo_path,
-                            auto_global,
-                            write_agents_md,
-                            write_copilot_prompts,
-                            install_hook,
-                            write_mcp_vscode,
+                            token.as_deref(),
+                            token_non_validated.as_deref(),
                         )?
                     } else {
                         // Interactive mode (default)
@@ -4180,6 +4177,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 install_hook,
                 write_mcp_vscode,
                 yes,
+                token: _,
+                token_non_validated: _,
             } => (
                 "session init".to_string(),
                 serde_json::json!({
@@ -4189,6 +4188,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "install_hook": install_hook,
                     "write_mcp_vscode": write_mcp_vscode,
                     "yes": yes,
+                    // Don't log actual tokens for security
                 }),
             ),
             SessionCommands::Reinit => ("session reinit".to_string(), serde_json::json!({})),

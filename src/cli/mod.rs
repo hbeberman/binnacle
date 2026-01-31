@@ -1982,6 +1982,24 @@ pub enum SessionCommands {
         /// Skip interactive prompts (use flags to control what gets written)
         #[arg(long, short = 'y')]
         yes: bool,
+
+        /// GitHub PAT to store with full Copilot validation (session-specific)
+        ///
+        /// Validates the token can access the Copilot API by attempting to exchange
+        /// it for a Copilot token. This confirms the user has an active Copilot
+        /// subscription and the token has the appropriate permissions. Stores the
+        /// token in the session's state.kdl if validation succeeds.
+        #[arg(long, value_name = "TOKEN", conflicts_with = "token_non_validated")]
+        token: Option<String>,
+
+        /// GitHub PAT to store without Copilot validation (session-specific)
+        ///
+        /// Validates the token via the cheap GitHub /user endpoint (no AI tokens burned),
+        /// then stores it in the session's state.kdl. Use this for CI/automated
+        /// setups where you want to validate basic GitHub API access without using
+        /// the more expensive Copilot completions validation.
+        #[arg(long, value_name = "TOKEN", conflicts_with = "token")]
+        token_non_validated: Option<String>,
     },
 
     /// Re-run session initialization interactively

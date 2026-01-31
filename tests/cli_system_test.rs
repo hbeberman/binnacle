@@ -359,6 +359,91 @@ fn test_host_init_write_mcp_copilot() {
 }
 
 // ============================================================================
+// Session Token Tests
+// ============================================================================
+
+#[test]
+fn test_session_init_token_invalid_returns_error() {
+    let temp = TestEnv::new();
+
+    // Try to use an invalid token - should fail validation
+    bn_in(&temp)
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--token",
+            "invalid_token_that_wont_validate",
+            "-y",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("Token validation failed")
+                .or(predicate::str::contains("Copilot token validation failed")),
+        );
+}
+
+#[test]
+fn test_session_init_token_non_validated_invalid_returns_error() {
+    let temp = TestEnv::new();
+
+    // Try to use an invalid token with --token-non-validated - should fail GitHub user validation
+    bn_in(&temp)
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--token-non-validated",
+            "invalid_token_that_wont_validate",
+            "-y",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Token validation failed"));
+}
+
+#[test]
+fn test_session_init_token_flags_conflict() {
+    let temp = TestEnv::new();
+
+    // Both --token and --token-non-validated cannot be used together
+    bn_in(&temp)
+        .args([
+            "session",
+            "init",
+            "--auto-global",
+            "--token",
+            "some_token",
+            "--token-non-validated",
+            "another_token",
+            "-y",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn test_session_init_without_token_has_token_stored_false() {
+    let temp = TestEnv::new();
+
+    // Initialize without token
+    let output = bn_in(&temp)
+        .args(["session", "init", "--auto-global", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["token_stored"], false);
+    assert_eq!(json["token_username"], serde_json::Value::Null);
+    assert_eq!(json["copilot_validated"], false);
+}
+
+// ============================================================================
 // bn session store show Tests
 // ============================================================================
 

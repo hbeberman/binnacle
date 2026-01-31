@@ -844,6 +844,12 @@ pub struct SessionInitResult {
     pub tmux_layouts_copied: usize,
     /// Whether system was auto-initialized
     pub system_auto_initialized: bool,
+    /// Whether a session-specific token was stored
+    pub token_stored: bool,
+    /// GitHub username if token was validated
+    pub token_username: Option<String>,
+    /// Whether the token was validated against Copilot API (true) or just GitHub user API (false)
+    pub copilot_validated: bool,
 }
 
 impl Output for SessionInitResult {
@@ -883,6 +889,21 @@ impl Output for SessionInitResult {
                 self.tmux_layouts_copied
             ));
         }
+        if self.token_stored {
+            if let Some(ref username) = self.token_username {
+                let validation_type = if self.copilot_validated {
+                    "Copilot"
+                } else {
+                    "GitHub"
+                };
+                lines.push(format!(
+                    "Stored session token for {} ({} validated).",
+                    username, validation_type
+                ));
+            } else {
+                lines.push("Stored session token.".to_string());
+            }
+        }
         lines.join("\n")
     }
 }
@@ -917,12 +938,15 @@ pub fn session_init(repo_path: &Path) -> Result<SessionInitResult> {
         create_copilot_prompts,
         install_hook,
         write_mcp_vscode,
+        None, // token - interactive mode doesn't prompt for token
+        None, // token_non_validated
     )
 }
 
 /// Initialize session (repo-specific) storage without interactive prompts.
 ///
 /// Use flags to control what gets written.
+#[allow(clippy::too_many_arguments)]
 pub fn session_init_non_interactive(
     repo_path: &Path,
     auto_global: bool,
@@ -930,6 +954,8 @@ pub fn session_init_non_interactive(
     write_copilot_prompts: bool,
     install_hook: bool,
     write_mcp_vscode: bool,
+    token: Option<&str>,
+    token_non_validated: Option<&str>,
 ) -> Result<SessionInitResult> {
     // Check for system initialization (unless auto_global)
     if !auto_global && !is_system_initialized() {
@@ -947,6 +973,8 @@ pub fn session_init_non_interactive(
         write_copilot_prompts,
         install_hook,
         write_mcp_vscode,
+        token,
+        token_non_validated,
     )
 }
 
@@ -968,10 +996,13 @@ pub fn session_init_reinit(repo_path: &Path) -> Result<SessionInitResult> {
         create_copilot_prompts,
         install_hook,
         write_mcp_vscode,
+        None, // token - reinit doesn't prompt for token
+        None, // token_non_validated
     )
 }
 
 /// Internal: Initialize session with explicit options.
+#[allow(clippy::too_many_arguments)]
 fn session_init_with_options(
     repo_path: &Path,
     auto_global: bool,
@@ -979,7 +1010,11 @@ fn session_init_with_options(
     create_copilot_prompts: bool,
     install_hook: bool,
     write_mcp_vscode: bool,
+    token: Option<&str>,
+    token_non_validated: Option<&str>,
 ) -> Result<SessionInitResult> {
+    use chrono::Utc;
+
     let mut system_auto_initialized = false;
 
     // Auto-initialize system if requested and not already done
@@ -996,7 +1031,7 @@ fn session_init_with_options(
 
     // Initialize storage (creates directory structure)
     let initialized = !storage_dir.exists();
-    let _storage = Storage::init(repo_path)?;
+    let storage = Storage::init(repo_path)?;
 
     // Copy tmux layouts from .binnacle/tmux/ to session if present
     let tmux_layouts_copied = copy_project_tmux_layouts(repo_path, &storage_dir)?;
@@ -1029,6 +1064,48 @@ fn session_init_with_options(
         false
     };
 
+    // Validate and store session-specific token if provided
+    // --token uses full Copilot validation, --token-non-validated uses lightweight GitHub user validation
+    let (token_stored, token_username, copilot_validated) = if let Some(tok) = token {
+        // Full Copilot validation
+        match crate::github::validate_copilot_token(tok) {
+            Ok(result) => {
+                // Store the token in session state.kdl
+                let mut state = storage.read_binnacle_state().unwrap_or_default();
+                state.github_token = Some(tok.to_string());
+                state.token_validated_at = Some(Utc::now());
+                storage.write_binnacle_state(&state)?;
+                (true, Some(result.user.login), true)
+            }
+            Err(e) => {
+                return Err(Error::Other(format!(
+                    "Copilot token validation failed: {}\n{}",
+                    e, TOKEN_ACQUISITION_GUIDANCE
+                )));
+            }
+        }
+    } else if let Some(tok) = token_non_validated {
+        // Lightweight GitHub user validation
+        match crate::github::validate_github_user(tok) {
+            Ok(result) => {
+                // Store the token in session state.kdl
+                let mut state = storage.read_binnacle_state().unwrap_or_default();
+                state.github_token = Some(tok.to_string());
+                state.token_validated_at = Some(Utc::now());
+                storage.write_binnacle_state(&state)?;
+                (true, Some(result.user.login), false)
+            }
+            Err(e) => {
+                return Err(Error::Other(format!(
+                    "Token validation failed: {}\n{}",
+                    e, TOKEN_ACQUISITION_GUIDANCE
+                )));
+            }
+        }
+    } else {
+        (false, None, false)
+    };
+
     Ok(SessionInitResult {
         initialized,
         session_id,
@@ -1039,6 +1116,9 @@ fn session_init_with_options(
         mcp_vscode_config_created,
         tmux_layouts_copied,
         system_auto_initialized,
+        token_stored,
+        token_username,
+        copilot_validated,
     })
 }
 
