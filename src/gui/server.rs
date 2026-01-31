@@ -54,6 +54,82 @@ fn readonly_error() -> (StatusCode, Json<serde_json::Value>) {
     )
 }
 
+/// Derive repository name from git remote URL.
+///
+/// Parses the git remote URL (origin) to extract the repository name.
+/// Handles both HTTPS and SSH URL formats:
+/// - `https://github.com/owner/repo.git` → `repo`
+/// - `git@github.com:owner/repo.git` → `repo`
+/// - `https://github.com/owner/repo` (no .git suffix) → `repo`
+///
+/// Falls back to the directory name if git remote is not available.
+fn derive_repo_name(repo_path: &Path) -> String {
+    // Try to get remote URL from git
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(repo_path)
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(url) = String::from_utf8(output.stdout) {
+                let url = url.trim();
+                if let Some(name) = parse_repo_name_from_url(url) {
+                    return name;
+                }
+            }
+        }
+    }
+
+    // Fallback to directory name
+    repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Unknown")
+        .to_string()
+}
+
+/// Parse repository name from a git remote URL.
+///
+/// Handles common URL formats from GitHub, GitLab, etc.
+fn parse_repo_name_from_url(url: &str) -> Option<String> {
+    // Handle SSH format: git@github.com:owner/repo.git
+    if let Some(ssh_path) = url.strip_prefix("git@") {
+        // Find the colon that separates host from path
+        if let Some(colon_idx) = ssh_path.find(':') {
+            let path = &ssh_path[colon_idx + 1..];
+            return extract_repo_name_from_path(path);
+        }
+    }
+
+    // Handle HTTPS format: https://github.com/owner/repo.git
+    if url.starts_with("https://") || url.starts_with("http://") {
+        // Parse as URL and get the path
+        if let Some(path_start) = url.find("://") {
+            let after_protocol = &url[path_start + 3..];
+            if let Some(slash_idx) = after_protocol.find('/') {
+                let path = &after_protocol[slash_idx + 1..];
+                return extract_repo_name_from_path(path);
+            }
+        }
+    }
+
+    None
+}
+
+/// Extract repository name from a path like "owner/repo.git" or "owner/repo"
+fn extract_repo_name_from_path(path: &str) -> Option<String> {
+    // Split by '/' and take the last non-empty segment
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if let Some(last) = segments.last() {
+        // Remove .git suffix if present
+        let name = last.strip_suffix(".git").unwrap_or(last);
+        if !name.is_empty() {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
 /// WebSocket performance metrics
 #[derive(Default)]
 pub struct WebSocketMetrics {
@@ -295,12 +371,8 @@ pub async fn start_server(
     let storage_dir = crate::storage::get_storage_dir(repo_path)?;
     let (update_tx, _) = broadcast::channel(100);
 
-    // Extract project name from repo path
-    let project_name = repo_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("Unknown")
-        .to_string();
+    // Extract project name from git remote (falls back to directory name)
+    let project_name = derive_repo_name(repo_path);
 
     let version = StateVersion::new();
     let message_history = MessageHistory::default();
@@ -2402,12 +2474,8 @@ pub async fn start_session_server(
     let storage_dir = crate::storage::get_storage_dir(repo_path)?;
     let (update_tx, _) = broadcast::channel(100);
 
-    // Extract project name from repo path
-    let project_name = repo_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("Unknown")
-        .to_string();
+    // Extract project name from git remote (falls back to directory name)
+    let project_name = derive_repo_name(repo_path);
 
     // Get current branch for display
     let branch = std::process::Command::new("git")
@@ -2487,4 +2555,69 @@ pub async fn start_session_server(
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_repo_name_from_https_url_with_git_suffix() {
+        let result = parse_repo_name_from_url("https://github.com/owner/binnacle.git");
+        assert_eq!(result, Some("binnacle".to_string()));
+    }
+
+    #[test]
+    fn test_parse_repo_name_from_https_url_without_git_suffix() {
+        let result = parse_repo_name_from_url("https://github.com/owner/binnacle");
+        assert_eq!(result, Some("binnacle".to_string()));
+    }
+
+    #[test]
+    fn test_parse_repo_name_from_ssh_url_with_git_suffix() {
+        let result = parse_repo_name_from_url("git@github.com:owner/binnacle.git");
+        assert_eq!(result, Some("binnacle".to_string()));
+    }
+
+    #[test]
+    fn test_parse_repo_name_from_ssh_url_without_git_suffix() {
+        let result = parse_repo_name_from_url("git@github.com:owner/binnacle");
+        assert_eq!(result, Some("binnacle".to_string()));
+    }
+
+    #[test]
+    fn test_parse_repo_name_from_gitlab_https() {
+        let result = parse_repo_name_from_url("https://gitlab.com/group/subgroup/repo.git");
+        assert_eq!(result, Some("repo".to_string()));
+    }
+
+    #[test]
+    fn test_parse_repo_name_from_gitlab_ssh() {
+        let result = parse_repo_name_from_url("git@gitlab.com:group/subgroup/repo.git");
+        assert_eq!(result, Some("repo".to_string()));
+    }
+
+    #[test]
+    fn test_parse_repo_name_from_invalid_url() {
+        let result = parse_repo_name_from_url("not-a-valid-url");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_repo_name_from_path_simple() {
+        let result = extract_repo_name_from_path("owner/repo.git");
+        assert_eq!(result, Some("repo".to_string()));
+    }
+
+    #[test]
+    fn test_extract_repo_name_from_path_nested() {
+        let result = extract_repo_name_from_path("group/subgroup/repo.git");
+        assert_eq!(result, Some("repo".to_string()));
+    }
+
+    #[test]
+    fn test_extract_repo_name_from_path_no_suffix() {
+        let result = extract_repo_name_from_path("owner/repo");
+        assert_eq!(result, Some("repo".to_string()));
+    }
 }
