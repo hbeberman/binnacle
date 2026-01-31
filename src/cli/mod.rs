@@ -1908,7 +1908,7 @@ pub enum SystemCommands {
         dry_run: bool,
     },
 
-    /// Manage git hooks installed by binnacle
+    /// [DEPRECATED: use 'bn session hooks'] Manage git hooks installed by binnacle
     Hooks {
         #[command(subcommand)]
         command: HooksCommands,

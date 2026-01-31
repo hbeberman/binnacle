@@ -1336,12 +1336,17 @@ fn run_command(
                 let result = commands::system_sessions()?;
                 output(&result, human);
             }
-            SystemCommands::Hooks { command } => match command {
-                HooksCommands::Uninstall => {
-                    let result = commands::hooks_uninstall(repo_path)?;
-                    output(&result, human);
+            SystemCommands::Hooks { command } => {
+                eprintln!(
+                    "Warning: 'bn system hooks' is deprecated. Use 'bn session hooks' instead."
+                );
+                match command {
+                    HooksCommands::Uninstall => {
+                        let result = commands::hooks_uninstall(repo_path)?;
+                        output(&result, human);
+                    }
                 }
-            },
+            }
             SystemCommands::Copilot { command } => match command {
                 CopilotCommands::Install { version, upstream } => {
                     let result = commands::copilot_install(version.clone(), upstream)?;
