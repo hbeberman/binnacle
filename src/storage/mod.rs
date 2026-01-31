@@ -113,6 +113,9 @@ impl Storage {
         let conn = Connection::open(&db_path)?;
         Self::init_schema(&conn)?;
 
+        // Migrate old co-author.* keys to new git-bot.* keys (for existing installations)
+        Self::migrate_config_keys(&conn)?;
+
         Ok(Self { root, conn })
     }
 
@@ -808,6 +811,51 @@ impl Storage {
             INSERT OR IGNORE INTO config (key, value) VALUES ('git.anonymous.allow', 'true');
             "#,
         )?;
+        Ok(())
+    }
+
+    /// Migrate old co-author.* config keys to new git-bot.* and git.co-author.* keys.
+    /// This is called on storage open to handle existing installations.
+    /// The migration only copies values if the old key exists and the new key doesn't.
+    fn migrate_config_keys(conn: &Connection) -> Result<()> {
+        // Define migration mappings: (old_key, new_key)
+        let migrations = [
+            ("co-author.name", "git-bot.name"),
+            ("co-author.email", "git-bot.email"),
+            ("co-author.enabled", "git.co-author.enabled"),
+        ];
+
+        for (old_key, new_key) in migrations {
+            // Check if old key exists
+            let old_value: Option<String> = conn
+                .query_row(
+                    "SELECT value FROM config WHERE key = ?1",
+                    [old_key],
+                    |row| row.get(0),
+                )
+                .ok();
+
+            if let Some(value) = old_value {
+                // Check if new key already exists
+                let new_exists: bool = conn
+                    .query_row("SELECT 1 FROM config WHERE key = ?1", [new_key], |_| {
+                        Ok(true)
+                    })
+                    .unwrap_or(false);
+
+                // Only migrate if new key doesn't exist
+                if !new_exists {
+                    conn.execute(
+                        "INSERT INTO config (key, value) VALUES (?1, ?2)",
+                        params![new_key, value],
+                    )?;
+                }
+
+                // Delete the old key
+                conn.execute("DELETE FROM config WHERE key = ?1", [old_key])?;
+            }
+        }
+
         Ok(())
     }
 
@@ -3405,6 +3453,13 @@ impl Storage {
             "INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)",
             params![key, value],
         )?;
+        Ok(())
+    }
+
+    /// Delete a configuration value.
+    pub fn delete_config(&mut self, key: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM config WHERE key = ?1", params![key])?;
         Ok(())
     }
 
@@ -7844,6 +7899,158 @@ mod tests {
             storage2.get_config("git-bot.name").unwrap(),
             Some("custom-bot".to_string())
         );
+    }
+
+    // === Config Migration Tests ===
+
+    #[test]
+    fn test_config_migration_from_old_keys() {
+        let env = TestEnv::new();
+        let storage = env.init_storage();
+
+        // Simulate an old installation by setting old keys and clearing new ones
+        storage
+            .conn
+            .execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES ('co-author.name', 'old-bot')",
+                [],
+            )
+            .unwrap();
+        storage
+            .conn
+            .execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES ('co-author.email', 'old@bot.com')",
+                [],
+            )
+            .unwrap();
+        storage
+            .conn
+            .execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES ('co-author.enabled', 'no')",
+                [],
+            )
+            .unwrap();
+
+        // Remove the new keys to simulate old installation
+        storage
+            .conn
+            .execute("DELETE FROM config WHERE key = 'git-bot.name'", [])
+            .unwrap();
+        storage
+            .conn
+            .execute("DELETE FROM config WHERE key = 'git-bot.email'", [])
+            .unwrap();
+        storage
+            .conn
+            .execute("DELETE FROM config WHERE key = 'git.co-author.enabled'", [])
+            .unwrap();
+
+        // Re-open storage (which runs migrate_config_keys)
+        drop(storage);
+        let storage2 = env.open_storage();
+
+        // Verify old values were migrated to new keys
+        assert_eq!(
+            storage2.get_config("git-bot.name").unwrap(),
+            Some("old-bot".to_string())
+        );
+        assert_eq!(
+            storage2.get_config("git-bot.email").unwrap(),
+            Some("old@bot.com".to_string())
+        );
+        assert_eq!(
+            storage2.get_config("git.co-author.enabled").unwrap(),
+            Some("no".to_string())
+        );
+
+        // Verify old keys were deleted
+        assert_eq!(storage2.get_config("co-author.name").unwrap(), None);
+        assert_eq!(storage2.get_config("co-author.email").unwrap(), None);
+        assert_eq!(storage2.get_config("co-author.enabled").unwrap(), None);
+    }
+
+    #[test]
+    fn test_config_migration_doesnt_overwrite_new_keys() {
+        let env = TestEnv::new();
+        let mut storage = env.init_storage();
+
+        // Set up a scenario where both old and new keys exist
+        // New keys have values that should be preserved
+        storage
+            .set_config("git-bot.name", "custom-new-bot")
+            .unwrap();
+        storage
+            .set_config("git-bot.email", "custom@new.com")
+            .unwrap();
+        storage.set_config("git.co-author.enabled", "yes").unwrap();
+
+        // Add old keys with different values
+        storage
+            .conn
+            .execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES ('co-author.name', 'old-bot')",
+                [],
+            )
+            .unwrap();
+        storage
+            .conn
+            .execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES ('co-author.email', 'old@bot.com')",
+                [],
+            )
+            .unwrap();
+        storage
+            .conn
+            .execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES ('co-author.enabled', 'no')",
+                [],
+            )
+            .unwrap();
+
+        // Re-open storage (which runs migrate_config_keys)
+        drop(storage);
+        let storage2 = env.open_storage();
+
+        // Verify new key values were NOT overwritten by old values
+        assert_eq!(
+            storage2.get_config("git-bot.name").unwrap(),
+            Some("custom-new-bot".to_string())
+        );
+        assert_eq!(
+            storage2.get_config("git-bot.email").unwrap(),
+            Some("custom@new.com".to_string())
+        );
+        assert_eq!(
+            storage2.get_config("git.co-author.enabled").unwrap(),
+            Some("yes".to_string())
+        );
+
+        // Verify old keys were still deleted
+        assert_eq!(storage2.get_config("co-author.name").unwrap(), None);
+        assert_eq!(storage2.get_config("co-author.email").unwrap(), None);
+        assert_eq!(storage2.get_config("co-author.enabled").unwrap(), None);
+    }
+
+    #[test]
+    fn test_config_delete() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        storage.set_config("delete.me", "value").unwrap();
+        assert_eq!(
+            storage.get_config("delete.me").unwrap(),
+            Some("value".to_string())
+        );
+
+        storage.delete_config("delete.me").unwrap();
+        assert_eq!(storage.get_config("delete.me").unwrap(), None);
+    }
+
+    #[test]
+    fn test_config_delete_nonexistent_is_ok() {
+        let (_temp_dir, mut storage) = create_test_storage();
+
+        // Should not error when deleting non-existent key
+        storage.delete_config("does.not.exist").unwrap();
     }
 
     // === Issue Storage Tests ===
