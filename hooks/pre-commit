@@ -229,5 +229,37 @@ else
     echo "  ✓ No web assets changed, skipping lightpanda validation"
 fi
 
+# Check for GitHub tokens (gh_) in staged files
+echo "  → Scanning for accidental token commits..."
+
+# GitHub tokens start with gh_ followed by alphanumeric characters (usually 36-40 chars total)
+# Exception: test token gh_0000000000000000000000000000000000000000 is allowed
+TOKEN_PATTERN='gh_[A-Za-z0-9_]{30,}'
+TEST_TOKEN='gh_0000000000000000000000000000000000000000'
+
+# Get staged file contents and scan for tokens
+# Use -p to get patch format, which shows what's being added
+token_matches=$(git diff --cached -p 2>/dev/null | grep -E "^\+" | grep -v "^+++" | grep -oE "$TOKEN_PATTERN" | grep -v "^${TEST_TOKEN}$" | sort -u || true)
+
+if [ -n "$token_matches" ]; then
+    echo ""
+    echo "❌ GitHub token(s) detected in staged changes!"
+    echo ""
+    echo "   Found tokens (first 10 chars shown):"
+    for token in $token_matches; do
+        echo "     - ${token:0:10}..."
+    done
+    echo ""
+    echo "   This appears to be an accidental credential leak."
+    echo "   Remove the token(s) from your staged changes before committing."
+    echo ""
+    echo "   If this is a test fixture, use the all-zeros test token:"
+    echo "     $TEST_TOKEN"
+    echo ""
+    echo "   To find the files containing tokens:"
+    echo "     git diff --cached | grep -n 'gh_'"
+    exit 1
+fi
+
 echo "✅ All pre-commit checks passed!"
 exit 0
