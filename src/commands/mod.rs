@@ -3016,6 +3016,138 @@ pub struct HooksUninstallResult {
     pub post_commit_removed: bool,
 }
 
+/// Result of session serve command
+#[derive(Debug, Serialize)]
+pub struct SessionServeResult {
+    /// Whether the server started successfully
+    pub started: bool,
+    /// Port the server is listening on
+    pub port: u16,
+    /// Host address bound to
+    pub host: String,
+    /// Whether a tunnel was created
+    pub tunnel: Option<String>,
+    /// Error message if failed to start
+    pub error: Option<String>,
+}
+
+impl Output for SessionServeResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.started {
+            let mut msg = format!("Session server started on {}:{}", self.host, self.port);
+            if let Some(ref tunnel) = self.tunnel {
+                msg.push_str(&format!("\nTunnel URL: {}", tunnel));
+            }
+            msg
+        } else {
+            format!(
+                "Failed to start session server: {}",
+                self.error.as_deref().unwrap_or("unknown error")
+            )
+        }
+    }
+}
+
+/// Result of session status command
+#[derive(Debug, Serialize)]
+pub struct SessionStatusResult {
+    /// Whether a session server is running
+    pub running: bool,
+    /// PID of the running server
+    pub pid: Option<u32>,
+    /// Port the server is listening on
+    pub port: Option<u16>,
+    /// Host address bound to
+    pub host: Option<String>,
+    /// When the server was started
+    pub started_at: Option<String>,
+    /// Last heartbeat time
+    pub last_heartbeat: Option<String>,
+}
+
+impl Output for SessionStatusResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.running {
+            let mut msg = format!("Session server is running (PID {})", self.pid.unwrap_or(0));
+            if let Some(ref host) = self.host {
+                if let Some(port) = self.port {
+                    msg.push_str(&format!("\nListening on {}:{}", host, port));
+                }
+            }
+            if let Some(ref started) = self.started_at {
+                msg.push_str(&format!("\nStarted: {}", started));
+            }
+            msg
+        } else {
+            "No session server running".to_string()
+        }
+    }
+}
+
+/// Result of session stop command
+#[derive(Debug, Serialize)]
+pub struct SessionStopResult {
+    /// Whether the server was stopped
+    pub stopped: bool,
+    /// PID of the stopped server
+    pub pid: Option<u32>,
+    /// Error message if failed to stop
+    pub error: Option<String>,
+}
+
+impl Output for SessionStopResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.stopped {
+            format!("Session server stopped (PID {})", self.pid.unwrap_or(0))
+        } else if let Some(ref error) = self.error {
+            format!("Failed to stop session server: {}", error)
+        } else {
+            "No session server was running".to_string()
+        }
+    }
+}
+
+/// Result of session connect command
+#[derive(Debug, Serialize)]
+pub struct SessionConnectResult {
+    /// Whether the connection was successful
+    pub connected: bool,
+    /// URL that was connected to
+    pub url: String,
+    /// Error message if failed to connect
+    pub error: Option<String>,
+}
+
+impl Output for SessionConnectResult {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        if self.connected {
+            format!("Connected to {}", self.url)
+        } else {
+            format!(
+                "Failed to connect to {}: {}",
+                self.url,
+                self.error.as_deref().unwrap_or("unknown error")
+            )
+        }
+    }
+}
+
 /// Result of tmux save command
 #[cfg(feature = "tmux")]
 #[derive(Debug, Serialize)]
@@ -3235,6 +3367,63 @@ pub fn hooks_uninstall(repo_path: &Path) -> Result<HooksUninstallResult> {
         commit_msg_removed,
         post_commit_removed,
     })
+}
+
+// === Session Server Commands ===
+
+/// Start the session WebSocket server.
+///
+/// This is a placeholder implementation that will be filled in when
+/// the WebSocket server infrastructure is implemented.
+#[allow(unused_variables)]
+pub fn session_serve(
+    repo_path: &Path,
+    port: u16,
+    host: &str,
+    tunnel: bool,
+    upstream: Option<&str>,
+) -> Result<SessionServeResult> {
+    // TODO: Implement actual WebSocket server startup
+    // This will reuse infrastructure from gui/websocket.rs
+    Err(Error::Other(
+        "Session serve not yet implemented. Use 'bn gui' for now.".to_string(),
+    ))
+}
+
+/// Check session server status by reading state.kdl.
+#[allow(unused_variables)]
+pub fn session_status(repo_path: &Path) -> Result<SessionStatusResult> {
+    // TODO: Read state.kdl to check for serve block
+    // Validate PID is alive and heartbeat is recent
+    Ok(SessionStatusResult {
+        running: false,
+        pid: None,
+        port: None,
+        host: None,
+        started_at: None,
+        last_heartbeat: None,
+    })
+}
+
+/// Stop the session server.
+#[allow(unused_variables)]
+pub fn session_stop(repo_path: &Path, force: bool) -> Result<SessionStopResult> {
+    // TODO: Read PID from state.kdl and send SIGTERM
+    // If force, send SIGKILL after timeout
+    Ok(SessionStopResult {
+        stopped: false,
+        pid: None,
+        error: Some("No session server running".to_string()),
+    })
+}
+
+/// Connect to a remote session server.
+#[allow(unused_variables)]
+pub fn session_connect(repo_path: &Path, url: &str) -> Result<SessionConnectResult> {
+    // TODO: Implement WebSocket client connection
+    Err(Error::Other(
+        "Session connect not yet implemented.".to_string(),
+    ))
 }
 
 // === Copilot Management ===

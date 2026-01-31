@@ -2048,6 +2048,55 @@ pub enum SessionCommands {
         #[command(subcommand)]
         command: SessionTmuxCommands,
     },
+
+    /// Start the session WebSocket server
+    ///
+    /// Runs a WebSocket server that provides real-time graph updates and
+    /// accepts remote commands. Used by GUI/TUI for live data.
+    Serve {
+        /// Port to listen on (default: 3030, or BN_GUI_PORT env var)
+        #[arg(short, long, env = "BN_GUI_PORT", default_value = "3030")]
+        port: u16,
+
+        /// Host address to bind to (default: 127.0.0.1 for local only)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// Bind to all interfaces (0.0.0.0) for network access
+        #[arg(long)]
+        public: bool,
+
+        /// Create a public URL via devtunnel
+        #[arg(long)]
+        tunnel: bool,
+
+        /// Upstream hub URL to connect to (e.g., wss://hub.example.com/sessions)
+        #[arg(long)]
+        upstream: Option<String>,
+    },
+
+    /// Check session server status
+    ///
+    /// Reads state.kdl to check if a session server is running for this repo.
+    /// Validates PID is alive and heartbeat is recent.
+    Status,
+
+    /// Stop the session server
+    ///
+    /// Signals the running session server to shut down gracefully.
+    Stop {
+        /// Force stop even if server is unresponsive
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Connect to a remote session server
+    ///
+    /// Opens an interactive connection to a remote binnacle session.
+    Connect {
+        /// WebSocket URL to connect to (e.g., wss://remote:3030/ws)
+        url: String,
+    },
 }
 
 /// Session-level tmux layout management subcommands (feature-gated)

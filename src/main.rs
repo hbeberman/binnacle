@@ -1725,6 +1725,34 @@ fn run_command(
                         output(&result, human);
                     }
                 },
+                SessionCommands::Serve {
+                    port,
+                    host,
+                    public,
+                    tunnel,
+                    upstream,
+                } => {
+                    let result = commands::session_serve(
+                        repo_path,
+                        port,
+                        if public { "0.0.0.0" } else { &host },
+                        tunnel,
+                        upstream.as_deref(),
+                    )?;
+                    output(&result, human);
+                }
+                SessionCommands::Status => {
+                    let result = commands::session_status(repo_path)?;
+                    output(&result, human);
+                }
+                SessionCommands::Stop { force } => {
+                    let result = commands::session_stop(repo_path, force)?;
+                    output(&result, human);
+                }
+                SessionCommands::Connect { url } => {
+                    let result = commands::session_connect(repo_path, &url)?;
+                    output(&result, human);
+                }
                 #[cfg(feature = "tmux")]
                 SessionCommands::Tmux { command } => {
                     use binnacle::cli::SessionTmuxCommands;
@@ -4245,6 +4273,31 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     ("session hooks uninstall".to_string(), serde_json::json!({}))
                 }
             },
+            SessionCommands::Serve {
+                port,
+                host,
+                public,
+                tunnel,
+                upstream,
+            } => (
+                "session serve".to_string(),
+                serde_json::json!({
+                    "port": port,
+                    "host": host,
+                    "public": public,
+                    "tunnel": tunnel,
+                    "upstream": upstream,
+                }),
+            ),
+            SessionCommands::Status => ("session status".to_string(), serde_json::json!({})),
+            SessionCommands::Stop { force } => (
+                "session stop".to_string(),
+                serde_json::json!({ "force": force }),
+            ),
+            SessionCommands::Connect { url } => (
+                "session connect".to_string(),
+                serde_json::json!({ "url": url }),
+            ),
             #[cfg(feature = "tmux")]
             SessionCommands::Tmux { command } => match command {
                 SessionTmuxCommands::Save { name, project } => (
