@@ -1750,8 +1750,8 @@ else
         : # Skip binnacle co-author, continue to rest of hook
     else
         # Check for active agent session via BN_AGENT_SESSION environment variable
-        # Also skip if using default identity (no human to attribute as co-author)
-        if [[ -n "$BN_AGENT_SESSION" ]] && [[ "$BN_AGENT_SESSION" == "1" ]] && [[ -z "$BN_USING_DEFAULT_IDENTITY" ]]; then
+        # Also skip if using anonymous identity (no human to attribute as co-author)
+        if [[ -n "$BN_AGENT_SESSION" ]] && [[ "$BN_AGENT_SESSION" == "1" ]] && [[ -z "$BINNACLE_ANONYMOUS_IDENTITY" ]]; then
             # Agent is active with human identity - append Co-authored-by trailer if not already present
             co_author_name=$(bn config get git-bot.name 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
             if [[ -z "$co_author_name" ]] || [[ "$co_author_name" == "null" ]]; then
@@ -18458,16 +18458,55 @@ pub fn agent_spawn(
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty());
 
-    // Use host git identity if available, otherwise use default binnacle-bot identity
-    let (effective_name, effective_email, using_default_identity) = match (&git_name, &git_email) {
+    // Use host git identity if available, otherwise check if anonymous commits are allowed
+    let (effective_name, effective_email, using_anonymous_identity) = match (&git_name, &git_email)
+    {
         (Some(name), Some(email)) => (name.clone(), email.clone(), false),
         _ => {
-            // Use default binnacle-bot identity when host git config is missing
-            (
-                "binnacle-bot".to_string(),
-                "noreply@binnacle.bot".to_string(),
-                true,
-            )
+            // No host git identity - check config for anonymous mode
+            let storage = Storage::open(repo_path)?;
+            let anonymous_allowed = storage
+                .get_config("git.anonymous.allow")
+                .ok()
+                .flatten()
+                .map(|v| v == "true" || v == "yes" || v == "1")
+                .unwrap_or(true); // Default to allowing anonymous
+
+            if !anonymous_allowed {
+                return Ok(AgentSpawnResult {
+                    success: false,
+                    agent_id: None,
+                    name: None,
+                    agent_type: agent_type.to_string(),
+                    container_name: None,
+                    log_path: None,
+                    error: Some(
+                        "Git identity not configured on host and anonymous commits are disabled.\n\
+                         Set git user.name and user.email, or enable anonymous mode with:\n\
+                         bn config set git.anonymous.allow true"
+                            .to_string(),
+                    ),
+                });
+            }
+
+            // Use git-bot identity from config (with fallback defaults)
+            let bot_name = storage
+                .get_config("git-bot.name")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "binnacle-bot".to_string());
+            let bot_email = storage
+                .get_config("git-bot.email")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "noreply@binnacle.bot".to_string());
+
+            eprintln!(
+                "Info: No Git identity found, using {} <{}>",
+                bot_name, bot_email
+            );
+
+            (bot_name, bot_email, true)
         }
     };
 
@@ -18480,10 +18519,10 @@ pub fn agent_spawn(
     args.push("--env".to_string());
     args.push(format!("GIT_COMMITTER_EMAIL={}", effective_email));
 
-    // Set flag to indicate when using default identity (skips Co-authored-by trailer)
-    if using_default_identity {
+    // Set flag to indicate when using anonymous identity (skips Co-authored-by trailer)
+    if using_anonymous_identity {
         args.push("--env".to_string());
-        args.push("BN_USING_DEFAULT_IDENTITY=1".to_string());
+        args.push("BINNACLE_ANONYMOUS_IDENTITY=1".to_string());
     }
 
     // Pass through timezone
@@ -21067,16 +21106,53 @@ pub fn container_run(
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty());
 
-    // Use host git identity if available, otherwise use default binnacle-bot identity
-    let (effective_name, effective_email, using_default_identity) = match (&git_name, &git_email) {
+    // Use host git identity if available, otherwise check if anonymous commits are allowed
+    let (effective_name, effective_email, using_anonymous_identity) = match (&git_name, &git_email)
+    {
         (Some(name), Some(email)) => (name.clone(), email.clone(), false),
         _ => {
-            // Use default binnacle-bot identity when host git config is missing
-            (
-                "binnacle-bot".to_string(),
-                "noreply@binnacle.bot".to_string(),
-                true,
-            )
+            // No host git identity - check config for anonymous mode
+            let storage = Storage::open(repo_path)?;
+            let anonymous_allowed = storage
+                .get_config("git.anonymous.allow")
+                .ok()
+                .flatten()
+                .map(|v| v == "true" || v == "yes" || v == "1")
+                .unwrap_or(true); // Default to allowing anonymous
+
+            if !anonymous_allowed {
+                return Ok(ContainerRunResult {
+                    success: false,
+                    name: None,
+                    agent_id: None,
+                    agent_name: None,
+                    error: Some(
+                        "Git identity not configured on host and anonymous commits are disabled.\n\
+                         Set git user.name and user.email, or enable anonymous mode with:\n\
+                         bn config set git.anonymous.allow true"
+                            .to_string(),
+                    ),
+                });
+            }
+
+            // Use git-bot identity from config (with fallback defaults)
+            let bot_name = storage
+                .get_config("git-bot.name")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "binnacle-bot".to_string());
+            let bot_email = storage
+                .get_config("git-bot.email")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "noreply@binnacle.bot".to_string());
+
+            eprintln!(
+                "Info: No Git identity found, using {} <{}>",
+                bot_name, bot_email
+            );
+
+            (bot_name, bot_email, true)
         }
     };
 
@@ -21089,10 +21165,10 @@ pub fn container_run(
     args.push("--env".to_string());
     args.push(format!("GIT_COMMITTER_EMAIL={}", effective_email));
 
-    // Set flag to indicate when using default identity (skips Co-authored-by trailer)
-    if using_default_identity {
+    // Set flag to indicate when using anonymous identity (skips Co-authored-by trailer)
+    if using_anonymous_identity {
         args.push("--env".to_string());
-        args.push("BN_USING_DEFAULT_IDENTITY=1".to_string());
+        args.push("BINNACLE_ANONYMOUS_IDENTITY=1".to_string());
     }
 
     // Pass through timezone from TZ env var or /etc/timezone
@@ -24650,10 +24726,10 @@ mod tests {
         let hook_path = temp.path().join(".git").join("hooks").join("commit-msg");
         let contents = std::fs::read_to_string(&hook_path).unwrap();
 
-        // Verify hook checks for BN_USING_DEFAULT_IDENTITY
-        assert!(contents.contains("BN_USING_DEFAULT_IDENTITY"));
-        // Verify the condition skips co-author when using default identity
-        assert!(contents.contains(r#"[[ -z "$BN_USING_DEFAULT_IDENTITY" ]]"#));
+        // Verify hook checks for BINNACLE_ANONYMOUS_IDENTITY
+        assert!(contents.contains("BINNACLE_ANONYMOUS_IDENTITY"));
+        // Verify the condition skips co-author when using anonymous identity
+        assert!(contents.contains(r#"[[ -z "$BINNACLE_ANONYMOUS_IDENTITY" ]]"#));
     }
 
     #[test]

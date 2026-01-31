@@ -4,9 +4,14 @@
 
 COMMIT_MSG_FILE="$1"
 
+# Skip Co-authored-by if using anonymous identity (no human to attribute as co-author)
+if [[ "$BINNACLE_ANONYMOUS_IDENTITY" == "1" ]]; then
+    exit 0
+fi
+
 # Check if co-author feature is enabled (default: true)
 # Uses bn config get which returns JSON {"key":"...","value":...}
-enabled_value=$(bn config get co-author.enabled 2>/dev/null | grep -o '"value":[^,}]*' | cut -d':' -f2 | tr -d ' "' || echo "null")
+enabled_value=$(bn config get git.co-author.enabled 2>/dev/null | grep -o '"value":[^,}]*' | cut -d':' -f2 | tr -d ' "' || echo "null")
 
 # If explicitly set to false/no/0, skip
 if [[ "$enabled_value" == "false" ]] || [[ "$enabled_value" == "no" ]] || [[ "$enabled_value" == "0" ]]; then
@@ -38,12 +43,12 @@ fi
 
 # Agent is active - append Co-authored-by trailer if not already present
 # Get custom name/email from config, or use defaults
-co_author_name=$(bn config get co-author.name 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
+co_author_name=$(bn config get git-bot.name 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
 if [[ -z "$co_author_name" ]] || [[ "$co_author_name" == "null" ]]; then
     co_author_name="binnacle-bot"
 fi
 
-co_author_email=$(bn config get co-author.email 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
+co_author_email=$(bn config get git-bot.email 2>/dev/null | grep -o '"value":"[^"]*"' | cut -d'"' -f4 || echo "")
 if [[ -z "$co_author_email" ]] || [[ "$co_author_email" == "null" ]]; then
     co_author_email="noreply@binnacle.bot"
 fi

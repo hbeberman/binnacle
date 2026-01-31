@@ -131,9 +131,9 @@ fn test_hook_without_agent_session_does_nothing() {
 fn test_hook_disabled_by_config() {
     let env = TestEnv::init();
 
-    // Disable co-author feature
+    // Disable co-author feature using new config key
     env.bn()
-        .args(["config", "set", "co-author.enabled", "false"])
+        .args(["config", "set", "git.co-author.enabled", "false"])
         .assert()
         .success();
 
@@ -200,13 +200,13 @@ fn test_hook_custom_name_email() {
     let env = TestEnv::init();
     init_git(&env); // Initialize git repo
 
-    // Set custom name and email
+    // Set custom name and email using new config keys
     env.bn()
-        .args(["config", "set", "co-author.name", "my-bot"])
+        .args(["config", "set", "git-bot.name", "my-bot"])
         .assert()
         .success();
     env.bn()
-        .args(["config", "set", "co-author.email", "bot@example.com"])
+        .args(["config", "set", "git-bot.email", "bot@example.com"])
         .assert()
         .success();
 
