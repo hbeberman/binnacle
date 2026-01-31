@@ -22,9 +22,9 @@ pub use backend::{BackendType, StorageBackend};
 pub use git_notes::GitNotesBackend;
 pub use orphan_branch::OrphanBranchBackend;
 
-use crate::config::BinnacleConfig;
+use crate::config::{BinnacleConfig, BinnacleState};
 #[cfg(unix)]
-use crate::config::CONFIG_FILE_MODE;
+use crate::config::{CONFIG_FILE_MODE, STATE_FILE_MODE};
 use crate::models::{
     Agent, AgentStatus, Bug, CommitLink, Doc, DocType, Edge, EdgeDirection, EdgeType, HydratedEdge,
     Idea, IdeaStatus, Issue, LogAnnotation, Milestone, MilestoneProgress, Mission, MissionProgress,
@@ -3933,6 +3933,226 @@ impl Storage {
         let mut config = Self::read_system_binnacle_config()?;
         updater(&mut config);
         Self::write_system_binnacle_config(&config)
+    }
+
+    // === KDL State File Operations ===
+    // state.kdl contains secrets and MUST be protected with 0600 permissions.
+
+    /// Get the path to the session state.kdl file.
+    /// This is the per-repository state at ~/.local/share/binnacle/<hash>/state.kdl
+    pub fn state_kdl_path(&self) -> PathBuf {
+        self.root.join("state.kdl")
+    }
+
+    /// Get the path to the system state.kdl file.
+    /// This is the global state at ~/.local/share/binnacle/state.kdl
+    pub fn system_state_kdl_path() -> Option<PathBuf> {
+        // Respect BN_DATA_DIR override for testing
+        if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
+            return Some(PathBuf::from(override_dir).join("state.kdl"));
+        }
+        dirs::data_local_dir().map(|d| d.join("binnacle").join("state.kdl"))
+    }
+
+    /// Read and parse the session state.kdl file, or return an empty document if it doesn't exist.
+    pub fn read_state_kdl(&self) -> Result<KdlDocument> {
+        let path = self.state_kdl_path();
+        if !path.exists() {
+            return Ok(KdlDocument::new());
+        }
+        let content = fs::read_to_string(&path)?;
+        content
+            .parse::<KdlDocument>()
+            .map_err(|e| Error::Other(format!("Failed to parse session state.kdl: {}", e)))
+    }
+
+    /// Read and parse the system state.kdl file, or return an empty document if it doesn't exist.
+    pub fn read_system_state_kdl() -> Result<KdlDocument> {
+        let Some(path) = Self::system_state_kdl_path() else {
+            return Ok(KdlDocument::new());
+        };
+        if !path.exists() {
+            return Ok(KdlDocument::new());
+        }
+        let content = fs::read_to_string(&path)?;
+        content
+            .parse::<KdlDocument>()
+            .map_err(|e| Error::Other(format!("Failed to parse system state.kdl: {}", e)))
+    }
+
+    /// Write the session state.kdl file with 0600 permissions.
+    ///
+    /// **SECURITY**: This function enforces 0600 permissions because state.kdl
+    /// contains secrets like GitHub tokens. If the file exists with incorrect
+    /// permissions, they are fixed before writing and a warning is emitted.
+    pub fn write_state_kdl(&self, doc: &KdlDocument) -> Result<()> {
+        let path = self.state_kdl_path();
+        Self::write_state_kdl_to_path(&path, doc)
+    }
+
+    /// Write a state.kdl document to a specific path with 0600 permissions.
+    ///
+    /// **SECURITY**: On Unix, this function:
+    /// 1. Checks if the file exists with incorrect permissions
+    /// 2. Fixes permissions if needed and emits a warning to stderr
+    /// 3. Creates new files with mode 0600 (owner read/write only)
+    #[cfg(unix)]
+    fn write_state_kdl_to_path(path: &Path, doc: &KdlDocument) -> Result<()> {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        // Check existing file permissions and fix if necessary
+        if path.exists() {
+            let metadata = fs::metadata(path)?;
+            let current_mode = metadata.permissions().mode() & 0o777;
+            if current_mode != STATE_FILE_MODE {
+                eprintln!(
+                    "Warning: state.kdl had insecure permissions {:04o}, fixing to {:04o}",
+                    current_mode, STATE_FILE_MODE
+                );
+                fs::set_permissions(path, fs::Permissions::from_mode(STATE_FILE_MODE))?;
+            }
+        }
+
+        // Write with 0600 permissions (rw-------)
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(STATE_FILE_MODE)
+            .open(path)?;
+        file.write_all(doc.to_string().as_bytes())?;
+        Ok(())
+    }
+
+    /// Write a state.kdl document to a specific path (non-Unix fallback).
+    #[cfg(not(unix))]
+    fn write_state_kdl_to_path(path: &Path, doc: &KdlDocument) -> Result<()> {
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, doc.to_string())?;
+        Ok(())
+    }
+
+    /// Write the system state.kdl file with 0600 permissions.
+    pub fn write_system_state_kdl(doc: &KdlDocument) -> Result<()> {
+        let Some(path) = Self::system_state_kdl_path() else {
+            return Err(Error::Other(
+                "Could not determine system data directory".to_string(),
+            ));
+        };
+        Self::write_state_kdl_to_path(&path, doc)
+    }
+
+    /// Verify that state.kdl has correct 0600 permissions.
+    /// Returns Ok(true) if permissions are correct, Ok(false) if incorrect,
+    /// or Err if the file doesn't exist or can't be checked.
+    #[cfg(unix)]
+    pub fn verify_state_kdl_permissions(&self) -> Result<bool> {
+        use std::os::unix::fs::PermissionsExt;
+        let path = self.state_kdl_path();
+        if !path.exists() {
+            return Err(Error::NotFound("state.kdl".to_string()));
+        }
+        let metadata = fs::metadata(&path)?;
+        let mode = metadata.permissions().mode() & 0o777;
+        Ok(mode == STATE_FILE_MODE)
+    }
+
+    /// Non-Unix fallback - always returns Ok(true) since we can't check permissions.
+    #[cfg(not(unix))]
+    pub fn verify_state_kdl_permissions(&self) -> Result<bool> {
+        let path = self.state_kdl_path();
+        if !path.exists() {
+            return Err(Error::NotFound("state.kdl".to_string()));
+        }
+        Ok(true)
+    }
+
+    /// Verify that system state.kdl has correct 0600 permissions.
+    #[cfg(unix)]
+    pub fn verify_system_state_kdl_permissions() -> Result<bool> {
+        use std::os::unix::fs::PermissionsExt;
+        let Some(path) = Self::system_state_kdl_path() else {
+            return Err(Error::Other(
+                "Could not determine system data directory".to_string(),
+            ));
+        };
+        if !path.exists() {
+            return Err(Error::NotFound("system state.kdl".to_string()));
+        }
+        let metadata = fs::metadata(&path)?;
+        let mode = metadata.permissions().mode() & 0o777;
+        Ok(mode == STATE_FILE_MODE)
+    }
+
+    /// Non-Unix fallback for system state.kdl permission verification.
+    #[cfg(not(unix))]
+    pub fn verify_system_state_kdl_permissions() -> Result<bool> {
+        let Some(path) = Self::system_state_kdl_path() else {
+            return Err(Error::Other(
+                "Could not determine system data directory".to_string(),
+            ));
+        };
+        if !path.exists() {
+            return Err(Error::NotFound("system state.kdl".to_string()));
+        }
+        Ok(true)
+    }
+
+    /// Read the session state.kdl as a BinnacleState struct.
+    pub fn read_binnacle_state(&self) -> Result<BinnacleState> {
+        let doc = self.read_state_kdl()?;
+        Ok(BinnacleState::from_kdl(&doc))
+    }
+
+    /// Read the system state.kdl as a BinnacleState struct.
+    pub fn read_system_binnacle_state() -> Result<BinnacleState> {
+        let doc = Self::read_system_state_kdl()?;
+        Ok(BinnacleState::from_kdl(&doc))
+    }
+
+    /// Get the merged state with precedence: session state > system state.
+    /// Returns None for fields not set in either location.
+    pub fn get_merged_binnacle_state(&self) -> Result<BinnacleState> {
+        let mut state = Self::read_system_binnacle_state()?;
+        let session_state = self.read_binnacle_state()?;
+        state.merge(&session_state);
+        Ok(state)
+    }
+
+    /// Write a BinnacleState to the session state.kdl file with 0600 permissions.
+    pub fn write_binnacle_state(&self, state: &BinnacleState) -> Result<()> {
+        let doc = state.to_kdl();
+        self.write_state_kdl(&doc)
+    }
+
+    /// Write a BinnacleState to the system state.kdl file with 0600 permissions.
+    pub fn write_system_binnacle_state(state: &BinnacleState) -> Result<()> {
+        let doc = state.to_kdl();
+        Self::write_system_state_kdl(&doc)
+    }
+
+    /// Update a single field in the session state.kdl.
+    /// Preserves existing values for other fields.
+    pub fn update_binnacle_state(&self, updater: impl FnOnce(&mut BinnacleState)) -> Result<()> {
+        let mut state = self.read_binnacle_state()?;
+        updater(&mut state);
+        self.write_binnacle_state(&state)
+    }
+
+    /// Update a single field in the system state.kdl.
+    /// Preserves existing values for other fields.
+    pub fn update_system_binnacle_state(updater: impl FnOnce(&mut BinnacleState)) -> Result<()> {
+        let mut state = Self::read_system_binnacle_state()?;
+        updater(&mut state);
+        Self::write_system_binnacle_state(&state)
     }
 
     // === Log Operations ===
@@ -8638,6 +8858,181 @@ mod tests {
 
         // Should have 0644 permissions (rw-r--r--)
         assert_eq!(mode, 0o644, "config.kdl should have 0644 permissions");
+    }
+
+    // === State KDL Tests ===
+
+    #[test]
+    fn test_state_kdl_read_write_roundtrip() {
+        let (_temp_dir, storage) = create_test_storage();
+
+        let state = BinnacleState {
+            github_token: Some("ghp_test123456789012345".to_string()),
+            token_validated_at: Some(chrono::Utc::now()),
+            last_copilot_version: Some("1.0.0".to_string()),
+        };
+
+        // Write and read back
+        storage.write_binnacle_state(&state).unwrap();
+        let retrieved = storage.read_binnacle_state().unwrap();
+
+        assert_eq!(retrieved.github_token, state.github_token);
+        assert!(retrieved.token_validated_at.is_some());
+        assert_eq!(retrieved.last_copilot_version, state.last_copilot_version);
+    }
+
+    #[test]
+    fn test_state_kdl_empty_when_not_exists() {
+        let (_temp_dir, storage) = create_test_storage();
+
+        // state.kdl doesn't exist yet
+        let state = storage.read_binnacle_state().unwrap();
+
+        assert_eq!(state.github_token, None);
+        assert_eq!(state.token_validated_at, None);
+        assert_eq!(state.last_copilot_version, None);
+    }
+
+    #[test]
+    fn test_state_kdl_update_preserves_other_fields() {
+        let (_temp_dir, storage) = create_test_storage();
+
+        // Set initial state
+        let initial = BinnacleState {
+            github_token: Some("ghp_original".to_string()),
+            token_validated_at: None,
+            last_copilot_version: Some("1.0.0".to_string()),
+        };
+        storage.write_binnacle_state(&initial).unwrap();
+
+        // Update only the token
+        storage
+            .update_binnacle_state(|s| {
+                s.github_token = Some("ghp_updated".to_string());
+            })
+            .unwrap();
+
+        let retrieved = storage.read_binnacle_state().unwrap();
+        assert_eq!(retrieved.github_token, Some("ghp_updated".to_string()));
+        assert_eq!(retrieved.last_copilot_version, Some("1.0.0".to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_state_kdl_created_with_0600_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_temp_dir, storage) = create_test_storage();
+
+        let state = BinnacleState {
+            github_token: Some("ghp_secret_token".to_string()),
+            ..Default::default()
+        };
+
+        storage.write_binnacle_state(&state).unwrap();
+
+        let path = storage.state_kdl_path();
+        let metadata = fs::metadata(&path).unwrap();
+        let mode = metadata.permissions().mode() & 0o777;
+
+        // MUST have 0600 permissions (rw-------)
+        assert_eq!(
+            mode, 0o600,
+            "state.kdl MUST have 0600 permissions for security"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_state_kdl_fixes_insecure_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_temp_dir, storage) = create_test_storage();
+        let path = storage.state_kdl_path();
+
+        // Create state file with INSECURE permissions (0644)
+        fs::write(&path, "github-token \"test\"\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        // Verify it's currently insecure
+        let metadata = fs::metadata(&path).unwrap();
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o644);
+
+        // Write new state - should fix permissions
+        let state = BinnacleState {
+            github_token: Some("ghp_new_token".to_string()),
+            ..Default::default()
+        };
+        storage.write_binnacle_state(&state).unwrap();
+
+        // Verify permissions are now secure
+        let metadata = fs::metadata(&path).unwrap();
+        let mode = metadata.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "state.kdl permissions should be fixed to 0600");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_state_kdl_verify_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_temp_dir, storage) = create_test_storage();
+        let path = storage.state_kdl_path();
+
+        // No state file - should error
+        assert!(storage.verify_state_kdl_permissions().is_err());
+
+        // Create with correct permissions
+        let state = BinnacleState {
+            github_token: Some("ghp_test".to_string()),
+            ..Default::default()
+        };
+        storage.write_binnacle_state(&state).unwrap();
+        assert!(storage.verify_state_kdl_permissions().unwrap());
+
+        // Manually break permissions
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(!storage.verify_state_kdl_permissions().unwrap());
+    }
+
+    #[test]
+    fn test_state_kdl_merged_precedence() {
+        let (_temp_dir, storage) = create_test_storage();
+
+        // Create a separate "system" data directory
+        let system_data_dir = tempfile::tempdir().unwrap();
+        // BN_DATA_DIR makes system_state_kdl_path return BN_DATA_DIR/state.kdl
+        let system_state_path = system_data_dir.path().join("state.kdl");
+
+        // Set BN_DATA_DIR to point to our test system data
+        // SAFETY: We're in a test environment and this test should run serially
+        unsafe { std::env::set_var("BN_DATA_DIR", system_data_dir.path()) };
+
+        // Write system state directly to file
+        let system_doc: kdl::KdlDocument = r#"
+            github-token "ghp_system_token"
+            last-copilot-version "1.0.0"
+        "#
+        .parse()
+        .unwrap();
+        fs::write(&system_state_path, system_doc.to_string()).unwrap();
+
+        // Write session state (partial override)
+        let session_state = BinnacleState {
+            github_token: Some("ghp_session_token".to_string()), // Override
+            token_validated_at: None,
+            last_copilot_version: None, // Don't override
+        };
+        storage.write_binnacle_state(&session_state).unwrap();
+
+        // Get merged state - session wins for token, system for version
+        let merged = storage.get_merged_binnacle_state().unwrap();
+        assert_eq!(merged.github_token, Some("ghp_session_token".to_string()));
+        assert_eq!(merged.last_copilot_version, Some("1.0.0".to_string()));
+
+        // Clean up
+        // SAFETY: We're in a test environment
+        unsafe { std::env::remove_var("BN_DATA_DIR") };
     }
 
     // === Issue Storage Tests ===
