@@ -14,7 +14,8 @@ use crate::models::{
     TestNode, TestResult, complexity::analyze_complexity, graph::UnionFind, prompts,
 };
 use crate::storage::{
-    EntityType, Storage, find_git_root, generate_id, get_test_mode_info, parse_status,
+    EntityType, Storage, find_git_root, generate_id, get_basic_test_mode_info, get_test_mode_info,
+    parse_status,
 };
 use crate::{Error, Result};
 use chrono::Utc;
@@ -20001,20 +20002,43 @@ pub fn serve(repo_path: &Path, interval_secs: u64, dry_run: bool, human: bool) -
     .expect("Error setting Ctrl-C handler");
 
     let mode_str = if dry_run { " (dry-run)" } else { "" };
+
+    // Get test mode info for startup message
+    let test_info = get_basic_test_mode_info();
+
     if human {
-        println!(
-            "[{}] Starting bn serve{} with {}s interval...",
-            chrono::Local::now().format("%H:%M:%S"),
-            mode_str,
-            interval_secs
-        );
+        // Show [TEST MODE] prefix when running in test mode
+        if test_info.test_mode {
+            println!(
+                "[TEST MODE] [{}] Starting bn serve{} with {}s interval...",
+                chrono::Local::now().format("%H:%M:%S"),
+                mode_str,
+                interval_secs
+            );
+            println!("Data root: {}", test_info.data_root);
+        } else {
+            println!(
+                "[{}] Starting bn serve{} with {}s interval...",
+                chrono::Local::now().format("%H:%M:%S"),
+                mode_str,
+                interval_secs
+            );
+        }
         println!("Press Ctrl+C to stop.\n");
     } else {
+        // JSON output includes test mode fields
         println!(
-            r#"{{"event": "start", "timestamp": "{}", "interval": {}, "dry_run": {}}}"#,
+            r#"{{"event": "start", "timestamp": "{}", "interval": {}, "dry_run": {}, "test_mode": {}, "test_id": {}, "data_root": "{}"}}"#,
             chrono::Utc::now().to_rfc3339(),
             interval_secs,
-            dry_run
+            dry_run,
+            test_info.test_mode,
+            test_info
+                .test_id
+                .as_ref()
+                .map(|s| format!("\"{}\"", s))
+                .unwrap_or_else(|| "null".to_string()),
+            test_info.data_root
         );
     }
 

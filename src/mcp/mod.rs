@@ -9,6 +9,7 @@
 //!
 //! Instead of 38+ individual tool handlers, this just executes the CLI directly.
 
+use crate::storage::get_basic_test_mode_info;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -1002,10 +1003,25 @@ pub fn serve(_repo_path: &std::path::Path, cwd: Option<PathBuf>) {
         None => McpServer::new(),
     };
 
-    eprintln!(
-        "Binnacle MCP server {} started (session: {})",
-        SERVER_VERSION, server.session_id
-    );
+    // Get test mode info for startup message
+    let test_info = get_basic_test_mode_info();
+
+    // Show test mode info in startup message
+    if test_info.test_mode {
+        eprintln!(
+            "[TEST MODE] Binnacle MCP server {} started (session: {})",
+            SERVER_VERSION, server.session_id
+        );
+        eprintln!("Data root: {}", test_info.data_root);
+        if let Some(ref test_id) = test_info.test_id {
+            eprintln!("Test ID: {}", test_id);
+        }
+    } else {
+        eprintln!(
+            "Binnacle MCP server {} started (session: {})",
+            SERVER_VERSION, server.session_id
+        );
+    }
 
     for line in stdin.lock().lines() {
         let line = match line {

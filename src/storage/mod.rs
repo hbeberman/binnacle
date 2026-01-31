@@ -5741,6 +5741,54 @@ pub fn get_test_mode_info(repo_path: &Path) -> Result<(bool, Option<String>, Pat
     Ok((test_mode, test_id, storage_dir))
 }
 
+/// Test mode information for startup messages and logging.
+/// This is a simpler version that doesn't need repo_path since it just shows
+/// the data root (not the repo-specific storage directory).
+#[derive(Debug, Clone)]
+pub struct TestModeInfo {
+    /// True when BN_TEST_MODE=1 is set
+    pub test_mode: bool,
+    /// The test ID from BN_TEST_ID env var (for parallel test isolation)
+    pub test_id: Option<String>,
+    /// The data root directory being used (useful for debugging test isolation)
+    pub data_root: String,
+}
+
+/// Get basic test mode information without needing a repo path.
+/// This is useful for startup messages where we haven't yet opened a specific repo.
+pub fn get_basic_test_mode_info() -> TestModeInfo {
+    let test_mode = is_test_mode();
+    let test_id = get_test_id();
+
+    // Compute the data root (base directory without repo-specific hash)
+    let data_root = if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
+        override_dir
+    } else if test_mode {
+        if let Some(data_dir) = dirs::data_dir() {
+            let test_root = data_dir.join("binnacle-test");
+            if let Some(ref id) = test_id {
+                test_root.join(id).display().to_string()
+            } else {
+                test_root.display().to_string()
+            }
+        } else {
+            "~/.local/share/binnacle-test".to_string()
+        }
+    } else if std::env::var("BN_CONTAINER_MODE").is_ok() || Path::new("/binnacle").exists() {
+        "/binnacle".to_string()
+    } else if let Some(data_dir) = dirs::data_dir() {
+        data_dir.join("binnacle").display().to_string()
+    } else {
+        "~/.local/share/binnacle".to_string()
+    };
+
+    TestModeInfo {
+        test_mode,
+        test_id,
+        data_root,
+    }
+}
+
 /// Get the production data directory base path.
 /// Returns the path where production binnacle data would be stored.
 /// This is `~/.local/share/binnacle/` on most systems.
@@ -8885,6 +8933,95 @@ mod tests {
                 err_msg.contains("test mode"),
                 "Error should mention test mode: {}",
                 err_msg
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn test_get_basic_test_mode_info_not_in_test_mode() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe {
+                std::env::remove_var("BN_TEST_MODE");
+                std::env::remove_var("BN_TEST_ID");
+                std::env::remove_var("BN_DATA_DIR");
+            };
+
+            let info = get_basic_test_mode_info();
+
+            assert!(
+                !info.test_mode,
+                "test_mode should be false when BN_TEST_MODE is unset"
+            );
+            assert!(
+                info.test_id.is_none(),
+                "test_id should be None when BN_TEST_ID is unset"
+            );
+            assert!(!info.data_root.is_empty(), "data_root should not be empty");
+            // In production mode, should NOT contain binnacle-test
+            assert!(
+                !info.data_root.contains("binnacle-test"),
+                "data_root should not be binnacle-test in production mode: {}",
+                info.data_root
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn test_get_basic_test_mode_info_in_test_mode() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe {
+                std::env::set_var("BN_TEST_MODE", "1");
+                std::env::set_var("BN_TEST_ID", "test-info-123");
+                std::env::remove_var("BN_DATA_DIR");
+            };
+
+            let info = get_basic_test_mode_info();
+
+            unsafe {
+                std::env::remove_var("BN_TEST_MODE");
+                std::env::remove_var("BN_TEST_ID");
+            };
+
+            assert!(
+                info.test_mode,
+                "test_mode should be true when BN_TEST_MODE=1"
+            );
+            assert_eq!(info.test_id, Some("test-info-123".to_string()));
+            assert!(!info.data_root.is_empty(), "data_root should not be empty");
+            // In test mode, should contain binnacle-test and test ID
+            assert!(
+                info.data_root.contains("binnacle-test"),
+                "data_root should contain binnacle-test in test mode: {}",
+                info.data_root
+            );
+            assert!(
+                info.data_root.contains("test-info-123"),
+                "data_root should contain test ID: {}",
+                info.data_root
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn test_get_basic_test_mode_info_with_data_dir_override() {
+            // SAFETY: Test runs in isolation (serial)
+            unsafe {
+                std::env::set_var("BN_TEST_MODE", "1");
+                std::env::set_var("BN_DATA_DIR", "/custom/test/data");
+            };
+
+            let info = get_basic_test_mode_info();
+
+            unsafe {
+                std::env::remove_var("BN_TEST_MODE");
+                std::env::remove_var("BN_DATA_DIR");
+            };
+
+            assert!(info.test_mode, "test_mode should be true");
+            // BN_DATA_DIR takes precedence
+            assert_eq!(
+                info.data_root, "/custom/test/data",
+                "BN_DATA_DIR should override default path"
             );
         }
 
