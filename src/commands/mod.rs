@@ -13,7 +13,9 @@ use crate::models::{
     IdeaStatus, Issue, IssueStatus, Milestone, Mission, Queue, SessionState, Task, TaskStatus,
     TestNode, TestResult, complexity::analyze_complexity, graph::UnionFind, prompts,
 };
-use crate::storage::{EntityType, Storage, find_git_root, generate_id, parse_status};
+use crate::storage::{
+    EntityType, Storage, find_git_root, generate_id, get_test_mode_info, parse_status,
+};
 use crate::{Error, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -3490,6 +3492,13 @@ pub struct OrientResult {
     pub total_issues: usize,
     /// Number of open issues (open, triage, investigating)
     pub open_issues_count: usize,
+    /// True when BN_TEST_MODE=1 is set - data is isolated from production.
+    pub test_mode: bool,
+    /// The test ID from BN_TEST_ID env var (for parallel test isolation).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test_id: Option<String>,
+    /// The data root directory being used (useful for debugging test isolation).
+    pub data_root: String,
 }
 
 /// Queue info for orient output.
@@ -3508,9 +3517,21 @@ impl Output for OrientResult {
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
 
-        lines.push("Binnacle - AI agent task tracker".to_string());
+        // Show [TEST MODE] prefix when running in test mode
+        let header = if self.test_mode {
+            "[TEST MODE] Binnacle - AI agent task tracker"
+        } else {
+            "Binnacle - AI agent task tracker"
+        };
+        lines.push(header.to_string());
         lines.push(String::new());
         lines.push("This project uses binnacle (bn) for issue and test tracking.".to_string());
+
+        // Show data root in test mode to help developers understand isolation
+        if self.test_mode {
+            lines.push(format!("Data root: {}", self.data_root));
+        }
+
         lines.push(format!("Your agent ID: {}", self.agent_id));
         lines.push(String::new());
         lines.push("Current State:".to_string());
@@ -4052,6 +4073,10 @@ pub fn orient(
         })
         .count();
 
+    // Get test mode info for isolation awareness
+    let (test_mode, test_id, data_root_path) = get_test_mode_info(repo_path)?;
+    let data_root = data_root_path.display().to_string();
+
     Ok(OrientResult {
         ready: true, // Always true when orient succeeds - store is ready to use
         just_initialized,
@@ -4072,6 +4097,9 @@ pub fn orient(
         open_milestones_count,
         total_issues,
         open_issues_count,
+        test_mode,
+        test_id,
+        data_root,
     })
 }
 
@@ -25950,6 +25978,99 @@ mod tests {
         let agents = storage.list_agents(None).unwrap();
         let agent = agents.iter().find(|a| a.name == "update-agent").unwrap();
         assert_eq!(agent.display_purpose(), "PRD Generator");
+    }
+
+    #[test]
+    #[serial]
+    fn test_orient_test_mode_indicator_in_human_output() {
+        let temp = setup();
+
+        // SAFETY: Test runs in isolation (serial). Set env vars before test.
+        unsafe {
+            std::env::set_var("BN_TEST_MODE", "1");
+            std::env::set_var("BN_TEST_ID", "test-orient-indicator");
+        }
+
+        // Create a task so we have some state
+        task_create(
+            temp.path(),
+            "Test Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let result = orient(temp.path(), "worker", false, None, None, true).unwrap();
+
+        // JSON output should include test mode fields
+        assert!(
+            result.test_mode,
+            "test_mode should be true when BN_TEST_MODE=1"
+        );
+        assert_eq!(result.test_id, Some("test-orient-indicator".to_string()));
+        assert!(
+            !result.data_root.is_empty(),
+            "data_root should not be empty"
+        );
+        // Note: data_root may use BN_DATA_DIR override, so don't require binnacle-test in path
+
+        // Human output should show [TEST MODE] prefix
+        let human = result.to_human();
+        assert!(
+            human.contains("[TEST MODE]"),
+            "Human output should contain [TEST MODE] prefix"
+        );
+        assert!(human.contains("Binnacle - AI agent task tracker"));
+        assert!(
+            human.contains("Data root:"),
+            "Human output should show Data root: in test mode"
+        );
+
+        // Clean up env vars
+        unsafe {
+            std::env::remove_var("BN_TEST_MODE");
+            std::env::remove_var("BN_TEST_ID");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_orient_no_test_mode_indicator_in_production() {
+        let temp = setup();
+
+        // SAFETY: Test runs in isolation (serial). Ensure env vars are unset.
+        unsafe {
+            std::env::remove_var("BN_TEST_MODE");
+            std::env::remove_var("BN_TEST_ID");
+        }
+
+        let result = orient(temp.path(), "worker", false, None, None, true).unwrap();
+
+        // JSON output should show not in test mode
+        assert!(
+            !result.test_mode,
+            "test_mode should be false when BN_TEST_MODE is unset"
+        );
+        assert!(
+            result.test_id.is_none(),
+            "test_id should be None when BN_TEST_ID is unset"
+        );
+
+        // Human output should NOT show [TEST MODE] prefix
+        let human = result.to_human();
+        assert!(
+            !human.contains("[TEST MODE]"),
+            "Human output should not contain [TEST MODE] in production"
+        );
+        assert!(human.starts_with("Binnacle - AI agent task tracker"));
+        // Should not show Data root: line in production mode
+        assert!(
+            !human.contains("Data root:"),
+            "Human output should not show Data root: in production mode"
+        );
     }
 
     // === Blocker Analysis Tests ===
