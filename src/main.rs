@@ -4,7 +4,7 @@ use binnacle::action_log;
 #[cfg(feature = "gui")]
 use binnacle::cli::GuiCommands;
 #[cfg(feature = "tmux")]
-use binnacle::cli::TmuxCommands;
+use binnacle::cli::SystemTmuxCommands;
 use binnacle::cli::{
     AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
     CopilotCommands, DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands,
@@ -1349,11 +1349,7 @@ fn run_command(
             #[cfg(feature = "tmux")]
             SystemCommands::Tmux { command } => {
                 match command {
-                    TmuxCommands::Save {
-                        name,
-                        project,
-                        user,
-                    } => {
+                    SystemTmuxCommands::Save { name } => {
                         // Check tmux binary first - only Save and Load need it
                         binnacle::tmux::check_tmux_binary()?;
                         // Capture current tmux session
@@ -1362,8 +1358,19 @@ fn run_command(
                         // Use provided name or session name
                         let layout_name = name.clone().unwrap_or_else(|| layout.name.clone());
 
-                        // Determine save location
-                        let save_path = tmux_save_path(repo_path, &layout_name, project, user)?;
+                        // System-level: ~/.config/binnacle/tmux/
+                        let save_path = system_tmux_path(&layout_name)?;
+
+                        // Ensure directory exists
+                        if let Some(parent) = save_path.parent() {
+                            std::fs::create_dir_all(parent).map_err(|e| {
+                                binnacle::Error::Other(format!(
+                                    "Failed to create directory {}: {}",
+                                    parent.display(),
+                                    e
+                                ))
+                            })?;
+                        }
 
                         // Check for existing file and warn
                         if save_path.exists() {
@@ -1414,21 +1421,28 @@ fn run_command(
                         };
                         output(&result, human);
                     }
-                    TmuxCommands::Load { name } => {
+                    SystemTmuxCommands::Load { name } => {
                         // Check tmux binary first - Load needs tmux to create sessions
                         binnacle::tmux::check_tmux_binary()?;
                         use binnacle::tmux::command::TmuxCommand;
-                        use binnacle::tmux::layout::{ResolvedLayout, find_layout, load_layout};
+                        use binnacle::tmux::layout::{DiscoveredLayout, LayoutSource, load_layout};
                         use std::process::Command;
 
-                        // Find the layout using multi-source resolution
-                        let discovered = find_layout(&name, repo_path)?.ok_or_else(|| {
-                            binnacle::Error::Other(format!(
-                                "Layout '{}' not found. Searched in:\n  - {}\n  - Session storage\n  - User config",
+                        // Look only in system-level directory
+                        let layout_path = system_tmux_path(&name)?;
+                        if !layout_path.exists() {
+                            return Err(binnacle::Error::Other(format!(
+                                "Layout '{}' not found at: {}",
                                 name,
-                                repo_path.join(".binnacle/tmux").display()
-                            ))
-                        })?;
+                                layout_path.display()
+                            )));
+                        }
+
+                        let discovered = DiscoveredLayout {
+                            name: name.clone(),
+                            path: layout_path,
+                            source: LayoutSource::User,
+                        };
 
                         // Load and parse the layout
                         let layout = load_layout(&discovered)?;
@@ -1441,7 +1455,8 @@ fn run_command(
                                 e
                             ))
                         })?;
-                        let resolved = ResolvedLayout::from_layout(layout, &cwd)?;
+                        let resolved =
+                            binnacle::tmux::layout::ResolvedLayout::from_layout(layout, &cwd)?;
 
                         // Check if session already exists
                         let has_session_cmd = TmuxCommand::has_session(&session_name);
@@ -1592,48 +1607,81 @@ fn run_command(
                             output(&result, human);
                         }
                     }
-                    TmuxCommands::List => {
-                        use binnacle::tmux::layout::{list_layouts, load_layout};
+                    SystemTmuxCommands::List => {
+                        use binnacle::tmux::layout::{DiscoveredLayout, LayoutSource, load_layout};
 
-                        let layouts = list_layouts(repo_path)?;
-                        let summaries: Vec<commands::TmuxLayoutSummary> = layouts
-                            .iter()
-                            .map(|discovered| {
-                                // Try to load layout to get window/pane counts
-                                let (window_count, pane_count) = match load_layout(discovered) {
-                                    Ok(layout) => {
-                                        let windows = layout.windows.len();
-                                        let panes: usize =
-                                            layout.windows.iter().map(|w| w.panes.len()).sum();
-                                        (windows, panes)
-                                    }
-                                    Err(_) => (0, 0), // If we can't parse, show 0
-                                };
-                                commands::TmuxLayoutSummary {
-                                    name: discovered.name.clone(),
-                                    source: discovered.source.to_string(),
-                                    path: discovered.path.display().to_string(),
-                                    window_count,
-                                    pane_count,
+                        let tmux_dir = system_tmux_dir()?;
+                        let mut summaries = Vec::new();
+
+                        if tmux_dir.exists() {
+                            for entry in std::fs::read_dir(&tmux_dir).map_err(|e| {
+                                binnacle::Error::Other(format!(
+                                    "Failed to read directory {}: {}",
+                                    tmux_dir.display(),
+                                    e
+                                ))
+                            })? {
+                                let entry = entry.map_err(|e| {
+                                    binnacle::Error::Other(format!("Failed to read entry: {}", e))
+                                })?;
+                                let path = entry.path();
+                                if path.extension().is_some_and(|ext| ext == "kdl") {
+                                    let name = path
+                                        .file_stem()
+                                        .map(|s| s.to_string_lossy().to_string())
+                                        .unwrap_or_default();
+
+                                    let discovered = DiscoveredLayout {
+                                        name: name.clone(),
+                                        path: path.clone(),
+                                        source: LayoutSource::User,
+                                    };
+
+                                    // Try to load layout to get window/pane counts
+                                    let (window_count, pane_count) = match load_layout(&discovered)
+                                    {
+                                        Ok(layout) => {
+                                            let windows = layout.windows.len();
+                                            let panes: usize =
+                                                layout.windows.iter().map(|w| w.panes.len()).sum();
+                                            (windows, panes)
+                                        }
+                                        Err(_) => (0, 0), // If we can't parse, show 0
+                                    };
+
+                                    summaries.push(commands::TmuxLayoutSummary {
+                                        name,
+                                        source: "user".to_string(),
+                                        path: path.display().to_string(),
+                                        window_count,
+                                        pane_count,
+                                    });
                                 }
-                            })
-                            .collect();
+                            }
+                        }
 
                         let result = commands::TmuxListResult { layouts: summaries };
                         output(&result, human);
                     }
-                    TmuxCommands::Show { name } => {
-                        use binnacle::tmux::layout::{find_layout, load_layout};
+                    SystemTmuxCommands::Show { name } => {
+                        use binnacle::tmux::layout::{DiscoveredLayout, LayoutSource, load_layout};
                         use binnacle::tmux::schema::Size;
 
-                        // Find the layout
-                        let discovered = find_layout(&name, repo_path)?.ok_or_else(|| {
-                            binnacle::Error::Other(format!(
-                                "Layout '{}' not found. Searched in:\n  - {}\n  - Session storage\n  - User config",
+                        // Look only in system-level directory
+                        let layout_path = system_tmux_path(&name)?;
+                        if !layout_path.exists() {
+                            return Err(binnacle::Error::Other(format!(
+                                "Layout '{}' not found at: {}",
                                 name,
-                                repo_path.join(".binnacle/tmux").display()
-                            ))
-                        })?;
+                                layout_path.display()
+                            )));
+                        }
+
+                        let discovered = DiscoveredLayout {
+                            name: name.clone(),
+                            path: layout_path,
+                            source: LayoutSource::User,
+                        };
 
                         // Load and parse the layout
                         let layout = load_layout(&discovered)?;
@@ -2601,35 +2649,19 @@ window.addEventListener('DOMContentLoaded', () => {
     Ok(())
 }
 
-/// Determine save path for tmux layout based on flags.
+/// Get path to system-level tmux layout directory (~/.config/binnacle/tmux/).
 #[cfg(feature = "tmux")]
-fn tmux_save_path(
-    repo_path: &Path,
-    layout_name: &str,
-    project: bool,
-    user: bool,
-) -> Result<PathBuf, binnacle::Error> {
-    let filename = format!("{}.kdl", layout_name);
+fn system_tmux_dir() -> Result<PathBuf, binnacle::Error> {
+    let config_dir = dirs::config_dir()
+        .ok_or_else(|| binnacle::Error::Other("Failed to find config directory".to_string()))?;
+    Ok(config_dir.join("binnacle").join("tmux"))
+}
 
-    if project {
-        // Project-level: .binnacle/tmux/ in repo
-        Ok(repo_path.join(".binnacle").join("tmux").join(filename))
-    } else if user {
-        // User-level: ~/.config/binnacle/tmux/
-        let config_dir = dirs::config_dir()
-            .ok_or_else(|| binnacle::Error::Other("Failed to find config directory".to_string()))?;
-        Ok(config_dir.join("binnacle").join("tmux").join(filename))
-    } else {
-        // Session-level (default): ~/.local/share/binnacle/<hash>/tmux/
-        let data_dir = dirs::data_local_dir()
-            .ok_or_else(|| binnacle::Error::Other("Failed to find data directory".to_string()))?;
-        let repo_hash = binnacle::storage::compute_repo_hash(repo_path)?;
-        Ok(data_dir
-            .join("binnacle")
-            .join(&repo_hash)
-            .join("tmux")
-            .join(filename))
-    }
+/// Get path to a specific system-level tmux layout file.
+#[cfg(feature = "tmux")]
+fn system_tmux_path(layout_name: &str) -> Result<PathBuf, binnacle::Error> {
+    let filename = format!("{}.kdl", layout_name);
+    Ok(system_tmux_dir()?.join(filename))
 }
 
 /// Serialize command to extract name and arguments for logging.
@@ -3748,20 +3780,16 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             },
             #[cfg(feature = "tmux")]
             SystemCommands::Tmux { command } => match command {
-                TmuxCommands::Save {
-                    name,
-                    project,
-                    user,
-                } => (
+                SystemTmuxCommands::Save { name } => (
                     "system tmux save".to_string(),
-                    serde_json::json!({ "name": name, "project": project, "user": user }),
+                    serde_json::json!({ "name": name }),
                 ),
-                TmuxCommands::Load { name } => (
+                SystemTmuxCommands::Load { name } => (
                     "system tmux load".to_string(),
                     serde_json::json!({ "name": name }),
                 ),
-                TmuxCommands::List => ("system tmux list".to_string(), serde_json::json!({})),
-                TmuxCommands::Show { name } => (
+                SystemTmuxCommands::List => ("system tmux list".to_string(), serde_json::json!({})),
+                SystemTmuxCommands::Show { name } => (
                     "system tmux show".to_string(),
                     serde_json::json!({ "name": name }),
                 ),

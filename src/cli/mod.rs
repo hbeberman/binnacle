@@ -1965,10 +1965,13 @@ pub enum SystemCommands {
     },
 
     /// Tmux layout management (requires --features tmux)
+    ///
+    /// System-level tmux commands operate exclusively on ~/.config/binnacle/tmux/
+    /// for host-global layouts that persist across repositories.
     #[cfg(feature = "tmux")]
     Tmux {
         #[command(subcommand)]
-        command: TmuxCommands,
+        command: SystemTmuxCommands,
     },
 }
 
@@ -2014,6 +2017,32 @@ pub enum TmuxCommands {
     /// List available tmux layouts from all sources
     List,
     /// Show detailed information about a layout without loading it
+    Show {
+        /// Layout name to show
+        name: String,
+    },
+}
+
+/// System-level tmux layout management subcommands (feature-gated)
+///
+/// These commands operate exclusively on ~/.config/binnacle/tmux/ for
+/// host-global layouts that persist across repositories.
+#[cfg(feature = "tmux")]
+#[derive(Subcommand, Debug)]
+pub enum SystemTmuxCommands {
+    /// Save current tmux layout to ~/.config/binnacle/tmux/
+    Save {
+        /// Layout name (default: current session name)
+        name: Option<String>,
+    },
+    /// Load a tmux layout from ~/.config/binnacle/tmux/
+    Load {
+        /// Layout name to load
+        name: String,
+    },
+    /// List tmux layouts in ~/.config/binnacle/tmux/
+    List,
+    /// Show detailed information about a layout
     Show {
         /// Layout name to show
         name: String,
