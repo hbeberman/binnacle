@@ -1399,23 +1399,32 @@ pub async fn run_tui(
             }
         }
 
-        // Handle events with a timeout
-        tokio::select! {
-            // Check for keyboard and mouse events
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                if event::poll(Duration::from_millis(0))? {
-                    match event::read()? {
-                        Event::Key(key) => {
-                            if key.kind == KeyEventKind::Press {
-                                app.handle_key(key.code);
-                            }
-                        }
-                        Event::Mouse(mouse) => {
-                            app.handle_mouse(mouse);
-                        }
-                        _ => {}
+        // Check for keyboard and mouse events first (non-blocking)
+        // Use a small timeout to catch buffered events without blocking
+        while event::poll(Duration::from_millis(10))? {
+            match event::read()? {
+                Event::Key(key) => {
+                    if key.kind == KeyEventKind::Press {
+                        app.handle_key(key.code);
                     }
                 }
+                Event::Mouse(mouse) => {
+                    app.handle_mouse(mouse);
+                }
+                _ => {}
+            }
+        }
+
+        // Check for quit after processing events
+        if app.should_quit {
+            break;
+        }
+
+        // Handle WebSocket messages with a timeout
+        tokio::select! {
+            // Wait a bit before next iteration
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                // Just a tick to prevent busy-looping
             }
             // Check for WebSocket messages (only if connected)
             msg = async {
@@ -1439,10 +1448,6 @@ pub async fn run_tui(
                     }
                 }
             }
-        }
-
-        if app.should_quit {
-            break;
         }
     }
 
