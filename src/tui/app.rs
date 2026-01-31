@@ -60,6 +60,8 @@ pub enum InputMode {
     Normal,
     /// Search mode - filtering lists with / and n/N navigation
     Search,
+    /// Command mode - vim-style : command entry (e.g., :q, :help)
+    Command,
 }
 
 /// Response from /api/ready endpoint
@@ -350,6 +352,13 @@ impl TuiApp {
     #[allow(dead_code)]
     pub fn is_search_mode(&self) -> bool {
         self.input_mode == InputMode::Search
+    }
+
+    /// Check if we're in command mode
+    /// NOTE: Will be used by command mode implementation (bn-4101)
+    #[allow(dead_code)]
+    pub fn is_command_mode(&self) -> bool {
+        self.input_mode == InputMode::Command
     }
 
     /// Switch to the next view (only cycles between list views, not detail)
