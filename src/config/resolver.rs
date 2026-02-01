@@ -369,6 +369,7 @@ mod tests {
     use super::*;
     use crate::config::{BinnacleConfig, BinnacleState};
     use crate::test_utils::TestEnv;
+    use serial_test::serial;
     use tempfile::TempDir;
 
     fn create_test_storage() -> (TestEnv, Storage) {
@@ -401,6 +402,7 @@ mod tests {
     // ==================== Config Resolution Tests ====================
 
     #[test]
+    #[serial]
     fn test_resolve_config_defaults() {
         let (_temp_dir, storage) = create_test_storage();
 
@@ -422,6 +424,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_resolve_config_from_session() {
         let (_temp_dir, storage) = create_test_storage();
 
@@ -452,6 +455,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_resolve_config_cli_overrides_session() {
         let (_temp_dir, storage) = create_test_storage();
 
@@ -489,6 +493,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_resolve_config_session_overrides_system() {
         let (_temp_dir, storage) = create_test_storage();
 
