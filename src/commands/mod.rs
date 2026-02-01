@@ -15073,6 +15073,71 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
         }
     }
 
+    // Check for completable milestones (pending but all children done/cancelled)
+    for milestone in &milestones {
+        // Only check non-closed milestones
+        if matches!(milestone.status, TaskStatus::Done | TaskStatus::Cancelled) {
+            continue;
+        }
+
+        // Get all children via child_of edges where this milestone is the target
+        let child_edges =
+            storage.list_edges(Some(EdgeType::ChildOf), None, Some(&milestone.core.id))?;
+
+        // Count children that are tasks, bugs, or milestones (ignore docs, ideas, etc.)
+        let mut child_count = 0;
+        let mut all_children_closed = true;
+
+        for child_edge in &child_edges {
+            let child_id = &child_edge.source;
+
+            // Try to get as task
+            if let Ok(task) = storage.get_task(child_id) {
+                child_count += 1;
+                if !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                    all_children_closed = false;
+                }
+                continue;
+            }
+
+            // Try to get as bug
+            if let Ok(bug) = storage.get_bug(child_id) {
+                child_count += 1;
+                if !matches!(bug.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                    all_children_closed = false;
+                }
+                continue;
+            }
+
+            // Try to get as milestone
+            if let Ok(child_milestone) = storage.get_milestone(child_id) {
+                child_count += 1;
+                if !matches!(
+                    child_milestone.status,
+                    TaskStatus::Done | TaskStatus::Cancelled
+                ) {
+                    all_children_closed = false;
+                }
+                continue;
+            }
+
+            // Not a task, bug, or milestone - ignore (could be doc, idea, etc.)
+        }
+
+        // Warn if milestone has children and all are closed (completable)
+        if child_count > 0 && all_children_closed {
+            issues.push(DoctorIssue {
+                severity: "warning".to_string(),
+                category: "completable".to_string(),
+                message: format!(
+                    "Milestone {} has all {} children done/cancelled but is still pending",
+                    milestone.core.id, child_count
+                ),
+                entity_id: Some(milestone.core.id.clone()),
+            });
+        }
+    }
+
     let stats = DoctorStats {
         total_tasks: tasks.len(),
         total_bugs: bugs.len(),
@@ -26850,6 +26915,207 @@ mod tests {
                 && i.entity_id.as_ref() == Some(&orphan_doc.id)
                 && i.message.contains("has no linked entities")
         }));
+    }
+
+    #[test]
+
+    fn test_doctor_detects_completable_milestones() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Completable Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create two tasks as children of the milestone
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link tasks to milestone
+        link_add(
+            temp.path(),
+            &task_a.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &task_b.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Close both tasks with no_cascade=true to prevent auto-close of milestone
+        task_close(temp.path(), &task_a.id, None, false, true).unwrap();
+        task_close(temp.path(), &task_b.id, None, false, true).unwrap();
+
+        // Run doctor - should detect the completable milestone
+        let result = doctor(temp.path()).unwrap();
+        assert!(!result.healthy);
+        let completable_issue = result
+            .issues
+            .iter()
+            .find(|i| i.category == "completable" && i.entity_id.as_ref() == Some(&milestone.id));
+        assert!(completable_issue.is_some());
+        let issue = completable_issue.unwrap();
+        assert_eq!(issue.severity, "warning");
+        assert!(issue.message.contains("all 2 children done/cancelled"));
+        assert!(issue.message.contains("still pending"));
+    }
+
+    #[test]
+
+    fn test_doctor_no_completable_if_children_pending() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Incomplete Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create two tasks as children of the milestone
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link tasks to milestone
+        link_add(
+            temp.path(),
+            &task_a.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &task_b.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Only close one task (milestone should NOT be completable)
+        task_close(temp.path(), &task_a.id, None, false, false).unwrap();
+
+        // Run doctor - should NOT detect the milestone as completable
+        let result = doctor(temp.path()).unwrap();
+        assert!(!result
+            .issues
+            .iter()
+            .any(|i| i.category == "completable" && i.entity_id.as_ref() == Some(&milestone.id)));
+    }
+
+    #[test]
+
+    fn test_doctor_no_completable_if_milestone_closed() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Closed Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a task as child of the milestone
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link task to milestone
+        link_add(
+            temp.path(),
+            &task_a.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Close task - this will auto-close the milestone since it's the only child
+        task_close(temp.path(), &task_a.id, None, false, false).unwrap();
+
+        // Run doctor - milestone was auto-closed so NOT completable
+        let result = doctor(temp.path()).unwrap();
+        assert!(!result
+            .issues
+            .iter()
+            .any(|i| i.category == "completable" && i.entity_id.as_ref() == Some(&milestone.id)));
     }
 
     // === Log Command Tests ===
