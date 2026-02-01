@@ -253,8 +253,13 @@ fn run_command(
                 output(&result, human);
             }
 
-            TaskCommands::Close { id, reason, force } => {
-                let result = commands::task_close(repo_path, &id, reason, force)?;
+            TaskCommands::Close {
+                id,
+                reason,
+                force,
+                no_cascade,
+            } => {
+                let result = commands::task_close(repo_path, &id, reason, force, no_cascade)?;
                 output(&result, human);
             }
 
@@ -357,8 +362,13 @@ fn run_command(
                 )?;
                 output(&result, human);
             }
-            BugCommands::Close { id, reason, force } => {
-                let result = commands::bug_close(repo_path, &id, reason, force)?;
+            BugCommands::Close {
+                id,
+                reason,
+                force,
+                no_cascade,
+            } => {
+                let result = commands::bug_close(repo_path, &id, reason, force, no_cascade)?;
                 output(&result, human);
             }
             BugCommands::Reopen { id } => {
@@ -733,8 +743,13 @@ fn run_command(
                 )?;
                 output(&result, human);
             }
-            MilestoneCommands::Close { id, reason, force } => {
-                let result = commands::milestone_close(repo_path, &id, reason, force)?;
+            MilestoneCommands::Close {
+                id,
+                reason,
+                force,
+                no_cascade,
+            } => {
+                let result = commands::milestone_close(repo_path, &id, reason, force, no_cascade)?;
                 output(&result, human);
             }
             MilestoneCommands::Reopen { id } => {
@@ -3469,12 +3484,18 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "reopen": reopen,
                 }),
             ),
-            TaskCommands::Close { id, reason, force } => (
+            TaskCommands::Close {
+                id,
+                reason,
+                force,
+                no_cascade,
+            } => (
                 "task close".to_string(),
                 serde_json::json!({
                     "id": id,
                     "reason": reason,
                     "force": force,
+                    "no_cascade": no_cascade,
                 }),
             ),
             TaskCommands::Reopen { id } => {
@@ -3567,12 +3588,18 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "reopen": reopen,
                 }),
             ),
-            BugCommands::Close { id, reason, force } => (
+            BugCommands::Close {
+                id,
+                reason,
+                force,
+                no_cascade,
+            } => (
                 "bug close".to_string(),
                 serde_json::json!({
                     "id": id,
                     "reason": reason,
                     "force": force,
+                    "no_cascade": no_cascade,
                 }),
             ),
             BugCommands::Reopen { id } => {
@@ -3903,12 +3930,18 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "due_date": due_date,
                 }),
             ),
-            MilestoneCommands::Close { id, reason, force } => (
+            MilestoneCommands::Close {
+                id,
+                reason,
+                force,
+                no_cascade,
+            } => (
                 "milestone close".to_string(),
                 serde_json::json!({
                     "id": id,
                     "reason": reason,
                     "force": force,
+                    "no_cascade": no_cascade,
                 }),
             ),
             MilestoneCommands::Reopen { id } => (

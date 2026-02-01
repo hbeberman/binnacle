@@ -530,6 +530,10 @@ pub enum TaskCommands {
         /// Force close even with incomplete dependencies or missing commits (use with caution)
         #[arg(long)]
         force: bool,
+
+        /// Skip auto-close of parent milestones (don't cascade)
+        #[arg(long)]
+        no_cascade: bool,
     },
 
     /// Reopen a closed task
@@ -697,6 +701,10 @@ pub enum BugCommands {
         /// Force close even with incomplete dependencies (use with caution)
         #[arg(long)]
         force: bool,
+
+        /// Skip auto-close of parent milestones (don't cascade)
+        #[arg(long)]
+        no_cascade: bool,
     },
 
     /// Reopen a closed bug
@@ -1217,6 +1225,10 @@ pub enum MilestoneCommands {
         /// Force close even with incomplete children (use with caution)
         #[arg(long)]
         force: bool,
+
+        /// Skip auto-close of parent milestones (don't cascade to grandparent)
+        #[arg(long)]
+        no_cascade: bool,
     },
 
     /// Reopen a closed milestone

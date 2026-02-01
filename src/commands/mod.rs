@@ -6564,6 +6564,7 @@ pub fn task_close(
     id: &str,
     reason: Option<String>,
     force: bool,
+    no_cascade: bool,
 ) -> Result<TaskClosed> {
     let mut storage = Storage::open(repo_path)?;
     let task = storage.get_task(id)?;
@@ -6656,8 +6657,12 @@ pub fn task_close(
     // Auto-remove task from any queues it's in
     let removed_from_queues = remove_task_from_queues(&mut storage, id)?;
 
-    // Check if any parent milestones should be auto-completed
-    let auto_completed_milestones = check_and_auto_complete_parent_milestones(&mut storage, id)?;
+    // Check if any parent milestones should be auto-completed (unless --no-cascade)
+    let auto_completed_milestones = if no_cascade {
+        Vec::new()
+    } else {
+        check_and_auto_complete_parent_milestones(&mut storage, id)?
+    };
 
     // Generate warnings for incomplete deps, missing commits, no commits, and uncommitted changes
     let mut warnings = Vec::new();
@@ -7678,6 +7683,7 @@ pub fn bug_close(
     id: &str,
     reason: Option<String>,
     force: bool,
+    no_cascade: bool,
 ) -> Result<BugClosed> {
     let mut storage = Storage::open(repo_path)?;
     let bug = storage.get_bug(id)?;
@@ -7732,8 +7738,12 @@ pub fn bug_close(
     // Check if any parent issues should be auto-resolved
     let auto_resolved_issues = check_and_auto_resolve_parent_issues(&mut storage, id)?;
 
-    // Check if any parent milestones should be auto-completed
-    let auto_completed_milestones = check_and_auto_complete_parent_milestones(&mut storage, id)?;
+    // Check if any parent milestones should be auto-completed (unless --no-cascade)
+    let auto_completed_milestones = if no_cascade {
+        Vec::new()
+    } else {
+        check_and_auto_complete_parent_milestones(&mut storage, id)?
+    };
 
     // Generate warnings for incomplete deps, missing commits, no commits, and uncommitted changes
     let mut warnings = Vec::new();
@@ -10081,6 +10091,7 @@ pub fn milestone_close(
     id: &str,
     reason: Option<String>,
     force: bool,
+    no_cascade: bool,
 ) -> Result<MilestoneClosed> {
     let mut storage = Storage::open(repo_path)?;
     let mut milestone = storage.get_milestone(id)?;
@@ -10111,8 +10122,10 @@ pub fn milestone_close(
     // Auto-remove milestone from any queues it's in
     let _ = remove_entity_from_queues(&mut storage, id);
 
-    // Cascade: check if any parent milestones should also be auto-closed
-    let _ = check_and_auto_complete_parent_milestones(&mut storage, id);
+    // Cascade: check if any parent milestones should also be auto-closed (unless --no-cascade)
+    if !no_cascade {
+        let _ = check_and_auto_complete_parent_milestones(&mut storage, id);
+    }
 
     Ok(MilestoneClosed {
         id: id.to_string(),
@@ -23929,7 +23942,14 @@ mod tests {
         )
         .unwrap();
 
-        task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &created.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         let result = task_show(temp.path(), &created.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Done);
         assert!(result.task.closed_at.is_some());
@@ -23956,7 +23976,14 @@ mod tests {
         .unwrap();
 
         // Close the task
-        task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &created.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Try to update without flag - should fail
         let result = task_update(
@@ -23997,7 +24024,14 @@ mod tests {
         .unwrap();
 
         // Close the task
-        task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &created.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Update with --keep-closed - should succeed and keep status as Done
         let result = task_update(
@@ -24040,7 +24074,14 @@ mod tests {
         .unwrap();
 
         // Close the task
-        task_close(temp.path(), &created.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &created.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Update with --reopen - should succeed and set status to Pending
         let result = task_update(
@@ -24150,7 +24191,7 @@ mod tests {
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         // Try to close B without force (A is still pending)
-        let result = task_close(temp.path(), &task_b.id, None, false);
+        let result = task_close(temp.path(), &task_b.id, None, false, false);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("incomplete dependencies"));
@@ -24186,7 +24227,7 @@ mod tests {
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         // Close B with force (A is still pending)
-        let result = task_close(temp.path(), &task_b.id, None, true).unwrap();
+        let result = task_close(temp.path(), &task_b.id, None, true, false).unwrap();
         assert_eq!(result.status, "done");
         assert!(result.warning.is_some());
         assert!(result.warning.unwrap().contains("incomplete dependencies"));
@@ -24225,10 +24266,10 @@ mod tests {
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         // Close A first
-        task_close(temp.path(), &task_a.id, None, false).unwrap();
+        task_close(temp.path(), &task_a.id, None, false, false).unwrap();
 
         // Now close B (all deps are complete)
-        let result = task_close(temp.path(), &task_b.id, None, false).unwrap();
+        let result = task_close(temp.path(), &task_b.id, None, false, false).unwrap();
         assert_eq!(result.status, "done");
         // Warning about no commits linked is expected, but NOT about incomplete deps
         if let Some(warning) = &result.warning {
@@ -24266,7 +24307,14 @@ mod tests {
         )
         .unwrap();
 
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
@@ -24274,7 +24322,14 @@ mod tests {
         assert!(result.task.closed_at.is_none());
         assert!(result.task.closed_reason.is_none());
 
-        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_a.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Done);
@@ -24300,7 +24355,13 @@ mod tests {
         config_set(temp.path(), "require_commit_for_close", "true").unwrap();
 
         // Should fail without linked commit
-        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
+        let result = task_close(
+            temp.path(),
+            &task.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        );
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("no commits linked"));
@@ -24334,7 +24395,13 @@ mod tests {
         .unwrap();
 
         // Should succeed with linked commit
-        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
+        let result = task_close(
+            temp.path(),
+            &task.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        );
         assert!(result.is_ok());
     }
 
@@ -24357,7 +24424,7 @@ mod tests {
         config_set(temp.path(), "require_commit_for_close", "true").unwrap();
 
         // Should succeed with --force even without commit
-        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), true);
+        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), true, false);
         assert!(result.is_ok());
     }
 
@@ -24380,7 +24447,13 @@ mod tests {
         config_set(temp.path(), "require_commit_for_close", "false").unwrap();
 
         // Should succeed without commit
-        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
+        let result = task_close(
+            temp.path(),
+            &task.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        );
         assert!(result.is_ok());
     }
 
@@ -24445,7 +24518,14 @@ mod tests {
         .unwrap();
 
         // Close first task - milestone should NOT be auto-completed
-        let result1 = task_close(temp.path(), &task1.id, Some("Done".to_string()), false).unwrap();
+        let result1 = task_close(
+            temp.path(),
+            &task1.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result1.auto_completed_milestones.is_empty());
 
         // Verify milestone is still pending
@@ -24453,7 +24533,14 @@ mod tests {
         assert_eq!(ms.milestone.status, TaskStatus::Pending);
 
         // Close second task - milestone should now be auto-completed
-        let result2 = task_close(temp.path(), &task2.id, Some("Done".to_string()), false).unwrap();
+        let result2 = task_close(
+            temp.path(),
+            &task2.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert_eq!(result2.auto_completed_milestones.len(), 1);
         assert_eq!(result2.auto_completed_milestones[0], milestone.id);
 
@@ -24502,7 +24589,14 @@ mod tests {
         link_add(temp.path(), &bug.id, &milestone.id, "child_of", None, false).unwrap();
 
         // Close bug - milestone should be auto-completed
-        let result = bug_close(temp.path(), &bug.id, Some("Fixed".to_string()), false).unwrap();
+        let result = bug_close(
+            temp.path(),
+            &bug.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert_eq!(result.auto_completed_milestones.len(), 1);
         assert_eq!(result.auto_completed_milestones[0], milestone.id);
 
@@ -24532,6 +24626,7 @@ mod tests {
             &milestone.id,
             Some("Manual close".to_string()),
             false,
+            false,
         )
         .unwrap();
 
@@ -24557,7 +24652,14 @@ mod tests {
         .unwrap();
 
         // Close task - should not report auto-completed since milestone was already done
-        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false).unwrap();
+        let result = task_close(
+            temp.path(),
+            &task.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result.auto_completed_milestones.is_empty());
     }
 
@@ -24618,13 +24720,190 @@ mod tests {
         link_add(temp.path(), &bug.id, &milestone.id, "child_of", None, false).unwrap();
 
         // Close task first - milestone should not be auto-completed
-        let result1 = task_close(temp.path(), &task.id, Some("Done".to_string()), false).unwrap();
+        let result1 = task_close(
+            temp.path(),
+            &task.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result1.auto_completed_milestones.is_empty());
 
         // Close bug - now milestone should be auto-completed
-        let result2 = bug_close(temp.path(), &bug.id, Some("Fixed".to_string()), false).unwrap();
+        let result2 = bug_close(
+            temp.path(),
+            &bug.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert_eq!(result2.auto_completed_milestones.len(), 1);
         assert_eq!(result2.auto_completed_milestones[0], milestone.id);
+    }
+
+    #[test]
+    fn test_task_close_no_cascade_flag() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a single task as child
+        let task = task_create(
+            temp.path(),
+            "Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link task to milestone
+        link_add(
+            temp.path(),
+            &task.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Close task with --no-cascade - milestone should NOT be auto-completed
+        let result = task_close(
+            temp.path(),
+            &task.id,
+            Some("Done".to_string()),
+            false,
+            true, // no_cascade = true
+        )
+        .unwrap();
+        assert!(result.auto_completed_milestones.is_empty());
+
+        // Verify milestone is still pending
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Pending);
+    }
+
+    #[test]
+    fn test_bug_close_no_cascade_flag() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a single bug as child
+        let bug = bug_create(
+            temp.path(),
+            "Bug".to_string(),
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Link bug to milestone
+        link_add(temp.path(), &bug.id, &milestone.id, "child_of", None, false).unwrap();
+
+        // Close bug with --no-cascade - milestone should NOT be auto-completed
+        let result = bug_close(
+            temp.path(),
+            &bug.id,
+            Some("Fixed".to_string()),
+            false,
+            true, // no_cascade = true
+        )
+        .unwrap();
+        assert!(result.auto_completed_milestones.is_empty());
+
+        // Verify milestone is still pending
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Pending);
+    }
+
+    #[test]
+    fn test_milestone_close_no_cascade_flag() {
+        let temp = setup_isolated();
+
+        // Create a grandparent milestone
+        let grandparent = milestone_create(
+            temp.path(),
+            "Grandparent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a parent milestone as child of grandparent
+        let parent = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Link parent to grandparent
+        link_add(
+            temp.path(),
+            &parent.id,
+            &grandparent.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Close parent milestone with --no-cascade - grandparent should NOT be auto-completed
+        milestone_close(
+            temp.path(),
+            &parent.id,
+            Some("Done".to_string()),
+            true, // force (no children)
+            true, // no_cascade = true
+        )
+        .unwrap();
+
+        // Verify grandparent is still pending
+        let ms = milestone_show(temp.path(), &grandparent.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Pending);
     }
 
     #[test]
@@ -24667,7 +24946,14 @@ mod tests {
         .unwrap();
 
         // Close the task - milestone should be auto-closed
-        let result = task_close(temp.path(), &task1.id, Some("Done".to_string()), false).unwrap();
+        let result = task_close(
+            temp.path(),
+            &task1.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert_eq!(result.auto_completed_milestones.len(), 1);
         assert_eq!(result.auto_completed_milestones[0], milestone.id);
 
@@ -24734,6 +25020,7 @@ mod tests {
             temp.path(),
             &milestone.id,
             Some("Descoped - not doing this quarter".to_string()),
+            false,
             false,
         )
         .unwrap();
@@ -24865,7 +25152,14 @@ mod tests {
         )
         .unwrap();
 
-        task_close(temp.path(), &task1.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task1.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Verify milestone is auto-closed
         let ms = milestone_show(temp.path(), &milestone.id).unwrap();
@@ -24980,7 +25274,13 @@ mod tests {
         .unwrap();
 
         // Should succeed but with a warning
-        let result = task_close(temp.path(), &task.id, Some("Done".to_string()), false);
+        let result = task_close(
+            temp.path(),
+            &task.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        );
         assert!(result.is_ok());
         let closed = result.unwrap();
         assert!(closed.warning.is_some());
@@ -25104,7 +25404,14 @@ mod tests {
         }
 
         // Close the task
-        task_close(temp.path(), &task.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Verify task is removed from agent's list
         let storage = Storage::open(temp.path()).unwrap();
@@ -25578,7 +25885,14 @@ mod tests {
         )
         .unwrap();
 
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         let result = task_show(temp.path(), &task_b.id).unwrap().unwrap();
         assert_eq!(result.task.status, TaskStatus::Done);
         assert!(result.task.closed_at.is_some());
@@ -25803,7 +26117,7 @@ mod tests {
         assert_eq!(blocked_result.count, 1);
 
         // Close task A
-        task_close(temp.path(), &task_a.id, None, false).unwrap();
+        task_close(temp.path(), &task_a.id, None, false, false).unwrap();
 
         // Now B should be ready
         let ready_result = ready(temp.path(), false, false).unwrap();
@@ -26136,7 +26450,7 @@ mod tests {
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         // Close B (which depends on A, but A is still pending) - use force to allow this
-        task_close(temp.path(), &task_b.id, None, true).unwrap();
+        task_close(temp.path(), &task_b.id, None, true, false).unwrap();
 
         let result = doctor(temp.path()).unwrap();
         // We should find the consistency warning (done task with pending dependency)
@@ -26273,7 +26587,7 @@ mod tests {
         drop(storage);
 
         // Close bug A (which depends on pending bug B) - use force
-        bug_close(temp.path(), &bug_a.id, None, true).unwrap();
+        bug_close(temp.path(), &bug_a.id, None, true, false).unwrap();
 
         let result = doctor(temp.path()).unwrap();
         // Should find consistency warning (done bug with pending dependency)
@@ -26624,7 +26938,14 @@ mod tests {
         )
         .unwrap();
 
-        task_close(temp.path(), &task.id, Some("Complete".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task.id,
+            Some("Complete".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         let result = log(temp.path(), Some(&task.id)).unwrap();
         assert!(result.entries.iter().any(|e| e.action == "closed"));
@@ -27162,6 +27483,7 @@ mod tests {
             &closed_bug.id,
             Some("fixed".to_string()),
             false,
+            false,
         )
         .unwrap();
 
@@ -27417,8 +27739,22 @@ mod tests {
         .unwrap();
 
         // Close both dependencies
-        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_a.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Create task C that depends on A and B
         let task_c = task_create(
@@ -27633,7 +27969,14 @@ mod tests {
         .unwrap();
 
         // Close task A
-        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_a.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Task C depends on both A (done) and B (pending)
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
@@ -27759,7 +28102,14 @@ mod tests {
         .unwrap();
 
         // Close task B normally
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Task C depends on both A (cancelled) and B (done)
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
@@ -27912,7 +28262,14 @@ mod tests {
         .unwrap();
 
         // Close then reopen task A
-        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_a.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         task_reopen(temp.path(), &task_a.id).unwrap();
 
         // Task B depends on A (reopened)
@@ -28447,7 +28804,7 @@ mod tests {
         .unwrap();
 
         // Close bug 1
-        bug_close(temp.path(), &bug1.id, None, false).unwrap();
+        bug_close(temp.path(), &bug1.id, None, false, false).unwrap();
 
         let pending_list = bug_list(temp.path(), Some("pending"), None, None, None, true).unwrap();
         assert_eq!(pending_list.count, 1);
@@ -28651,7 +29008,14 @@ mod tests {
         .unwrap();
 
         // Close the bug
-        bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
+        bug_close(
+            temp.path(),
+            &created.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Try to update without flag - should fail
         let result = bug_update(
@@ -28698,7 +29062,14 @@ mod tests {
         .unwrap();
 
         // Close the bug
-        bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
+        bug_close(
+            temp.path(),
+            &created.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Update with --keep-closed - should succeed
         let result = bug_update(
@@ -28746,7 +29117,14 @@ mod tests {
         .unwrap();
 
         // Close the bug
-        bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
+        bug_close(
+            temp.path(),
+            &created.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Update with --reopen - should succeed and set status to Pending
         let result = bug_update(
@@ -29032,7 +29410,14 @@ mod tests {
         )
         .unwrap();
 
-        let result = bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
+        let result = bug_close(
+            temp.path(),
+            &created.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert_eq!(result.id, created.id);
         assert_eq!(result.status, "done");
         // Warning is expected when no commits are linked to the bug
@@ -29106,7 +29491,14 @@ mod tests {
         assert_eq!(parent.status, IssueStatus::Open);
 
         // Close first bug - should NOT auto-resolve since bug2 is still open
-        let result1 = bug_close(temp.path(), &bug1.id, Some("Fixed".to_string()), false).unwrap();
+        let result1 = bug_close(
+            temp.path(),
+            &bug1.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result1.auto_resolved_issues.is_empty());
 
         // Verify issue is still open
@@ -29114,7 +29506,14 @@ mod tests {
         assert_eq!(parent.status, IssueStatus::Open);
 
         // Close second bug - should auto-resolve the issue
-        let result2 = bug_close(temp.path(), &bug2.id, Some("Fixed".to_string()), false).unwrap();
+        let result2 = bug_close(
+            temp.path(),
+            &bug2.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert_eq!(result2.auto_resolved_issues.len(), 1);
         assert_eq!(result2.auto_resolved_issues[0], issue.id);
 
@@ -29144,7 +29543,14 @@ mod tests {
         .unwrap();
 
         // Close the bug - no auto-resolution should happen
-        let result = bug_close(temp.path(), &bug.id, Some("Fixed".to_string()), false).unwrap();
+        let result = bug_close(
+            temp.path(),
+            &bug.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result.auto_resolved_issues.is_empty());
     }
 
@@ -29197,7 +29603,14 @@ mod tests {
         link_add(temp.path(), &bug.id, &issue.id, "child_of", None, false).unwrap();
 
         // Close the bug - should not auto-resolve since issue is already resolved
-        let result = bug_close(temp.path(), &bug.id, Some("Fixed".to_string()), false).unwrap();
+        let result = bug_close(
+            temp.path(),
+            &bug.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         assert!(result.auto_resolved_issues.is_empty());
 
         // Verify issue is still resolved (not changed)
@@ -29223,7 +29636,14 @@ mod tests {
         )
         .unwrap();
 
-        bug_close(temp.path(), &created.id, Some("Fixed".to_string()), false).unwrap();
+        bug_close(
+            temp.path(),
+            &created.id,
+            Some("Fixed".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         let result = bug_reopen(temp.path(), &created.id).unwrap();
         assert_eq!(result.id, created.id);
         assert_eq!(result.status, "reopened");
@@ -31761,7 +32181,14 @@ mod tests {
         .unwrap();
 
         // Close B, then add A as dependency → B becomes partial
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         // Verify B is partial
@@ -31799,7 +32226,14 @@ mod tests {
         .unwrap();
 
         // Close B, then add A as dependency → B becomes partial
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         // Verify B is partial
@@ -31837,8 +32271,22 @@ mod tests {
         .unwrap();
 
         // Close both tasks
-        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_a.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Add A as dependency of B (both are done, so B should stay done)
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -31891,7 +32339,14 @@ mod tests {
             false, // reopen
         )
         .unwrap();
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Add cancelled A as dependency of B
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
@@ -31939,8 +32394,22 @@ mod tests {
         .unwrap();
 
         // Close C and B
-        task_close(temp.path(), &task_c.id, Some("Done".to_string()), false).unwrap();
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_c.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // Add dependencies: C -> B (first, while B is done, so C stays done)
         // Then B -> A (B becomes partial since A is pending)
@@ -31963,7 +32432,14 @@ mod tests {
         assert_eq!(shown_c.task.status, TaskStatus::Done);
 
         // Close A - should promote B to Done
-        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_a.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         // B should now be Done
         let shown_b = task_show(temp.path(), &task_b.id).unwrap().unwrap();
@@ -32011,7 +32487,14 @@ mod tests {
         .unwrap();
 
         // Close C, then add A and B as dependencies
-        task_close(temp.path(), &task_c.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_c.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         dep_add(temp.path(), &task_c.id, &task_a.id).unwrap();
         dep_add(temp.path(), &task_c.id, &task_b.id).unwrap();
 
@@ -32020,12 +32503,26 @@ mod tests {
         assert_eq!(shown.task.status, TaskStatus::Partial);
 
         // Close only A - C should still be partial (B is pending)
-        task_close(temp.path(), &task_a.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_a.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         let shown = task_show(temp.path(), &task_c.id).unwrap().unwrap();
         assert_eq!(shown.task.status, TaskStatus::Partial);
 
         // Close B - now C should be promoted to Done
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         let shown = task_show(temp.path(), &task_c.id).unwrap().unwrap();
         assert_eq!(shown.task.status, TaskStatus::Done);
         assert!(shown.task.closed_at.is_some());
@@ -32057,7 +32554,14 @@ mod tests {
         .unwrap();
 
         // Close B, add A as dependency → B becomes partial
-        task_close(temp.path(), &task_b.id, Some("Done".to_string()), false).unwrap();
+        task_close(
+            temp.path(),
+            &task_b.id,
+            Some("Done".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
         dep_add(temp.path(), &task_b.id, &task_a.id).unwrap();
 
         let shown = task_show(temp.path(), &task_b.id).unwrap().unwrap();
@@ -33338,7 +33842,7 @@ mod tests {
         )
         .unwrap();
         link_add(temp.path(), &task3.id, &parent.id, "child_of", None, false).unwrap();
-        task_close(temp.path(), &task3.id, None, false).unwrap();
+        task_close(temp.path(), &task3.id, None, false, false).unwrap();
 
         // Test: without include_closed, should only find task2
         let result = graph_peers(temp.path(), &task1.id, 1, false, false).unwrap();
@@ -33596,7 +34100,7 @@ mod tests {
             false,
         )
         .unwrap();
-        task_close(temp.path(), &child_closed.id, None, false).unwrap();
+        task_close(temp.path(), &child_closed.id, None, false, false).unwrap();
 
         // Test: without include_closed, should only find open child
         let result = graph_descendants(temp.path(), &parent.id, 3, false, false, false).unwrap();

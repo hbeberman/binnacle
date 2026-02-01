@@ -541,7 +541,8 @@ pub async fn execute_command(
         ["task", "close", id] => {
             let reason = get_opt_str("reason");
             let force = get_bool("force", false);
-            commands::task_close(repo_path, id, reason, force)
+            let no_cascade = get_bool("no_cascade", false);
+            commands::task_close(repo_path, id, reason, force, no_cascade)
                 .map(|r| serde_json::to_value(r).unwrap_or(serde_json::Value::Null))
                 .map_err(|e| e.to_string())
         }
@@ -549,7 +550,8 @@ pub async fn execute_command(
             let id = get_str("id").ok_or("Missing 'id' argument")?;
             let reason = get_opt_str("reason");
             let force = get_bool("force", false);
-            commands::task_close(repo_path, &id, reason, force)
+            let no_cascade = get_bool("no_cascade", false);
+            commands::task_close(repo_path, &id, reason, force, no_cascade)
                 .map(|r| serde_json::to_value(r).unwrap_or(serde_json::Value::Null))
                 .map_err(|e| e.to_string())
         }
@@ -627,7 +629,8 @@ pub async fn execute_command(
         ["bug", "close", id] => {
             let reason = get_opt_str("reason");
             let force = get_bool("force", false);
-            commands::bug_close(repo_path, id, reason, force)
+            let no_cascade = get_bool("no_cascade", false);
+            commands::bug_close(repo_path, id, reason, force, no_cascade)
                 .map(|r| serde_json::to_value(r).unwrap_or(serde_json::Value::Null))
                 .map_err(|e| e.to_string())
         }
@@ -635,7 +638,8 @@ pub async fn execute_command(
             let id = get_str("id").ok_or("Missing 'id' argument")?;
             let reason = get_opt_str("reason");
             let force = get_bool("force", false);
-            commands::bug_close(repo_path, &id, reason, force)
+            let no_cascade = get_bool("no_cascade", false);
+            commands::bug_close(repo_path, &id, reason, force, no_cascade)
                 .map(|r| serde_json::to_value(r).unwrap_or(serde_json::Value::Null))
                 .map_err(|e| e.to_string())
         }
