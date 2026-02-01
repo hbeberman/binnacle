@@ -348,12 +348,25 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
     WORKER_IMAGE="localhost/bn-${REPO_HASH}-worker:latest"
     DEFAULT_IMAGE="localhost/bn-${REPO_HASH}-default:latest"
     
-    if [[ -n "$REPO_HASH" ]] && bn container list-definitions 2>/dev/null | jq -e ".definitions[] | select(.name == \"worker\")" &>/dev/null; then
+    if [[ -z "$REPO_HASH" ]]; then
+        echo "❌ Could not determine repository hash. Is binnacle initialized?"
+        echo "   Run: bn session init"
+        exit 1
+    fi
+    
+    if bn container list-definitions 2>/dev/null | jq -e ".definitions[] | select(.name == \"worker\")" &>/dev/null; then
         echo "📦 Using image: ${WORKER_IMAGE}"
-    elif [[ -n "$REPO_HASH" ]] && bn container list-definitions 2>/dev/null | jq -e ".definitions[] | select(.name == \"default\")" &>/dev/null; then
+        echo "   (If image doesn't exist, it will be built automatically)"
+    elif bn container list-definitions 2>/dev/null | jq -e ".definitions[] | select(.name == \"default\")" &>/dev/null; then
         echo "⚠️  worker definition not found, falling back to: ${DEFAULT_IMAGE}"
     else
-        echo "❌ No binnacle container images found. Run: bn container build worker"
+        echo "❌ No container definitions found for this repository."
+        echo ""
+        echo "   Container images are built per-repository. To set up:"
+        echo "   1. bn container build default   # Base image with bn + copilot"
+        echo "   2. bn container build worker    # Full worker image"
+        echo ""
+        echo "   Expected image: ${WORKER_IMAGE}"
         exit 1
     fi
 
