@@ -6462,10 +6462,18 @@ fn check_and_auto_complete_parent_milestones_impl(
             let mut milestone = milestone;
             milestone.status = TaskStatus::Done;
             milestone.closed_at = Some(Utc::now());
-            milestone.closed_reason = Some(reason);
+            milestone.closed_reason = Some(reason.clone());
             milestone.core.updated_at = Utc::now();
             storage.update_milestone(&milestone)?;
             auto_completed.push(parent_id.clone());
+
+            // Log the auto-close event
+            let event = crate::models::EventLog::milestone_auto_closed(
+                parent_id.clone(),
+                reason,
+                entity_id.to_string(),
+            );
+            storage.add_event(&event)?;
 
             // Cascade: check if the milestone's parent should also be auto-closed
             if cascade {
@@ -6508,7 +6516,7 @@ pub fn was_auto_closed(milestone: &crate::models::Milestone) -> bool {
 fn check_and_reopen_auto_closed_milestone(
     storage: &mut Storage,
     target_id: &str,
-    _new_child_id: &str,
+    new_child_id: &str,
 ) -> Result<Vec<String>> {
     // Only check milestones
     let milestone = match storage.get_milestone(target_id) {
@@ -6536,8 +6544,12 @@ fn check_and_reopen_auto_closed_milestone(
     milestone.core.updated_at = Utc::now();
     storage.update_milestone(&milestone)?;
 
-    // Log the reopen event (the info is returned for the caller to handle)
-    // Full logging support is in a separate task (bn-d576).
+    // Log the auto-reopen event
+    let event = crate::models::EventLog::milestone_auto_reopened(
+        target_id.to_string(),
+        new_child_id.to_string(),
+    );
+    storage.add_event(&event)?;
 
     Ok(vec![target_id.to_string()])
 }

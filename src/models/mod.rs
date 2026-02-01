@@ -1738,6 +1738,74 @@ impl LogAnnotation {
     }
 }
 
+// =============================================================================
+// Event Log
+// =============================================================================
+
+/// Event types for system-generated events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventType {
+    /// Milestone was automatically closed because all children completed
+    MilestoneAutoClosed,
+    /// Milestone was automatically reopened because a new child was added
+    MilestoneAutoReopened,
+}
+
+impl fmt::Display for EventType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EventType::MilestoneAutoClosed => write!(f, "milestone_auto_closed"),
+            EventType::MilestoneAutoReopened => write!(f, "milestone_auto_reopened"),
+        }
+    }
+}
+
+/// A system-generated event log entry.
+/// Used to track automatic actions like milestone auto-close and auto-reopen.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventLog {
+    /// Event type
+    pub event: EventType,
+
+    /// Entity ID that was affected (e.g., the milestone that was auto-closed)
+    pub id: String,
+
+    /// Reason for the event
+    pub reason: String,
+
+    /// Entity ID that triggered the event (e.g., the task that completed)
+    pub triggered_by: String,
+
+    /// Timestamp when the event occurred
+    #[serde(default = "default_timestamp")]
+    pub timestamp: DateTime<Utc>,
+}
+
+impl EventLog {
+    /// Create a new milestone auto-closed event.
+    pub fn milestone_auto_closed(id: String, reason: String, triggered_by: String) -> Self {
+        Self {
+            event: EventType::MilestoneAutoClosed,
+            id,
+            reason,
+            triggered_by,
+            timestamp: Utc::now(),
+        }
+    }
+
+    /// Create a new milestone auto-reopened event.
+    pub fn milestone_auto_reopened(id: String, triggered_by: String) -> Self {
+        Self {
+            event: EventType::MilestoneAutoReopened,
+            id,
+            reason: "new child added".to_string(),
+            triggered_by,
+            timestamp: Utc::now(),
+        }
+    }
+}
+
 /// Type of relationship between entities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

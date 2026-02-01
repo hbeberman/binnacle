@@ -211,6 +211,7 @@ impl Storage {
             "commits.jsonl",
             "test-results.jsonl",
             "agents.jsonl",
+            "events.jsonl",
         ];
         for file in files {
             let path = root.join(file);
@@ -4338,6 +4339,46 @@ impl Storage {
             }
         }
 
+        // Also include event logs (auto-close, auto-reopen events)
+        let event_logs = self.get_event_logs()?;
+        for event in event_logs {
+            // Filter by entity_id if provided
+            let include = match task_id {
+                Some(filter_id) => event.id == filter_id || event.triggered_by == filter_id,
+                None => true,
+            };
+
+            if include {
+                use crate::models::EventType;
+                let (action, details) = match event.event {
+                    EventType::MilestoneAutoClosed => (
+                        "auto_closed".to_string(),
+                        Some(format!(
+                            "{} (triggered by {})",
+                            event.reason, event.triggered_by
+                        )),
+                    ),
+                    EventType::MilestoneAutoReopened => (
+                        "auto_reopened".to_string(),
+                        Some(format!(
+                            "{} (triggered by {})",
+                            event.reason, event.triggered_by
+                        )),
+                    ),
+                };
+
+                entries.push(crate::commands::LogEntry {
+                    timestamp: event.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    entity_type: "milestone".to_string(),
+                    entity_id: event.id.clone(),
+                    action,
+                    details,
+                    actor: None,
+                    actor_type: None,
+                });
+            }
+        }
+
         // Sort by timestamp descending (newest first)
         entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
@@ -5423,6 +5464,46 @@ impl Storage {
         }
 
         Ok(())
+    }
+
+    // === Event Log Operations ===
+
+    /// Append an event log entry to events.jsonl.
+    pub fn add_event(&mut self, event: &crate::models::EventLog) -> Result<()> {
+        let events_path = self.root.join("events.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&events_path)?;
+
+        let json = serde_json::to_string(event)?;
+        writeln!(file, "{}", json)?;
+
+        Ok(())
+    }
+
+    /// Read all event log entries from events.jsonl.
+    pub fn get_event_logs(&self) -> Result<Vec<crate::models::EventLog>> {
+        let events_path = self.root.join("events.jsonl");
+        if !events_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let file = File::open(&events_path)?;
+        let reader = BufReader::new(file);
+
+        let mut events = Vec::new();
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(event) = serde_json::from_str::<crate::models::EventLog>(&line) {
+                events.push(event);
+            }
+        }
+
+        Ok(events)
     }
 
     // === Session State Operations ===

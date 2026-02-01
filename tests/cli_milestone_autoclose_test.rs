@@ -1071,3 +1071,173 @@ fn test_milestone_reopen_idempotent() {
         .success()
         .stdout(predicate::str::contains("\"status\":\"pending\""));
 }
+
+// === Event Logging Tests ===
+
+#[test]
+fn test_milestone_auto_close_event_logging() {
+    let temp = init_binnacle();
+
+    // Create milestone with one task
+    let output = bn_in(&temp)
+        .args(["milestone", "create", "Event Log Test Milestone"])
+        .output()
+        .unwrap();
+    let milestone_id = extract_id(&output);
+
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task for event log"])
+        .output()
+        .unwrap();
+    let task_id = extract_id(&output);
+
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &milestone_id, "--type", "child_of"])
+        .assert()
+        .success();
+
+    // Close task - should trigger auto-close and create event log
+    bn_in(&temp)
+        .args(["task", "close", &task_id, "--reason", "Done"])
+        .assert()
+        .success();
+
+    // Verify milestone is done
+    bn_in(&temp)
+        .args(["milestone", "show", &milestone_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"done\""));
+
+    // Check log includes the auto_closed event
+    bn_in(&temp)
+        .args(["log", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("auto_closed"))
+        .stdout(predicate::str::contains(&milestone_id));
+}
+
+#[test]
+fn test_milestone_auto_reopen_event_logging() {
+    let temp = init_binnacle();
+
+    // Create milestone with one task
+    let output = bn_in(&temp)
+        .args(["milestone", "create", "Reopen Event Log Milestone"])
+        .output()
+        .unwrap();
+    let milestone_id = extract_id(&output);
+
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task 1"])
+        .output()
+        .unwrap();
+    let task1_id = extract_id(&output);
+
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &task1_id,
+            &milestone_id,
+            "--type",
+            "child_of",
+        ])
+        .assert()
+        .success();
+
+    // Close task - milestone auto-closes
+    bn_in(&temp)
+        .args(["task", "close", &task1_id, "--reason", "Done"])
+        .assert()
+        .success();
+
+    // Create new task and link to reopen milestone
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task 2"])
+        .output()
+        .unwrap();
+    let task2_id = extract_id(&output);
+
+    bn_in(&temp)
+        .args([
+            "link",
+            "add",
+            &task2_id,
+            &milestone_id,
+            "--type",
+            "child_of",
+        ])
+        .assert()
+        .success();
+
+    // Verify milestone is pending again
+    bn_in(&temp)
+        .args(["milestone", "show", &milestone_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"pending\""));
+
+    // Check log includes the auto_reopened event
+    bn_in(&temp)
+        .args(["log", "-H"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("auto_reopened"))
+        .stdout(predicate::str::contains(&milestone_id));
+}
+
+#[test]
+fn test_event_log_json_format() {
+    let temp = init_binnacle();
+
+    // Create milestone with one task
+    let output = bn_in(&temp)
+        .args(["milestone", "create", "JSON Log Test Milestone"])
+        .output()
+        .unwrap();
+    let milestone_id = extract_id(&output);
+
+    let output = bn_in(&temp)
+        .args(["task", "create", "Task"])
+        .output()
+        .unwrap();
+    let task_id = extract_id(&output);
+
+    bn_in(&temp)
+        .args(["link", "add", &task_id, &milestone_id, "--type", "child_of"])
+        .assert()
+        .success();
+
+    // Close task - triggers auto-close
+    bn_in(&temp)
+        .args(["task", "close", &task_id, "--reason", "Done"])
+        .assert()
+        .success();
+
+    // Check JSON log output
+    let output = bn_in(&temp).args(["log"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Should be valid JSON");
+
+    // Find the auto_closed entry
+    let entries = json["entries"].as_array().unwrap();
+    let auto_close_entry = entries
+        .iter()
+        .find(|e| e["action"].as_str() == Some("auto_closed"))
+        .expect("Should have auto_closed entry");
+
+    // Verify entry fields
+    assert_eq!(auto_close_entry["entity_type"].as_str(), Some("milestone"));
+    assert_eq!(
+        auto_close_entry["entity_id"].as_str(),
+        Some(milestone_id.as_str())
+    );
+    assert!(
+        auto_close_entry["details"]
+            .as_str()
+            .unwrap()
+            .contains("triggered by")
+    );
+}
