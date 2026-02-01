@@ -1714,3 +1714,199 @@ fn test_embedded_source_shows_correctly_for_fallback_definitions() {
         );
     }
 }
+
+// === Reserved Name Rejection Integration Tests ===
+// These tests verify that reserved names are properly rejected via CLI
+
+#[test]
+fn test_config_kdl_rejects_reserved_name_binnacle() {
+    // Test that config.kdl with reserved name "binnacle" is rejected
+    let env = TestEnv::new();
+
+    let containers_dir = env.repo_path().join(".binnacle").join("containers");
+    fs::create_dir_all(&containers_dir).unwrap();
+    fs::write(
+        containers_dir.join("config.kdl"),
+        r#"
+container "binnacle" {
+    description "This should be rejected - binnacle is reserved"
+}
+"#,
+    )
+    .unwrap();
+
+    // list-definitions should fail with reserved name error
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions"]);
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("reserved container name"));
+}
+
+#[test]
+fn test_config_kdl_rejects_reserved_name_default() {
+    // Test that config.kdl with reserved name "default" is rejected
+    let env = TestEnv::new();
+
+    let containers_dir = env.repo_path().join(".binnacle").join("containers");
+    fs::create_dir_all(&containers_dir).unwrap();
+    fs::write(
+        containers_dir.join("config.kdl"),
+        r#"
+container "default" {
+    description "This should be rejected - default is reserved"
+}
+"#,
+    )
+    .unwrap();
+
+    // list-definitions should fail with reserved name error
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions"]);
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("reserved container name"))
+        .stderr(predicate::str::contains(
+            "\"default\" and \"binnacle\" are reserved",
+        ));
+}
+
+#[test]
+fn test_user_config_can_reference_embedded_default_as_parent() {
+    // Test that user config can use embedded "default" as a parent without errors
+    let env = TestEnv::new();
+
+    let containers_dir = env.repo_path().join(".binnacle").join("containers");
+    fs::create_dir_all(&containers_dir).unwrap();
+    fs::write(
+        containers_dir.join("config.kdl"),
+        r#"
+container "my-worker" {
+    parent "default"
+    description "Worker derived from embedded default"
+}
+"#,
+    )
+    .unwrap();
+
+    // list-definitions should succeed
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions"]);
+    let output = cmd.output().unwrap();
+    assert!(
+        output.status.success(),
+        "list-definitions should succeed when referencing embedded default as parent. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Parse and verify the definitions
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Valid JSON");
+    let definitions = json["definitions"].as_array().unwrap();
+
+    // Should have 3 definitions: my-worker + default (embedded) + binnacle (embedded)
+    assert_eq!(definitions.len(), 3);
+
+    // Verify my-worker exists with correct parent
+    let my_worker = definitions
+        .iter()
+        .find(|d| d["name"] == "my-worker")
+        .expect("my-worker should exist");
+    assert_eq!(my_worker["parent"].as_str(), Some("default"));
+    assert_eq!(my_worker["source"].as_str(), Some("project"));
+
+    // Verify embedded default exists
+    let default_def = definitions
+        .iter()
+        .find(|d| d["name"] == "default")
+        .expect("embedded default should exist");
+    assert_eq!(default_def["source"].as_str(), Some("embedded"));
+}
+
+#[test]
+fn test_user_config_can_reference_embedded_binnacle_as_parent() {
+    // Test that user config can use embedded "binnacle" as a parent without errors
+    let env = TestEnv::new();
+
+    let containers_dir = env.repo_path().join(".binnacle").join("containers");
+    fs::create_dir_all(&containers_dir).unwrap();
+    fs::write(
+        containers_dir.join("config.kdl"),
+        r#"
+container "my-extended" {
+    parent "binnacle"
+    description "Extended worker derived from embedded binnacle"
+}
+"#,
+    )
+    .unwrap();
+
+    // list-definitions should succeed
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions"]);
+    let output = cmd.output().unwrap();
+    assert!(
+        output.status.success(),
+        "list-definitions should succeed when referencing embedded binnacle as parent. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Parse and verify the definitions
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Valid JSON");
+    let definitions = json["definitions"].as_array().unwrap();
+
+    // Should have 3 definitions: my-extended + default (embedded) + binnacle (embedded)
+    assert_eq!(definitions.len(), 3);
+
+    // Verify my-extended exists with correct parent
+    let my_extended = definitions
+        .iter()
+        .find(|d| d["name"] == "my-extended")
+        .expect("my-extended should exist");
+    assert_eq!(my_extended["parent"].as_str(), Some("binnacle"));
+    assert_eq!(my_extended["source"].as_str(), Some("project"));
+
+    // Verify embedded binnacle exists with parent chain to default
+    let binnacle_def = definitions
+        .iter()
+        .find(|d| d["name"] == "binnacle")
+        .expect("embedded binnacle should exist");
+    assert_eq!(binnacle_def["parent"].as_str(), Some("default"));
+    assert_eq!(binnacle_def["source"].as_str(), Some("embedded"));
+}
+
+#[test]
+fn test_list_definitions_human_shows_embedded_parent_chain() {
+    // Test that human-readable output correctly shows embedded parent relationships
+    let env = TestEnv::new();
+
+    // Create a user container that extends the embedded binnacle
+    let containers_dir = env.repo_path().join(".binnacle").join("containers");
+    fs::create_dir_all(&containers_dir).unwrap();
+    fs::write(
+        containers_dir.join("config.kdl"),
+        r#"
+container "my-project" {
+    parent "binnacle"
+    description "Project-specific container"
+}
+"#,
+    )
+    .unwrap();
+
+    // Get human-readable output
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions", "-H"]);
+    cmd.assert()
+        .success()
+        // Verify my-project shows with binnacle as parent
+        .stdout(predicate::str::contains("my-project"))
+        .stdout(predicate::str::contains("binnacle (embedded)"))
+        .stdout(predicate::str::contains("default (embedded)"));
+}

@@ -2203,4 +2203,312 @@ container "rust-dev" {
         assert!(display.contains("Modified:"));
         assert!(display.contains("--project or --host"));
     }
+
+    // === Embedded Definition Discovery Tests ===
+    // These tests verify the behavior specified in task bn-6329
+
+    #[test]
+    #[serial_test::serial]
+    fn test_user_definition_can_use_embedded_default_as_parent() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path();
+
+        // Create a user-defined container that derives from embedded "default"
+        let containers_dir = repo_path.join(".binnacle").join("containers");
+        fs::create_dir_all(&containers_dir).unwrap();
+        fs::write(
+            containers_dir.join("config.kdl"),
+            r#"
+container "my-worker" {
+    parent "default"
+    description "Custom worker derived from embedded default"
+}
+"#,
+        )
+        .unwrap();
+
+        let defs = super::discover_definitions(repo_path).unwrap();
+
+        // Should have 3 definitions: 1 user + 2 embedded (binnacle, default)
+        assert_eq!(
+            defs.len(),
+            3,
+            "Expected 3 definitions (1 user + 2 embedded), got {}: {:?}",
+            defs.len(),
+            defs.iter().map(|d| &d.definition.name).collect::<Vec<_>>()
+        );
+
+        // Verify user definition exists and has correct parent
+        let my_worker = defs.iter().find(|d| d.definition.name == "my-worker");
+        assert!(my_worker.is_some(), "my-worker definition should exist");
+        let my_worker = my_worker.unwrap();
+        assert_eq!(my_worker.source, super::DefinitionSource::Project);
+        assert_eq!(
+            my_worker.definition.parent,
+            Some(EMBEDDED_DEFAULT_NAME.to_string()),
+            "my-worker should derive from embedded 'default'"
+        );
+
+        // Verify the embedded default is present for the parent reference
+        let default_def = defs
+            .iter()
+            .find(|d| d.definition.name == EMBEDDED_DEFAULT_NAME);
+        assert!(default_def.is_some(), "embedded default should exist");
+        assert_eq!(
+            default_def.unwrap().source,
+            super::DefinitionSource::Embedded
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_user_definition_can_use_embedded_binnacle_as_parent() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path();
+
+        // Create a user-defined container that derives from embedded "binnacle"
+        let containers_dir = repo_path.join(".binnacle").join("containers");
+        fs::create_dir_all(&containers_dir).unwrap();
+        fs::write(
+            containers_dir.join("config.kdl"),
+            r#"
+container "my-extended-worker" {
+    parent "binnacle"
+    description "Extended worker derived from embedded binnacle"
+}
+"#,
+        )
+        .unwrap();
+
+        let defs = super::discover_definitions(repo_path).unwrap();
+
+        // Should have 3 definitions: 1 user + 2 embedded
+        assert_eq!(defs.len(), 3);
+
+        // Verify user definition has embedded binnacle as parent
+        let my_extended = defs
+            .iter()
+            .find(|d| d.definition.name == "my-extended-worker");
+        assert!(my_extended.is_some());
+        assert_eq!(
+            my_extended.unwrap().definition.parent,
+            Some(RESERVED_NAME.to_string()),
+            "my-extended-worker should derive from embedded 'binnacle'"
+        );
+
+        // Verify embedded binnacle is present
+        let binnacle_def = defs.iter().find(|d| d.definition.name == RESERVED_NAME);
+        assert!(binnacle_def.is_some());
+        assert_eq!(
+            binnacle_def.unwrap().source,
+            super::DefinitionSource::Embedded
+        );
+    }
+
+    #[test]
+    fn test_build_order_includes_embedded_parent_for_user_definition() {
+        // Test that build order correctly places embedded "default" before
+        // a user-defined container that derives from it
+        let mut defs = HashMap::new();
+
+        // Add embedded default (no parent)
+        defs.insert(
+            EMBEDDED_DEFAULT_NAME.to_string(),
+            ContainerDefinition {
+                name: EMBEDDED_DEFAULT_NAME.to_string(),
+                description: Some("Embedded default".to_string()),
+                parent: None,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        // Add user container with embedded default as parent
+        defs.insert(
+            "my-worker".to_string(),
+            ContainerDefinition {
+                name: "my-worker".to_string(),
+                description: Some("User worker".to_string()),
+                parent: Some(EMBEDDED_DEFAULT_NAME.to_string()),
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        let order = super::compute_build_order(&defs).unwrap();
+        assert_eq!(order.len(), 2);
+
+        // default must come before my-worker
+        let default_idx = order
+            .iter()
+            .position(|s| s == EMBEDDED_DEFAULT_NAME)
+            .unwrap();
+        let worker_idx = order.iter().position(|s| s == "my-worker").unwrap();
+
+        assert!(
+            default_idx < worker_idx,
+            "Embedded 'default' (idx {}) must be built before 'my-worker' (idx {})",
+            default_idx,
+            worker_idx
+        );
+    }
+
+    #[test]
+    fn test_build_order_full_chain_with_embedded_parents() {
+        // Test build order: default → binnacle → user-extended
+        // This represents a realistic scenario where user extends binnacle
+        // which itself extends default
+        let mut defs = HashMap::new();
+
+        // Add embedded default (no parent - base image)
+        defs.insert(
+            EMBEDDED_DEFAULT_NAME.to_string(),
+            ContainerDefinition {
+                name: EMBEDDED_DEFAULT_NAME.to_string(),
+                description: Some("Minimal base image".to_string()),
+                parent: None,
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        // Add embedded binnacle (parent: default)
+        defs.insert(
+            RESERVED_NAME.to_string(),
+            ContainerDefinition {
+                name: RESERVED_NAME.to_string(),
+                description: Some("Full development environment".to_string()),
+                parent: Some(EMBEDDED_DEFAULT_NAME.to_string()),
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        // Add user container extending binnacle
+        defs.insert(
+            "my-project".to_string(),
+            ContainerDefinition {
+                name: "my-project".to_string(),
+                description: Some("Project-specific additions".to_string()),
+                parent: Some(RESERVED_NAME.to_string()),
+                defaults: None,
+                mounts: vec![],
+            },
+        );
+
+        let order = super::compute_build_order(&defs).unwrap();
+        assert_eq!(order.len(), 3);
+
+        let default_idx = order
+            .iter()
+            .position(|s| s == EMBEDDED_DEFAULT_NAME)
+            .unwrap();
+        let binnacle_idx = order.iter().position(|s| s == RESERVED_NAME).unwrap();
+        let project_idx = order.iter().position(|s| s == "my-project").unwrap();
+
+        // Verify full chain: default < binnacle < my-project
+        assert!(
+            default_idx < binnacle_idx,
+            "default must be built before binnacle"
+        );
+        assert!(
+            binnacle_idx < project_idx,
+            "binnacle must be built before my-project"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_discover_definitions_always_includes_embedded_even_with_multiple_user_configs() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let repo_temp = TempDir::new().unwrap();
+        let repo_path = repo_temp.path();
+
+        // Create project-level config with multiple containers
+        let project_containers = repo_path.join(".binnacle").join("containers");
+        fs::create_dir_all(&project_containers).unwrap();
+        fs::write(
+            project_containers.join("config.kdl"),
+            r#"
+container "frontend" {
+    description "Frontend dev environment"
+}
+container "backend" {
+    description "Backend dev environment"
+}
+container "e2e" {
+    parent "frontend"
+    description "E2E testing environment"
+}
+"#,
+        )
+        .unwrap();
+
+        // Create host-level config
+        let data_temp = TempDir::new().unwrap();
+        let storage_dir =
+            crate::storage::get_storage_dir_with_base(repo_path, data_temp.path()).unwrap();
+        let host_containers = storage_dir.join("containers");
+        fs::create_dir_all(&host_containers).unwrap();
+        fs::write(
+            host_containers.join("config.kdl"),
+            r#"
+container "my-dev" {
+    description "Personal dev setup"
+}
+"#,
+        )
+        .unwrap();
+
+        // SAFETY: Test only, single-threaded
+        unsafe {
+            std::env::set_var("BN_DATA_DIR", data_temp.path());
+        }
+        let defs = super::discover_definitions(repo_path).unwrap();
+        unsafe {
+            std::env::remove_var("BN_DATA_DIR");
+        }
+
+        // Should have 6 definitions: 3 project + 1 host + 2 embedded
+        assert_eq!(
+            defs.len(),
+            6,
+            "Expected 6 definitions (3 project + 1 host + 2 embedded), got {}: {:?}",
+            defs.len(),
+            defs.iter().map(|d| &d.definition.name).collect::<Vec<_>>()
+        );
+
+        // Verify embedded definitions are always present
+        let embedded_count = defs
+            .iter()
+            .filter(|d| d.source == super::DefinitionSource::Embedded)
+            .count();
+        assert_eq!(
+            embedded_count, 2,
+            "Must always have exactly 2 embedded definitions (default and binnacle)"
+        );
+
+        // Verify specific embedded names
+        let embedded_names: Vec<&str> = defs
+            .iter()
+            .filter(|d| d.source == super::DefinitionSource::Embedded)
+            .map(|d| d.definition.name.as_str())
+            .collect();
+        assert!(
+            embedded_names.contains(&EMBEDDED_DEFAULT_NAME),
+            "Embedded 'default' must be present"
+        );
+        assert!(
+            embedded_names.contains(&RESERVED_NAME),
+            "Embedded 'binnacle' must be present"
+        );
+    }
 }
