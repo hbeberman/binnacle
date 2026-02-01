@@ -137,7 +137,7 @@ pub fn reserved_name(name: &str) -> String {
         ErrorCategory::Config,
         "reserved container name",
         Some(&format!(
-            "Container name '{}' is reserved for internal use.",
+            "Container name '{}' is reserved for internal use.\n\nThe names \"default\" and \"binnacle\" are reserved for embedded container definitions.",
             name
         )),
         Some(

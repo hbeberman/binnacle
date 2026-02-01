@@ -239,9 +239,9 @@ pub fn parse_config_kdl(doc: &KdlDocument) -> Result<HashMap<String, ContainerDe
 
         let def = parse_container_node(node)?;
 
-        // Validate reserved name
-        if def.name == RESERVED_NAME {
-            return Err(Error::Other(errors::reserved_name(RESERVED_NAME)));
+        // Validate reserved names - both 'binnacle' and 'default' are reserved for embedded definitions
+        if def.name == RESERVED_NAME || def.name == EMBEDDED_DEFAULT_NAME {
+            return Err(Error::Other(errors::reserved_name(&def.name)));
         }
 
         definitions.insert(def.name.clone(), def);
@@ -665,7 +665,7 @@ pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource
         definition: ContainerDefinition {
             name: RESERVED_NAME.to_string(),
             description: Some(
-                "Embedded binnacle-worker container (full development environment)".to_string(),
+                "Embedded binnacle-self container (full development environment)".to_string(),
             ),
             parent: Some(EMBEDDED_DEFAULT_NAME.to_string()),
             defaults: None,
@@ -734,7 +734,7 @@ pub fn generate_image_name(repo_path: &Path, definition_name: &str) -> Result<St
 /// Generate image name for a definition, handling embedded definitions specially.
 ///
 /// Embedded definitions (binnacle, default) use hardcoded names:
-/// - "binnacle" -> "localhost/binnacle-worker:latest"
+/// - "binnacle" -> "localhost/binnacle-self:latest"
 /// - "default" -> "localhost/binnacle-default:latest"
 ///
 /// Custom definitions use repository-scoped names.
@@ -753,7 +753,7 @@ pub fn generate_image_name_for_definition(
     if is_embedded {
         // Embedded definitions use hardcoded names
         if definition_name == RESERVED_NAME {
-            Ok(format!("localhost/binnacle-worker:{}", tag))
+            Ok(format!("localhost/binnacle-self:{}", tag))
         } else if definition_name == EMBEDDED_DEFAULT_NAME {
             Ok(format!("localhost/binnacle-default:{}", tag))
         } else {
@@ -988,6 +988,34 @@ container "binnacle" {
         assert!(
             err_msg.contains("Choose a different name"),
             "Error message should include suggestion: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_reserved_name_default_rejected() {
+        // The "default" name is reserved for the embedded binnacle-default container
+        let kdl = r#"
+container "default" {
+    description "Should be rejected - reserved name"
+}
+"#;
+
+        let doc: KdlDocument = kdl.parse().unwrap();
+        let result = parse_config_kdl(&doc);
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        // The error format uses "bn: error: config: reserved container name"
+        assert!(
+            err_msg.contains("reserved container name"),
+            "Error message should mention reserved name: {}",
+            err_msg
+        );
+        // Verify the error mentions both reserved names
+        assert!(
+            err_msg.contains("\"default\" and \"binnacle\" are reserved"),
+            "Error message should mention both reserved names: {}",
             err_msg
         );
     }
@@ -1393,7 +1421,7 @@ container "rust-dev" {
         let image =
             super::generate_image_name_for_definition(temp.path(), "binnacle", "latest", true)
                 .unwrap();
-        assert_eq!(image, "localhost/binnacle-worker:latest");
+        assert_eq!(image, "localhost/binnacle-self:latest");
 
         // Embedded default uses hardcoded name
         let image =
@@ -1405,7 +1433,7 @@ container "rust-dev" {
         let image =
             super::generate_image_name_for_definition(temp.path(), "binnacle", "v1.0", true)
                 .unwrap();
-        assert_eq!(image, "localhost/binnacle-worker:v1.0");
+        assert_eq!(image, "localhost/binnacle-self:v1.0");
     }
 
     #[test]

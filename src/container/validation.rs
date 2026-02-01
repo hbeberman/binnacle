@@ -13,7 +13,10 @@ use crate::{Error, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use super::{ContainerDefinition, DefinitionSource, DefinitionWithSource, RESERVED_NAME};
+use super::{
+    ContainerDefinition, DefinitionSource, DefinitionWithSource, EMBEDDED_DEFAULT_NAME,
+    RESERVED_NAME,
+};
 
 /// Result of validation with errors and warnings
 #[derive(Debug, Default, Clone)]
@@ -105,9 +108,9 @@ pub fn validate_parse(definitions: &HashMap<String, ContainerDefinition>) -> Val
     let mut result = ValidationResult::new();
 
     for (name, def) in definitions {
-        // Check reserved name
-        if name == RESERVED_NAME {
-            result.add_error(errors::reserved_name(RESERVED_NAME));
+        // Check reserved names - both 'binnacle' and 'default' are reserved for embedded definitions
+        if name == RESERVED_NAME || name == EMBEDDED_DEFAULT_NAME {
+            result.add_error(errors::reserved_name(name));
         }
 
         // Check name consistency
@@ -434,6 +437,37 @@ mod tests {
                 .iter()
                 .any(|e| e.contains("Choose a different name")),
             "Error should include suggestion: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_parse_reserved_name_default_rejected() {
+        // The "default" name is reserved for the embedded binnacle-default container
+        let mut defs = HashMap::new();
+        defs.insert(
+            EMBEDDED_DEFAULT_NAME.to_string(),
+            make_simple_def(EMBEDDED_DEFAULT_NAME, None),
+        );
+
+        let result = validate_parse(&defs);
+        assert!(!result.is_ok());
+        // The new error format uses "bn: error: config: reserved container name"
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("reserved container name")),
+            "Error should mention reserved container name: {:?}",
+            result.errors
+        );
+        // Verify the error mentions both reserved names
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("\"default\" and \"binnacle\" are reserved")),
+            "Error should mention both reserved names: {:?}",
             result.errors
         );
     }
