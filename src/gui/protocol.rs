@@ -226,6 +226,95 @@ pub enum Change {
 }
 
 // ============================================================================
+// Upstream Hub Protocol
+// ============================================================================
+
+/// Messages sent from session server to an upstream hub.
+///
+/// These messages are sent when `--upstream <URL>` is specified for
+/// `bn session serve`. The session registers with the hub, sends
+/// periodic heartbeats, and forwards graph events.
+///
+/// # Examples
+///
+/// ```json
+/// {"type": "register", "session_id": "03d0394e228f", "display_name": "binnacle@main", "repo_path": "/path/to/repo", "branch": "main"}
+/// {"type": "heartbeat", "ready_count": 5, "in_progress": ["bn-1234", "bn-5678"]}
+/// {"type": "event", "event": {...}}
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum UpstreamMessage {
+    /// Register this session with the hub.
+    ///
+    /// Sent immediately after connecting to the upstream hub.
+    Register {
+        /// Canonical session ID (repo hash).
+        session_id: String,
+        /// Human-readable display name (e.g., "binnacle@main").
+        display_name: String,
+        /// Absolute path to the repository.
+        repo_path: String,
+        /// Current git branch.
+        branch: String,
+    },
+
+    /// Periodic heartbeat with current state summary.
+    ///
+    /// Sent every 30 seconds while connected.
+    Heartbeat {
+        /// Number of tasks ready to work on.
+        ready_count: u64,
+        /// IDs of tasks currently in progress.
+        in_progress: Vec<String>,
+    },
+
+    /// Graph event notification.
+    ///
+    /// Sent when the graph state changes (task created, updated, etc.).
+    Event {
+        /// The change that occurred.
+        event: Change,
+    },
+}
+
+/// Messages sent from an upstream hub to session servers.
+///
+/// These messages allow the hub to issue commands or push configuration
+/// to connected sessions.
+///
+/// # Examples
+///
+/// ```json
+/// {"type": "command", "id": "hub-123", "cmd": "task create", "args": {"title": "From hub"}}
+/// {"type": "config", "settings": {"max_concurrent": 3}}
+/// {"type": "ack"}
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DownstreamMessage {
+    /// Execute a command on this session.
+    Command {
+        /// Hub-generated correlation ID.
+        id: String,
+        /// The command to execute.
+        cmd: String,
+        /// Command arguments.
+        #[serde(default)]
+        args: serde_json::Value,
+    },
+
+    /// Configuration push from hub.
+    Config {
+        /// Configuration settings to apply.
+        settings: serde_json::Value,
+    },
+
+    /// Acknowledgment of a message (e.g., register success).
+    Ack,
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -438,5 +527,94 @@ mod tests {
             }
             _ => panic!("Expected Command variant"),
         }
+    }
+
+    // ========================================================================
+    // Upstream Protocol Tests
+    // ========================================================================
+
+    #[test]
+    fn test_upstream_message_register_serialization() {
+        let msg = UpstreamMessage::Register {
+            session_id: "03d0394e228f".to_string(),
+            display_name: "binnacle@main".to_string(),
+            repo_path: "/home/user/binnacle".to_string(),
+            branch: "main".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"register""#));
+        assert!(json.contains(r#""session_id":"03d0394e228f""#));
+        assert!(json.contains(r#""display_name":"binnacle@main""#));
+
+        let parsed: UpstreamMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn test_upstream_message_heartbeat_serialization() {
+        let msg = UpstreamMessage::Heartbeat {
+            ready_count: 5,
+            in_progress: vec!["bn-1234".to_string(), "bn-5678".to_string()],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"heartbeat""#));
+        assert!(json.contains(r#""ready_count":5"#));
+        assert!(json.contains(r#""in_progress""#));
+
+        let parsed: UpstreamMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn test_upstream_message_event_serialization() {
+        let msg = UpstreamMessage::Event {
+            event: Change::Create {
+                entity_type: "task".to_string(),
+                data: serde_json::json!({"id": "bn-abcd", "title": "Test"}),
+            },
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"event""#));
+        assert!(json.contains(r#""event""#));
+
+        let parsed: UpstreamMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn test_downstream_message_command_serialization() {
+        let msg = DownstreamMessage::Command {
+            id: "hub-123".to_string(),
+            cmd: "task create".to_string(),
+            args: serde_json::json!({"title": "From hub"}),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"command""#));
+        assert!(json.contains(r#""id":"hub-123""#));
+
+        let parsed: DownstreamMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn test_downstream_message_config_serialization() {
+        let msg = DownstreamMessage::Config {
+            settings: serde_json::json!({"max_concurrent": 3}),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"config""#));
+
+        let parsed: DownstreamMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn test_downstream_message_ack_serialization() {
+        let msg = DownstreamMessage::Ack;
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"ack"}"#);
+
+        let parsed: DownstreamMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
     }
 }

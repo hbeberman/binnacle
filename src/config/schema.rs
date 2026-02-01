@@ -206,6 +206,9 @@ pub struct ServeState {
 
     /// Timestamp of last heartbeat update
     pub last_heartbeat: DateTime<Utc>,
+
+    /// Optional upstream hub URL (e.g., wss://hub.example.com/sessions)
+    pub upstream: Option<String>,
 }
 
 impl ServeState {
@@ -220,6 +223,29 @@ impl ServeState {
             repo_name,
             branch,
             last_heartbeat: now,
+            upstream: None,
+        }
+    }
+
+    /// Create a new serve state with upstream hub URL.
+    pub fn with_upstream(
+        pid: u32,
+        port: u16,
+        host: String,
+        repo_name: String,
+        branch: String,
+        upstream: Option<String>,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            pid,
+            port,
+            host,
+            started_at: now,
+            repo_name,
+            branch,
+            last_heartbeat: now,
+            upstream,
         }
     }
 
@@ -294,6 +320,13 @@ impl ServeState {
             .as_string()?;
         let last_heartbeat = last_heartbeat_str.parse::<DateTime<Utc>>().ok()?;
 
+        // Optional upstream field
+        let upstream = children.get("upstream").and_then(|n| {
+            n.entries()
+                .first()
+                .and_then(|e| e.value().as_string().map(|s| s.to_string()))
+        });
+
         Some(Self {
             pid,
             port,
@@ -302,6 +335,7 @@ impl ServeState {
             repo_name,
             branch,
             last_heartbeat,
+            upstream,
         })
     }
 
@@ -348,6 +382,13 @@ impl ServeState {
             self.last_heartbeat.to_rfc3339(),
         )));
         children.nodes_mut().push(heartbeat_node);
+
+        // upstream (optional)
+        if let Some(ref upstream_url) = self.upstream {
+            let mut upstream_node = KdlNode::new("upstream");
+            upstream_node.push(KdlEntry::new(KdlValue::String(upstream_url.clone())));
+            children.nodes_mut().push(upstream_node);
+        }
 
         node.set_children(children);
         node
@@ -848,6 +889,7 @@ mod tests {
             repo_name: "binnacle".to_string(),
             branch: "main".to_string(),
             last_heartbeat: Utc::now() - chrono::Duration::seconds(60),
+            upstream: None,
         };
 
         assert!(serve.is_heartbeat_stale(30)); // Stale if threshold is 30s

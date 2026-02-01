@@ -1731,7 +1731,7 @@ fn run_command(
                     host,
                     public,
                     tunnel,
-                    upstream: _, // TODO: Implement upstream hub support
+                    upstream,
                 } => {
                     // Ensure storage is initialized
                     if !binnacle::storage::Storage::exists(repo_path)? {
@@ -1753,6 +1753,7 @@ fn run_command(
                                 port,
                                 actual_host,
                                 tunnel,
+                                upstream.as_deref(),
                             )
                             .await
                             .map_err(|e| {

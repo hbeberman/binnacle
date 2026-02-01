@@ -17,6 +17,8 @@ pub mod session_log;
 #[cfg(feature = "gui")]
 pub mod tunnel;
 #[cfg(feature = "gui")]
+pub mod upstream;
+#[cfg(feature = "gui")]
 mod watcher;
 #[cfg(feature = "gui")]
 mod websocket;
@@ -30,7 +32,10 @@ pub mod shared;
 #[cfg(feature = "gui")]
 pub use pid_file::{GuiPidFile, GuiPidInfo, ProcessStatus, verify_process};
 #[cfg(feature = "gui")]
-pub use protocol::{Change, ClientMessage, GraphState, ServerMessage, StateSummary};
+pub use protocol::{
+    Change, ClientMessage, DownstreamMessage, GraphState, ServerMessage, StateSummary,
+    UpstreamMessage,
+};
 #[cfg(feature = "gui")]
 pub use server::{
     DEFAULT_PORT, derive_repo_name, find_available_port, get_current_branch, get_repo_display_name,
@@ -38,3 +43,5 @@ pub use server::{
 };
 #[cfg(feature = "gui")]
 pub use tunnel::{TunnelError, TunnelManager};
+#[cfg(feature = "gui")]
+pub use upstream::{SessionInfo, UpstreamClient};

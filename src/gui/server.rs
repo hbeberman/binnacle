@@ -2491,6 +2491,7 @@ pub async fn start_session_server(
     port: u16,
     host: &str,
     tunnel: bool,
+    upstream: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Start tunnel if requested
     let _tunnel_manager = if tunnel {
@@ -2555,6 +2556,10 @@ pub async fn start_session_server(
         summarize_session: Arc::new(Mutex::new(None)),
     };
 
+    // Clone values needed for upstream client before consuming state
+    let upstream_storage = state.storage.clone();
+    let upstream_update_tx = state.update_tx.clone();
+
     // Start file watcher in background
     let watcher_tx = state.update_tx.clone();
     let watcher_version = state.version.clone();
@@ -2590,12 +2595,13 @@ pub async fn start_session_server(
     crate::gui::session_log::log_server_start(&display_name, host, port, std::process::id());
 
     // Write serve state to state.kdl
-    let serve_state = crate::config::ServeState::new(
+    let serve_state = crate::config::ServeState::with_upstream(
         std::process::id(),
         port,
         host.to_string(),
-        serve_project_name,
-        serve_branch,
+        serve_project_name.clone(),
+        serve_branch.clone(),
+        upstream.map(|s| s.to_string()),
     );
     {
         let storage_for_state = Storage::open(repo_path)?;
@@ -2619,11 +2625,36 @@ pub async fn start_session_server(
         }
     });
 
+    // Start upstream client if URL provided
+    let upstream_handle = if let Some(upstream_url) = upstream {
+        let session_id = crate::gui::upstream::derive_session_id(repo_path);
+        let session_info = crate::gui::upstream::SessionInfo {
+            session_id,
+            display_name: display_name.clone(),
+            repo_path: repo_path.to_string_lossy().to_string(),
+            branch: serve_branch,
+        };
+        let upstream_rx = upstream_update_tx.subscribe();
+
+        println!("Connecting to upstream hub: {}", upstream_url);
+        Some(crate::gui::upstream::spawn_upstream_client(
+            upstream_url.to_string(),
+            session_info,
+            upstream_storage,
+            upstream_rx,
+        ))
+    } else {
+        None
+    };
+
     println!(
         "Session server started: {} on {}:{}",
         display_name, host, port
     );
     println!("WebSocket endpoint: ws://{}:{}/ws", host, port);
+    if let Some(upstream_url) = upstream {
+        println!("Upstream hub: {}", upstream_url);
+    }
     println!("Press Ctrl+C to stop");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -2641,6 +2672,11 @@ pub async fn start_session_server(
 
     // Stop heartbeat task
     heartbeat_handle.abort();
+
+    // Stop upstream client if running
+    if let Some(handle) = upstream_handle {
+        handle.abort();
+    }
 
     // Clear serve state from state.kdl on shutdown
     if let Ok(storage) = Storage::open(&cleanup_repo_path) {

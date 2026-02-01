@@ -95,6 +95,7 @@ gui = [
   "tracing",
   "regex",
   "libc",
+  "tokio-tungstenite",
 ]
 tui = [
   "ratatui",
