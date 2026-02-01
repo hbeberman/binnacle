@@ -7516,7 +7516,16 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_find_git_root_worktree_resolves_to_main() {
+        // Save and clear BN_CONTAINER_MODE to test non-container worktree resolution.
+        // This test needs exclusive access to env vars, hence #[serial].
+        // SAFETY: This is test code; we accept the POSIX setenv race condition
+        let saved_container_mode = std::env::var("BN_CONTAINER_MODE").ok();
+        unsafe {
+            std::env::remove_var("BN_CONTAINER_MODE");
+        }
+
         let env = TestEnv::new();
         let base = env.path();
 
@@ -7553,6 +7562,14 @@ mod tests {
             found.canonicalize().unwrap(),
             main_repo.canonicalize().unwrap()
         );
+
+        // Restore BN_CONTAINER_MODE if it was set
+        // SAFETY: This is test code; we accept the POSIX setenv race condition
+        if let Some(value) = saved_container_mode {
+            unsafe {
+                std::env::set_var("BN_CONTAINER_MODE", value);
+            }
+        }
     }
 
     #[test]
