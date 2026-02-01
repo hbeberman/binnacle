@@ -22,7 +22,7 @@ pub fn parse_layout(kdl_str: &str) -> Result<Layout> {
 }
 
 fn parse_layout_node(node: &KdlNode) -> Result<Layout> {
-    let name = get_string_attr(node, "name")?;
+    let name = get_name_attr(node)?;
 
     let mut windows = Vec::new();
     if let Some(children) = node.children() {
@@ -43,7 +43,7 @@ fn parse_layout_node(node: &KdlNode) -> Result<Layout> {
 }
 
 fn parse_window_node(node: &KdlNode) -> Result<Window> {
-    let name = get_string_attr(node, "name")?;
+    let name = get_name_attr(node)?;
 
     let mut panes = Vec::new();
     if let Some(children) = node.children() {
@@ -113,6 +113,22 @@ fn get_string_attr(node: &KdlNode, attr_name: &str) -> Result<String> {
         .and_then(|e| e.value().as_string())
         .map(|s| s.to_string())
         .ok_or_else(|| Error::Other(format!("Missing required attribute '{}'", attr_name)))
+}
+
+/// Get name attribute from a node, trying positional argument first, then named attribute.
+/// This allows both `layout "name"` and `layout name="name"` syntax.
+fn get_name_attr(node: &KdlNode) -> Result<String> {
+    // First, try to find a positional argument (entry without a name)
+    for entry in node.entries().iter() {
+        if entry.name().is_none() {
+            if let Some(s) = entry.value().as_string() {
+                return Ok(s.to_string());
+            }
+        }
+    }
+
+    // Fallback to named attribute
+    get_string_attr(node, "name")
 }
 
 fn get_optional_string_attr(node: &KdlNode, attr_name: &str) -> Result<Option<String>> {
@@ -339,5 +355,39 @@ layout name="test" {
 "#;
         let layout = parse_layout(kdl).unwrap();
         assert_eq!(layout.windows[0].panes[0].size, Some(Size::Lines(20)));
+    }
+
+    #[test]
+    fn test_parse_positional_name_syntax() {
+        // This is the syntax produced by `bn session tmux save`
+        let kdl = r#"
+layout "test-session" {
+    window "main" {
+        pane dir="/workspace" {
+            cmd "nvim"
+        }
+    }
+}
+"#;
+        let layout = parse_layout(kdl).unwrap();
+        assert_eq!(layout.name, "test-session");
+        assert_eq!(layout.windows.len(), 1);
+        assert_eq!(layout.windows[0].name, "main");
+    }
+
+    #[test]
+    fn test_parse_mixed_syntax() {
+        // Mix of positional and named attributes
+        let kdl = r#"
+layout "my-layout" {
+    window name="editor" {
+        pane split="horizontal" dir="/workspace" {}
+    }
+}
+"#;
+        let layout = parse_layout(kdl).unwrap();
+        assert_eq!(layout.name, "my-layout");
+        assert_eq!(layout.windows[0].name, "editor");
+        assert_eq!(layout.windows[0].panes[0].split, Some(Split::Horizontal));
     }
 }

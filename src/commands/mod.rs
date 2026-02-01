@@ -6487,7 +6487,7 @@ pub fn was_auto_closed(milestone: &crate::models::Milestone) -> bool {
 fn check_and_reopen_auto_closed_milestone(
     storage: &mut Storage,
     target_id: &str,
-    new_child_id: &str,
+    _new_child_id: &str,
 ) -> Result<Vec<String>> {
     // Only check milestones
     let milestone = match storage.get_milestone(target_id) {
@@ -6515,14 +6515,8 @@ fn check_and_reopen_auto_closed_milestone(
     milestone.core.updated_at = Utc::now();
     storage.update_milestone(&milestone)?;
 
-    // Log the reopen event (using existing log mechanism if available)
-    // Note: The PRD specifies logging, but we return the info in the result
-    // for the caller to handle. Full logging support is in a separate task.
-    tracing::info!(
-        target_id = target_id,
-        new_child_id = new_child_id,
-        "Milestone auto-reopened: new child added"
-    );
+    // Log the reopen event (the info is returned for the caller to handle)
+    // Full logging support is in a separate task (bn-d576).
 
     Ok(vec![target_id.to_string()])
 }
