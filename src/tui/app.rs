@@ -1207,7 +1207,7 @@ impl TuiApp {
 
         // Create centered overlay
         let overlay_width = (area.width * 3 / 4).min(70);
-        let overlay_height = (area.height * 3 / 4).min(28);
+        let overlay_height = (area.height * 3 / 4).min(36);
         let overlay_x = (area.width - overlay_width) / 2;
         let overlay_y = (area.height - overlay_height) / 2;
 
@@ -1280,11 +1280,33 @@ impl TuiApp {
             ]),
             Line::from(vec![
                 Span::styled("    Esc    ", Style::default().fg(Color::Yellow)),
-                Span::raw("Go back / Quit"),
+                Span::raw("Go back / Cancel search or command"),
             ]),
             Line::from(""),
             Line::from(vec![Span::styled(
-                "  NOTIFICATIONS",
+                "  SEARCH & COMMANDS",
+                Style::default().bold().fg(Color::Cyan),
+            )]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("    /      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Enter search mode (filter list)"),
+            ]),
+            Line::from(vec![
+                Span::styled("    n      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Next search result"),
+            ]),
+            Line::from(vec![
+                Span::styled("    N      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Previous search result"),
+            ]),
+            Line::from(vec![
+                Span::styled("    :      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Enter command mode"),
+            ]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "  PANELS",
                 Style::default().bold().fg(Color::Cyan),
             )]),
             Line::from(""),
