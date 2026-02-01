@@ -1945,6 +1945,27 @@ Write PRD to `prds/PRD_<NAME>.md` using the template below.
 ## Testing
 {How to validate the implementation}
 
+## Test Environment Requirements
+All integration tests MUST use `TestEnv` from `tests/common/mod.rs` for proper sandboxing.
+This ensures:
+- Isolated data directories (via `BN_DATA_DIR` env var)
+- Production write protection (`BN_TEST_MODE=1`)
+- Parallel test safety (unique `BN_TEST_ID` per test)
+
+Example:
+```rust
+use common::TestEnv;
+
+#[test]
+fn test_example() {
+    let env = TestEnv::init();  // Creates isolated environment + initializes binnacle
+    env.bn()
+        .args(["task", "create", "Test task"])
+        .assert()
+        .success();
+}
+```
+
 ## Open Questions
 - {Unresolved decisions}
 </prd_template>
