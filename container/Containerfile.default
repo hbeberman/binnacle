@@ -1,0 +1,57 @@
+# Binnacle Default Base Image
+# Minimal Fedora 43 with bn + copilot CLI
+# This is the foundational layer for all binnacle containers
+FROM docker.io/library/fedora:43
+
+LABEL org.opencontainers.image.title="binnacle-default"
+LABEL org.opencontainers.image.description="Minimal binnacle base with bn + copilot CLI"
+LABEL org.opencontainers.image.source="https://github.com/hbeberman/binnacle"
+
+# Layer 1: System packages - essential tools only
+RUN dnf install -y \
+    git \
+    jq \
+    curl \
+    ripgrep \
+    fd-find \
+    nss_wrapper \
+    && dnf clean all
+
+# Layer 2: nss_wrapper template files
+# Used by entrypoint to provide user identity for Node.js os.userInfo(), git, etc.
+# when running as host user (not root)
+RUN mkdir -p /etc/nss_wrapper && \
+    cp /etc/passwd /etc/nss_wrapper/passwd && \
+    cp /etc/group /etc/nss_wrapper/group && \
+    chmod 644 /etc/nss_wrapper/passwd /etc/nss_wrapper/group
+
+# Layer 3: binnacle binary
+# For manual builds: cargo build --release && cp target/release/bn container/bn
+# The binary has COPILOT_VERSION embedded at build time (see build.rs)
+ARG BN_BINARY_PATH=container/bn
+COPY ${BN_BINARY_PATH} /usr/local/bin/bn
+
+# Layer 4: Copilot CLI (pinned version, no token)
+# Downloads the version embedded in the bn binary (from COPILOT_VERSION at build time)
+# The binary is cached to /usr/local/share/binnacle/utils/copilot/<version>/copilot
+ENV BN_DATA_DIR=/usr/local/share/binnacle
+RUN bn system copilot install --upstream
+
+# Layer 5: git-wrapper (blocks --no-verify)
+# The wrapper intercepts git commit/push --no-verify and rejects it
+# This ensures agents cannot bypass commit hooks
+COPY container/git-wrapper.sh /usr/local/bin/git
+RUN chmod +x /usr/local/bin/git
+
+# Layer 6: Entrypoint
+COPY container/bn-entry.sh /bn-entry.sh
+RUN chmod +x /bn-entry.sh
+
+# Working directories
+RUN mkdir -p /workspace /binnacle
+
+# Container mode marker (triggers auto-detection in host-init)
+ENV BN_CONTAINER_MODE=true
+
+WORKDIR /workspace
+ENTRYPOINT ["/bn-entry.sh"]
