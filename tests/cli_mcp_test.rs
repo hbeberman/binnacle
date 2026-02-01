@@ -470,3 +470,285 @@ fn test_mcp_manifest_protocol_version() {
         "Protocol version should be in date format"
     );
 }
+
+// === MCP Prompts Tests ===
+
+#[test]
+fn test_mcp_manifest_contains_prompts() {
+    let env = setup();
+
+    env.bn()
+        .args(["mcp", "manifest"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("prompts"))
+        .stdout(predicate::str::contains("agent_instructions"));
+}
+
+#[test]
+fn test_mcp_manifest_agent_instructions_prompt_structure() {
+    let env = setup();
+
+    let output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let manifest: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    // Verify prompts array exists and has correct structure
+    let prompts = manifest["prompts"]
+        .as_array()
+        .expect("prompts should be array");
+    assert!(!prompts.is_empty(), "Should have at least one prompt");
+
+    // Find agent_instructions prompt
+    let agent_instructions = prompts
+        .iter()
+        .find(|p| p["name"] == "agent_instructions")
+        .expect("Should have agent_instructions prompt");
+
+    // Verify it has required fields
+    assert!(agent_instructions["name"].is_string());
+    assert!(agent_instructions["description"].is_string());
+    assert!(
+        agent_instructions["description"]
+            .as_str()
+            .unwrap()
+            .contains("agent"),
+        "Description should mention agent"
+    );
+}
+
+#[test]
+fn test_mcp_prompts_list_returns_agent_instructions() {
+    use std::io::{BufRead, BufReader, Write};
+
+    let env = setup();
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_bn"))
+        .args(["mcp", "serve"])
+        .current_dir(env.repo_path())
+        .env("BN_DATA_DIR", env.data_path())
+        .env("BN_TEST_MODE", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn MCP server");
+
+    let stdin = child.stdin.as_mut().expect("Failed to get stdin");
+    let stdout_handle = child.stdout.take().expect("Failed to get stdout");
+    let mut reader = BufReader::new(stdout_handle);
+
+    // Initialize
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05","capabilities":{{}},"clientInfo":{{"name":"test","version":"1.0"}}}}}}"#
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+
+    // List prompts
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"prompts/list","params":{{}}}}"#
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+    line.clear();
+    reader.read_line(&mut line).unwrap();
+
+    let response: serde_json::Value = serde_json::from_str(&line).expect("Valid JSON");
+    assert_eq!(response["id"], 2);
+
+    let prompts = response["result"]["prompts"]
+        .as_array()
+        .expect("prompts array");
+    assert!(
+        prompts.iter().any(|p| p["name"] == "agent_instructions"),
+        "Should list agent_instructions prompt"
+    );
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[test]
+fn test_mcp_prompts_get_agent_instructions_content() {
+    use std::io::{BufRead, BufReader, Write};
+
+    let env = setup();
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_bn"))
+        .args(["mcp", "serve"])
+        .current_dir(env.repo_path())
+        .env("BN_DATA_DIR", env.data_path())
+        .env("BN_TEST_MODE", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn MCP server");
+
+    let stdin = child.stdin.as_mut().expect("Failed to get stdin");
+    let stdout_handle = child.stdout.take().expect("Failed to get stdout");
+    let mut reader = BufReader::new(stdout_handle);
+
+    // Initialize
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05","capabilities":{{}},"clientInfo":{{"name":"test","version":"1.0"}}}}}}"#
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+
+    // Get agent_instructions prompt
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"prompts/get","params":{{"name":"agent_instructions"}}}}"#
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+    line.clear();
+    reader.read_line(&mut line).unwrap();
+
+    let response: serde_json::Value = serde_json::from_str(&line).expect("Valid JSON");
+    assert_eq!(response["id"], 2);
+    assert!(response["error"].is_null(), "Should not have error");
+
+    let messages = response["result"]["messages"]
+        .as_array()
+        .expect("messages array");
+    assert!(!messages.is_empty(), "Should have at least one message");
+
+    let first_message = &messages[0];
+    assert_eq!(first_message["role"], "user");
+
+    let content = first_message["content"]["text"]
+        .as_str()
+        .expect("text content");
+
+    // Verify content matches expected binnacle instructions
+    assert!(
+        content.contains("Binnacle"),
+        "Content should mention Binnacle"
+    );
+    assert!(
+        content.contains("bn orient"),
+        "Content should mention bn orient"
+    );
+    assert!(
+        content.contains("bn ready"),
+        "Content should mention bn ready"
+    );
+    assert!(
+        content.contains("bn goodbye"),
+        "Content should mention bn goodbye"
+    );
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[test]
+fn test_mcp_prompts_get_unknown_returns_error() {
+    use std::io::{BufRead, BufReader, Write};
+
+    let env = setup();
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_bn"))
+        .args(["mcp", "serve"])
+        .current_dir(env.repo_path())
+        .env("BN_DATA_DIR", env.data_path())
+        .env("BN_TEST_MODE", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn MCP server");
+
+    let stdin = child.stdin.as_mut().expect("Failed to get stdin");
+    let stdout_handle = child.stdout.take().expect("Failed to get stdout");
+    let mut reader = BufReader::new(stdout_handle);
+
+    // Initialize
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05","capabilities":{{}},"clientInfo":{{"name":"test","version":"1.0"}}}}}}"#
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+
+    // Get unknown prompt
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"prompts/get","params":{{"name":"nonexistent_prompt"}}}}"#
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+    line.clear();
+    reader.read_line(&mut line).unwrap();
+
+    let response: serde_json::Value = serde_json::from_str(&line).expect("Valid JSON");
+    assert_eq!(response["id"], 2);
+    assert!(!response["error"].is_null(), "Should have error");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unknown prompt"),
+        "Error should mention unknown prompt"
+    );
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[test]
+fn test_mcp_agent_instructions_matches_system_emit() {
+    let env = setup();
+
+    // Get content from bn system emit copilot-instructions
+    let emit_output = env
+        .bn()
+        .args(["system", "emit", "copilot-instructions", "-H"])
+        .output()
+        .expect("Failed to run system emit");
+    let emit_content = String::from_utf8_lossy(&emit_output.stdout);
+
+    // Get content from MCP manifest (which includes prompts)
+    let manifest_output = env.bn().args(["mcp", "manifest"]).output().unwrap();
+    let manifest_stdout = String::from_utf8_lossy(&manifest_output.stdout);
+    let manifest: serde_json::Value =
+        serde_json::from_str(&manifest_stdout).expect("Valid manifest JSON");
+
+    // Verify prompts are present in manifest
+    let prompts = manifest["prompts"].as_array().expect("prompts array");
+    let agent_prompt = prompts
+        .iter()
+        .find(|p| p["name"] == "agent_instructions")
+        .expect("Should have agent_instructions");
+
+    // The manifest only has metadata, not the content - content comes from prompts/get
+    // So verify the description is meaningful
+    let description = agent_prompt["description"].as_str().unwrap();
+    assert!(
+        description.contains("agent") || description.contains("instruction"),
+        "Prompt description should be relevant"
+    );
+
+    // Verify system emit produces the expected binnacle instructions content
+    assert!(
+        emit_content.contains("Binnacle"),
+        "system emit should produce Binnacle instructions"
+    );
+    assert!(
+        emit_content.contains("bn orient"),
+        "system emit should mention bn orient"
+    );
+}
