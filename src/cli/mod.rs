@@ -414,6 +414,13 @@ For detailed instructions, see: container/README.md
         /// Server host to connect to (default: localhost)
         #[arg(long, default_value = "localhost")]
         host: String,
+
+        /// WebSocket URL for remote session (e.g., wss://remote:3030/ws)
+        ///
+        /// When provided, connects directly to the specified URL instead of
+        /// auto-launching a local session server. Overrides --port and --host.
+        #[arg(long)]
+        url: Option<String>,
     },
 }
 

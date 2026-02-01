@@ -41,6 +41,34 @@ use super::views::{
 /// Default server port
 pub const DEFAULT_PORT: u16 = 3030;
 
+/// Parse a WebSocket URL to extract host and port for display purposes.
+///
+/// Handles both ws:// and wss:// URLs. Returns defaults if parsing fails.
+fn parse_ws_url(url: &str) -> (String, u16) {
+    // Strip scheme prefix
+    let without_scheme = url
+        .strip_prefix("wss://")
+        .or_else(|| url.strip_prefix("ws://"))
+        .unwrap_or(url);
+
+    // Extract host:port part (before any path)
+    let host_port = without_scheme.split('/').next().unwrap_or(without_scheme);
+
+    // Split into host and port
+    if let Some((host, port_str)) = host_port.rsplit_once(':') {
+        let port = port_str.parse().unwrap_or(DEFAULT_PORT);
+        (host.to_string(), port)
+    } else {
+        // No port specified - use default based on scheme
+        let default_port = if url.starts_with("wss://") {
+            443
+        } else {
+            DEFAULT_PORT
+        };
+        (host_port.to_string(), default_port)
+    }
+}
+
 /// Active view in the TUI
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
@@ -1487,26 +1515,47 @@ fn restore_terminal() -> io::Result<()> {
 /// # Arguments
 /// * `port` - Server port to connect to (default: 3030)
 /// * `host` - Server host to connect to (default: localhost)
+/// * `url` - Optional WebSocket URL for remote connections (overrides port/host)
 ///
 /// # Errors
 /// Returns an error if the server is not running or connection fails.
 pub async fn run_tui(
     port: Option<u16>,
     host: Option<String>,
+    url: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let port = port.unwrap_or(DEFAULT_PORT);
-    let host = host.unwrap_or_else(|| "localhost".to_string());
-    let endpoint = format!("ws://{}:{}/ws", host, port);
+    // If URL is provided, use it directly; otherwise construct from host/port
+    let (endpoint, display_host, display_port) = if let Some(ref ws_url) = url {
+        // Parse URL to extract host/port for display purposes
+        let (host, port) = parse_ws_url(ws_url);
+        (ws_url.clone(), host, port)
+    } else {
+        let port = port.unwrap_or(DEFAULT_PORT);
+        let host = host.unwrap_or_else(|| "localhost".to_string());
+        let endpoint = format!("ws://{}:{}/ws", host, port);
+        (endpoint, host, port)
+    };
 
-    let mut app = TuiApp::new(&host, port);
+    let mut app = TuiApp::new(&display_host, display_port);
 
     // Try to connect to the server
     let (ws_stream, _response) = match tokio_tungstenite::connect_async(&endpoint).await {
         Ok(result) => result,
         Err(e) => {
-            eprintln!("Error: No binnacle server detected at {}:{}", host, port);
-            eprintln!("Start the server with: bn serve");
-            eprintln!("\nDetails: {}", e);
+            if url.is_some() {
+                // Remote URL connection failed
+                eprintln!("Error: Failed to connect to remote session at {}", endpoint);
+                eprintln!("\nDetails: {}", e);
+            } else {
+                // Local connection failed - suggest starting session server
+                eprintln!(
+                    "Error: No session server detected at {}:{}",
+                    display_host, display_port
+                );
+                eprintln!("Session server should start automatically. If problems persist,");
+                eprintln!("try running: bn session serve");
+                eprintln!("\nDetails: {}", e);
+            }
             std::process::exit(1);
         }
     };
@@ -1627,4 +1676,44 @@ pub async fn run_tui(
     restore_terminal()?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_ws_url_with_port() {
+        let (host, port) = parse_ws_url("ws://example.com:8080/ws");
+        assert_eq!(host, "example.com");
+        assert_eq!(port, 8080);
+    }
+
+    #[test]
+    fn test_parse_ws_url_wss_with_port() {
+        let (host, port) = parse_ws_url("wss://remote.example.com:3030/ws");
+        assert_eq!(host, "remote.example.com");
+        assert_eq!(port, 3030);
+    }
+
+    #[test]
+    fn test_parse_ws_url_ws_default_port() {
+        let (host, port) = parse_ws_url("ws://localhost/ws");
+        assert_eq!(host, "localhost");
+        assert_eq!(port, DEFAULT_PORT);
+    }
+
+    #[test]
+    fn test_parse_ws_url_wss_default_port() {
+        let (host, port) = parse_ws_url("wss://secure.example.com/ws");
+        assert_eq!(host, "secure.example.com");
+        assert_eq!(port, 443);
+    }
+
+    #[test]
+    fn test_parse_ws_url_no_path() {
+        let (host, port) = parse_ws_url("ws://localhost:9000");
+        assert_eq!(host, "localhost");
+        assert_eq!(port, 9000);
+    }
 }

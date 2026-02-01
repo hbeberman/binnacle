@@ -2454,14 +2454,17 @@ fn run_command(
             }
         },
         #[cfg(feature = "tui")]
-        Some(Commands::Tui { port, host }) => {
-            // Auto-launch session server if needed (before connecting TUI)
-            let _session_child = ensure_session_server(repo_path)?;
+        Some(Commands::Tui { port, host, url }) => {
+            // If a URL is provided, connect directly without auto-launching
+            // Otherwise, auto-launch session server if needed (before connecting TUI)
+            if url.is_none() {
+                let _session_child = ensure_session_server(repo_path)?;
+            }
 
             // Create a tokio runtime and run the TUI
             let rt = tokio::runtime::Runtime::new()
                 .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?;
-            rt.block_on(async { binnacle::tui::run_tui(port, Some(host)).await })
+            rt.block_on(async { binnacle::tui::run_tui(port, Some(host), url).await })
                 .map_err(|e| binnacle::Error::Other(e.to_string()))?;
         }
         None => {
@@ -4642,9 +4645,9 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         }
 
         #[cfg(feature = "tui")]
-        Some(Commands::Tui { port, host }) => (
+        Some(Commands::Tui { port, host, url }) => (
             "tui".to_string(),
-            serde_json::json!({ "port": port, "host": host }),
+            serde_json::json!({ "port": port, "host": host, "url": url }),
         ),
 
         None => ("status".to_string(), serde_json::json!({})),
