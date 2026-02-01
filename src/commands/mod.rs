@@ -15675,12 +15675,113 @@ pub fn doctor_fix(repo_path: &Path) -> Result<DoctorFixResult> {
         }
     }
 
+    // Fix: Auto-close completable milestones (all children done/cancelled)
+    // We need to iterate until no more milestones can be closed (handles nested milestones)
+    loop {
+        let milestones = storage.list_milestones(None, None, None)?;
+        let mut closed_any = false;
+
+        for milestone in milestones {
+            // Only check non-closed milestones
+            if matches!(milestone.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                continue;
+            }
+
+            // Get all children via child_of edges where this milestone is the target
+            let child_edges = storage.list_edges(
+                Some(crate::models::EdgeType::ChildOf),
+                None,
+                Some(&milestone.core.id),
+            )?;
+
+            // Count children that are tasks, bugs, or milestones (ignore docs, ideas, etc.)
+            let mut child_count = 0;
+            let mut all_children_closed = true;
+
+            for child_edge in &child_edges {
+                let child_id = &child_edge.source;
+
+                // Try to get as task
+                if let Ok(task) = storage.get_task(child_id) {
+                    child_count += 1;
+                    if !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                        all_children_closed = false;
+                    }
+                    continue;
+                }
+
+                // Try to get as bug
+                if let Ok(bug) = storage.get_bug(child_id) {
+                    child_count += 1;
+                    if !matches!(bug.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                        all_children_closed = false;
+                    }
+                    continue;
+                }
+
+                // Try to get as milestone
+                if let Ok(child_milestone) = storage.get_milestone(child_id) {
+                    child_count += 1;
+                    if !matches!(
+                        child_milestone.status,
+                        TaskStatus::Done | TaskStatus::Cancelled
+                    ) {
+                        all_children_closed = false;
+                    }
+                    continue;
+                }
+
+                // Not a task, bug, or milestone - ignore (could be doc, idea, etc.)
+            }
+
+            // Auto-close if all children are done/cancelled
+            if child_count > 0 && all_children_closed {
+                let reason = if child_count == 1 {
+                    "Only child completed".to_string()
+                } else {
+                    format!("All {} children completed", child_count)
+                };
+
+                // Update the milestone
+                let mut m = milestone.clone();
+                m.status = TaskStatus::Done;
+                m.closed_at = Some(chrono::Utc::now());
+                m.closed_reason = Some(reason.clone());
+                m.core.updated_at = chrono::Utc::now();
+                storage.update_milestone(&m)?;
+
+                // Log the auto-close event
+                let event = crate::models::EventLog::milestone_auto_closed(
+                    milestone.core.id.clone(),
+                    reason.clone(),
+                    "doctor --fix".to_string(),
+                );
+                storage.add_event(&event)?;
+
+                fixes_applied.push(format!(
+                    "Auto-closed milestone {} ({})",
+                    milestone.core.id, reason
+                ));
+                closed_any = true;
+            }
+        }
+
+        // If we didn't close any milestones this iteration, we're done
+        if !closed_any {
+            break;
+        }
+    }
+
     // Run doctor again to get remaining issues
     let result = doctor(repo_path)?;
     let issues_remaining: Vec<DoctorIssue> = result
         .issues
         .into_iter()
-        .filter(|issue| issue.category != "queue" && issue.category != "legacy_prefix")
+        .filter(|issue| {
+            issue.category != "queue"
+                && issue.category != "legacy_prefix"
+                && issue.category != "completable"
+        })
         .collect();
 
     Ok(DoctorFixResult {
@@ -27174,6 +27275,185 @@ mod tests {
             .issues
             .iter()
             .any(|i| i.category == "completable" && i.entity_id.as_ref() == Some(&milestone.id)));
+    }
+
+    #[test]
+    fn test_doctor_fix_closes_completable_milestones() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Completable Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create two tasks as children of the milestone
+        let task_a = task_create(
+            temp.path(),
+            "Task A".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        let task_b = task_create(
+            temp.path(),
+            "Task B".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link tasks to milestone
+        link_add(
+            temp.path(),
+            &task_a.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+        link_add(
+            temp.path(),
+            &task_b.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Close both tasks with no_cascade=true to prevent auto-close of milestone
+        task_close(temp.path(), &task_a.id, None, false, true).unwrap();
+        task_close(temp.path(), &task_b.id, None, false, true).unwrap();
+
+        // Verify milestone is still pending (completable but not closed)
+        let storage = Storage::open(temp.path()).unwrap();
+        let m = storage.get_milestone(&milestone.id).unwrap();
+        assert_eq!(m.status, TaskStatus::Pending);
+
+        // Run doctor --fix - should close the completable milestone
+        let fix_result = doctor_fix(temp.path()).unwrap();
+        assert!(
+            fix_result
+                .fixes_applied
+                .iter()
+                .any(|f| f.contains(&milestone.id) && f.contains("Auto-closed")),
+            "Expected fix for milestone {}: {:?}",
+            milestone.id,
+            fix_result.fixes_applied
+        );
+
+        // Verify milestone is now closed
+        let storage = Storage::open(temp.path()).unwrap();
+        let m = storage.get_milestone(&milestone.id).unwrap();
+        assert_eq!(m.status, TaskStatus::Done);
+        assert_eq!(m.closed_reason.as_deref(), Some("All 2 children completed"));
+
+        // Verify no completable issues remain
+        assert!(
+            !fix_result
+                .issues_remaining
+                .iter()
+                .any(|i| i.category == "completable")
+        );
+    }
+
+    #[test]
+    fn test_doctor_fix_cascades_nested_milestones() {
+        let temp = setup_isolated();
+
+        // Create parent and child milestones
+        let parent_milestone = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        let child_milestone = milestone_create(
+            temp.path(),
+            "Child Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Link child milestone to parent
+        link_add(
+            temp.path(),
+            &child_milestone.id,
+            &parent_milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Create a task as child of the child milestone
+        let task = task_create(
+            temp.path(),
+            "Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        link_add(
+            temp.path(),
+            &task.id,
+            &child_milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Close task with no_cascade=true
+        task_close(temp.path(), &task.id, None, false, true).unwrap();
+
+        // Run doctor --fix - should close both milestones
+        let fix_result = doctor_fix(temp.path()).unwrap();
+
+        // Verify both milestones are now closed
+        let storage = Storage::open(temp.path()).unwrap();
+        let child_m = storage.get_milestone(&child_milestone.id).unwrap();
+        let parent_m = storage.get_milestone(&parent_milestone.id).unwrap();
+
+        assert_eq!(child_m.status, TaskStatus::Done);
+        assert_eq!(parent_m.status, TaskStatus::Done);
+
+        // Verify fixes were applied for both
+        assert!(
+            fix_result.fixes_applied.len() >= 2,
+            "Expected at least 2 fixes, got: {:?}",
+            fix_result.fixes_applied
+        );
     }
 
     // === Log Command Tests ===
