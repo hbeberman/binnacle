@@ -13,7 +13,6 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     min-width: 180px;
     max-width: 280px;
 }
@@ -44,6 +43,27 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+/* Scrollbar styling for the active task list */
+.active-task-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.active-task-list::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: 3px;
+}
+
+.active-task-list::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+.active-task-list::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
 }
 
 .active-task-item {

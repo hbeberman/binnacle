@@ -59,6 +59,7 @@
         <div class="controls">
             <button id="btn-no-task">No Active Task</button>
             <button id="btn-active-task">Set Active Task</button>
+            <button id="btn-many-tasks">Set Many Active Tasks</button>
             <button id="btn-toggle-mode">Toggle Mode</button>
         </div>
         
@@ -148,6 +149,24 @@
                     updated_at: new Date().toISOString()
                 }
             ]);
+        });
+
+        // Test with many active tasks to verify scrolling behavior
+        document.getElementById('btn-many-tasks').addEventListener('click', () => {
+            const tasks = [];
+            for (let i = 1; i <= 6; i++) {
+                const minutesAgo = new Date(Date.now() - i * 5 * 60 * 1000).toISOString();
+                tasks.push({
+                    id: `bn-task${i}`,
+                    type: 'task',
+                    title: `Active Task ${i} - Long title that should truncate`,
+                    short_name: `Task ${i}`,
+                    status: 'in_progress',
+                    priority: i,
+                    updated_at: minutesAgo
+                });
+            }
+            setEntities('tasks', tasks);
         });
 
         document.getElementById('btn-toggle-mode').addEventListener('click', () => {
