@@ -41,6 +41,9 @@ use super::views::{
 /// Default server port
 pub const DEFAULT_PORT: u16 = 3030;
 
+/// Cooldown period after a fetch error before retrying (in seconds)
+const FETCH_ERROR_COOLDOWN_SECS: u64 = 5;
+
 /// Parse a WebSocket URL to extract host and port for display purposes.
 ///
 /// Handles both ws:// and wss:// URLs. Returns defaults if parsing fails.
@@ -355,6 +358,8 @@ pub struct TuiApp {
     help_visible: bool,
     /// Last rendered layout chunks for mouse handling
     layout_chunks: Option<std::rc::Rc<[Rect]>>,
+    /// Time of last fetch error (for rate limiting)
+    last_fetch_error: Option<Instant>,
 }
 
 impl TuiApp {
@@ -380,6 +385,7 @@ impl TuiApp {
             reconnect_requested: false,
             help_visible: false,
             layout_chunks: None,
+            last_fetch_error: None,
         }
     }
 
@@ -1025,6 +1031,12 @@ impl TuiApp {
         // Fetch ready tasks
         let ready_url = format!("{}/api/ready", self.api_base);
         let ready_resp = reqwest::get(&ready_url).await?;
+
+        // Check for HTTP errors before attempting to parse JSON
+        if !ready_resp.status().is_success() {
+            return Err(format!("server error: {}", ready_resp.status()).into());
+        }
+
         let ready_data: ReadyResponse = ready_resp.json().await?;
 
         // Separate queued and non-queued items
@@ -1686,11 +1698,25 @@ pub async fn run_tui(
 
     // Main event loop
     loop {
-        // Fetch data if needed
+        // Fetch data if needed (with error cooldown to prevent spam)
         if app.needs_refresh {
-            if let Err(e) = app.fetch_data().await {
-                // Log error to TUI panel - data will be stale but user is informed
-                app.log_panel.log(format!("fetch error: {}", e));
+            // Check if we're in error cooldown period
+            let should_retry = app.last_fetch_error.is_none_or(|last_error| {
+                last_error.elapsed() >= Duration::from_secs(FETCH_ERROR_COOLDOWN_SECS)
+            });
+
+            if should_retry {
+                if let Err(e) = app.fetch_data().await {
+                    // Log error to TUI panel - data will be stale but user is informed
+                    // Only log if this is a new error (not a repeated retry)
+                    if app.last_fetch_error.is_none() {
+                        app.log_panel.log(format!("fetch error: {}", e));
+                    }
+                    app.last_fetch_error = Some(Instant::now());
+                } else {
+                    // Success - clear the error state
+                    app.last_fetch_error = None;
+                }
             }
         }
 
