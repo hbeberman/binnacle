@@ -21467,6 +21467,9 @@ pub struct ContainerBuildResult {
     /// List of definitions that were built
     #[serde(skip_serializing_if = "Option::is_none")]
     pub built_definitions: Option<Vec<String>>,
+    /// List of definitions that were skipped (image already exists)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped_definitions: Option<Vec<String>>,
     /// Available definitions (when listing)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub available_definitions: Option<Vec<DefinitionInfo>>,
@@ -21496,12 +21499,36 @@ impl Output for ContainerBuildResult {
             }
             output
         } else if self.success {
+            let mut parts = Vec::new();
+
             if let Some(built) = &self.built_definitions {
-                format!("Built {} definition(s): {}", built.len(), built.join(", "))
-            } else if let Some(tag) = &self.tag {
-                format!("Built image: localhost/binnacle-worker:{}", tag)
+                if !built.is_empty() {
+                    parts.push(format!(
+                        "Built {} definition(s): {}",
+                        built.len(),
+                        built.join(", ")
+                    ));
+                }
+            }
+
+            if let Some(skipped) = &self.skipped_definitions {
+                if !skipped.is_empty() {
+                    parts.push(format!(
+                        "Skipped {} definition(s) (already exist): {}",
+                        skipped.len(),
+                        skipped.join(", ")
+                    ));
+                }
+            }
+
+            if parts.is_empty() {
+                if let Some(tag) = &self.tag {
+                    format!("Built image: localhost/binnacle-worker:{}", tag)
+                } else {
+                    "Build succeeded".to_string()
+                }
             } else {
-                "Build succeeded".to_string()
+                parts.join("\n")
             }
         } else {
             format!(
@@ -21921,7 +21948,7 @@ pub fn container_build(
 ) -> Result<ContainerBuildResult> {
     use crate::container::{
         RESERVED_NAME, SourcePreference, compute_build_order, detect_conflicts,
-        discover_definitions, resolve_definition,
+        discover_definitions, generate_image_name_for_definition, resolve_definition,
     };
     use std::collections::HashMap;
 
@@ -21931,6 +21958,7 @@ pub fn container_build(
             success: false,
             tag: None,
             built_definitions: None,
+            skipped_definitions: None,
             available_definitions: None,
             error: Some(container_deps_missing_message()),
         });
@@ -21963,6 +21991,7 @@ pub fn container_build(
             success: true,
             tag: None,
             built_definitions: None,
+            skipped_definitions: None,
             available_definitions: Some(def_infos),
             error: None,
         });
@@ -21979,6 +22008,7 @@ pub fn container_build(
                 success: false,
                 tag: None,
                 built_definitions: None,
+                skipped_definitions: None,
                 available_definitions: None,
                 error: Some(format!(
                     "Cannot build all definitions: conflicts exist for: {}. Use --project or --host to specify which source to prefer.",
@@ -22036,6 +22066,7 @@ pub fn container_build(
                     success: false,
                     tag: None,
                     built_definitions: None,
+                    skipped_definitions: None,
                     available_definitions: None,
                     error: Some(e.to_string()),
                 });
@@ -22072,8 +22103,9 @@ pub fn container_build(
 
     eprintln!("📋 Build order: {}", to_build.join(" → "));
 
-    // Build each definition in order
+    // Build each definition in order, skipping those that already exist
     let mut built = Vec::new();
+    let mut skipped = Vec::new();
     for def_name in &to_build {
         // Use resolve_definition to respect source preference when looking up definitions
         let def_src = match resolve_definition(&defs_with_source, def_name, source_preference) {
@@ -22088,10 +22120,20 @@ pub fn container_build(
             }
         };
 
+        // Check if image already exists in containerd
+        let is_embedded = def_src.source == crate::container::DefinitionSource::Embedded;
+        let image_name = generate_image_name_for_definition(repo_path, def_name, tag, is_embedded)?;
+
+        if container_image_exists(&image_name) && !no_cache {
+            eprintln!("\n⏭️  Skipping {} (image exists: {})", def_name, image_name);
+            skipped.push(def_name.clone());
+            continue;
+        }
+
         eprintln!("\n📦 Building {} ({})...", def_name, def_src.source);
 
         // Determine if we're using embedded or config-based build
-        if def_src.source == crate::container::DefinitionSource::Embedded {
+        if is_embedded {
             if def_name == RESERVED_NAME {
                 // Legacy embedded build for binnacle-worker (backward compatibility)
                 build_embedded_container(tag, no_cache)?;
@@ -22112,11 +22154,27 @@ pub fn container_build(
         built.push(def_name.clone());
     }
 
-    eprintln!("\n✅ All builds complete!");
+    // Summary message
+    if skipped.is_empty() {
+        eprintln!("\n✅ All builds complete!");
+    } else if built.is_empty() {
+        eprintln!("\n✅ All images already exist, nothing to build.");
+    } else {
+        eprintln!(
+            "\n✅ Builds complete! Built: {} | Skipped (already exist): {}",
+            built.len(),
+            skipped.len()
+        );
+    }
     Ok(ContainerBuildResult {
         success: true,
         tag: Some(tag.to_string()),
         built_definitions: Some(built),
+        skipped_definitions: if skipped.is_empty() {
+            None
+        } else {
+            Some(skipped)
+        },
         available_definitions: None,
         error: None,
     })

@@ -736,6 +736,44 @@ pub fn generate_image_name(repo_path: &Path, definition_name: &str) -> Result<St
     Ok(format!("localhost/bn-{}-{}:latest", hash, definition_name))
 }
 
+/// Generate image name for a definition, handling embedded definitions specially.
+///
+/// Embedded definitions (binnacle, default) use hardcoded names:
+/// - "binnacle" -> "localhost/binnacle-worker:latest"
+/// - "default" -> "localhost/binnacle-default:latest"
+///
+/// Custom definitions use repository-scoped names.
+///
+/// # Arguments
+/// - `repo_path`: Path to repository root
+/// - `definition_name`: Name of the container definition
+/// - `tag`: Tag to use (e.g., "latest")
+/// - `is_embedded`: Whether this is an embedded definition
+pub fn generate_image_name_for_definition(
+    repo_path: &Path,
+    definition_name: &str,
+    tag: &str,
+    is_embedded: bool,
+) -> Result<String> {
+    if is_embedded {
+        // Embedded definitions use hardcoded names
+        if definition_name == RESERVED_NAME {
+            Ok(format!("localhost/binnacle-worker:{}", tag))
+        } else if definition_name == EMBEDDED_DEFAULT_NAME {
+            Ok(format!("localhost/binnacle-default:{}", tag))
+        } else {
+            Err(Error::Other(format!(
+                "Unknown embedded container definition: {}",
+                definition_name
+            )))
+        }
+    } else {
+        // Custom definitions use repository-scoped names
+        let hash = compute_repo_hash(repo_path)?;
+        Ok(format!("localhost/bn-{}-{}:{}", hash, definition_name, tag))
+    }
+}
+
 /// Compute build order for container definitions (topological sort)
 ///
 /// Returns definitions in dependency order (parents before children).
@@ -1309,6 +1347,64 @@ container "rust-dev" {
         assert!(parts.len() >= 3);
         let hash_part = parts[1];
         assert_eq!(hash_part.len(), 12);
+    }
+
+    #[test]
+    fn test_generate_image_name_for_definition_embedded() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+
+        // Embedded binnacle (worker) uses hardcoded name
+        let image =
+            super::generate_image_name_for_definition(temp.path(), "binnacle", "latest", true)
+                .unwrap();
+        assert_eq!(image, "localhost/binnacle-worker:latest");
+
+        // Embedded default uses hardcoded name
+        let image =
+            super::generate_image_name_for_definition(temp.path(), "default", "latest", true)
+                .unwrap();
+        assert_eq!(image, "localhost/binnacle-default:latest");
+
+        // Custom tag works
+        let image =
+            super::generate_image_name_for_definition(temp.path(), "binnacle", "v1.0", true)
+                .unwrap();
+        assert_eq!(image, "localhost/binnacle-worker:v1.0");
+    }
+
+    #[test]
+    fn test_generate_image_name_for_definition_custom() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+
+        // Custom definition uses repository-scoped name
+        let image =
+            super::generate_image_name_for_definition(temp.path(), "rust-dev", "latest", false)
+                .unwrap();
+        assert!(image.starts_with("localhost/bn-"));
+        assert!(image.ends_with("-rust-dev:latest"));
+
+        // Custom tag works
+        let image =
+            super::generate_image_name_for_definition(temp.path(), "rust-dev", "v2.0", false)
+                .unwrap();
+        assert!(image.starts_with("localhost/bn-"));
+        assert!(image.ends_with("-rust-dev:v2.0"));
+    }
+
+    #[test]
+    fn test_generate_image_name_for_definition_unknown_embedded() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+
+        // Unknown embedded definition should error
+        let result =
+            super::generate_image_name_for_definition(temp.path(), "unknown", "latest", true);
+        assert!(result.is_err());
     }
 
     #[test]
