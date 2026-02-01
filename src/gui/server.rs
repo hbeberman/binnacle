@@ -639,7 +639,9 @@ async fn get_milestones(
 
 /// Get ready tasks (no blockers)
 async fn get_ready(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
-    let storage = state.storage.lock().await;
+    // Open fresh storage to get current data (AppState.storage may be stale when
+    // external changes occur via CLI commands)
+    let storage = Storage::open(&state.repo_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Use the same logic as CLI `bn ready` - checks both legacy depends_on and edge-based dependencies
     let ready_tasks = storage
@@ -852,7 +854,9 @@ async fn get_node(
     State(state): State<AppState>,
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let storage = state.storage.lock().await;
+    // Open fresh storage to get current data (AppState.storage may be stale when
+    // external changes occur via CLI commands)
+    let storage = Storage::open(&state.repo_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Determine the entity type
     let entity_type = storage

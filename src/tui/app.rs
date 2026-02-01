@@ -1899,4 +1899,46 @@ mod tests {
             assert_eq!(*cmd, cmd.to_lowercase());
         }
     }
+
+    #[test]
+    fn test_task_data_deserialize_from_bug() {
+        // Bug JSON from the API - should still parse as TaskData
+        let bug_json = r#"{"id":"bn-855a","type":"bug","title":"TUI center pane bug","short_name":"tui-bug","description":"description","tags":[],"created_at":"2026-02-01T08:58:31.027145075Z","updated_at":"2026-02-01T08:58:31.027145075Z","priority":2,"status":"pending","severity":"triage","depends_on":[],"queued":false,"queued_via":null}"#;
+
+        let task: TaskData =
+            serde_json::from_str(bug_json).expect("Bug should deserialize as TaskData");
+        assert_eq!(task.core.id, "bn-855a");
+        assert_eq!(task.core.entity_type, Some("bug".to_string()));
+        assert_eq!(task.priority, 2);
+        assert!(!task.queued);
+    }
+
+    #[test]
+    fn test_task_data_deserialize_from_task() {
+        let task_json = r#"{"id":"bn-8d3c","type":"task","title":"Update docs","short_name":"Update docs","description":"description","tags":[],"created_at":"2026-02-01T08:09:57.525401487Z","updated_at":"2026-02-01T08:09:57.525401487Z","priority":2,"status":"pending","depends_on":[],"queued":false,"queued_via":null}"#;
+
+        let task: TaskData =
+            serde_json::from_str(task_json).expect("Task should deserialize as TaskData");
+        assert_eq!(task.core.id, "bn-8d3c");
+        assert_eq!(task.core.entity_type, Some("task".to_string()));
+    }
+
+    #[test]
+    fn test_ready_response_deserialize() {
+        // Simulating what /api/ready returns - tasks array contains both tasks and bugs
+        let response_json = r#"{
+            "tasks": [
+                {"id":"bn-8d3c","type":"task","title":"Update docs","priority":2,"status":"pending","queued":false},
+                {"id":"bn-855a","type":"bug","title":"TUI bug","priority":2,"status":"pending","severity":"triage","queued":false}
+            ],
+            "recently_completed_tasks": [],
+            "recently_completed_bugs": []
+        }"#;
+
+        let response: ReadyResponse =
+            serde_json::from_str(response_json).expect("Response should deserialize");
+        assert_eq!(response.tasks.len(), 2);
+        assert_eq!(response.tasks[0].core.entity_type, Some("task".to_string()));
+        assert_eq!(response.tasks[1].core.entity_type, Some("bug".to_string()));
+    }
 }
