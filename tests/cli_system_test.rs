@@ -2944,6 +2944,276 @@ fn test_system_host_init_json_includes_copilot_validated_field() {
 }
 
 // ============================================================================
+// bn system host-init Container Mode Tests (BN_CONTAINER_MODE)
+// ============================================================================
+// Note: host-init outputs emoji-formatted text (not JSON) as of commit e0a9924.
+// These tests verify behavior through string matching on the emoji output.
+
+/// Helper to create a bn command with container mode enabled.
+fn bn_container_mode(temp: &TestEnv) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(temp.repo_path());
+    cmd.env("BN_DATA_DIR", temp.data_path());
+    cmd.env("BN_TEST_MODE", "1");
+    cmd.env("BN_CONFIG_DIR", temp.repo_path().join(".config_test"));
+    cmd.env("BN_CONTAINER_MODE", "true");
+    cmd
+}
+
+/// Helper to create a bn command without container mode.
+fn bn_normal_mode(temp: &TestEnv) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(temp.repo_path());
+    cmd.env("BN_DATA_DIR", temp.data_path());
+    cmd.env("BN_TEST_MODE", "1");
+    cmd.env("BN_CONFIG_DIR", temp.repo_path().join(".config_test"));
+    cmd.env_remove("BN_CONTAINER_MODE");
+    cmd
+}
+
+/// Test that BN_CONTAINER_MODE=true triggers container mode initialization
+/// which auto-enables skills/MCP and skips install prompts.
+#[test]
+fn test_system_host_init_container_mode_triggers() {
+    let temp = TestEnv::new();
+
+    let output = bn_container_mode(&temp)
+        .args(["system", "host-init"])
+        .output()
+        .expect("Failed to run command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should succeed without prompting (container mode = non-interactive)
+    assert!(
+        output.status.success(),
+        "host-init should succeed in container mode. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Container mode indicator should be present
+    assert!(
+        stdout.contains("Running in container mode") || stdout.contains("🐳"),
+        "Output should indicate container mode: {}",
+        stdout
+    );
+}
+
+/// Test that container mode auto-enables skills file creation.
+#[test]
+fn test_system_host_init_container_mode_auto_enables_skills() {
+    let temp = TestEnv::new();
+
+    let output = bn_container_mode(&temp)
+        .args(["system", "host-init"])
+        .output()
+        .expect("Failed to run command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+
+    // Container mode should auto-enable skills
+    assert!(
+        stdout.contains("Created Claude skills file"),
+        "Container mode should create Claude skills file: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("Created Codex skills file"),
+        "Container mode should create Codex skills file: {}",
+        stdout
+    );
+}
+
+/// Test that container mode auto-enables MCP copilot config creation.
+#[test]
+fn test_system_host_init_container_mode_auto_enables_mcp() {
+    let temp = TestEnv::new();
+
+    let output = bn_container_mode(&temp)
+        .args(["system", "host-init"])
+        .output()
+        .expect("Failed to run command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+
+    // Container mode should auto-enable MCP copilot config
+    assert!(
+        stdout.contains("Updated Copilot CLI MCP config")
+            || stdout.contains("Copilot CLI MCP config"),
+        "Container mode should update MCP config: {}",
+        stdout
+    );
+}
+
+/// Test that container mode skips copilot installation (pre-installed in image).
+#[test]
+fn test_system_host_init_container_mode_skips_installs() {
+    let temp = TestEnv::new();
+
+    let output = bn_container_mode(&temp)
+        .args(["system", "host-init"])
+        .output()
+        .expect("Failed to run command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+
+    // Container mode should NOT install copilot or bn-agent
+    assert!(
+        !stdout.contains("Installed GitHub Copilot CLI"),
+        "Container mode should not install Copilot CLI: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("Installed bn-agent"),
+        "Container mode should not install bn-agent: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("Built container"),
+        "Container mode should not build container: {}",
+        stdout
+    );
+}
+
+/// Test that container mode writes copilot staff config for LSP support.
+#[test]
+fn test_system_host_init_container_mode_creates_copilot_staff_config() {
+    let temp = TestEnv::new();
+
+    let output = bn_container_mode(&temp)
+        .args(["system", "host-init"])
+        .output()
+        .expect("Failed to run command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+
+    // Container mode should create copilot staff config
+    assert!(
+        stdout.contains("Created Copilot staff config"),
+        "Container mode should create Copilot staff config: {}",
+        stdout
+    );
+}
+
+/// Test that without BN_CONTAINER_MODE, host-init behaves normally.
+#[test]
+fn test_system_host_init_without_container_mode_unchanged() {
+    let temp = TestEnv::new();
+
+    let output = bn_normal_mode(&temp)
+        .args(["system", "host-init", "-y"])
+        .output()
+        .expect("Failed to run command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+
+    // Normal mode with -y should NOT auto-enable skills/MCP
+    assert!(
+        !stdout.contains("Created Claude skills file"),
+        "Normal mode with -y should not create Claude skills file: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("Created Codex skills file"),
+        "Normal mode with -y should not create Codex skills file: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("Updated Copilot CLI MCP config"),
+        "Normal mode with -y should not update MCP config: {}",
+        stdout
+    );
+    // Normal mode should NOT show container mode indicator
+    assert!(
+        !stdout.contains("Running in container mode") && !stdout.contains("🐳"),
+        "Normal mode should not show container mode indicator: {}",
+        stdout
+    );
+}
+
+/// Test that BN_CONTAINER_MODE accepts both "true" and "1" as valid values.
+#[test]
+fn test_system_host_init_container_mode_accepts_1() {
+    let temp = TestEnv::new();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(temp.repo_path());
+    cmd.env("BN_DATA_DIR", temp.data_path());
+    cmd.env("BN_TEST_MODE", "1");
+    cmd.env("BN_CONFIG_DIR", temp.repo_path().join(".config_test"));
+    cmd.env("BN_CONTAINER_MODE", "1");
+    cmd.args(["system", "host-init"]);
+
+    let output = cmd.output().expect("Failed to run command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+
+    // BN_CONTAINER_MODE=1 should trigger container mode
+    assert!(
+        stdout.contains("Running in container mode") || stdout.contains("🐳"),
+        "BN_CONTAINER_MODE=1 should trigger container mode: {}",
+        stdout
+    );
+}
+
+/// Test that BN_CONTAINER_MODE accepts case-insensitive "TRUE".
+#[test]
+fn test_system_host_init_container_mode_case_insensitive() {
+    let temp = TestEnv::new();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(temp.repo_path());
+    cmd.env("BN_DATA_DIR", temp.data_path());
+    cmd.env("BN_TEST_MODE", "1");
+    cmd.env("BN_CONFIG_DIR", temp.repo_path().join(".config_test"));
+    cmd.env("BN_CONTAINER_MODE", "TRUE");
+    cmd.args(["system", "host-init"]);
+
+    let output = cmd.output().expect("Failed to run command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+
+    // BN_CONTAINER_MODE=TRUE should trigger container mode
+    assert!(
+        stdout.contains("Running in container mode") || stdout.contains("🐳"),
+        "BN_CONTAINER_MODE=TRUE (uppercase) should trigger container mode: {}",
+        stdout
+    );
+}
+
+/// Test that human-readable output works in container mode.
+#[test]
+fn test_system_host_init_container_mode_human_format() {
+    let temp = TestEnv::new();
+
+    let output = bn_container_mode(&temp)
+        .args(["-H", "system", "host-init"])
+        .output()
+        .expect("Failed to run command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("Initialized") || stdout.contains("system config"),
+        "Human output should contain initialization message: {}",
+        stdout
+    );
+}
+
+// ============================================================================
 // bn system sessions Tests
 // ============================================================================
 
