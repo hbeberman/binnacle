@@ -9,6 +9,7 @@
  * - Hover detection for nodes and edges
  * - Touch support with long-press for multi-select
  * - Keyboard shortcuts:
+ *   - /: Focus search input (enter search mode)
  *   - Ctrl+A (Cmd+A on Mac): Select all visible nodes
  *   - Escape: Clear selection and focused node
  *   - WASD: Pan the camera
@@ -748,7 +749,7 @@ function stopEdgeAutoPan() {
 }
 
 /**
- * Handle keyboard down - WASD panning, Escape to clear, Ctrl+A to select all
+ * Handle keyboard down - WASD panning, Escape to clear, Ctrl+A to select all, / to search
  */
 function onKeyDown(e) {
     // Don't handle keyboard if user is typing in an input field
@@ -757,6 +758,19 @@ function onKeyDown(e) {
     }
     
     const key = e.key.toLowerCase();
+    
+    // / key: Focus search input (enter search mode)
+    if (e.key === '/') {
+        e.preventDefault();
+        const searchInput = document.getElementById('graph-search');
+        if (searchInput) {
+            searchInput.focus();
+            // Select all existing text so user can easily replace it
+            searchInput.select();
+            console.log('[Keyboard] Entered search mode');
+        }
+        return;
+    }
     
     // Ctrl+A or Cmd+A: Select all visible nodes
     if ((e.ctrlKey || e.metaKey) && key === 'a') {
