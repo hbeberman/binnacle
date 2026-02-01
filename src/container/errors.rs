@@ -254,16 +254,6 @@ pub fn missing_mount_target(mount_name: &str) -> String {
     )
 }
 
-/// Error: Invalid entrypoint mode
-pub fn invalid_entrypoint_mode(mode: &str) -> String {
-    format_error(
-        ErrorCategory::Config,
-        "invalid entrypoint mode",
-        Some(&format!("Unknown entrypoint mode: '{}'.", mode)),
-        Some("Valid modes are: 'replace', 'before', 'after'."),
-    )
-}
-
 /// Error: Invalid mount mode
 pub fn invalid_mount_mode(mode: &str) -> String {
     format_error(

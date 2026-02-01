@@ -382,14 +382,13 @@ pub fn validate_all(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::container::{EntrypointMode, Mount, MountMode};
+    use crate::container::{Mount, MountMode};
 
     fn make_simple_def(name: &str, parent: Option<&str>) -> ContainerDefinition {
         ContainerDefinition {
             name: name.to_string(),
             description: None,
             parent: parent.map(|s| s.to_string()),
-            entrypoint_mode: EntrypointMode::Replace,
             defaults: None,
             mounts: vec![],
         }
@@ -552,7 +551,6 @@ mod tests {
                 name: "test".to_string(),
                 description: None,
                 parent: None,
-                entrypoint_mode: EntrypointMode::Replace,
                 defaults: None,
                 mounts: vec![Mount {
                     name: "data".to_string(),
@@ -645,7 +643,6 @@ mod tests {
             name: "test".to_string(),
             description: None,
             parent: None,
-            entrypoint_mode: EntrypointMode::Replace,
             defaults: None,
             mounts: vec![Mount {
                 name: "data".to_string(),
@@ -675,7 +672,6 @@ mod tests {
             name: "test".to_string(),
             description: None,
             parent: None,
-            entrypoint_mode: EntrypointMode::Replace,
             defaults: None,
             mounts: vec![Mount {
                 name: "cache".to_string(),
@@ -706,7 +702,6 @@ mod tests {
             name: "test".to_string(),
             description: None,
             parent: None,
-            entrypoint_mode: EntrypointMode::Replace,
             defaults: None,
             mounts: vec![Mount {
                 name: "data".to_string(),
@@ -731,7 +726,6 @@ mod tests {
             name: "test".to_string(),
             description: None,
             parent: None,
-            entrypoint_mode: EntrypointMode::Replace,
             defaults: None,
             mounts: vec![
                 Mount {
