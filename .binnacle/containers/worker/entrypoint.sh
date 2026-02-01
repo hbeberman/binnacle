@@ -89,13 +89,14 @@ EOF
 fi
 
 # Initialize binnacle configs:
-# - AGENTS.md binnacle section (preserves content outside markers)
 # - Claude skills file (~/.claude/skills/binnacle/SKILL.md)
+# - Codex skills file (~/.codex/skills/binnacle/SKILL.md)
 # - Copilot MCP config (~/.copilot/mcp-config.json) - merges with existing
+# Note: AGENTS.md is managed by the repo maintainer, not auto-generated here
 echo "📝 Initializing binnacle configuration..."
-if ! bn system init --write-agents-md --write-claude-skills --write-mcp-copilot -y > /dev/null 2>&1; then
+if ! bn system host-init -y --write-claude-skills --write-codex-skills --write-mcp-copilot > /dev/null 2>&1; then
     echo "❌ Failed to initialize binnacle configuration"
-    echo "   bn system init failed"
+    echo "   bn system host-init failed"
     exit 1
 fi
 echo "✅ Binnacle configuration initialized"
