@@ -119,11 +119,52 @@ if [ "${1:-}" = "shell" ] || [ "${1:-}" = "bash" ]; then
 fi
 
 # === 7. RUN COPILOT ===
+# Hybrid prompt injection: combine agent instructions with task-specific prompt
+# - AGENT_INSTRUCTIONS: workflow rules, git rules, MCP guidance (combined from templates)
+# - BN_INITIAL_PROMPT: task-specific prompt (overridable via env var)
+
+# Get base agent instructions (workflow rules + MCP lifecycle guidance)
+# Combines copilot-instructions (workflow basics) with mcp-lifecycle (MCP tool rules)
+echo "📋 Loading agent instructions..."
+COPILOT_INST=$(bn system emit copilot-instructions -H 2>/dev/null || echo "")
+MCP_LIFECYCLE=$(bn system emit mcp-lifecycle -H 2>/dev/null || echo "")
+
+# Combine instructions with clear separation
+if [ -n "$COPILOT_INST" ] && [ -n "$MCP_LIFECYCLE" ]; then
+    AGENT_INSTRUCTIONS="$COPILOT_INST
+
+$MCP_LIFECYCLE"
+elif [ -n "$COPILOT_INST" ]; then
+    AGENT_INSTRUCTIONS="$COPILOT_INST"
+elif [ -n "$MCP_LIFECYCLE" ]; then
+    AGENT_INSTRUCTIONS="$MCP_LIFECYCLE"
+else
+    AGENT_INSTRUCTIONS=""
+    echo "⚠️  Warning: Could not load agent instructions"
+fi
+
+# Task-specific prompt (overridable via env var)
 BN_INITIAL_PROMPT="${BN_INITIAL_PROMPT:-Run bn ready to see available tasks, pick one, and complete it. Call bn goodbye when done.}"
+
+# Combine: instructions first, then task prompt with delimiter
+if [ -n "$AGENT_INSTRUCTIONS" ]; then
+    FULL_PROMPT="$AGENT_INSTRUCTIONS
+
+---
+
+$BN_INITIAL_PROMPT"
+else
+    FULL_PROMPT="$BN_INITIAL_PROMPT"
+fi
+
 echo "🤖 Starting AI agent..."
 
-# Print the system prompt for log visibility
+# Print the system prompt for log visibility (truncated for readability)
 echo "--- SYSTEM PROMPT ---"
+if [ -n "$AGENT_INSTRUCTIONS" ]; then
+    echo "[Agent instructions: $(echo "$AGENT_INSTRUCTIONS" | wc -l) lines]"
+    echo "---"
+fi
 echo "$BN_INITIAL_PROMPT"
 echo "--- END PROMPT ---"
 
@@ -141,11 +182,11 @@ COPILOT_VERSION=$(echo "$COPILOT_PATH_INFO" | jq -r '.version // empty')
 
 if [ "$COPILOT_EXISTS" = "true" ] && [ -n "$COPILOT_BIN" ] && [ -x "$COPILOT_BIN" ]; then
     echo "🤖 Using pinned copilot $COPILOT_VERSION: $COPILOT_BIN"
-    "$COPILOT_BIN" --allow-all --no-auto-update "${BLOCKED_TOOLS[@]}" -p "$BN_INITIAL_PROMPT"
+    "$COPILOT_BIN" --allow-all --no-auto-update "${BLOCKED_TOOLS[@]}" -p "$FULL_PROMPT"
     AGENT_EXIT=$?
 elif command -v claude &> /dev/null; then
     echo "🤖 Using claude CLI"
-    claude -p "$BN_INITIAL_PROMPT"
+    claude -p "$FULL_PROMPT"
     AGENT_EXIT=$?
 else
     echo "❌ No AI agent found (copilot or claude CLI)"
