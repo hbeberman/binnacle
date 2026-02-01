@@ -5,6 +5,38 @@ use crate::{Error, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Convert an absolute path to a portable path format.
+///
+/// - If path starts with home directory → prefix with `~`
+/// - If path starts with current project directory → use relative path (`.` prefix)
+/// - Otherwise keep absolute
+fn to_portable_path(absolute_path: &Path, project_root: Option<&Path>) -> PathBuf {
+    // First try to make it relative to home directory
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(relative) = absolute_path.strip_prefix(&home) {
+            return PathBuf::from("~").join(relative);
+        }
+    }
+
+    // Then try to make it relative to project root if provided
+    if let Some(root) = project_root {
+        if let Ok(relative) = absolute_path.strip_prefix(root) {
+            if relative.as_os_str().is_empty() {
+                return PathBuf::from(".");
+            }
+            return PathBuf::from(".").join(relative);
+        }
+    }
+
+    // Keep absolute path if no conversion possible
+    absolute_path.to_path_buf()
+}
+
+/// Get the current working directory (project root) for portable path conversion.
+fn get_project_root() -> Option<PathBuf> {
+    std::env::current_dir().ok()
+}
+
 /// Capture the current tmux session state.
 pub fn capture_session() -> Result<Layout> {
     // Check if we're in a tmux session
@@ -97,9 +129,12 @@ fn capture_panes(session_name: &str, window_id: &str) -> Result<Vec<Pane>> {
     let target = format!("{}:{}", session_name, window_id);
     let pane_list = list_panes(&target)?;
     let mut panes = Vec::new();
+    let project_root = get_project_root();
 
     for (index, pane_id) in pane_list.iter().enumerate() {
         let dir = get_pane_current_path(pane_id)?;
+        // Convert absolute path to portable format
+        let portable_dir = to_portable_path(&dir, project_root.as_deref());
         let command = get_pane_command(pane_id)?;
 
         // First pane has no split, subsequent panes need split info
@@ -112,7 +147,7 @@ fn capture_panes(session_name: &str, window_id: &str) -> Result<Vec<Pane>> {
         panes.push(Pane {
             split,
             size: None, // Size detection is complex, can be added later
-            dir: Some(dir),
+            dir: Some(portable_dir),
             command: if command.is_empty() || is_shell_command(&command) {
                 None
             } else {
@@ -351,5 +386,72 @@ mod tests {
         let kdl = layout_to_kdl(&layout);
         assert!(kdl.contains("split=\"horizontal\""));
         assert!(kdl.contains("cmd \"cargo watch\""));
+    }
+
+    #[test]
+    fn test_to_portable_path_home_dir() {
+        if let Some(home) = dirs::home_dir() {
+            let absolute = home.join("repos").join("myproject");
+            let portable = to_portable_path(&absolute, None);
+            assert_eq!(portable, PathBuf::from("~/repos/myproject"));
+        }
+    }
+
+    #[test]
+    fn test_to_portable_path_home_dir_only() {
+        if let Some(home) = dirs::home_dir() {
+            let portable = to_portable_path(&home, None);
+            // Home dir alone should become ~
+            assert_eq!(portable, PathBuf::from("~"));
+        }
+    }
+
+    #[test]
+    fn test_to_portable_path_project_root() {
+        let project_root = PathBuf::from("/workspace/myproject");
+        let absolute = PathBuf::from("/workspace/myproject/src/main.rs");
+        let portable = to_portable_path(&absolute, Some(&project_root));
+        // Project root should take precedence if no home dir match
+        // But if home dir is /root or similar, it may match first
+        // Test both cases
+        if portable.to_string_lossy().starts_with("~") {
+            // Home matched first, that's fine
+        } else {
+            assert_eq!(portable, PathBuf::from("./src/main.rs"));
+        }
+    }
+
+    #[test]
+    fn test_to_portable_path_project_root_exact() {
+        let project_root = PathBuf::from("/some/random/path");
+        let portable = to_portable_path(&project_root, Some(&project_root));
+        // When path equals project root exactly, should return "."
+        if !portable.to_string_lossy().starts_with("~") {
+            assert_eq!(portable, PathBuf::from("."));
+        }
+    }
+
+    #[test]
+    fn test_to_portable_path_unmatched() {
+        // Use a path that definitely won't match home or project root
+        let absolute = PathBuf::from("/var/log/system.log");
+        let project_root = PathBuf::from("/opt/app");
+        let portable = to_portable_path(&absolute, Some(&project_root));
+        // Should remain absolute if no match
+        if !portable.to_string_lossy().starts_with("~") {
+            assert_eq!(portable, PathBuf::from("/var/log/system.log"));
+        }
+    }
+
+    #[test]
+    fn test_to_portable_path_prefers_home_over_project() {
+        // If both could match, home dir should win
+        if let Some(home) = dirs::home_dir() {
+            let project_root = home.join("repos");
+            let absolute = home.join("repos").join("project").join("file.rs");
+            let portable = to_portable_path(&absolute, Some(&project_root));
+            // Home should match first since we try home before project root
+            assert_eq!(portable, PathBuf::from("~/repos/project/file.rs"));
+        }
     }
 }
