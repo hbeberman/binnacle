@@ -2580,10 +2580,13 @@ pub async fn start_session_server(
         }
     });
 
-    // Build minimal router with just WebSocket and health check
+    // Build minimal router with WebSocket, health check, and essential API endpoints
+    // The TUI uses /api/ready and /api/node/:id for data fetching
     let app = Router::new()
         .route("/ws", get(crate::gui::websocket::ws_handler))
         .route("/health", get(|| async { "ok" }))
+        .route("/api/ready", get(get_ready))
+        .route("/api/node/:id", get(get_node))
         .with_state(state);
 
     let host_addr: std::net::IpAddr = host
