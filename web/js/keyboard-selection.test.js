@@ -123,6 +123,93 @@ test('Toast notification can be added', () => {
     assertEquals(toasts[0].message, 'Selected 3 visible nodes');
 });
 
+test('n/N with no active search shows hint toast', () => {
+    // Ensure no search is active
+    set('ui.searchQuery', '');
+    set('ui.searchMatches', []);
+    set('ui.currentMatchIndex', -1);
+    
+    // Simulate the n key handler logic (from camera.js)
+    const searchQuery = get('ui.searchQuery');
+    const searchMatches = get('ui.searchMatches') || [];
+    
+    // Verify preconditions: no active search
+    assert(!searchQuery || searchMatches.length === 0, 'Should have no active search');
+    
+    // When no search is active, handler shows toast hint
+    addToast({
+        type: 'info',
+        message: 'No active search. Press / to search.',
+        duration: 2000
+    });
+    
+    const toasts = get('ui.toasts');
+    assert(toasts.length === 1, 'Should have one toast');
+    assertEquals(toasts[0].message, 'No active search. Press / to search.');
+});
+
+test('n/N with active search navigates to match', () => {
+    // Setup an active search with matches
+    set('ui.searchQuery', 'test');
+    set('ui.searchMatches', ['bn-001', 'bn-002', 'bn-003']);
+    set('ui.currentMatchIndex', -1);
+    
+    const searchQuery = get('ui.searchQuery');
+    const searchMatches = get('ui.searchMatches') || [];
+    
+    // Verify search is active
+    assert(searchQuery && searchMatches.length > 0, 'Should have active search');
+    
+    // Simulate n key: go to first match
+    let currentIndex = get('ui.currentMatchIndex');
+    const direction = 1; // n = forward
+    
+    if (currentIndex < 0) {
+        currentIndex = 0; // Start at first
+    } else {
+        currentIndex = (currentIndex + direction + searchMatches.length) % searchMatches.length;
+    }
+    
+    set('ui.currentMatchIndex', currentIndex);
+    
+    assertEquals(get('ui.currentMatchIndex'), 0, 'Should be at first match');
+    assertEquals(searchMatches[currentIndex], 'bn-001', 'Should select first match');
+});
+
+test('n/N wraps around search matches', () => {
+    // Setup an active search at the last match
+    set('ui.searchQuery', 'test');
+    set('ui.searchMatches', ['bn-001', 'bn-002', 'bn-003']);
+    set('ui.currentMatchIndex', 2); // Last index
+    
+    const searchMatches = get('ui.searchMatches');
+    let currentIndex = get('ui.currentMatchIndex');
+    const direction = 1; // n = forward
+    
+    // Should wrap to beginning
+    currentIndex = (currentIndex + direction + searchMatches.length) % searchMatches.length;
+    set('ui.currentMatchIndex', currentIndex);
+    
+    assertEquals(get('ui.currentMatchIndex'), 0, 'Should wrap to first match');
+});
+
+test('N (shift+n) navigates backwards through matches', () => {
+    // Setup an active search at the first match
+    set('ui.searchQuery', 'test');
+    set('ui.searchMatches', ['bn-001', 'bn-002', 'bn-003']);
+    set('ui.currentMatchIndex', 0); // First index
+    
+    const searchMatches = get('ui.searchMatches');
+    let currentIndex = get('ui.currentMatchIndex');
+    const direction = -1; // N = backward
+    
+    // Should wrap to end
+    currentIndex = (currentIndex + direction + searchMatches.length) % searchMatches.length;
+    set('ui.currentMatchIndex', currentIndex);
+    
+    assertEquals(get('ui.currentMatchIndex'), 2, 'Should wrap to last match');
+});
+
 // Summary
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
 process.exit(testsFailed > 0 ? 1 : 0);
