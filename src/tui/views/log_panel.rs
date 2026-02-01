@@ -261,11 +261,11 @@ impl LogPanelView {
         let latest = self.entries.front().map(|e| e.display());
         let text = match latest {
             Some(msg) => format!(
-                " Log: {} ({} entries) [l to expand]",
+                " Log: {} ({} entries) [L to expand]",
                 msg,
                 self.entries.len()
             ),
-            None => " Log: (empty) [l to expand]".to_string(),
+            None => " Log: (empty) [L to expand]".to_string(),
         };
 
         let style = if self.focused {
@@ -288,7 +288,7 @@ impl LogPanelView {
                         .borders(Borders::TOP)
                         .border_style(Style::default().fg(Color::DarkGray))
                         .title(format!(
-                            " Activity Log ({}) [l to collapse] ",
+                            " Activity Log ({}) [L to collapse] ",
                             self.entry_count()
                         )),
                 );
@@ -337,7 +337,7 @@ impl LogPanelView {
             .collect();
 
         let title = if self.focused {
-            format!(" Activity Log ({}) [l to collapse] ", self.entry_count())
+            format!(" Activity Log ({}) [L to collapse] ", self.entry_count())
         } else {
             format!(" Activity Log ({}) ", self.entry_count())
         };
