@@ -508,8 +508,7 @@ pub struct SystemInitResult {
 
 impl Output for SystemInitResult {
     fn to_json(&self) -> String {
-        // Output emoji list instead of JSON for consistency with console output during execution
-        self.to_emoji_list()
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
     }
 
     fn to_human(&self) -> String {

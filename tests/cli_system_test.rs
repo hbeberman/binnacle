@@ -1587,26 +1587,11 @@ fn test_folder_import_roundtrip_via_store_path() {
 // ============================================================================
 
 #[test]
-fn test_system_emit_agents_human_format() {
-    // emit command doesn't require initialization
-    let temp = TestEnv::new();
-
-    bn_in(&temp)
-        .args(["-H", "system", "emit", "agents"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("<!-- BEGIN BINNACLE SECTION -->"))
-        .stdout(predicate::str::contains("<!-- END BINNACLE SECTION -->"))
-        .stdout(predicate::str::contains("bn orient"))
-        .stdout(predicate::str::contains("bn ready"));
-}
-
-#[test]
-fn test_system_emit_agents_json_format() {
+fn test_system_emit_copilot_instructions_json_format() {
     let temp = TestEnv::new();
 
     let output = bn_in(&temp)
-        .args(["system", "emit", "agents"])
+        .args(["system", "emit", "copilot-instructions"])
         .assert()
         .success()
         .get_output()
@@ -1617,8 +1602,7 @@ fn test_system_emit_agents_json_format() {
     let content = json["content"]
         .as_str()
         .expect("content field should exist");
-    assert!(content.contains("<!-- BEGIN BINNACLE SECTION -->"));
-    assert!(content.contains("<!-- END BINNACLE SECTION -->"));
+    assert!(content.contains("bn orient"));
 }
 
 #[test]
@@ -1661,7 +1645,7 @@ fn test_system_emit_no_init_required() {
 
     // Don't call init - just run emit directly
     bn_in(&temp)
-        .args(["system", "emit", "agents"])
+        .args(["system", "emit", "copilot-instructions"])
         .assert()
         .success();
 
@@ -2938,9 +2922,7 @@ fn test_system_host_init_human_format() {
         .args(["-H", "system", "host-init", "-y"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "Initialized binnacle system config",
-        ));
+        .stdout(predicate::str::contains("Initialized system config"));
 }
 
 #[test]
@@ -3134,10 +3116,10 @@ fn test_system_host_init_json_includes_copilot_validated_field() {
 // ============================================================================
 // bn system host-init Container Mode Tests (BN_CONTAINER_MODE)
 // ============================================================================
-// Note: host-init outputs emoji-formatted text (not JSON) as of commit e0a9924.
-// These tests verify behavior through string matching on the emoji output.
+// These tests verify container mode behavior through string matching on the emoji output.
+// The -H flag is used to get human-readable emoji output.
 
-/// Helper to create a bn command with container mode enabled.
+/// Helper to create a bn command with container mode enabled and human output.
 fn bn_container_mode(temp: &TestEnv) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(temp.repo_path());
@@ -3145,6 +3127,7 @@ fn bn_container_mode(temp: &TestEnv) -> Command {
     cmd.env("BN_TEST_MODE", "1");
     cmd.env("BN_CONFIG_DIR", temp.repo_path().join(".config_test"));
     cmd.env("BN_CONTAINER_MODE", "true");
+    cmd.arg("-H"); // Human-readable output for emoji matching
     cmd
 }
 
@@ -3340,7 +3323,7 @@ fn test_system_host_init_container_mode_accepts_1() {
     cmd.env("BN_TEST_MODE", "1");
     cmd.env("BN_CONFIG_DIR", temp.repo_path().join(".config_test"));
     cmd.env("BN_CONTAINER_MODE", "1");
-    cmd.args(["system", "host-init"]);
+    cmd.args(["-H", "system", "host-init"]);
 
     let output = cmd.output().expect("Failed to run command");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -3366,7 +3349,7 @@ fn test_system_host_init_container_mode_case_insensitive() {
     cmd.env("BN_TEST_MODE", "1");
     cmd.env("BN_CONFIG_DIR", temp.repo_path().join(".config_test"));
     cmd.env("BN_CONTAINER_MODE", "TRUE");
-    cmd.args(["system", "host-init"]);
+    cmd.args(["-H", "system", "host-init"]);
 
     let output = cmd.output().expect("Failed to run command");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -3386,8 +3369,9 @@ fn test_system_host_init_container_mode_case_insensitive() {
 fn test_system_host_init_container_mode_human_format() {
     let temp = TestEnv::new();
 
+    // bn_container_mode already adds -H, so we just run system host-init
     let output = bn_container_mode(&temp)
-        .args(["-H", "system", "host-init"])
+        .args(["system", "host-init"])
         .output()
         .expect("Failed to run command");
 

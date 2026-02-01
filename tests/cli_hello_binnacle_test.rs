@@ -295,12 +295,30 @@ fn test_session_init_output_includes_token_fields() {
 }
 
 #[test]
-fn test_host_init_output_uses_emoji_format() {
+fn test_host_init_outputs_json_by_default() {
     let env = TestEnv::new();
 
-    // host-init now outputs emoji-formatted text instead of JSON
-    bn_in(&env)
+    // host-init outputs JSON by default
+    let output = bn_in(&env)
         .args(["system", "host-init", "-y"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    assert_eq!(json["initialized"], true);
+    assert!(json["config_path"].as_str().is_some());
+}
+
+#[test]
+fn test_host_init_outputs_emoji_in_human_mode() {
+    let env = TestEnv::new();
+
+    // host-init outputs emoji-formatted text with -H flag
+    bn_in(&env)
+        .args(["-H", "system", "host-init", "-y"])
         .assert()
         .success()
         .stdout(predicate::str::contains("✅"))
