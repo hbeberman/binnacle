@@ -794,6 +794,7 @@ output-format "json"
                 }
                 Err(e) => {
                     eprintln!("Warning: Failed to build container: {}", e);
+                    eprintln!("  Run `bn container build binnacle-self` to build manually");
                     false
                 }
             }
