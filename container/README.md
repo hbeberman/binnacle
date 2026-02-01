@@ -258,7 +258,6 @@ container "worker" {
 |-------|----------|-------------|
 | `description` | No | Human-readable description |
 | `parent` | No | Parent definition to inherit from |
-| `entrypoint` | No | Entrypoint chaining mode (`replace`, `before`, `after`) |
 | `defaults` | No | Default resource limits (`cpus`, `memory`) |
 | `mounts` | No | List of mount configurations |
 
@@ -308,18 +307,11 @@ container "rust-dev" {
     parent "base"
     description "Rust development environment"
     
-    entrypoint mode="after"  // Run after parent's entrypoint
-    
     mounts {
         mount "cargo-cache" source="~/.cargo" target="/cargo" mode="rw"
     }
 }
 ```
-
-**Entrypoint modes:**
-- `replace` (default) - Child's entrypoint replaces parent's
-- `before` - Child runs first, then exec's parent's entrypoint
-- `after` - Parent runs first, then child's runs
 
 ### Definition Sources
 
@@ -375,6 +367,17 @@ bn container build --all
 # Skip mount validation (useful in CI)
 bn container build worker --skip-mount-validation
 ```
+
+**Build Dependencies:**
+
+When building a container with a `parent` definition (like `worker` which depends on `default`), binnacle automatically builds any missing parent images first. For example:
+
+```bash
+# This will automatically build binnacle-default:latest first if it doesn't exist
+bn container build worker
+```
+
+Existing images are skipped, so subsequent builds are fast. Use `--all` to rebuild everything in dependency order.
 
 For development builds using the justfile:
 
@@ -795,8 +798,6 @@ container "worker" {
 container "dev" {
     parent "worker"
     description "Development container with extra debugging tools"
-    
-    entrypoint mode="after"
     
     mounts {
         mount "debug-config" source=".debug/" target="/debug" mode="ro" optional=#true
