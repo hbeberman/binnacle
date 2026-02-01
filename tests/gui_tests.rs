@@ -200,7 +200,11 @@ mod gui_enabled {
         // Find the storage dir that was created and add a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
+        std::fs::write(
+            &pid_file_path,
+            "PID=999999999\nPORT=55823\nHOST=127.0.0.1\n",
+        )
+        .unwrap();
 
         // Status should detect the stale PID
         let output = env.bn().args(["gui", "status"]).assert().success();
@@ -226,7 +230,11 @@ mod gui_enabled {
         // Find the storage dir that was created
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
+        std::fs::write(
+            &pid_file_path,
+            "PID=999999999\nPORT=55823\nHOST=127.0.0.1\n",
+        )
+        .unwrap();
 
         // Stop should clean up the stale PID file
         env.bn()
@@ -255,7 +263,11 @@ mod gui_enabled {
         // Find the storage dir and create a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
+        std::fs::write(
+            &pid_file_path,
+            "PID=999999999\nPORT=55823\nHOST=127.0.0.1\n",
+        )
+        .unwrap();
 
         // Stop should clean up the stale PID file and report it
         env.bn()
@@ -389,7 +401,7 @@ mod gui_enabled {
         cmd.assert()
             .success()
             .stdout(predicates::str::contains("--port"))
-            .stdout(predicates::str::contains("3030"));
+            .stdout(predicates::str::contains("55823"));
     }
 
     #[test]
@@ -462,7 +474,11 @@ mod gui_enabled {
         // Find the storage dir and create a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
+        std::fs::write(
+            &pid_file_path,
+            "PID=999999999\nPORT=55823\nHOST=127.0.0.1\n",
+        )
+        .unwrap();
 
         // Kill should clean up the stale PID file
         env.bn()
@@ -527,7 +543,11 @@ mod gui_enabled {
         // Find the storage dir and create a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
+        std::fs::write(
+            &pid_file_path,
+            "PID=999999999\nPORT=55823\nHOST=127.0.0.1\n",
+        )
+        .unwrap();
 
         // Kill should clean up the stale PID file (human-readable)
         env.bn()
@@ -571,7 +591,11 @@ mod gui_enabled {
         // Find the storage dir and create a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
+        std::fs::write(
+            &pid_file_path,
+            "PID=999999999\nPORT=55823\nHOST=127.0.0.1\n",
+        )
+        .unwrap();
 
         // Verify JSON structure when stale PID file exists
         let output = env.bn().args(["gui", "kill"]).assert().success();
@@ -595,7 +619,11 @@ mod gui_enabled {
         // Find the storage dir and create a stale PID file
         let storage_dir = find_storage_dir_in_data_path(env.data_path());
         let pid_file_path = storage_dir.join("gui.pid");
-        std::fs::write(&pid_file_path, "PID=999999999\nPORT=3030\nHOST=127.0.0.1\n").unwrap();
+        std::fs::write(
+            &pid_file_path,
+            "PID=999999999\nPORT=55823\nHOST=127.0.0.1\n",
+        )
+        .unwrap();
 
         // Kill --force should also clean up the stale PID file
         env.bn()

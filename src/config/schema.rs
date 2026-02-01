@@ -176,7 +176,7 @@ impl BinnacleConfig {
 /// ```kdl
 /// serve {
 ///   pid 12345
-///   port 3030
+///   port 55823
 ///   host "127.0.0.1"
 ///   started-at "2026-01-31T10:00:00Z"
 ///   repo-name "binnacle"
@@ -410,7 +410,7 @@ impl ServeState {
 ///
 /// serve {
 ///   pid 12345
-///   port 3030
+///   port 55823
 ///   host "127.0.0.1"
 ///   started-at "2026-01-31T10:00:00Z"
 ///   repo-name "binnacle"
@@ -824,7 +824,7 @@ mod tests {
             last_copilot_version: None,
             serve: Some(ServeState::new(
                 123,
-                3030,
+                55823,
                 "127.0.0.1".to_string(),
                 "test-repo".to_string(),
                 "main".to_string(),
@@ -845,14 +845,14 @@ mod tests {
     fn test_serve_state_new() {
         let serve = ServeState::new(
             1234,
-            3030,
+            55823,
             "127.0.0.1".to_string(),
             "binnacle".to_string(),
             "main".to_string(),
         );
 
         assert_eq!(serve.pid, 1234);
-        assert_eq!(serve.port, 3030);
+        assert_eq!(serve.port, 55823);
         assert_eq!(serve.host, "127.0.0.1");
         assert_eq!(serve.repo_name, "binnacle");
         assert_eq!(serve.branch, "main");
@@ -865,7 +865,7 @@ mod tests {
     fn test_serve_state_touch_heartbeat() {
         let mut serve = ServeState::new(
             1234,
-            3030,
+            55823,
             "127.0.0.1".to_string(),
             "binnacle".to_string(),
             "main".to_string(),
@@ -883,7 +883,7 @@ mod tests {
     fn test_serve_state_is_heartbeat_stale() {
         let serve = ServeState {
             pid: 1234,
-            port: 3030,
+            port: 55823,
             host: "127.0.0.1".to_string(),
             started_at: Utc::now(),
             repo_name: "binnacle".to_string(),
@@ -900,7 +900,7 @@ mod tests {
     fn test_serve_state_kdl_roundtrip() {
         let serve = ServeState::new(
             12345,
-            3030,
+            55823,
             "0.0.0.0".to_string(),
             "test-repo".to_string(),
             "feature/test".to_string(),
@@ -951,7 +951,7 @@ mod tests {
             last_copilot_version: None,
             serve: Some(ServeState::new(
                 4567,
-                3030,
+                55823,
                 "127.0.0.1".to_string(),
                 "binnacle".to_string(),
                 "main".to_string(),
@@ -963,7 +963,7 @@ mod tests {
 
         assert!(kdl_str.contains("serve"));
         assert!(kdl_str.contains("pid 4567"));
-        assert!(kdl_str.contains("port 3030"));
+        assert!(kdl_str.contains("port 55823"));
         assert!(kdl_str.contains("host \"127.0.0.1\""));
 
         // Roundtrip test
@@ -979,7 +979,7 @@ mod tests {
 
         let serve = ServeState::new(
             123,
-            3030,
+            55823,
             "127.0.0.1".to_string(),
             "test".to_string(),
             "main".to_string(),
@@ -995,7 +995,7 @@ mod tests {
         let mut state = BinnacleState {
             serve: Some(ServeState::new(
                 123,
-                3030,
+                55823,
                 "127.0.0.1".to_string(),
                 "test".to_string(),
                 "main".to_string(),
@@ -1013,7 +1013,7 @@ mod tests {
         let mut state = BinnacleState {
             serve: Some(ServeState::new(
                 123,
-                3030,
+                55823,
                 "127.0.0.1".to_string(),
                 "test".to_string(),
                 "main".to_string(),

@@ -5,7 +5,7 @@
 //!
 //! The log uses a simple text format with timestamps for easy debugging:
 //! ```text
-//! 2026-01-31T12:00:00Z [INFO] Session server started: repo@branch on 127.0.0.1:3030 (pid: 12345)
+//! 2026-01-31T12:00:00Z [INFO] Session server started: repo@branch on 127.0.0.1:55823 (pid: 12345)
 //! 2026-01-31T12:00:05Z [INFO] WebSocket connection opened: client_id=abc123
 //! 2026-01-31T12:00:10Z [WARN] Heartbeat timeout detected
 //! 2026-01-31T12:01:00Z [INFO] Session server stopped: repo@branch (pid: 12345)
@@ -264,11 +264,11 @@ mod tests {
         let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
-        log_server_start("myrepo@main", "127.0.0.1", 3030, 12345);
+        log_server_start("myrepo@main", "127.0.0.1", 55823, 12345);
 
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(
-            content.contains("Session server started: myrepo@main on 127.0.0.1:3030 (pid: 12345)")
+            content.contains("Session server started: myrepo@main on 127.0.0.1:55823 (pid: 12345)")
         );
         cleanup_test_env_isolated();
     }
@@ -292,11 +292,11 @@ mod tests {
         let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
-        log_gui_start("/path/to/repo", "0.0.0.0", 3030, 54321, false);
+        log_gui_start("/path/to/repo", "0.0.0.0", 55823, 54321, false);
 
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains(
-            "GUI server started: /path/to/repo on 0.0.0.0:3030 (pid: 54321, mode: read-write)"
+            "GUI server started: /path/to/repo on 0.0.0.0:55823 (pid: 54321, mode: read-write)"
         ));
         cleanup_test_env_isolated();
     }
@@ -307,7 +307,7 @@ mod tests {
         let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
-        log_gui_start("/path/to/repo", "0.0.0.0", 3030, 54321, true);
+        log_gui_start("/path/to/repo", "0.0.0.0", 55823, 54321, true);
 
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("mode: readonly"));

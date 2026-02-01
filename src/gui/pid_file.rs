@@ -35,7 +35,7 @@ pub struct GuiPidInfo {
 /// and contains the process ID, port, and host in a simple format:
 /// ```text
 /// PID=12345
-/// PORT=3030
+/// PORT=55823
 /// HOST=127.0.0.1
 /// ```
 #[derive(Debug)]
@@ -334,7 +334,7 @@ mod tests {
 
         let info = GuiPidInfo {
             pid: 12345,
-            port: 3030,
+            port: 55823,
             host: "127.0.0.1".to_string(),
         };
 
@@ -356,7 +356,7 @@ mod tests {
 
         let info = GuiPidInfo {
             pid: 12345,
-            port: 3030,
+            port: 55823,
             host: "127.0.0.1".to_string(),
         };
 
@@ -448,7 +448,7 @@ mod tests {
 
         let info = GuiPidInfo {
             pid: 1,
-            port: 3030,
+            port: 55823,
             host: "127.0.0.1".to_string(),
         };
 
@@ -462,7 +462,7 @@ mod tests {
 
         let info = GuiPidInfo {
             pid: 12345,
-            port: 3030,
+            port: 55823,
             host: "::1".to_string(),
         };
 
@@ -486,7 +486,7 @@ mod tests {
         // Use a PID that definitely doesn't exist (very high number)
         let info = GuiPidInfo {
             pid: 999999999,
-            port: 3030,
+            port: 55823,
             host: "127.0.0.1".to_string(),
         };
         pid_file.write(&info).unwrap();

@@ -66,7 +66,7 @@ bn orient
 
 ```bash
 bn-agent buddy                  # Interactive assistant for task management
-bn gui                          # Web interface at http://localhost:3030
+bn gui                          # Web interface at http://localhost:55823
 ```
 
 **Container mode** (isolated environment):
@@ -232,7 +232,7 @@ Run `bn --help` for everything else.
 Run a WebSocket server that provides real-time graph updates and accepts remote commands:
 
 ```bash
-bn session serve             # Start on localhost:3030
+bn session serve             # Start on localhost:55823
 bn session serve --public    # Bind to all interfaces for network access
 bn session serve --tunnel    # Create a public URL via devtunnel
 ```
@@ -273,7 +273,7 @@ cargo install --path . --features gui
 **Option 1: Using `bn gui` (direct command)**
 
 ```bash
-bn gui                           # Start on default port (3030)
+bn gui                           # Start on default port (55823)
 bn gui -p 8080                   # Start on custom port
 bn gui --readonly                # Start in read-only mode
 bn gui --tunnel                  # Create public URL via devtunnel (read-only)
@@ -282,7 +282,7 @@ bn gui --archive data.bng        # Load a .bng archive file (read-only snapshot)
 
 The server will start and print the URL to access the interface. Open it in your browser:
 ```
-http://localhost:3030
+http://localhost:55823
 ```
 
 **Note**: The `--archive` flag must be specified **before** any subcommand (e.g., `bn gui --archive file.bng serve`). It appears in `bn gui --help` but not in `bn gui serve --help` because it's a top-level option.
@@ -316,7 +316,7 @@ Development mode (`--dev` flag):
 - Uses `cargo run --features gui -- gui --dev` under the hood
 
 **Environment Variables:**
-- `BN_GUI_PORT`: Override default port (default: 3030)
+- `BN_GUI_PORT`: Override default port (default: 55823)
 - `BN_GUI_HOST`: Override bind address (default: 0.0.0.0)
 - `BN_GUI_READONLY`: Start in read-only mode
 - `BN_GUI_TUNNEL`: Enable tunnel mode (see below)
@@ -329,7 +329,7 @@ Share your GUI publicly without port forwarding using Microsoft Dev Tunnels:
 bn gui --tunnel              # Start with a public URL
 ```
 
-This spawns a `devtunnel` process that creates a temporary public URL (e.g., `https://abc123-3030.use.devtunnels.ms`) proxying to your local GUI.
+This spawns a `devtunnel` process that creates a temporary public URL (e.g., `https://abc123-55823.use.devtunnels.ms`) proxying to your local GUI.
 
 **Requirements:**
 1. Install devtunnel: `just install-devtunnel`
@@ -420,7 +420,7 @@ This allows you to:
 
 2. **Open in browser:**
    ```
-   http://localhost:3030
+   http://localhost:55823
    ```
 
 3. **Verify features:**
@@ -479,7 +479,7 @@ bn session store export data.bng  # export your project data
 The viewer supports two modes via URL parameters:
 
 - **Archive mode**: `viewer.html?archive=./data.bng` - Load exported `.bng` file (read-only)
-- **Live mode**: `viewer.html?ws=localhost:3030` - Connect to running `bn gui` server
+- **Live mode**: `viewer.html?ws=localhost:55823` - Connect to running `bn gui` server
 
 Add `#bn-xxxx` to focus on a specific entity: `viewer.html?archive=./data.bng#bn-a1b2`
 

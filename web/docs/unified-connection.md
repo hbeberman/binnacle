@@ -17,7 +17,7 @@ import { createConnection } from './js/connection/unified-connection.js';
 
 const conn = createConnection({
     mode: 'live',
-    wsUrl: 'ws://localhost:3030/ws'
+    wsUrl: 'ws://localhost:55823/ws'
 });
 
 conn.on('connected', () => {
@@ -57,7 +57,7 @@ Let the factory function detect the mode based on provided parameters:
 ```javascript
 // Automatically uses LiveConnection
 const liveConn = createConnection({
-    wsUrl: 'ws://localhost:3030/ws'
+    wsUrl: 'ws://localhost:55823/ws'
 });
 
 // Automatically uses ArchiveConnection
@@ -91,7 +91,7 @@ All connection adapters implement this interface:
 ### Example
 
 ```javascript
-const conn = createConnection({ wsUrl: 'ws://localhost:3030/ws' });
+const conn = createConnection({ wsUrl: 'ws://localhost:55823/ws' });
 
 conn.on('connected', () => {
     console.log('Connection established');
@@ -167,7 +167,7 @@ fileInput.addEventListener('change', async (e) => {
 ### Custom Event Handling
 
 ```javascript
-const conn = createConnection({ wsUrl: 'ws://localhost:3030/ws' });
+const conn = createConnection({ wsUrl: 'ws://localhost:55823/ws' });
 
 // Multiple listeners per event
 conn.on('stateChange', updateGraph);
@@ -187,7 +187,7 @@ conn.off('stateChange', updateGraph);
 ```javascript
 import * as connection from './js/connection/live-connection.js';
 
-await connection.connect('ws://localhost:3030/ws', {
+await connection.connect('ws://localhost:55823/ws', {
     onConnected: () => { ... },
     onStateChange: () => { ... }
 });
@@ -198,7 +198,7 @@ await connection.connect('ws://localhost:3030/ws', {
 ```javascript
 import { createConnection } from './js/connection/unified-connection.js';
 
-const conn = createConnection({ wsUrl: 'ws://localhost:3030/ws' });
+const conn = createConnection({ wsUrl: 'ws://localhost:55823/ws' });
 
 conn.on('connected', () => { ... });
 conn.on('stateChange', () => { ... });

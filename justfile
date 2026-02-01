@@ -96,7 +96,7 @@ dev-gui:
 gui nobuild="" tunnel="":
     #!/usr/bin/env bash
     set -e
-    export BN_GUI_PORT="${BN_GUI_PORT:-3030}"
+    export BN_GUI_PORT="${BN_GUI_PORT:-55823}"
     
     # Setup paths
     RUNTIME_DIR="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/binnacle"

@@ -166,10 +166,10 @@ Connect to a running `bn gui` server for real-time updates:
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `ws` | WebSocket server address | `?ws=localhost:3030` |
+| `ws` | WebSocket server address | `?ws=localhost:55823` |
 
 The `ws` parameter accepts various formats:
-- `localhost:3030` - Uses `ws://` automatically for localhost
+- `localhost:55823` - Uses `ws://` automatically for localhost
 - `ws://host:port` - Explicit WebSocket URL
 - `wss://host:port` - Secure WebSocket (used by default for non-localhost)
 
@@ -180,7 +180,7 @@ You can link directly to a specific entity using a URL fragment:
 | Fragment | Description | Example |
 |----------|-------------|---------|
 | `#bn-xxxx` | Focus on a task/bug/milestone | `?archive=./data.bng#bn-a1b2` |
-| `#bnt-xxxx` | Focus on a test node | `?ws=localhost:3030#bnt-0001` |
+| `#bnt-xxxx` | Focus on a test node | `?ws=localhost:55823#bnt-0001` |
 | `#bnq-xxxx` | Focus on a queue | `?archive=./data.bng#bnq-e8b7` |
 
 ### Examples
@@ -190,7 +190,7 @@ You can link directly to a specific entity using a URL fragment:
 viewer.html?archive=./project.bng#bn-a1b2
 
 # Live mode connecting to local server
-viewer.html?ws=localhost:3030
+viewer.html?ws=localhost:55823
 
 # Live mode with secure WebSocket
 viewer.html?ws=wss://binnacle.example.com:443

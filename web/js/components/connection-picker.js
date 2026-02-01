@@ -144,7 +144,7 @@ export function createConnectionPicker() {
                         <input 
                             type="text" 
                             id="ws-url-input"
-                            placeholder="ws://localhost:3030/ws"
+                            placeholder="ws://localhost:55823/ws"
                             autocomplete="off"
                             spellcheck="false"
                         >

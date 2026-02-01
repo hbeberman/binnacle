@@ -127,13 +127,13 @@ curl -X POST \
       {"source": "bn-5678", "target": "bn-9abc", "edge_type": "depends_on"}
     ]
   }' \
-  http://localhost:3030/api/links/batch
+  http://localhost:55823/api/links/batch
 ```
 
 ### JavaScript (fetch)
 
 ```javascript
-const response = await fetch('http://localhost:3030/api/links/batch', {
+const response = await fetch('http://localhost:55823/api/links/batch', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
