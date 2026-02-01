@@ -435,9 +435,9 @@ impl TuiApp {
                 // Empty command, just exit
             }
             _ => {
-                // Unknown command - show error toast
+                // Unknown command - show brief error (clears after 2s or on keypress)
                 self.notifications
-                    .warning(format!("Unknown command: {}", cmd));
+                    .warning_brief(format!("Unknown command: {}", cmd));
             }
         }
     }
@@ -514,6 +514,9 @@ impl TuiApp {
 
     /// Handle keyboard events
     fn handle_key(&mut self, key: KeyCode) {
+        // Dismiss any brief notifications on keypress
+        self.notifications.dismiss_on_keypress();
+
         // Handle help overlay first (when visible)
         if self.help_visible {
             match key {

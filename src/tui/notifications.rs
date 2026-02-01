@@ -14,6 +14,9 @@ const MAX_VISIBLE_TOASTS: usize = 3;
 /// Default auto-dismiss duration in seconds
 const DEFAULT_DISMISS_SECONDS: u64 = 5;
 
+/// Brief auto-dismiss duration in seconds (for transient messages like unknown commands)
+const BRIEF_DISMISS_SECONDS: u64 = 2;
+
 /// Maximum history entries to keep
 const MAX_HISTORY_ENTRIES: usize = 100;
 
@@ -73,6 +76,8 @@ pub struct Toast {
     pub duration: Option<Duration>,
     /// Whether this toast has been dismissed
     pub dismissed: bool,
+    /// Whether this toast should be dismissed on any keypress
+    pub dismiss_on_keypress: bool,
 }
 
 impl Toast {
@@ -85,6 +90,20 @@ impl Toast {
             created_at: Instant::now(),
             duration: Some(Duration::from_secs(DEFAULT_DISMISS_SECONDS)),
             dismissed: false,
+            dismiss_on_keypress: false,
+        }
+    }
+
+    /// Create a brief toast (short-lived, dismisses on any keypress)
+    pub fn brief(id: u64, level: NotificationLevel, message: impl Into<String>) -> Self {
+        Self {
+            id,
+            level,
+            message: message.into(),
+            created_at: Instant::now(),
+            duration: Some(Duration::from_secs(BRIEF_DISMISS_SECONDS)),
+            dismissed: false,
+            dismiss_on_keypress: true,
         }
     }
 
@@ -97,6 +116,7 @@ impl Toast {
             created_at: Instant::now(),
             duration: None,
             dismissed: false,
+            dismiss_on_keypress: false,
         }
     }
 
@@ -230,6 +250,40 @@ impl NotificationManager {
     /// Add an error notification
     pub fn error(&mut self, message: impl Into<String>) {
         self.notify(NotificationLevel::Error, message);
+    }
+
+    /// Add a brief warning (short-lived, clears on keypress)
+    pub fn warning_brief(&mut self, message: impl Into<String>) {
+        let toast = Toast::brief(self.next_id, NotificationLevel::Warning, message);
+        self.next_id += 1;
+
+        // Add to history
+        self.history.push_front(HistoryEntry::from_toast(&toast));
+        if self.history.len() > MAX_HISTORY_ENTRIES {
+            self.history.pop_back();
+        }
+
+        // Add to active toasts
+        self.toasts.push_front(toast);
+
+        // Update overflow count
+        self.update_overflow();
+    }
+
+    /// Dismiss any toasts that are marked as dismiss_on_keypress
+    /// Returns true if any toasts were dismissed
+    pub fn dismiss_on_keypress(&mut self) -> bool {
+        let mut dismissed_any = false;
+        for toast in &mut self.toasts {
+            if toast.dismiss_on_keypress && !toast.dismissed {
+                toast.dismiss();
+                dismissed_any = true;
+            }
+        }
+        if dismissed_any {
+            self.cleanup();
+        }
+        dismissed_any
     }
 
     /// Remove expired and dismissed toasts
@@ -377,5 +431,33 @@ mod tests {
 
         assert!(!manager.history_is_empty());
         assert_eq!(manager.history().count(), 2);
+    }
+
+    #[test]
+    fn test_brief_toast() {
+        let toast = Toast::brief(1, NotificationLevel::Warning, "brief test");
+        assert!(toast.dismiss_on_keypress);
+        assert!(!toast.dismissed);
+        assert!(!toast.is_expired());
+    }
+
+    #[test]
+    fn test_dismiss_on_keypress() {
+        let mut manager = NotificationManager::new();
+
+        // Regular warning should not be dismissed on keypress
+        manager.warning("Regular warning");
+        assert_eq!(manager.visible_toasts().count(), 1);
+        let dismissed = manager.dismiss_on_keypress();
+        assert!(!dismissed);
+        assert_eq!(manager.visible_toasts().count(), 1);
+
+        // Brief warning should be dismissed on keypress
+        manager.warning_brief("Brief warning");
+        assert_eq!(manager.visible_toasts().count(), 2);
+        let dismissed = manager.dismiss_on_keypress();
+        assert!(dismissed);
+        // Only the regular warning should remain
+        assert_eq!(manager.visible_toasts().count(), 1);
     }
 }
