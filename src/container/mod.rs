@@ -670,7 +670,7 @@ pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource
                 description: Some(
                     "Embedded binnacle-worker container (full development environment)".to_string(),
                 ),
-                parent: None,
+                parent: Some(EMBEDDED_DEFAULT_NAME.to_string()),
                 defaults: None,
                 mounts: vec![],
             },
@@ -1038,9 +1038,12 @@ container "rust-dev" {
             binnacle_def.is_some(),
             "Expected embedded binnacle definition"
         );
+        let binnacle_def = binnacle_def.unwrap();
+        assert_eq!(binnacle_def.source, super::DefinitionSource::Embedded);
         assert_eq!(
-            binnacle_def.unwrap().source,
-            super::DefinitionSource::Embedded
+            binnacle_def.definition.parent,
+            Some(EMBEDDED_DEFAULT_NAME.to_string()),
+            "Embedded binnacle should derive from default"
         );
 
         // Check that default is included
