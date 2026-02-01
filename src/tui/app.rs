@@ -285,6 +285,34 @@ enum ServerMessage {
         #[allow(dead_code)]
         messages: Vec<serde_json::Value>,
     },
+    /// Delta with incremental changes (new protocol)
+    Delta {
+        changes: Vec<Change>,
+        #[allow(dead_code)]
+        version: u64,
+        #[allow(dead_code)]
+        timestamp: DateTime<Utc>,
+    },
+}
+
+/// A single change in the graph (used by Delta messages).
+#[derive(Debug, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum Change {
+    /// An entity was created.
+    Create {
+        entity_type: String,
+        data: serde_json::Value,
+    },
+    /// An entity was updated.
+    Update {
+        entity_type: String,
+        id: String,
+        #[allow(dead_code)]
+        changes: serde_json::Value,
+    },
+    /// An entity was deleted.
+    Delete { entity_type: String, id: String },
 }
 
 /// TUI Application state
@@ -954,6 +982,36 @@ impl TuiApp {
                         // Try to parse as a log entry
                         if let Ok(log_entry) = serde_json::from_value::<LogEntry>(entry) {
                             self.log_panel.add_entry(log_entry);
+                        }
+                    }
+                    ServerMessage::Delta { changes, .. } => {
+                        // Process incremental changes from the new Delta protocol
+                        for change in changes {
+                            match change {
+                                Change::Create { entity_type, data } => {
+                                    let id = data
+                                        .get("id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("?")
+                                        .to_string();
+                                    self.log_panel.log_entity(&entity_type, &id, "added");
+                                    if entity_type == "task" || entity_type == "bug" {
+                                        self.needs_refresh = true;
+                                    }
+                                }
+                                Change::Update {
+                                    entity_type, id, ..
+                                } => {
+                                    self.log_panel.log_entity(&entity_type, &id, "updated");
+                                    if entity_type == "task" || entity_type == "bug" {
+                                        self.needs_refresh = true;
+                                    }
+                                }
+                                Change::Delete { entity_type, id } => {
+                                    self.log_panel.log_entity(&entity_type, &id, "removed");
+                                    self.needs_refresh = true;
+                                }
+                            }
                         }
                     }
                     _ => {}
