@@ -20480,7 +20480,7 @@ pub fn agent_spawn(
         Ok(identity) => {
             if identity.is_anonymous {
                 eprintln!(
-                    "Info: No Git identity found, using {} <{}>",
+                    "🤖 No Git identity found, using {} <{}>",
                     identity.name, identity.email
                 );
             }
@@ -23065,7 +23065,7 @@ pub fn container_run(
                 .unwrap_or_else(|| "noreply@binnacle.bot".to_string());
 
             eprintln!(
-                "Info: No Git identity found, using {} <{}>",
+                "🤖 No Git identity found, using {} <{}>",
                 bot_name, bot_email
             );
 
