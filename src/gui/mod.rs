@@ -7,6 +7,9 @@
 pub mod embedded;
 #[cfg(feature = "gui")]
 mod pid_file;
+/// WebSocket protocol types for session server communication.
+#[cfg(feature = "gui")]
+pub mod protocol;
 #[cfg(feature = "gui")]
 mod server;
 #[cfg(feature = "gui")]
@@ -26,6 +29,8 @@ pub mod shared;
 
 #[cfg(feature = "gui")]
 pub use pid_file::{GuiPidFile, GuiPidInfo, ProcessStatus, verify_process};
+#[cfg(feature = "gui")]
+pub use protocol::{Change, ClientMessage, GraphState, ServerMessage, StateSummary};
 #[cfg(feature = "gui")]
 pub use server::{DEFAULT_PORT, find_available_port, start_server, start_session_server};
 #[cfg(feature = "gui")]
