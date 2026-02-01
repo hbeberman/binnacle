@@ -659,43 +659,38 @@ pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource
         }
     }
 
-    // 3. Embedded fallback: only if no config.kdl files found anywhere
-    // The embedded "binnacle" and "default" definitions are always available as a last resort
-    // but only returned if no other definitions were found
-    if results.is_empty() {
-        // Create embedded fallback definitions
-        results.push(DefinitionWithSource {
-            definition: ContainerDefinition {
-                name: RESERVED_NAME.to_string(),
-                description: Some(
-                    "Embedded binnacle-worker container (full development environment)".to_string(),
-                ),
-                parent: Some(EMBEDDED_DEFAULT_NAME.to_string()),
-                defaults: None,
-                mounts: vec![],
-            },
-            source: DefinitionSource::Embedded,
-            config_path: PathBuf::from("<embedded>"),
-            modified_at: None,
-        });
+    // 3. Always include embedded "binnacle" and "default" definitions
+    // These are foundational layers that custom containers can depend on via parent inheritance
+    results.push(DefinitionWithSource {
+        definition: ContainerDefinition {
+            name: RESERVED_NAME.to_string(),
+            description: Some(
+                "Embedded binnacle-worker container (full development environment)".to_string(),
+            ),
+            parent: Some(EMBEDDED_DEFAULT_NAME.to_string()),
+            defaults: None,
+            mounts: vec![],
+        },
+        source: DefinitionSource::Embedded,
+        config_path: PathBuf::from("<embedded>"),
+        modified_at: None,
+    });
 
-        // Add embedded default container (minimal base image)
-        results.push(DefinitionWithSource {
-            definition: ContainerDefinition {
-                name: EMBEDDED_DEFAULT_NAME.to_string(),
-                description: Some(
-                    "Embedded binnacle-default container (minimal base with bn + copilot)"
-                        .to_string(),
-                ),
-                parent: None,
-                defaults: None,
-                mounts: vec![],
-            },
-            source: DefinitionSource::Embedded,
-            config_path: PathBuf::from("<embedded>"),
-            modified_at: None,
-        });
-    }
+    // Add embedded default container (minimal base image)
+    results.push(DefinitionWithSource {
+        definition: ContainerDefinition {
+            name: EMBEDDED_DEFAULT_NAME.to_string(),
+            description: Some(
+                "Embedded binnacle-default container (minimal base with bn + copilot)".to_string(),
+            ),
+            parent: None,
+            defaults: None,
+            mounts: vec![],
+        },
+        source: DefinitionSource::Embedded,
+        config_path: PathBuf::from("<embedded>"),
+        modified_at: None,
+    });
 
     Ok(results)
 }
@@ -1123,10 +1118,24 @@ container "base" {
 
         let defs = super::discover_definitions(repo_path).unwrap();
 
-        assert_eq!(defs.len(), 1);
+        // Should have 3 definitions: 1 project + 2 embedded (binnacle, default)
+        assert_eq!(
+            defs.len(),
+            3,
+            "Expected 3 definitions (1 project + 2 embedded), got {}: {:?}",
+            defs.len(),
+            defs.iter().map(|d| &d.definition.name).collect::<Vec<_>>()
+        );
         assert_eq!(defs[0].definition.name, "base");
         assert_eq!(defs[0].source, super::DefinitionSource::Project);
         assert_eq!(defs[0].config_path, config_path);
+
+        // Verify embedded definitions are included
+        let embedded_count = defs
+            .iter()
+            .filter(|d| d.source == super::DefinitionSource::Embedded)
+            .count();
+        assert_eq!(embedded_count, 2, "Expected 2 embedded definitions");
     }
 
     #[test]
@@ -1169,9 +1178,23 @@ container "my-dev" {
             std::env::remove_var("BN_DATA_DIR");
         }
 
-        assert_eq!(defs.len(), 1);
+        // Should have 3 definitions: 1 host + 2 embedded (binnacle, default)
+        assert_eq!(
+            defs.len(),
+            3,
+            "Expected 3 definitions (1 host + 2 embedded), got {}: {:?}",
+            defs.len(),
+            defs.iter().map(|d| &d.definition.name).collect::<Vec<_>>()
+        );
         assert_eq!(defs[0].definition.name, "my-dev");
         assert_eq!(defs[0].source, super::DefinitionSource::Host);
+
+        // Verify embedded definitions are included
+        let embedded_count = defs
+            .iter()
+            .filter(|d| d.source == super::DefinitionSource::Embedded)
+            .count();
+        assert_eq!(embedded_count, 2, "Expected 2 embedded definitions");
     }
 
     #[test]
@@ -1228,11 +1251,17 @@ container "rust-dev" {
             std::env::remove_var("BN_DATA_DIR");
         }
 
-        // Should have 4 definitions total (2 from project + 2 from host)
+        // Should have 6 definitions total (2 from project + 2 from host + 2 embedded)
         // Including the "rust-dev" conflict
-        assert_eq!(defs.len(), 4);
+        assert_eq!(
+            defs.len(),
+            6,
+            "Expected 6 definitions (2 project + 2 host + 2 embedded), got {}: {:?}",
+            defs.len(),
+            defs.iter().map(|d| &d.definition.name).collect::<Vec<_>>()
+        );
 
-        // Check that we have both sources represented
+        // Check that we have all sources represented
         let project_count = defs
             .iter()
             .filter(|d| d.source == super::DefinitionSource::Project)
@@ -1241,8 +1270,13 @@ container "rust-dev" {
             .iter()
             .filter(|d| d.source == super::DefinitionSource::Host)
             .count();
+        let embedded_count = defs
+            .iter()
+            .filter(|d| d.source == super::DefinitionSource::Embedded)
+            .count();
         assert_eq!(project_count, 2);
         assert_eq!(host_count, 2);
+        assert_eq!(embedded_count, 2, "Expected 2 embedded definitions");
 
         // Verify rust-dev appears twice (conflict)
         let rust_dev_count = defs
