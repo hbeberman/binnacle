@@ -4217,17 +4217,32 @@ pub fn orient(
     // Get current state
     let mut storage = Storage::open(repo_path)?;
 
+    // In test isolation mode, ignore external agent env vars to prevent interference
+    let test_isolation = crate::storage::is_test_isolation_mode();
+
     // Check for MCP session mode (for MCP wrapper invocation)
-    let mcp_session_id = std::env::var("BN_MCP_SESSION").ok();
+    let mcp_session_id = if test_isolation {
+        None
+    } else {
+        std::env::var("BN_MCP_SESSION").ok()
+    };
 
     // Detect Copilot session GUID from filesystem
     let copilot_session_guid = detect_copilot_session_guid();
 
     // Check for explicit agent ID (for container/external agent management)
-    let env_agent_id = std::env::var("BN_AGENT_ID").ok();
+    let env_agent_id = if test_isolation {
+        None
+    } else {
+        std::env::var("BN_AGENT_ID").ok()
+    };
 
     // Check if we're running in container mode
-    let is_container_mode = std::env::var("BN_CONTAINER_MODE").is_ok();
+    let is_container_mode = if test_isolation {
+        false
+    } else {
+        std::env::var("BN_CONTAINER_MODE").is_ok()
+    };
 
     // SAFETY: Container agents MUST have BN_AGENT_ID set by their creator.
     // Using parent PID in containers is dangerous because PID 1 is the init process,
@@ -4674,9 +4689,14 @@ fn find_ancestor_agent(_storage: &Storage) -> Option<u32> {
 /// Get the current agent (by ID if BN_AGENT_ID is set, otherwise by PID).
 /// Returns the agent object if found.
 fn get_current_agent(storage: &Storage) -> Option<Agent> {
+    // In test isolation mode, skip BN_AGENT_ID env var lookup
+    let test_isolation = crate::storage::is_test_isolation_mode();
+
     // Check if BN_AGENT_ID is set (for containerized agents)
-    if let Ok(agent_id) = std::env::var("BN_AGENT_ID") {
-        return storage.get_agent_by_id(&agent_id).ok();
+    if !test_isolation {
+        if let Ok(agent_id) = std::env::var("BN_AGENT_ID") {
+            return storage.get_agent_by_id(&agent_id).ok();
+        }
     }
 
     // Fall back to PID-based lookup
@@ -21186,11 +21206,22 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     let parent_pid = get_parent_pid().unwrap_or(0);
     let grandparent_pid = get_grandparent_pid().unwrap_or(0);
 
+    // In test isolation mode, ignore agent-related env vars
+    let test_isolation = crate::storage::is_test_isolation_mode();
+
     // Check for MCP session mode
-    let mcp_session_id = std::env::var("BN_MCP_SESSION").ok();
+    let mcp_session_id = if test_isolation {
+        None
+    } else {
+        std::env::var("BN_MCP_SESSION").ok()
+    };
 
     // Check for explicit agent ID (for container/external agent management)
-    let env_agent_id = std::env::var("BN_AGENT_ID").ok();
+    let env_agent_id = if test_isolation {
+        None
+    } else {
+        std::env::var("BN_AGENT_ID").ok()
+    };
 
     // When using MCP session or explicit agent ID, we don't require valid parent/grandparent PIDs
     // since we're not going to terminate them anyway

@@ -56,11 +56,13 @@ pub(crate) mod test_utils {
         /// Create a new test environment with isolated directories (pure DI).
         /// Use this for storage layer tests that call Storage methods directly.
         pub fn new() -> Self {
+            // Enable test isolation mode to ignore container env vars
+            crate::storage::set_test_isolation_mode(true);
             Self {
                 repo_dir: TempDir::new().unwrap(),
                 data_dir: TempDir::new().unwrap(),
                 env_vars_set: false,
-                thread_local_set: false,
+                thread_local_set: true, // Mark as set so Drop cleans up isolation mode
             }
         }
 
@@ -80,6 +82,8 @@ pub(crate) mod test_utils {
             };
             // Set thread-local override for this test's data directory
             crate::storage::set_data_dir_override(env.data_path().to_path_buf());
+            // Enable test isolation mode to ignore external agent env vars
+            crate::storage::set_test_isolation_mode(true);
             env
         }
 
@@ -156,6 +160,7 @@ pub(crate) mod test_utils {
             // Clean up thread-local override if this instance set it
             if self.thread_local_set {
                 crate::storage::clear_data_dir_override();
+                crate::storage::set_test_isolation_mode(false);
             }
             // Clean up environment variables if this instance set them
             if self.env_vars_set {

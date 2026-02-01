@@ -45,6 +45,9 @@ use std::path::{Path, PathBuf};
 // This allows tests to run in parallel without env var races.
 thread_local! {
     static DATA_DIR_OVERRIDE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    // When true, orient() will ignore BN_AGENT_ID, BN_MCP_SESSION, etc.
+    // This prevents external env vars from interfering with isolated tests.
+    static TEST_ISOLATION_MODE: RefCell<bool> = const { RefCell::new(false) };
 }
 
 /// Set a thread-local data directory override.
@@ -68,6 +71,21 @@ pub fn clear_data_dir_override() {
 #[doc(hidden)]
 pub fn get_data_dir_override() -> Option<PathBuf> {
     DATA_DIR_OVERRIDE.with(|cell| cell.borrow().clone())
+}
+
+/// Enable test isolation mode for the current thread.
+/// When enabled, commands will ignore agent-related env vars (BN_AGENT_ID, BN_MCP_SESSION, etc.)
+#[doc(hidden)]
+pub fn set_test_isolation_mode(enabled: bool) {
+    TEST_ISOLATION_MODE.with(|cell| {
+        *cell.borrow_mut() = enabled;
+    });
+}
+
+/// Check if test isolation mode is enabled for the current thread.
+#[doc(hidden)]
+pub fn is_test_isolation_mode() -> bool {
+    TEST_ISOLATION_MODE.with(|cell| *cell.borrow())
 }
 
 /// Entity type enum for generic entity lookup.
@@ -6349,8 +6367,10 @@ pub fn compute_repo_hash(repo_path: &Path) -> Result<String> {
 /// it is used directly as the subdirectory name instead of computing from path.
 /// This allows the host to pre-compute the hash for the mounted workspace.
 pub fn get_storage_dir_with_base(repo_path: &Path, base_dir: &Path) -> Result<PathBuf> {
-    // In container mode, use pre-computed hash if provided
-    if std::env::var("BN_CONTAINER_MODE").is_ok()
+    // In container mode (and not in test isolation mode), use pre-computed hash if provided
+    let test_isolation = is_test_isolation_mode();
+    if !test_isolation
+        && std::env::var("BN_CONTAINER_MODE").is_ok()
         && let Ok(hash) = std::env::var("BN_STORAGE_HASH")
     {
         return Ok(base_dir.join(hash));

@@ -404,6 +404,11 @@ mod tests {
     fn test_resolve_config_defaults() {
         let (_temp_dir, storage) = create_test_storage();
 
+        // Isolate from system config by pointing to an empty temp directory
+        let config_dir = TempDir::new().unwrap();
+        // SAFETY: This test doesn't run in parallel with other config tests
+        unsafe { std::env::set_var("BN_CONFIG_DIR", config_dir.path()) };
+
         let config = resolve_config(&storage, &ConfigOverrides::default()).unwrap();
 
         assert!(config.editor.is_none());
@@ -411,11 +416,19 @@ mod tests {
         assert_eq!(config.output_format.source, ValueSource::Default);
         assert_eq!(config.default_priority(), 2);
         assert_eq!(config.default_priority.source, ValueSource::Default);
+
+        // Clean up
+        unsafe { std::env::remove_var("BN_CONFIG_DIR") };
     }
 
     #[test]
     fn test_resolve_config_from_session() {
         let (_temp_dir, storage) = create_test_storage();
+
+        // Isolate from system config
+        let config_dir = TempDir::new().unwrap();
+        // SAFETY: This test doesn't run in parallel with other config tests
+        unsafe { std::env::set_var("BN_CONFIG_DIR", config_dir.path()) };
 
         // Write session config
         let session_config = BinnacleConfig {
@@ -433,11 +446,19 @@ mod tests {
         assert_eq!(config.output_format.source, ValueSource::Session);
         assert_eq!(config.default_priority(), 1);
         assert_eq!(config.default_priority.source, ValueSource::Session);
+
+        // Clean up
+        unsafe { std::env::remove_var("BN_CONFIG_DIR") };
     }
 
     #[test]
     fn test_resolve_config_cli_overrides_session() {
         let (_temp_dir, storage) = create_test_storage();
+
+        // Isolate from system config
+        let config_dir = TempDir::new().unwrap();
+        // SAFETY: This test doesn't run in parallel with other config tests
+        unsafe { std::env::set_var("BN_CONFIG_DIR", config_dir.path()) };
 
         // Write session config
         let session_config = BinnacleConfig {
@@ -462,6 +483,9 @@ mod tests {
         assert_eq!(config.output_format.source, ValueSource::CliFlag);
         assert_eq!(config.default_priority(), 0);
         assert_eq!(config.default_priority.source, ValueSource::CliFlag);
+
+        // Clean up
+        unsafe { std::env::remove_var("BN_CONFIG_DIR") };
     }
 
     #[test]
