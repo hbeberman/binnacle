@@ -2453,10 +2453,13 @@ fn run_command(
         },
         #[cfg(feature = "tui")]
         Some(Commands::Tui { port, host, url }) => {
+            // Determine the port to use (CLI arg, env var, or default)
+            let effective_port = port.unwrap_or(binnacle::tui::DEFAULT_PORT);
+
             // If a URL is provided, connect directly without auto-launching
             // Otherwise, auto-launch session server if needed (before connecting TUI)
             if url.is_none() {
-                let _session_child = ensure_session_server(repo_path)?;
+                let _session_child = ensure_session_server(repo_path, effective_port)?;
             }
 
             // Create a tokio runtime and run the TUI
@@ -2517,7 +2520,10 @@ fn output<T: Output>(result: &T, human: bool) {
 /// Returns the spawned child process if we started one, or None if an existing
 /// server was already running.
 #[cfg(any(feature = "gui", feature = "tui"))]
-fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>, binnacle::Error> {
+fn ensure_session_server(
+    repo_path: &Path,
+    port: u16,
+) -> Result<Option<std::process::Child>, binnacle::Error> {
     // Note: This function requires the gui feature for ProcessStatus and verify_process.
     // When only tui is enabled, we skip process verification and just check state.kdl.
     #[cfg(feature = "gui")]
@@ -2544,19 +2550,29 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
     // Check if session server is already running
     if let Some(serve_state) = binnacle_state.serve {
         let heartbeat_stale = serve_state.is_heartbeat_stale(HEARTBEAT_STALE_THRESHOLD_SECS);
+        let port_matches = serve_state.port == port;
 
         // With gui feature, we can verify the process is actually running
         #[cfg(feature = "gui")]
         {
             let process_status = verify_process(serve_state.pid);
             match process_status {
-                ProcessStatus::Running if !heartbeat_stale => {
-                    // Session server is running and healthy
+                ProcessStatus::Running if !heartbeat_stale && port_matches => {
+                    // Session server is running, healthy, and on correct port
                     eprintln!(
                         "Session server running: {} (pid: {}, port: {})",
                         display_name, serve_state.pid, serve_state.port
                     );
                     return Ok(None);
+                }
+                ProcessStatus::Running if !port_matches => {
+                    // Server is running but on wrong port - stop it and restart
+                    eprintln!(
+                        "Session server on wrong port: {} (port {} != {}), restarting...",
+                        display_name, serve_state.port, port
+                    );
+                    let _ = send_signal(serve_state.pid, Signal::Term);
+                    std::thread::sleep(std::time::Duration::from_millis(500));
                 }
                 ProcessStatus::Running => {
                     // Process exists but heartbeat is stale - might be hung
@@ -2578,13 +2594,18 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
         // Without gui feature, just check heartbeat (best effort)
         #[cfg(not(feature = "gui"))]
         {
-            if !heartbeat_stale {
-                // Heartbeat is recent, assume server is running
+            if !heartbeat_stale && port_matches {
+                // Heartbeat is recent and port matches, assume server is running
                 eprintln!(
                     "Session server running: {} (pid: {}, port: {})",
                     display_name, serve_state.pid, serve_state.port
                 );
                 return Ok(None);
+            } else if !port_matches {
+                eprintln!(
+                    "Session server on wrong port: {} (port {} != {}), restarting...",
+                    display_name, serve_state.port, port
+                );
             } else {
                 eprintln!("Session server stale: {}, restarting...", display_name);
             }
@@ -2598,7 +2619,7 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
         eprintln!("Starting session server: {}...", display_name);
     }
 
-    // Spawn new session server
+    // Spawn new session server with specified port
     let current_exe = std::env::current_exe().map_err(|e| {
         binnacle::Error::Other(format!("Failed to get current executable path: {}", e))
     })?;
@@ -2606,6 +2627,8 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
     let child = Command::new(&current_exe)
         .arg("session")
         .arg("serve")
+        .arg("--port")
+        .arg(port.to_string())
         .current_dir(repo_path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2615,20 +2638,42 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
 
     let child_pid = child.id();
     eprintln!(
-        "Session server started: {} (pid: {})",
-        display_name, child_pid
+        "Session server started: {} (pid: {}, port: {})",
+        display_name, child_pid, port
     );
 
-    // Wait a moment for the server to initialize and write its state
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // Wait for server to be ready by polling health endpoint
+    // This eliminates race conditions where TUI connects before server is ready
+    const MAX_HEALTH_CHECK_ATTEMPTS: u32 = 20;
+    const INITIAL_DELAY_MS: u64 = 50;
 
-    // Verify it started successfully by checking state.kdl
-    let updated_state = storage.read_binnacle_state()?;
-    if updated_state.serve.is_none() {
-        // Give it a bit more time
-        std::thread::sleep(std::time::Duration::from_secs(1));
+    for attempt in 1..=MAX_HEALTH_CHECK_ATTEMPTS {
+        // Exponential backoff: 50ms, 100ms, 200ms, 400ms, 400ms, ...
+        let delay_ms = INITIAL_DELAY_MS * (1u64 << (attempt - 1).min(3));
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+
+        // Try to connect to health endpoint
+        match std::net::TcpStream::connect_timeout(
+            &format!("127.0.0.1:{}", port).parse().unwrap(),
+            std::time::Duration::from_millis(100),
+        ) {
+            Ok(_) => {
+                // Server is accepting connections, give it a moment to fully initialize
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                eprintln!("Session server ready after {} attempts", attempt);
+                return Ok(Some(child));
+            }
+            Err(_) => {
+                // Not ready yet, continue waiting
+            }
+        }
     }
 
+    // Server didn't become ready in time - check if process is still alive
+    eprintln!("Warning: Session server may not have started properly (health check timed out)");
+
+    // Still return the child so TUI can attempt to connect
+    // The TUI has its own retry logic if initial connection fails
     Ok(Some(child))
 }
 
@@ -2706,8 +2751,9 @@ fn run_gui(
     }
 
     // Auto-launch session server if needed (skip for archive mode which is read-only)
+    // Use default port for session server (it will handle its own port selection)
     let session_child = if archive_path.is_none() {
-        ensure_session_server(&actual_repo_path)?
+        ensure_session_server(&actual_repo_path, DEFAULT_PORT)?
     } else {
         None
     };

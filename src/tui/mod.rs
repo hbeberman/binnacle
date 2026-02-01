@@ -14,6 +14,8 @@ mod notifications;
 mod views;
 
 #[cfg(feature = "tui")]
+pub use app::DEFAULT_PORT;
+#[cfg(feature = "tui")]
 pub use app::InputMode;
 #[cfg(feature = "tui")]
 pub use app::run_tui;
