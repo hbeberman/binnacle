@@ -65,7 +65,8 @@ pub fn clear_data_dir_override() {
 }
 
 /// Get the current thread-local data directory override, if set.
-fn get_data_dir_override() -> Option<PathBuf> {
+#[doc(hidden)]
+pub fn get_data_dir_override() -> Option<PathBuf> {
     DATA_DIR_OVERRIDE.with(|cell| cell.borrow().clone())
 }
 

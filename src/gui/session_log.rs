@@ -39,7 +39,12 @@ impl std::fmt::Display for LogLevel {
 /// Returns `~/.local/state/binnacle/session.log` on Unix systems.
 /// Creates the directory if it doesn't exist.
 pub fn get_session_log_path() -> Option<PathBuf> {
-    // Check for test override
+    // Check for thread-local test override first (for parallel test isolation)
+    if let Some(test_dir) = crate::storage::get_data_dir_override() {
+        return Some(test_dir.join("session.log"));
+    }
+
+    // Check for env var test override
     if let Ok(test_dir) = std::env::var("BN_DATA_DIR") {
         let path = PathBuf::from(test_dir).join("session.log");
         return Some(path);
