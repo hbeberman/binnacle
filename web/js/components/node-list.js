@@ -144,6 +144,9 @@ function renderNodeList(container, options = {}) {
         });
     }
     
+    // Track total count before search filter for match count display
+    const totalBeforeSearch = allNodes.length;
+    
     // Apply search filter (case-insensitive, searches titles/IDs/short names)
     if (searchQuery) {
         const query = searchQuery.toLowerCase();
@@ -157,6 +160,9 @@ function renderNodeList(container, options = {}) {
                    description.includes(query) || id.includes(query) || tags.includes(query);
         });
     }
+    
+    // Update match count in state (used by sidebar search display)
+    state.set('ui.searchMatchCount', { matching: allNodes.length, total: totalBeforeSearch });
     
     // Group nodes by status (kanban columns)
     // Note: in_progress items are kept in the pending column with a banner

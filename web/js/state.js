@@ -157,6 +157,7 @@ const createDefaultState = () => ({
         },
         hideCompleted: true,
         searchQuery: '',
+        searchMatchCount: { matching: 0, total: 0 },
         
         // Graph physics (for live mode)
         physics: {

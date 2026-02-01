@@ -159,6 +159,19 @@
     box-shadow: 0 0 0 2px rgba(106, 168, 240, 0.2);
 }
 
+/* Search match count display */
+.sidebar-search-match-count {
+    display: none;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+    padding-left: 0.25rem;
+}
+
+.sidebar-search-match-count.visible {
+    display: block;
+}
+
 /* Hidden items when filtered */
 .sidebar-section.filtered-empty {
     display: none;

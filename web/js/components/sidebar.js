@@ -55,6 +55,7 @@ export function createSidebar() {
             <!-- Sidebar search input -->
             <div class="sidebar-search-container">
                 <input class="sidebar-search" id="sidebar-search" type="text" placeholder="Filter…" autocomplete="off" spellcheck="false" />
+                <span class="sidebar-search-match-count" id="sidebar-search-match-count"></span>
             </div>
             <!-- Agents section -->
             <div class="sidebar-section collapsible" id="agents-section" data-section="agents">
@@ -111,6 +112,26 @@ export function initializeSidebarSearch(onSearch) {
     const input = document.getElementById('sidebar-search');
     if (!input) return;
 
+    const matchCountEl = document.getElementById('sidebar-search-match-count');
+    
+    // Update match count display
+    function updateMatchCountDisplay() {
+        if (!matchCountEl) return;
+        const searchQuery = State.get('ui.searchQuery') || '';
+        const matchCount = State.get('ui.searchMatchCount') || { matching: 0, total: 0 };
+        
+        if (searchQuery && matchCount.total > 0) {
+            matchCountEl.textContent = `${matchCount.matching}/${matchCount.total} matching`;
+            matchCountEl.classList.add('visible');
+        } else {
+            matchCountEl.textContent = '';
+            matchCountEl.classList.remove('visible');
+        }
+    }
+    
+    // Subscribe to match count changes
+    State.subscribe('ui.searchMatchCount', updateMatchCountDisplay);
+    
     input.addEventListener('input', () => {
         const query = input.value.trim();
         
