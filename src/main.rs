@@ -2465,6 +2465,27 @@ fn run_command(
             rt.block_on(async { binnacle::tui::run_tui(port, Some(host), url).await })
                 .map_err(|e| binnacle::Error::Other(e.to_string()))?;
         }
+        Some(Commands::Serve) => {
+            // Migration message for removed 'bn serve' command
+            let message = r#"The 'bn serve' command has been removed.
+
+Use one of these alternatives:
+  bn session serve    Start the session WebSocket server (for TUI/programmatic access)
+  bn gui              Start the web GUI server (includes session server)
+
+For more information, see:
+  bn session serve --help
+  bn gui --help"#;
+
+            if human {
+                eprintln!("{}", message);
+            } else {
+                eprintln!(
+                    r#"{{"error":"removed","message":"The 'bn serve' command has been removed. Use 'bn session serve' or 'bn gui' instead."}}"#
+                );
+            }
+            std::process::exit(1);
+        }
         None => {
             // Show welcome message when no command is given
             if human {
@@ -4655,6 +4676,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             "tui".to_string(),
             serde_json::json!({ "port": port, "host": host, "url": url }),
         ),
+
+        Some(Commands::Serve) => ("serve".to_string(), serde_json::json!({"error": "removed"})),
 
         None => ("status".to_string(), serde_json::json!({})),
     }

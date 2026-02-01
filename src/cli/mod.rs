@@ -395,6 +395,14 @@ For detailed instructions, see: container/README.md
         #[arg(long)]
         url: Option<String>,
     },
+
+    /// [REMOVED] Start the session server
+    ///
+    /// The 'bn serve' command has been removed.
+    /// Use 'bn session serve' for the session WebSocket server,
+    /// or 'bn gui' for the web GUI server.
+    #[command(hide = true)]
+    Serve,
 }
 
 /// Task subcommands
