@@ -794,7 +794,7 @@ output-format "json"
                 }
                 Err(e) => {
                     eprintln!("Warning: Failed to build container: {}", e);
-                    eprintln!("  Run `bn container build binnacle-self` to build manually");
+                    eprintln!("  Run `bn container build` to build manually");
                     false
                 }
             }
@@ -1446,11 +1446,13 @@ fn init_with_options(
                 Ok(result) => {
                     if !result.success {
                         eprintln!("Warning: Failed to build container: {:?}", result.error);
+                        eprintln!("  Run `bn container build` to build manually");
                     }
                     result.success
                 }
                 Err(e) => {
                     eprintln!("Warning: Failed to build container: {}", e);
+                    eprintln!("  Run `bn container build` to build manually");
                     false
                 }
             }
