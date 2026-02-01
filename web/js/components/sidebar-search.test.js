@@ -36,6 +36,7 @@ class MockHTMLInputElement {
         this.id = id;
         this.value = '';
         this.listeners = new Map();
+        this.blurred = false;
     }
     
     addEventListener(event, callback) {
@@ -50,6 +51,10 @@ class MockHTMLInputElement {
         if (handlers) {
             handlers.forEach(handler => handler(data));
         }
+    }
+    
+    blur() {
+        this.blurred = true;
     }
     
     trim() {
@@ -125,6 +130,11 @@ function initializeSidebarSearch(State, onSearch) {
             if (onSearch) {
                 onSearch('');
             }
+            e.preventDefault();
+        } else if (e.key === 'Enter') {
+            // Accept the current filter and exit search mode
+            // Filter is already applied via the 'input' event, just blur to indicate acceptance
+            input.blur();
             e.preventDefault();
         }
     });
@@ -245,6 +255,36 @@ input.value = '  search term  ';
 input.trigger('input');
 
 if (assertEqual(mockState.get('ui.searchQuery'), 'search term', 'Whitespace should be trimmed')) {
+    testsPassed++;
+} else {
+    testsFailed++;
+}
+
+// Test 7: Enter key accepts search and blurs input
+console.log('\n=== Test 7: Enter Key Accepts Search ===');
+input.value = 'accepted filter';
+input.blurred = false;
+input.trigger('input');
+
+const enterEvent = { 
+    key: 'Enter', 
+    preventDefault: () => {} 
+};
+input.trigger('keydown', enterEvent);
+
+if (assertEqual(input.blurred, true, 'Input should be blurred on Enter')) {
+    testsPassed++;
+} else {
+    testsFailed++;
+}
+
+if (assertEqual(mockState.get('ui.searchQuery'), 'accepted filter', 'Search query should remain after Enter (filter accepted)')) {
+    testsPassed++;
+} else {
+    testsFailed++;
+}
+
+if (assertEqual(input.value, 'accepted filter', 'Input value should remain after Enter')) {
     testsPassed++;
 } else {
     testsFailed++;

@@ -152,6 +152,11 @@ export function initializeSidebarSearch(onSearch) {
                 onSearch('');
             }
             e.preventDefault();
+        } else if (e.key === 'Enter') {
+            // Accept the current filter and exit search mode
+            // Filter is already applied via the 'input' event, just blur to indicate acceptance
+            input.blur();
+            e.preventDefault();
         }
     });
 }
