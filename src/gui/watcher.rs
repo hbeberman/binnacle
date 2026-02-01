@@ -2,7 +2,20 @@
 //!
 //! This module watches the binnacle storage directory for changes and sends
 //! incremental entity messages to connected WebSocket clients.
+//!
+//! ## Protocol Support
+//!
+//! The watcher supports both legacy and new protocol messages:
+//!
+//! - **Legacy messages**: `entity_added`, `entity_updated`, `entity_removed`, `edge_added`, `edge_removed`
+//!   These are sent for backward compatibility with older clients.
+//!
+//! - **New protocol**: [`ServerMessage::Delta`] containing [`Change`] events
+//!   This is the recommended format for new clients subscribing via the session server protocol.
+//!
+//! Both message types are sent simultaneously to support mixed client populations.
 
+use chrono::Utc;
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::Value;
@@ -12,6 +25,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::time::Instant;
 
+use super::protocol::{Change, ServerMessage};
 use super::server::StateVersion;
 use crate::models::Edge;
 use crate::storage::Storage;
@@ -340,6 +354,60 @@ impl EntityDiff {
     fn total_changes(&self) -> usize {
         self.added.len() + self.updated.len() + self.removed.len()
     }
+
+    /// Convert the diff to a Vec of Change events for the new protocol.
+    fn to_changes(&self) -> Vec<Change> {
+        let mut changes = Vec::with_capacity(self.total_changes());
+
+        for change in &self.added {
+            changes.push(Change::Create {
+                entity_type: change.entity_type.to_string(),
+                data: change.entity.clone(),
+            });
+        }
+
+        for change in &self.updated {
+            changes.push(Change::Update {
+                entity_type: change.entity_type.to_string(),
+                id: change.id.clone(),
+                changes: change.entity.clone(),
+            });
+        }
+
+        for removal in &self.removed {
+            changes.push(Change::Delete {
+                entity_type: removal.entity_type.to_string(),
+                id: removal.id.clone(),
+            });
+        }
+
+        changes
+    }
+}
+
+impl EdgeDiff {
+    /// Convert the edge diff to a Vec of Change events for the new protocol.
+    fn to_changes(&self) -> Vec<Change> {
+        let mut changes = Vec::with_capacity(self.total_changes());
+
+        for edge in &self.added {
+            if let Ok(data) = serde_json::to_value(edge) {
+                changes.push(Change::Create {
+                    entity_type: "link".to_string(),
+                    data,
+                });
+            }
+        }
+
+        for edge in &self.removed {
+            changes.push(Change::Delete {
+                entity_type: "link".to_string(),
+                id: edge.id.clone(),
+            });
+        }
+
+        changes
+    }
 }
 
 /// Watch the binnacle storage directory for changes
@@ -590,6 +658,21 @@ pub async fn watch_storage(
                                 let _ = update_tx.send(msg.clone());
                                 message_history.push(new_version, msg).await;
                             }
+
+                            // Send new protocol Delta message with all changes bundled
+                            // This is for clients using the new session server protocol
+                            let mut all_changes = diff.to_changes();
+                            all_changes.extend(edge_diff.to_changes());
+
+                            let delta_msg = ServerMessage::Delta {
+                                changes: all_changes,
+                                version: new_version,
+                                timestamp: Utc::now(),
+                            };
+                            if let Ok(json) = serde_json::to_string(&delta_msg) {
+                                let _ = update_tx.send(json.clone());
+                                message_history.push(new_version, json).await;
+                            }
                         }
 
                         // Update current snapshots for next diff
@@ -615,4 +698,246 @@ pub async fn watch_storage(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_entity_diff_to_changes_empty() {
+        let diff = EntityDiff {
+            added: vec![],
+            updated: vec![],
+            removed: vec![],
+        };
+
+        let changes = diff.to_changes();
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn test_entity_diff_to_changes_added() {
+        let diff = EntityDiff {
+            added: vec![EntityChange {
+                id: "bn-1234".to_string(),
+                entity_type: "task",
+                entity: serde_json::json!({"id": "bn-1234", "title": "Test task", "type": "task"}),
+            }],
+            updated: vec![],
+            removed: vec![],
+        };
+
+        let changes = diff.to_changes();
+        assert_eq!(changes.len(), 1);
+
+        match &changes[0] {
+            Change::Create { entity_type, data } => {
+                assert_eq!(entity_type, "task");
+                assert_eq!(data["id"], "bn-1234");
+                assert_eq!(data["title"], "Test task");
+            }
+            _ => panic!("Expected Create change"),
+        }
+    }
+
+    #[test]
+    fn test_entity_diff_to_changes_updated() {
+        let diff = EntityDiff {
+            added: vec![],
+            updated: vec![EntityChange {
+                id: "bn-5678".to_string(),
+                entity_type: "task",
+                entity: serde_json::json!({
+                    "id": "bn-5678",
+                    "title": "Updated task",
+                    "status": "done",
+                    "type": "task"
+                }),
+            }],
+            removed: vec![],
+        };
+
+        let changes = diff.to_changes();
+        assert_eq!(changes.len(), 1);
+
+        match &changes[0] {
+            Change::Update {
+                entity_type,
+                id,
+                changes: change_data,
+            } => {
+                assert_eq!(entity_type, "task");
+                assert_eq!(id, "bn-5678");
+                assert_eq!(change_data["status"], "done");
+            }
+            _ => panic!("Expected Update change"),
+        }
+    }
+
+    #[test]
+    fn test_entity_diff_to_changes_removed() {
+        let diff = EntityDiff {
+            added: vec![],
+            updated: vec![],
+            removed: vec![EntityRemoval {
+                id: "bn-abcd".to_string(),
+                entity_type: "task",
+            }],
+        };
+
+        let changes = diff.to_changes();
+        assert_eq!(changes.len(), 1);
+
+        match &changes[0] {
+            Change::Delete { entity_type, id } => {
+                assert_eq!(entity_type, "task");
+                assert_eq!(id, "bn-abcd");
+            }
+            _ => panic!("Expected Delete change"),
+        }
+    }
+
+    #[test]
+    fn test_entity_diff_to_changes_mixed() {
+        let diff = EntityDiff {
+            added: vec![EntityChange {
+                id: "bn-new".to_string(),
+                entity_type: "task",
+                entity: serde_json::json!({"id": "bn-new", "type": "task"}),
+            }],
+            updated: vec![EntityChange {
+                id: "bn-upd".to_string(),
+                entity_type: "bug",
+                entity: serde_json::json!({"id": "bn-upd", "type": "bug"}),
+            }],
+            removed: vec![EntityRemoval {
+                id: "bn-del".to_string(),
+                entity_type: "milestone",
+            }],
+        };
+
+        let changes = diff.to_changes();
+        assert_eq!(changes.len(), 3);
+
+        // Changes should be in order: added, updated, removed
+        assert!(matches!(&changes[0], Change::Create { .. }));
+        assert!(matches!(&changes[1], Change::Update { .. }));
+        assert!(matches!(&changes[2], Change::Delete { .. }));
+    }
+
+    #[test]
+    fn test_edge_diff_to_changes_empty() {
+        let diff = EdgeDiff {
+            added: vec![],
+            removed: vec![],
+        };
+
+        let changes = diff.to_changes();
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn test_edge_diff_to_changes_added() {
+        use crate::models::EdgeType;
+
+        let diff = EdgeDiff {
+            added: vec![Edge {
+                id: "edge-123".to_string(),
+                entity_type: "edge".to_string(),
+                source: "bn-src".to_string(),
+                target: "bn-tgt".to_string(),
+                edge_type: EdgeType::DependsOn,
+                weight: 1.0,
+                reason: None,
+                created_at: Utc::now(),
+                created_by: None,
+                pinned: false,
+            }],
+            removed: vec![],
+        };
+
+        let changes = diff.to_changes();
+        assert_eq!(changes.len(), 1);
+
+        match &changes[0] {
+            Change::Create { entity_type, data } => {
+                assert_eq!(entity_type, "link");
+                assert_eq!(data["id"], "edge-123");
+                assert_eq!(data["source"], "bn-src");
+            }
+            _ => panic!("Expected Create change"),
+        }
+    }
+
+    #[test]
+    fn test_edge_diff_to_changes_removed() {
+        use crate::models::EdgeType;
+
+        let diff = EdgeDiff {
+            added: vec![],
+            removed: vec![Edge {
+                id: "edge-456".to_string(),
+                entity_type: "edge".to_string(),
+                source: "bn-src".to_string(),
+                target: "bn-tgt".to_string(),
+                edge_type: EdgeType::ChildOf,
+                weight: 1.0,
+                reason: None,
+                created_at: Utc::now(),
+                created_by: None,
+                pinned: false,
+            }],
+        };
+
+        let changes = diff.to_changes();
+        assert_eq!(changes.len(), 1);
+
+        match &changes[0] {
+            Change::Delete { entity_type, id } => {
+                assert_eq!(entity_type, "link");
+                assert_eq!(id, "edge-456");
+            }
+            _ => panic!("Expected Delete change"),
+        }
+    }
+
+    #[test]
+    fn test_delta_message_serialization() {
+        // Test that the delta message can be serialized to JSON
+        let diff = EntityDiff {
+            added: vec![EntityChange {
+                id: "bn-test".to_string(),
+                entity_type: "task",
+                entity: serde_json::json!({"id": "bn-test", "type": "task"}),
+            }],
+            updated: vec![],
+            removed: vec![],
+        };
+
+        let changes = diff.to_changes();
+        let delta_msg = ServerMessage::Delta {
+            changes,
+            version: 42,
+            timestamp: chrono::Utc::now(),
+        };
+
+        let json = serde_json::to_string(&delta_msg).unwrap();
+        assert!(json.contains(r#""type":"delta""#));
+        assert!(json.contains(r#""version":42"#));
+        assert!(json.contains(r#""op":"create""#));
+        assert!(json.contains(r#""entity_type":"task""#));
+
+        // Verify round-trip
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ServerMessage::Delta {
+                changes, version, ..
+            } => {
+                assert_eq!(version, 42);
+                assert_eq!(changes.len(), 1);
+            }
+            _ => panic!("Expected Delta message"),
+        }
+    }
 }
