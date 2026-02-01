@@ -158,6 +158,8 @@ const createDefaultState = () => ({
         hideCompleted: true,
         searchQuery: '',
         searchMatchCount: { matching: 0, total: 0 },
+        searchMatches: [],        // Ordered array of node IDs matching search
+        currentMatchIndex: -1,    // Current position in searchMatches (-1 = none)
         
         // Graph physics (for live mode)
         physics: {

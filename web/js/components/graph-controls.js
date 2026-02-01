@@ -262,6 +262,8 @@ export function initializeGraphControls(controls, options = {}) {
             if (e.key === 'Escape') {
                 searchInput.value = '';
                 State.set('ui.searchQuery', '');
+                State.set('ui.searchMatches', []);
+                State.set('ui.currentMatchIndex', -1);
                 if (onSearch) {
                     onSearch('');
                 }

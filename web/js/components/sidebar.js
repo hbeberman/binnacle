@@ -118,10 +118,19 @@ export function initializeSidebarSearch(onSearch) {
     function updateMatchCountDisplay() {
         if (!matchCountEl) return;
         const searchQuery = State.get('ui.searchQuery') || '';
-        const matchCount = State.get('ui.searchMatchCount') || { matching: 0, total: 0 };
+        const searchMatches = State.get('ui.searchMatches') || [];
+        const currentMatchIndex = State.get('ui.currentMatchIndex');
         
-        if (searchQuery && matchCount.total > 0) {
-            matchCountEl.textContent = `${matchCount.matching}/${matchCount.total} matching`;
+        if (searchQuery && searchMatches.length > 0) {
+            // Show current position if navigating (currentMatchIndex >= 0), otherwise just count
+            if (currentMatchIndex >= 0) {
+                matchCountEl.textContent = `${currentMatchIndex + 1}/${searchMatches.length} matching`;
+            } else {
+                matchCountEl.textContent = `${searchMatches.length} matching`;
+            }
+            matchCountEl.classList.add('visible');
+        } else if (searchQuery && searchMatches.length === 0) {
+            matchCountEl.textContent = '0 matching';
             matchCountEl.classList.add('visible');
         } else {
             matchCountEl.textContent = '';
@@ -129,8 +138,10 @@ export function initializeSidebarSearch(onSearch) {
         }
     }
     
-    // Subscribe to match count changes
-    State.subscribe('ui.searchMatchCount', updateMatchCountDisplay);
+    // Subscribe to search state changes
+    State.subscribe('ui.searchMatches', updateMatchCountDisplay);
+    State.subscribe('ui.currentMatchIndex', updateMatchCountDisplay);
+    State.subscribe('ui.searchQuery', updateMatchCountDisplay);
     
     input.addEventListener('input', () => {
         const query = input.value.trim();
@@ -148,6 +159,8 @@ export function initializeSidebarSearch(onSearch) {
         if (e.key === 'Escape') {
             input.value = '';
             State.set('ui.searchQuery', '');
+            State.set('ui.searchMatches', []);
+            State.set('ui.currentMatchIndex', -1);
             if (onSearch) {
                 onSearch('');
             }

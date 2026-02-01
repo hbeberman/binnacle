@@ -408,6 +408,9 @@ function filterVisibleNodes() {
         state.set('ui.familyReveal.revealedNodeIds', revealedSet);
     }
     
+    // Track search matches for n/N navigation
+    const searchMatches = [];
+    
     visibleNodes = graphNodes.filter(node => {
         // Always include nodes revealed by family reveal
         if (familyReveal.active && familyReveal.revealedNodeIds && familyReveal.revealedNodeIds.has(node.id)) {
@@ -450,13 +453,35 @@ function filterVisibleNodes() {
             if (!matchesId && !matchesTitle && !matchesShortName) {
                 return false;
             }
+            // Track this as a search match
+            searchMatches.push(node.id);
         }
         
         return true;
     });
     
     visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+    
+    // Update search matches state for n/N navigation
+    const prevMatches = state.get('ui.searchMatches') || [];
+    const currentIndex = state.get('ui.currentMatchIndex');
+    
+    // Only update if matches changed
+    if (JSON.stringify(searchMatches) !== JSON.stringify(prevMatches)) {
+        state.set('ui.searchMatches', searchMatches);
+        
+        // Reset current index when search changes
+        // If there are matches and we had an active position, try to preserve selection
+        if (searchMatches.length > 0) {
+            const currentNodeId = currentIndex >= 0 && prevMatches[currentIndex];
+            const newIndex = currentNodeId ? searchMatches.indexOf(currentNodeId) : -1;
+            state.set('ui.currentMatchIndex', newIndex);
+        } else {
+            state.set('ui.currentMatchIndex', -1);
+        }
+    }
 }
+
 
 /**
  * Rebuild graph from current state data

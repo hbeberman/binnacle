@@ -772,6 +772,57 @@ function onKeyDown(e) {
         return;
     }
     
+    // n/N keys: Navigate search results
+    if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        
+        const searchQuery = state.get('ui.searchQuery');
+        const searchMatches = state.get('ui.searchMatches') || [];
+        
+        // If no active search, show hint
+        if (!searchQuery || searchMatches.length === 0) {
+            state.addToast({
+                type: 'info',
+                message: 'No active search. Press / to search.',
+                duration: 2000
+            });
+            console.log('[Keyboard] n/N pressed with no active search');
+            return;
+        }
+        
+        let currentIndex = state.get('ui.currentMatchIndex');
+        const direction = e.key === 'n' ? 1 : -1; // n = forward, N = backward
+        
+        // Calculate next index with wrapping
+        if (currentIndex < 0) {
+            // No current match, start at first (n) or last (N)
+            currentIndex = direction === 1 ? 0 : searchMatches.length - 1;
+        } else {
+            currentIndex = (currentIndex + direction + searchMatches.length) % searchMatches.length;
+        }
+        
+        // Update state
+        state.set('ui.currentMatchIndex', currentIndex);
+        
+        // Get the node and pan to it
+        const nodeId = searchMatches[currentIndex];
+        const node = state.getNode(nodeId);
+        
+        if (node && typeof node.x === 'number' && typeof node.y === 'number') {
+            // Import panToNode dynamically to avoid circular dependency
+            import('./transform.js').then(({ panToNode }) => {
+                panToNode(node.x, node.y, { duration: 300, targetZoom: null }); // Keep current zoom
+            });
+            
+            // Select the node
+            state.setSelectedNode(nodeId);
+            
+            console.log(`[Keyboard] Search navigation: ${currentIndex + 1}/${searchMatches.length} - ${nodeId}`);
+        }
+        
+        return;
+    }
+    
     // Ctrl+A or Cmd+A: Select all visible nodes
     if ((e.ctrlKey || e.metaKey) && key === 'a') {
         e.preventDefault();
