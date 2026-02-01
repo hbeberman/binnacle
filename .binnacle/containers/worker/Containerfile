@@ -1,23 +1,19 @@
 # Binnacle Container Worker
-# Base: Fedora 43
-FROM docker.io/library/fedora:43
+# Derived from binnacle-default which provides: bn, copilot, git-wrapper, nss_wrapper setup
+FROM binnacle-default:latest
 
 LABEL org.opencontainers.image.title="binnacle-worker"
 LABEL org.opencontainers.image.description="AI agent worker with binnacle task tracking"
 LABEL org.opencontainers.image.source="https://github.com/hbeberman/binnacle"
 
-# Install system dependencies
+# Install additional system dependencies for worker image
 # gcc/make: Required for Rust's C linker (compiling native crates)
 # Rust toolchain is needed for pre-commit hooks (cargo fmt, clippy, audit)
 # diffutils: Required for pre-commit AGENTS.md sync check
 # just: Command runner for justfile recipes
+# Note: git, jq, curl, ripgrep, fd-find, nss_wrapper come from binnacle-default
 RUN dnf install -y \
-    git \
-    curl \
     wget \
-    jq \
-    ripgrep \
-    fd-find \
     tree \
     vim \
     unzip \
@@ -25,7 +21,6 @@ RUN dnf install -y \
     python3-pip \
     nodejs \
     npm \
-    nss_wrapper \
     gcc \
     make \
     diffutils \
@@ -59,41 +54,11 @@ RUN curl -L -o /usr/local/bin/lightpanda \
 # Disable Lightpanda telemetry (belt-and-suspenders with inline env at invocation)
 ENV LIGHTPANDA_DISABLE_TELEMETRY=true
 
-# Create nss_wrapper template files for default (non-sudo) mode
-# Used by entrypoint.sh to provide user identity for Node.js os.userInfo(), git, etc.
-# when running as host user (not root)
-RUN mkdir -p /etc/nss_wrapper && \
-    cp /etc/passwd /etc/nss_wrapper/passwd && \
-    cp /etc/group /etc/nss_wrapper/group && \
-    chmod 644 /etc/nss_wrapper/passwd /etc/nss_wrapper/group
-
-# Copy binnacle binary (bn container build copies the running binary here)
-# For manual builds: cargo build --release && cp target/release/bn .binnacle/containers/worker/bn
-# The binary has COPILOT_VERSION embedded at build time (see build.rs)
-ARG BN_BINARY_PATH=.binnacle/containers/worker/bn
-COPY ${BN_BINARY_PATH} /usr/local/bin/bn
-
-# Install pinned GitHub Copilot CLI version using bn system copilot install
-# This downloads the version embedded in the bn binary (from COPILOT_VERSION at build time)
-# The binary is cached to ~/.local/share/binnacle/utils/copilot/<version>/copilot
-ENV BN_DATA_DIR=/usr/local/share/binnacle
-RUN bn system copilot install --upstream
-
-# Install git wrapper that blocks --no-verify
-# The wrapper intercepts git commit/push --no-verify and rejects it
-# This ensures agents cannot bypass commit hooks
-COPY .binnacle/containers/worker/git-wrapper.sh /usr/local/bin/git
-RUN chmod +x /usr/local/bin/git
-
-# Create working directories
-RUN mkdir -p /workspace /binnacle
-
-# Set container mode environment variables
-ENV BN_CONTAINER_MODE=true
+# Worker-specific environment variables
 ENV BN_AGENT_TYPE=worker
 ENV BN_MERGE_TARGET=main
 
-# Copy entrypoint script
+# Copy worker-specific entrypoint (has MCP config injection, LSP setup, etc.)
 COPY .binnacle/containers/worker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
