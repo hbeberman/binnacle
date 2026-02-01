@@ -6475,6 +6475,58 @@ pub fn was_auto_closed(milestone: &crate::models::Milestone) -> bool {
         .unwrap_or(false)
 }
 
+/// Check if a milestone should be auto-reopened when a new child is added.
+///
+/// When adding a `child_of` link to a closed milestone, if the milestone was
+/// auto-closed (detected via `was_auto_closed()`), it should be reopened to
+/// `pending` status.
+///
+/// This is idempotent: reopening an already-open milestone is a no-op.
+///
+/// Returns a list of milestone IDs that were auto-reopened (0 or 1 items).
+fn check_and_reopen_auto_closed_milestone(
+    storage: &mut Storage,
+    target_id: &str,
+    new_child_id: &str,
+) -> Result<Vec<String>> {
+    // Only check milestones
+    let milestone = match storage.get_milestone(target_id) {
+        Ok(m) => m,
+        Err(_) => return Ok(Vec::new()), // Target is not a milestone, nothing to do
+    };
+
+    // Check if milestone is closed
+    if !matches!(milestone.status, TaskStatus::Done | TaskStatus::Cancelled) {
+        // Already open (idempotent - reopening open milestone is no-op)
+        return Ok(Vec::new());
+    }
+
+    // Check if it was auto-closed
+    if !was_auto_closed(&milestone) {
+        // Manually closed - don't reopen
+        return Ok(Vec::new());
+    }
+
+    // Auto-reopen the milestone to pending status
+    let mut milestone = milestone;
+    milestone.status = TaskStatus::Pending;
+    milestone.closed_at = None;
+    milestone.closed_reason = None;
+    milestone.core.updated_at = Utc::now();
+    storage.update_milestone(&milestone)?;
+
+    // Log the reopen event (using existing log mechanism if available)
+    // Note: The PRD specifies logging, but we return the info in the result
+    // for the caller to handle. Full logging support is in a separate task.
+    tracing::info!(
+        target_id = target_id,
+        new_child_id = new_child_id,
+        "Milestone auto-reopened: new child added"
+    );
+
+    Ok(vec![target_id.to_string()])
+}
+
 fn promote_partial_tasks(storage: &mut Storage) -> Result<Vec<String>> {
     let mut promoted = Vec::new();
 
@@ -11239,6 +11291,10 @@ pub struct LinkAdded {
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub pinned: bool,
+    /// Milestones that were auto-reopened because they were auto-closed
+    /// and a new child was added
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub auto_reopened_milestones: Vec<String>,
 }
 
 impl Output for LinkAdded {
@@ -11253,10 +11309,17 @@ impl Output for LinkAdded {
             .map(|r| format!(" ({})", r))
             .unwrap_or_default();
         let pinned_str = if self.pinned { " [pinned]" } else { "" };
-        format!(
+        let mut output = format!(
             "Created link: {} --[{}]--> {}{}{}",
             self.source, self.edge_type, self.target, reason_str, pinned_str
-        )
+        );
+        if !self.auto_reopened_milestones.is_empty() {
+            output.push_str(&format!(
+                "\nAuto-reopened milestones: {}",
+                self.auto_reopened_milestones.join(", ")
+            ));
+        }
+        output
     }
 }
 
@@ -11313,6 +11376,13 @@ pub fn link_add(
 
     storage.add_edge(&edge)?;
 
+    // Check if we need to auto-reopen the target milestone (only for child_of links)
+    let auto_reopened_milestones = if edge_type == EdgeType::ChildOf {
+        check_and_reopen_auto_closed_milestone(&mut storage, target, source)?
+    } else {
+        Vec::new()
+    };
+
     Ok(LinkAdded {
         id,
         source: source.to_string(),
@@ -11320,6 +11390,7 @@ pub fn link_add(
         edge_type: edge_type.to_string(),
         reason,
         pinned,
+        auto_reopened_milestones,
     })
 }
 
@@ -24560,6 +24631,327 @@ mod tests {
         let result2 = bug_close(temp.path(), &bug.id, Some("Fixed".to_string()), false).unwrap();
         assert_eq!(result2.auto_completed_milestones.len(), 1);
         assert_eq!(result2.auto_completed_milestones[0], milestone.id);
+    }
+
+    #[test]
+    fn test_link_add_auto_reopens_auto_closed_milestone() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Parent Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a task and link it to the milestone
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        link_add(
+            temp.path(),
+            &task1.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Close the task - milestone should be auto-closed
+        let result = task_close(temp.path(), &task1.id, Some("Done".to_string()), false).unwrap();
+        assert_eq!(result.auto_completed_milestones.len(), 1);
+        assert_eq!(result.auto_completed_milestones[0], milestone.id);
+
+        // Verify milestone is now done with auto-close reason
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Done);
+        assert_eq!(
+            ms.milestone.closed_reason,
+            Some("Only child completed".to_string())
+        );
+
+        // Create a new task and link it to the auto-closed milestone
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let link_result = link_add(
+            temp.path(),
+            &task2.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Verify milestone was auto-reopened
+        assert_eq!(link_result.auto_reopened_milestones.len(), 1);
+        assert_eq!(link_result.auto_reopened_milestones[0], milestone.id);
+
+        // Verify milestone is now pending
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Pending);
+        assert!(ms.milestone.closed_reason.is_none());
+        assert!(ms.milestone.closed_at.is_none());
+    }
+
+    #[test]
+    fn test_link_add_does_not_reopen_manually_closed_milestone() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Manually Closed Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Manually close the milestone with a custom reason
+        milestone_close(
+            temp.path(),
+            &milestone.id,
+            Some("Descoped - not doing this quarter".to_string()),
+            false,
+        )
+        .unwrap();
+
+        // Verify milestone is closed
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Done);
+        assert_eq!(
+            ms.milestone.closed_reason,
+            Some("Descoped - not doing this quarter".to_string())
+        );
+
+        // Create a new task and link it to the manually closed milestone
+        let task = task_create(
+            temp.path(),
+            "New Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let link_result = link_add(
+            temp.path(),
+            &task.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Verify milestone was NOT auto-reopened (it was manually closed)
+        assert!(link_result.auto_reopened_milestones.is_empty());
+
+        // Verify milestone is still done with original reason
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Done);
+        assert_eq!(
+            ms.milestone.closed_reason,
+            Some("Descoped - not doing this quarter".to_string())
+        );
+    }
+
+    #[test]
+    fn test_link_add_auto_reopen_is_idempotent() {
+        let temp = setup_isolated();
+
+        // Create an open milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Open Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a task and link it to the open milestone
+        let task = task_create(
+            temp.path(),
+            "Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        let link_result = link_add(
+            temp.path(),
+            &task.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Verify no milestones were auto-reopened (it was already open)
+        assert!(link_result.auto_reopened_milestones.is_empty());
+
+        // Verify milestone is still pending
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Pending);
+    }
+
+    #[test]
+    fn test_link_add_non_child_of_does_not_trigger_reopen() {
+        let temp = setup_isolated();
+
+        // Create a milestone and auto-close it
+        let milestone = milestone_create(
+            temp.path(),
+            "Test Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        link_add(
+            temp.path(),
+            &task1.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        task_close(temp.path(), &task1.id, Some("Done".to_string()), false).unwrap();
+
+        // Verify milestone is auto-closed
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Done);
+
+        // Create a task and link it with a different edge type (not child_of)
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Use "related_to" edge type
+        let link_result = link_add(
+            temp.path(),
+            &task2.id,
+            &milestone.id,
+            "related_to",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Verify no milestones were auto-reopened (it's not a child_of link)
+        assert!(link_result.auto_reopened_milestones.is_empty());
+
+        // Verify milestone is still done
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Done);
+    }
+
+    #[test]
+    fn test_was_auto_closed_detection() {
+        use crate::models::Milestone;
+
+        // Auto-close patterns that should match
+        let auto_closed_reasons = vec![
+            "Only child completed",
+            "All 2 children completed",
+            "All 15 children completed",
+        ];
+
+        for reason in auto_closed_reasons {
+            let mut milestone = Milestone::new("bn-test".to_string(), "Test".to_string());
+            milestone.closed_reason = Some(reason.to_string());
+            assert!(
+                was_auto_closed(&milestone),
+                "Expected '{}' to match auto-close pattern",
+                reason
+            );
+        }
+
+        // Manual close reasons that should NOT match
+        let manual_reasons = vec![
+            "Descoped - not doing this quarter",
+            "Completed ahead of schedule",
+            "No longer relevant",
+            "child was cancelled", // Contains "child" but not "completed"
+            "completed early",     // Contains "completed" but not "child"
+            "",
+        ];
+
+        for reason in manual_reasons {
+            let mut milestone = Milestone::new("bn-test".to_string(), "Test".to_string());
+            milestone.closed_reason = Some(reason.to_string());
+            assert!(
+                !was_auto_closed(&milestone),
+                "Expected '{}' to NOT match auto-close pattern",
+                reason
+            );
+        }
+
+        // Null reason should not match
+        let milestone = Milestone::new("bn-test".to_string(), "Test".to_string());
+        assert!(!was_auto_closed(&milestone), "Null reason should not match");
     }
 
     #[test]
