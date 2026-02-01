@@ -10,14 +10,18 @@ use axum::{
     },
     response::IntoResponse,
 };
+use chrono::Utc;
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::Deserialize;
 use std::path::Path;
 use tokio::sync::mpsc;
 
-use super::protocol::{ClientMessage as ProtocolClientMessage, ServerMessage};
+use super::protocol::{
+    ClientMessage as ProtocolClientMessage, GraphState, ServerMessage, StateSummary,
+};
 use super::server::AppState;
 use crate::commands;
+use crate::storage::Storage;
 
 /// Legacy incoming WebSocket message from client (for backward compatibility)
 #[derive(Debug, Deserialize)]
@@ -74,7 +78,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let connected_msg = serde_json::json!({
         "type": "connected",
         "version": current_version,
-        "timestamp": chrono::Utc::now().to_rfc3339()
+        "timestamp": Utc::now().to_rfc3339()
     })
     .to_string();
 
@@ -123,6 +127,9 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     // Clone repo_path for the recv task
     let recv_repo_path = state.repo_path.clone();
 
+    // Clone version for the recv task
+    let recv_version = version.clone();
+
     // Handle incoming messages
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
@@ -134,19 +141,41 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             AnyClientMessage::Protocol(proto_msg) => {
                                 match proto_msg {
                                     ProtocolClientMessage::Subscribe { topics } => {
-                                        // For now, all clients receive all updates
-                                        // Topics are logged for future filtering support
+                                        // Log subscription
                                         tracing::debug!(
                                             "Client subscribed to topics: {:?}",
                                             topics
                                         );
-                                        // Send acknowledgment
-                                        let response = serde_json::json!({
-                                            "type": "subscribed",
-                                            "topics": topics,
-                                            "timestamp": chrono::Utc::now().to_rfc3339()
-                                        });
-                                        let _ = response_tx.send(response.to_string()).await;
+
+                                        // Build and send full state snapshot
+                                        match build_graph_state(&recv_repo_path) {
+                                            Ok(graph_state) => {
+                                                let state_msg = ServerMessage::State {
+                                                    data: Box::new(graph_state),
+                                                    version: recv_version.current(),
+                                                    timestamp: Utc::now(),
+                                                };
+                                                if let Ok(json) = serde_json::to_string(&state_msg)
+                                                {
+                                                    let _ = response_tx.send(json).await;
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    "Failed to build state snapshot: {}",
+                                                    e
+                                                );
+                                                // Send error as a subscribed acknowledgment with error
+                                                let response = serde_json::json!({
+                                                    "type": "subscribed",
+                                                    "topics": topics,
+                                                    "error": e,
+                                                    "timestamp": Utc::now().to_rfc3339()
+                                                });
+                                                let _ =
+                                                    response_tx.send(response.to_string()).await;
+                                            }
+                                        }
                                     }
                                     ProtocolClientMessage::Command { id, cmd, args } => {
                                         // Execute the command and return result
@@ -191,7 +220,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                                 "type": "sync_ack",
                                                 "version": current,
                                                 "status": "up_to_date",
-                                                "timestamp": chrono::Utc::now().to_rfc3339()
+                                                "timestamp": Utc::now().to_rfc3339()
                                             })
                                         } else if let Some(last_v) = last_version {
                                             // Client has a version - try incremental catch-up
@@ -213,7 +242,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                                         "version": current,
                                                         "last_version": last_v,
                                                         "messages": message_list,
-                                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                                        "timestamp": Utc::now().to_rfc3339()
                                                     })
                                                 }
                                                 Some(_) => {
@@ -222,7 +251,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                                         "type": "sync_ack",
                                                         "version": current,
                                                         "status": "up_to_date",
-                                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                                        "timestamp": Utc::now().to_rfc3339()
                                                     })
                                                 }
                                                 None => {
@@ -232,7 +261,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                                         "version": current,
                                                         "action": "reload",
                                                         "reason": "version_too_old",
-                                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                                        "timestamp": Utc::now().to_rfc3339()
                                                     })
                                                 }
                                             }
@@ -243,7 +272,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                                 "version": current,
                                                 "action": "reload",
                                                 "reason": "no_version_provided",
-                                                "timestamp": chrono::Utc::now().to_rfc3339()
+                                                "timestamp": Utc::now().to_rfc3339()
                                             })
                                         };
                                         let _ = response_tx.send(response.to_string()).await;
@@ -276,6 +305,110 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     // Track connection closed
     metrics.connection_closed();
+}
+
+/// Build a complete GraphState snapshot from storage.
+///
+/// This function collects all entities from the binnacle storage and constructs
+/// a GraphState suitable for sending to clients on initial connection.
+///
+/// # Arguments
+/// * `repo_path` - Path to the repository root
+///
+/// # Returns
+/// A GraphState containing all tasks, bugs, tests, milestones, ideas, docs, links, and queue
+fn build_graph_state(repo_path: &Path) -> Result<GraphState, String> {
+    let storage = Storage::open(repo_path).map_err(|e| e.to_string())?;
+
+    // Collect all entities
+    let tasks: Vec<serde_json::Value> = storage
+        .list_tasks(None, None, None)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|t| serde_json::to_value(t).ok())
+        .collect();
+
+    let bugs: Vec<serde_json::Value> = storage
+        .list_bugs(None, None, None, None, true) // include_closed = true for full state
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|b| serde_json::to_value(b).ok())
+        .collect();
+
+    let tests: Vec<serde_json::Value> = storage
+        .list_tests(None)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|t| serde_json::to_value(t).ok())
+        .collect();
+
+    let milestones: Vec<serde_json::Value> = storage
+        .list_milestones(None, None, None)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|m| serde_json::to_value(m).ok())
+        .collect();
+
+    let ideas: Vec<serde_json::Value> = storage
+        .list_ideas(None, None)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|i| serde_json::to_value(i).ok())
+        .collect();
+
+    let docs: Vec<serde_json::Value> = storage
+        .list_docs(None, None, None, None)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|d| serde_json::to_value(d).ok())
+        .collect();
+
+    let links: Vec<serde_json::Value> = storage
+        .list_edges(None, None, None)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|e| serde_json::to_value(e).ok())
+        .collect();
+
+    let queue: Option<serde_json::Value> = storage
+        .get_queue()
+        .ok()
+        .and_then(|q| serde_json::to_value(q).ok());
+
+    // Build summary statistics
+    let ready_tasks = storage.get_ready_tasks().unwrap_or_default();
+    let blocked_tasks = storage.get_blocked_tasks().unwrap_or_default();
+    let in_progress_tasks = storage
+        .list_tasks(Some("in_progress"), None, None)
+        .unwrap_or_default();
+    let open_bugs = storage
+        .list_bugs(None, None, None, None, false)
+        .unwrap_or_default();
+    let critical_bugs = storage
+        .list_bugs(None, None, Some("critical"), None, false)
+        .unwrap_or_default();
+
+    let summary = StateSummary {
+        total_tasks: tasks.len() as u64,
+        ready_count: ready_tasks.len() as u64,
+        blocked_count: blocked_tasks.len() as u64,
+        in_progress_count: in_progress_tasks.len() as u64,
+        total_bugs: bugs.len() as u64,
+        open_bugs_count: open_bugs.len() as u64,
+        critical_bugs_count: critical_bugs.len() as u64,
+    };
+
+    Ok(GraphState {
+        tasks,
+        bugs,
+        tests,
+        milestones,
+        ideas,
+        docs,
+        links,
+        queue,
+        summary: Some(summary),
+    })
 }
 
 /// Execute a binnacle command over WebSocket.
@@ -672,5 +805,115 @@ mod tests {
         .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown command"));
+    }
+
+    #[test]
+    fn test_build_graph_state_empty_repo() {
+        // Create temp directories for repo and data
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_path = temp_dir.path();
+        let data_dir = temp_dir.path().join("bn_data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        // Initialize git repo (required for storage)
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Initialize binnacle storage with explicit data directory
+        let _ = crate::storage::Storage::init_with_data_dir(repo_path, &data_dir);
+
+        // Build graph state - need to use the same data dir
+        // Since build_graph_state uses Storage::open which uses default paths,
+        // we need to test the core function differently
+        let storage = crate::storage::Storage::open_with_data_dir(repo_path, &data_dir).unwrap();
+
+        // Verify empty storage
+        let tasks = storage.list_tasks(None, None, None).unwrap();
+        let bugs = storage.list_bugs(None, None, None, None, true).unwrap();
+        let tests = storage.list_tests(None).unwrap();
+        let milestones = storage.list_milestones(None, None, None).unwrap();
+        let ideas = storage.list_ideas(None, None).unwrap();
+        let docs = storage.list_docs(None, None, None, None).unwrap();
+        let links = storage.list_edges(None, None, None).unwrap();
+        let queue = storage.get_queue().ok();
+
+        assert!(tasks.is_empty(), "Expected empty tasks, got: {:?}", tasks);
+        assert!(bugs.is_empty());
+        assert!(tests.is_empty());
+        assert!(milestones.is_empty());
+        assert!(ideas.is_empty());
+        assert!(docs.is_empty());
+        assert!(links.is_empty());
+        assert!(queue.is_none());
+    }
+
+    #[test]
+    fn test_build_graph_state_with_tasks() {
+        // Create temp directories for repo and data
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_path = temp_dir.path();
+        let data_dir = temp_dir.path().join("bn_data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        // Initialize git repo
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Initialize and add a task with explicit data directory
+        let mut storage =
+            crate::storage::Storage::init_with_data_dir(repo_path, &data_dir).unwrap();
+        let task = crate::models::Task::new("bn-test".to_string(), "Test task".to_string());
+        storage.create_task(&task).unwrap();
+
+        // Verify the task was created
+        let tasks = storage.list_tasks(None, None, None).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].core.id, "bn-test");
+        assert_eq!(tasks[0].core.title, "Test task");
+    }
+
+    #[test]
+    fn test_build_graph_state_serialization() {
+        // Test that GraphState can be serialized into ServerMessage::State
+        let state = GraphState {
+            tasks: vec![serde_json::json!({"id": "bn-test", "title": "Test"})],
+            bugs: vec![],
+            tests: vec![],
+            milestones: vec![],
+            ideas: vec![],
+            docs: vec![],
+            links: vec![],
+            queue: None,
+            summary: Some(StateSummary {
+                total_tasks: 1,
+                ready_count: 1,
+                blocked_count: 0,
+                in_progress_count: 0,
+                total_bugs: 0,
+                open_bugs_count: 0,
+                critical_bugs_count: 0,
+            }),
+        };
+
+        // Create a ServerMessage::State and verify serialization
+        let msg = ServerMessage::State {
+            data: Box::new(state),
+            version: 42,
+            timestamp: Utc::now(),
+        };
+
+        let json = serde_json::to_string(&msg);
+        assert!(json.is_ok(), "Failed to serialize state message");
+
+        let json_str = json.unwrap();
+        assert!(json_str.contains(r#""type":"state""#));
+        assert!(json_str.contains(r#""version":42"#));
+        assert!(json_str.contains(r#""id":"bn-test""#));
     }
 }
