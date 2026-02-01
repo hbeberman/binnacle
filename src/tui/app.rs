@@ -400,6 +400,71 @@ impl TuiApp {
         self.command_input.clear();
     }
 
+    /// List of available commands for autocompletion.
+    /// Primary names come first, followed by aliases.
+    const COMMANDS: &'static [&'static str] = &[
+        "quit", "q", "help", "h", "refresh", "r", "log", "history", "hist", "clear",
+    ];
+
+    /// Attempt to autocomplete the current command input.
+    /// If the input is a prefix of exactly one command, complete it.
+    /// If multiple commands match, complete to their common prefix.
+    fn autocomplete_command(&mut self) {
+        let input = self.command_input.trim().to_lowercase();
+        if input.is_empty() {
+            return;
+        }
+
+        // Find all commands that start with the input
+        let matches: Vec<&str> = Self::COMMANDS
+            .iter()
+            .filter(|cmd| cmd.starts_with(&input))
+            .copied()
+            .collect();
+
+        match matches.len() {
+            0 => {
+                // No matches, do nothing
+            }
+            1 => {
+                // Exact single match - complete it
+                self.command_input = matches[0].to_string();
+            }
+            _ => {
+                // Multiple matches - complete to common prefix
+                if let Some(common) = Self::common_prefix(&matches) {
+                    if common.len() > input.len() {
+                        self.command_input = common;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Find the longest common prefix among a list of strings
+    fn common_prefix(strings: &[&str]) -> Option<String> {
+        if strings.is_empty() {
+            return None;
+        }
+        let first = strings[0];
+        let mut prefix_len = first.len();
+        for s in &strings[1..] {
+            prefix_len = first
+                .chars()
+                .zip(s.chars())
+                .take_while(|(a, b)| a == b)
+                .count()
+                .min(prefix_len);
+        }
+        Some(
+            first[..first
+                .char_indices()
+                .nth(prefix_len)
+                .map_or(first.len(), |(i, _)| i)]
+                .to_string(),
+        )
+    }
+
     /// Execute the current command and return to normal mode
     fn execute_command(&mut self) {
         let cmd = self.command_input.trim().to_lowercase();
@@ -567,6 +632,9 @@ impl TuiApp {
                 }
                 KeyCode::Backspace => {
                     self.command_input.pop();
+                }
+                KeyCode::Tab => {
+                    self.autocomplete_command();
                 }
                 KeyCode::Char(c) => {
                     self.command_input.push(c);
@@ -1706,5 +1774,45 @@ mod tests {
         let (host, port) = parse_ws_url("ws://localhost:9000");
         assert_eq!(host, "localhost");
         assert_eq!(port, 9000);
+    }
+
+    #[test]
+    fn test_common_prefix_single_string() {
+        let result = TuiApp::common_prefix(&["hello"]);
+        assert_eq!(result, Some("hello".to_string()));
+    }
+
+    #[test]
+    fn test_common_prefix_identical_strings() {
+        let result = TuiApp::common_prefix(&["quit", "quit"]);
+        assert_eq!(result, Some("quit".to_string()));
+    }
+
+    #[test]
+    fn test_common_prefix_partial_match() {
+        let result = TuiApp::common_prefix(&["help", "history", "hist"]);
+        assert_eq!(result, Some("h".to_string()));
+    }
+
+    #[test]
+    fn test_common_prefix_no_common() {
+        let result = TuiApp::common_prefix(&["quit", "help"]);
+        assert_eq!(result, Some("".to_string()));
+    }
+
+    #[test]
+    fn test_common_prefix_empty_list() {
+        let result = TuiApp::common_prefix(&[]);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_commands_list_not_empty() {
+        assert!(!TuiApp::COMMANDS.is_empty());
+        // All commands should be lowercase and non-empty
+        for cmd in TuiApp::COMMANDS {
+            assert!(!cmd.is_empty());
+            assert_eq!(*cmd, cmd.to_lowercase());
+        }
     }
 }
