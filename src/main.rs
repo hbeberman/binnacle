@@ -2380,9 +2380,6 @@ fn run_command(
                 output(&result, human);
             }
         },
-        Some(Commands::Serve { interval, dry_run }) => {
-            commands::serve(repo_path, interval, dry_run, human)?;
-        }
         #[cfg(feature = "gui")]
         Some(Commands::Gui {
             command,
@@ -4614,11 +4611,6 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 serde_json::json!({}),
             ),
         },
-
-        Some(Commands::Serve { interval, dry_run }) => (
-            "serve".to_string(),
-            serde_json::json!({ "interval": interval, "dry_run": dry_run }),
-        ),
 
         #[cfg(feature = "gui")]
         Some(Commands::Gui {
