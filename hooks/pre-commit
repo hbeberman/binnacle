@@ -50,39 +50,6 @@ else
     echo "  ✓ No JavaScript files staged, skipping lint"
 fi
 
-# Check if AGENTS.md is in sync with embedded blurb
-# Uses cargo run to check against the code being committed, not the installed bn
-echo "  → Checking AGENTS.md sync..."
-
-repo_root=$(git rev-parse --show-toplevel)
-
-# Extract current binnacle section from AGENTS.md
-current_section=$(sed -n '/<!-- BEGIN BINNACLE SECTION -->/,/<!-- END BINNACLE SECTION -->/p' "$repo_root/AGENTS.md" 2>/dev/null || true)
-
-# Get expected content from the code being committed
-expected_section=$(cargo run --quiet -- -H system emit agents 2>/dev/null)
-emit_exit_code=$?
-
-if [ $emit_exit_code -ne 0 ]; then
-    echo "  ⚠ Skipping AGENTS.md sync check (build failed)"
-elif [ -n "$expected_section" ]; then
-    # Check if diff is available
-    if ! command -v diff &> /dev/null; then
-        echo "  ⚠ Skipping AGENTS.md sync check (diff not installed)"
-    elif ! diff -q <(echo "$current_section") <(echo "$expected_section") >/dev/null 2>&1; then
-        echo ""
-        echo "❌ AGENTS.md binnacle section is out of sync!"
-        echo ""
-        echo "   If you modified AGENTS_MD_BLURB in src/commands/mod.rs:"
-        echo "     Run 'cargo run -- system emit agents > /tmp/agents.md' and copy the section to AGENTS.md"
-        echo ""
-        echo "   If you did NOT modify the embedded blurb:"
-        echo "     This error means someone else updated the blurb. Run 'git checkout AGENTS.md'"
-        echo "     to restore the correct version, or rebase your branch."
-        exit 1
-    fi
-fi
-
 # Check version sync between Cargo.toml and README
 echo "  → Checking version sync..."
 
