@@ -68,8 +68,13 @@ bn session init --auto-global
 This will:
 - Create global config at `~/.config/binnacle/` (if not present)
 - Create the binnacle data store for your repo at `~/.local/share/binnacle/<REPO_HASH>/`
-- Set up AGENTS.md with instructions for AI agents
 - Optionally configure hooks and other settings
+
+**For AI agent integration**, generate instructions for your editor:
+```bash
+# Generate Copilot instructions (VS Code custom instructions)
+bn system emit copilot-instructions -H > .github/copilot-instructions.md
+```
 
 You can verify the setup:
 

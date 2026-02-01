@@ -189,6 +189,50 @@ The `bn-entry.sh` entrypoint performs the following steps:
 9. **Copilot launch** - Runs pinned Copilot CLI with initial prompt
 10. **Auto-merge** - If enabled, merges work branch to target
 
+### Agent Instructions Injection
+
+The worker entrypoint (`entrypoint.sh`) automatically injects binnacle workflow instructions into the agent's system prompt. This ensures agents receive consistent guidance without requiring AGENTS.md files in the repository.
+
+**How it works:**
+
+1. **Load workflow rules**: `bn system emit copilot-instructions -H` provides basic binnacle workflow guidance (task tracking, status updates, session lifecycle)
+
+2. **Load MCP guidance**: `bn system emit mcp-lifecycle -H` provides rules for using binnacle MCP tools (orient/goodbye must use shell commands, not MCP)
+
+3. **Combine with task prompt**: Instructions are prepended to the task-specific `BN_INITIAL_PROMPT`
+
+```bash
+# The entrypoint combines templates:
+COPILOT_INST=$(bn system emit copilot-instructions -H)
+MCP_LIFECYCLE=$(bn system emit mcp-lifecycle -H)
+
+FULL_PROMPT="$COPILOT_INST
+
+$MCP_LIFECYCLE
+
+---
+
+$BN_INITIAL_PROMPT"
+
+# Passed to copilot CLI
+copilot --allow-all -p "$FULL_PROMPT"
+```
+
+**Benefits:**
+- No AGENTS.md file pollution in repositories
+- Instructions are always up-to-date (embedded in `bn` binary)
+- Easy to customize via `BN_INITIAL_PROMPT` environment variable
+- MCP lifecycle rules prevent common agent mistakes
+
+**For non-container usage**, generate instructions manually:
+```bash
+# Generate for .github/copilot-instructions.md
+bn system emit copilot-instructions -H > .github/copilot-instructions.md
+
+# Or as AGENTS.md if needed
+bn system emit copilot-instructions -H > AGENTS.md
+```
+
 ### Shell Mode
 
 For debugging or manual work, launch the container in shell mode:

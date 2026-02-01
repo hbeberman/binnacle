@@ -405,31 +405,61 @@ tests/
 **Goal:** Self-documenting tooling that helps AI agents discover and use binnacle
 
 ### Motivation
-Rather than requiring manual AGENTS.md maintenance, binnacle can bootstrap agent awareness automatically. When `bn init` runs, it adds a short blurb to AGENTS.md pointing agents to `bn orient`. The `bn orient` command then serves as the canonical, always-up-to-date source of truth for how to interact with binnacle.
+AI agents need consistent instructions about how to use binnacle. Rather than requiring manual AGENTS.md maintenance, binnacle provides:
+
+1. **In containers**: Agent instructions are automatically injected via the entrypoint script, combining workflow rules (`bn system emit copilot-instructions`) with MCP lifecycle guidance (`bn system emit mcp-lifecycle`)
+
+2. **Outside containers**: Users can generate instructions manually:
+   ```bash
+   # Generate AGENTS.md-style content
+   bn system emit copilot-instructions -H > .github/copilot-instructions.md
+   ```
+
+The `bn orient` command serves as the canonical, always-up-to-date source of truth for project state and available work.
 
 ### Deliverables
-- [x] Update `bn init` to:
-  - Create or append to AGENTS.md with a `## Task Tracking` section
-  - Blurb explains the project uses **bn** (binnacle) for issue/test tracking
-  - Instructs agents to run `bn orient` to get oriented
-  - Skip if AGENTS.md already contains `bn orient` reference
 - [x] `bn orient` command that:
   - Initializes binnacle for the repo if not already initialized
   - Outputs a brief summary of current project state (tasks, ready items, blocked items)
   - Explains binnacle's purpose and key commands
   - Returns JSON by default, human-readable with `-H`
+- [x] `bn system emit copilot-instructions` for generating agent instructions
+- [x] `bn system emit mcp-lifecycle` for MCP tool guidance in containers
+- [x] Container entrypoint injects instructions automatically
 
-### AGENTS.md Blurb (added by `bn init`)
+### Agent Instructions Injection (Container Mode)
 
-```markdown
-## Task Tracking
+In containers, `entrypoint.sh` combines multiple instruction templates:
 
-This project uses **binnacle** (`bn`) for issue and test tracking.
-
-To get oriented, run:
 ```bash
-bn orient
+# Get workflow rules
+COPILOT_INST=$(bn system emit copilot-instructions -H)
+
+# Get MCP lifecycle guidance (orient/goodbye must use shell)
+MCP_LIFECYCLE=$(bn system emit mcp-lifecycle -H)
+
+# Combined prompt passed to copilot CLI
+FULL_PROMPT="$COPILOT_INST
+
+$MCP_LIFECYCLE
+
+---
+
+$BN_INITIAL_PROMPT"
 ```
+
+This ensures agents receive consistent binnacle workflow instructions without requiring AGENTS.md files in the repository.
+
+### Non-Container Usage
+
+For local development or non-container environments, generate instructions for your editor:
+
+```bash
+# For GitHub Copilot (VS Code custom instructions)
+bn system emit copilot-instructions -H > .github/copilot-instructions.md
+
+# For manual AGENTS.md if needed
+bn system emit copilot-instructions -H > AGENTS.md
 ```
 
 ### Example `bn orient` Output
@@ -457,22 +487,20 @@ Run 'bn --help' for full command reference.
 ```
 
 ### Unit Tests
-- [x] `bn init` creates AGENTS.md if missing
-- [x] `bn init` appends to existing AGENTS.md
-- [x] `bn init` skips if `bn orient` already mentioned
 - [x] Orient output includes current task counts
 - [x] Orient auto-initializes repo if needed
+- [x] `bn session init` does NOT create AGENTS.md
+- [x] `bn system emit copilot-instructions` outputs valid content
 
 ### Integration Tests
-- [x] `bn init` in fresh repo creates AGENTS.md with blurb
-- [x] `bn init` with existing AGENTS.md appends section
-- [x] `bn init` is idempotent (doesn't duplicate blurb)
 - [x] `bn orient` works in uninitialized repo (auto-inits)
 - [x] `bn orient -H` produces human-readable output
+- [x] `bn session init` does not create or modify AGENTS.md
+- [x] Container entrypoint injects instructions correctly
 
 ### Test Summary (Phase 7)
-- 132 unit tests (models, storage, commands, mcp including 9 new orient/init tests)
-- 138 CLI integration tests (35 task + 29 test + 18 commit + 27 maintenance + 16 MCP + 15 orient + 7 smoke - 9 overlap correction = tests counted)
+- 132 unit tests (models, storage, commands, mcp including orient tests)
+- 138 CLI integration tests (35 task + 29 test + 18 commit + 27 maintenance + 16 MCP + 15 orient + 7 smoke)
 - **Total: 270 tests**
 
 ---
