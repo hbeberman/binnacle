@@ -20,7 +20,7 @@ use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, connect_async};
 
-use crate::gui::protocol::{DownstreamMessage, UpstreamMessage};
+use crate::gui::protocol::{Change, DownstreamMessage, UpstreamMessage};
 use crate::storage::Storage;
 
 /// Type alias for the WebSocket stream type.
@@ -149,10 +149,16 @@ impl UpstreamClient {
 
                 // Graph update to forward
                 update = self.update_rx.recv() => {
-                    if let Ok(_update_json) = update {
-                        // For now, we just note that an update occurred.
-                        // Full event forwarding would parse the update and send as UpstreamMessage::Event
-                        // This is a foundation - actual event parsing would require more work.
+                    if let Ok(update_json) = update {
+                        if let Some(event) = self.parse_graph_event(&update_json) {
+                            let event_msg = UpstreamMessage::Event { event };
+                            if let Ok(event_json) = serde_json::to_string(&event_msg) {
+                                if let Err(e) = write.send(Message::Text(event_json)).await {
+                                    eprintln!("[upstream] Failed to send event: {}", e);
+                                    return Err(e.into());
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -208,6 +214,56 @@ impl UpstreamClient {
             }
         }
     }
+
+    /// Parse a graph update message into a Change for forwarding upstream.
+    ///
+    /// See [`parse_graph_event`] for details.
+    fn parse_graph_event(&self, json: &str) -> Option<Change> {
+        parse_graph_event(json)
+    }
+}
+
+/// Parse a graph update message into a Change for forwarding upstream.
+///
+/// The broadcast channel sends JSON messages with types:
+/// - `entity_added`: A new entity was created
+/// - `entity_updated`: An existing entity was modified
+/// - `entity_removed`: An entity was deleted
+/// - `reload`, `log_entry`, `delta`: Non-graph events (ignored)
+///
+/// Returns `None` for messages that shouldn't be forwarded (log entries, reloads, etc.)
+fn parse_graph_event(json: &str) -> Option<Change> {
+    let msg: serde_json::Value = serde_json::from_str(json).ok()?;
+
+    let msg_type = msg.get("type")?.as_str()?;
+
+    match msg_type {
+        "entity_added" => {
+            let entity_type = msg.get("entity_type")?.as_str()?.to_string();
+            let data = msg.get("entity")?.clone();
+            Some(Change::Create { entity_type, data })
+        }
+        "entity_updated" => {
+            let entity_type = msg.get("entity_type")?.as_str()?.to_string();
+            let id = msg.get("id")?.as_str()?.to_string();
+            // For updates, we send the full entity as "changes" since we don't
+            // have the diff - the hub can compute the actual diff if needed
+            let changes = msg.get("entity")?.clone();
+            Some(Change::Update {
+                entity_type,
+                id,
+                changes,
+            })
+        }
+        "entity_removed" => {
+            let entity_type = msg.get("entity_type")?.as_str()?.to_string();
+            let id = msg.get("id")?.as_str()?.to_string();
+            Some(Change::Delete { entity_type, id })
+        }
+        // Skip non-graph events
+        "reload" | "log_entry" | "delta" => None,
+        _ => None,
+    }
 }
 
 /// Spawn an upstream connection task.
@@ -257,5 +313,139 @@ mod tests {
         if id != "unknown" {
             assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
         }
+    }
+
+    #[test]
+    fn test_parse_graph_event_entity_added() {
+        let json = r#"{
+            "type": "entity_added",
+            "entity_type": "task",
+            "id": "bn-1234",
+            "entity": {"id": "bn-1234", "title": "Test task", "status": "pending"},
+            "version": 42,
+            "timestamp": "2026-01-31T22:00:00Z"
+        }"#;
+
+        let change = parse_graph_event(json).expect("should parse entity_added");
+        match change {
+            Change::Create { entity_type, data } => {
+                assert_eq!(entity_type, "task");
+                assert_eq!(data["id"], "bn-1234");
+                assert_eq!(data["title"], "Test task");
+            }
+            _ => panic!("expected Change::Create"),
+        }
+    }
+
+    #[test]
+    fn test_parse_graph_event_entity_updated() {
+        let json = r#"{
+            "type": "entity_updated",
+            "entity_type": "task",
+            "id": "bn-1234",
+            "entity": {"id": "bn-1234", "title": "Test task", "status": "done"},
+            "version": 43,
+            "timestamp": "2026-01-31T22:01:00Z"
+        }"#;
+
+        let change = parse_graph_event(json).expect("should parse entity_updated");
+        match change {
+            Change::Update {
+                entity_type,
+                id,
+                changes,
+            } => {
+                assert_eq!(entity_type, "task");
+                assert_eq!(id, "bn-1234");
+                assert_eq!(changes["status"], "done");
+            }
+            _ => panic!("expected Change::Update"),
+        }
+    }
+
+    #[test]
+    fn test_parse_graph_event_entity_removed() {
+        let json = r#"{
+            "type": "entity_removed",
+            "entity_type": "task",
+            "id": "bn-1234",
+            "version": 44,
+            "timestamp": "2026-01-31T22:02:00Z"
+        }"#;
+
+        let change = parse_graph_event(json).expect("should parse entity_removed");
+        match change {
+            Change::Delete { entity_type, id } => {
+                assert_eq!(entity_type, "task");
+                assert_eq!(id, "bn-1234");
+            }
+            _ => panic!("expected Change::Delete"),
+        }
+    }
+
+    #[test]
+    fn test_parse_graph_event_skips_reload() {
+        let json = r#"{
+            "type": "reload",
+            "version": 45,
+            "timestamp": "2026-01-31T22:03:00Z"
+        }"#;
+
+        assert!(parse_graph_event(json).is_none());
+    }
+
+    #[test]
+    fn test_parse_graph_event_skips_log_entry() {
+        let json = r#"{
+            "type": "log_entry",
+            "entry": {
+                "timestamp": "2026-01-31T22:00:00Z",
+                "entity_type": "task",
+                "entity_id": "bn-1234",
+                "action": "created"
+            },
+            "version": 46
+        }"#;
+
+        assert!(parse_graph_event(json).is_none());
+    }
+
+    #[test]
+    fn test_parse_graph_event_skips_delta() {
+        let json = r#"{
+            "type": "delta",
+            "changes": [],
+            "version": 47,
+            "timestamp": "2026-01-31T22:00:00Z"
+        }"#;
+
+        assert!(parse_graph_event(json).is_none());
+    }
+
+    #[test]
+    fn test_parse_graph_event_invalid_json() {
+        let json = "not valid json";
+        assert!(parse_graph_event(json).is_none());
+    }
+
+    #[test]
+    fn test_parse_graph_event_unknown_type() {
+        let json = r#"{"type": "unknown_type"}"#;
+        assert!(parse_graph_event(json).is_none());
+    }
+
+    #[test]
+    fn test_parse_graph_event_missing_required_fields() {
+        // Missing entity_type
+        let json = r#"{"type": "entity_added", "entity": {}}"#;
+        assert!(parse_graph_event(json).is_none());
+
+        // Missing entity
+        let json = r#"{"type": "entity_added", "entity_type": "task"}"#;
+        assert!(parse_graph_event(json).is_none());
+
+        // Missing id for update
+        let json = r#"{"type": "entity_updated", "entity_type": "task", "entity": {}}"#;
+        assert!(parse_graph_event(json).is_none());
     }
 }
