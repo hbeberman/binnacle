@@ -144,16 +144,17 @@ function renderNodeList(container, options = {}) {
         });
     }
     
-    // Apply search filter
+    // Apply search filter (case-insensitive, searches titles/IDs/short names)
     if (searchQuery) {
         const query = searchQuery.toLowerCase();
         allNodes = allNodes.filter(node => {
             const title = (node.title || node.name || '').toLowerCase();
+            const shortName = (node.short_name || '').toLowerCase();
             const description = (node.description || '').toLowerCase();
             const id = (node.id || '').toLowerCase();
             const tags = (node.tags || []).join(' ').toLowerCase();
-            return title.includes(query) || description.includes(query) || 
-                   id.includes(query) || tags.includes(query);
+            return title.includes(query) || shortName.includes(query) ||
+                   description.includes(query) || id.includes(query) || tags.includes(query);
         });
     }
     
