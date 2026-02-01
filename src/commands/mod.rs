@@ -5914,6 +5914,9 @@ pub struct TaskUpdated {
     pub updated_fields: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    /// Milestones that were auto-completed because all their child tasks/bugs are now done
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub auto_completed_milestones: Vec<String>,
 }
 
 impl Output for TaskUpdated {
@@ -5929,6 +5932,12 @@ impl Output for TaskUpdated {
         );
         if let Some(warning) = &self.warning {
             output.push_str(&format!("\nWarning: {}", warning));
+        }
+        if !self.auto_completed_milestones.is_empty() {
+            output.push_str(&format!(
+                "\nAuto-completed milestones: {}",
+                self.auto_completed_milestones.join(", ")
+            ));
         }
         output
     }
@@ -5954,7 +5963,7 @@ pub fn task_update(
     let mut storage = Storage::open(repo_path)?;
     let mut task = storage.get_task(id)?;
     let mut updated_fields = Vec::new();
-    let mut setting_to_done = false;
+    let mut setting_to_terminal = false; // Track done or cancelled for auto-close
 
     // Check if task is closed (Done or Cancelled) and require explicit flag
     let is_closed = task.status == TaskStatus::Done || task.status == TaskStatus::Cancelled;
@@ -6079,8 +6088,8 @@ pub fn task_update(
             }
         }
 
-        // If setting status to done, also set closed_at
-        if new_status == TaskStatus::Done {
+        // If setting status to done or cancelled, also set closed_at
+        if new_status == TaskStatus::Done || new_status == TaskStatus::Cancelled {
             task.closed_at = Some(Utc::now());
             // Remove task from agent's tasks list
             if let Some(agent) = get_current_agent(&storage) {
@@ -6088,8 +6097,8 @@ pub fn task_update(
             }
         }
 
-        // Track if we're setting status to done (for commit validation later)
-        setting_to_done = new_status == TaskStatus::Done;
+        // Track if we're setting status to terminal (done/cancelled) for auto-close
+        setting_to_terminal = new_status == TaskStatus::Done || new_status == TaskStatus::Cancelled;
 
         // If setting status to in_progress, track task association for registered agents
         if new_status == TaskStatus::InProgress {
@@ -6148,8 +6157,15 @@ pub fn task_update(
     task.core.updated_at = Utc::now();
     storage.update_task(&task)?;
 
-    // Validate linked commits exist when setting status to done
-    let warning = if setting_to_done {
+    // Check if any parent milestones should be auto-completed (when setting to done/cancelled)
+    let auto_completed_milestones = if setting_to_terminal {
+        check_and_auto_complete_parent_milestones(&mut storage, id)?
+    } else {
+        Vec::new()
+    };
+
+    // Validate linked commits exist when setting status to done (commit validation is for done only)
+    let warning = if task.status == TaskStatus::Done {
         let commits = storage.get_commits_for_task(id)?;
         let missing_commits: Vec<String> = commits
             .iter()
@@ -6181,6 +6197,7 @@ pub fn task_update(
         id: id.to_string(),
         updated_fields,
         warning,
+        auto_completed_milestones,
     })
 }
 
@@ -9863,6 +9880,9 @@ pub fn milestone_show(repo_path: &Path, id: &str) -> Result<MilestoneShowResult>
 pub struct MilestoneUpdated {
     pub id: String,
     pub updated_fields: Vec<String>,
+    /// Parent milestones that were auto-completed because all their children are now done
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub auto_completed_milestones: Vec<String>,
 }
 
 impl Output for MilestoneUpdated {
@@ -9871,11 +9891,18 @@ impl Output for MilestoneUpdated {
     }
 
     fn to_human(&self) -> String {
-        format!(
+        let mut output = format!(
             "Updated milestone {}: {}",
             self.id,
             self.updated_fields.join(", ")
-        )
+        );
+        if !self.auto_completed_milestones.is_empty() {
+            output.push_str(&format!(
+                "\nAuto-completed milestones: {}",
+                self.auto_completed_milestones.join(", ")
+            ));
+        }
+        output
     }
 }
 
@@ -9897,6 +9924,7 @@ pub fn milestone_update(
     let mut storage = Storage::open(repo_path)?;
     let mut milestone = storage.get_milestone(id)?;
     let mut updated_fields = Vec::new();
+    let mut setting_to_terminal = false; // Track done or cancelled for auto-close cascade
 
     if let Some(t) = title {
         milestone.core.title = t;
@@ -9922,7 +9950,9 @@ pub fn milestone_update(
     }
 
     if let Some(s) = status {
-        milestone.status = parse_status(s)?;
+        let new_status = parse_status(s)?;
+        setting_to_terminal = new_status == TaskStatus::Done || new_status == TaskStatus::Cancelled;
+        milestone.status = new_status;
         updated_fields.push("status".to_string());
     }
 
@@ -9966,9 +9996,17 @@ pub fn milestone_update(
     milestone.core.updated_at = chrono::Utc::now();
     storage.update_milestone(&milestone)?;
 
+    // Check if any parent milestones should be auto-completed (cascade when this milestone is closed)
+    let auto_completed_milestones = if setting_to_terminal {
+        check_and_auto_complete_parent_milestones(&mut storage, id)?
+    } else {
+        Vec::new()
+    };
+
     Ok(MilestoneUpdated {
         id: id.to_string(),
         updated_fields,
+        auto_completed_milestones,
     })
 }
 
@@ -24359,7 +24397,7 @@ mod tests {
         assert_eq!(ms.milestone.status, TaskStatus::Done);
         assert_eq!(
             ms.milestone.closed_reason,
-            Some("Auto-completed: all child tasks/bugs are done".to_string())
+            Some("All 2 children completed".to_string())
         );
     }
 
