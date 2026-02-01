@@ -343,7 +343,7 @@ For detailed instructions, see: container/README.md
         #[command(subcommand)]
         command: Option<GuiCommands>,
 
-        /// Port to listen on (default: auto-select starting from 55823, or BN_GUI_PORT env var)
+        /// Port to listen on (default: auto-select starting from 3030, or BN_GUI_PORT env var)
         /// Used when no subcommand is given (starts server)
         #[arg(short, long, env = "BN_GUI_PORT", global = true)]
         port: Option<u16>,
@@ -380,7 +380,7 @@ For detailed instructions, see: container/README.md
     /// recently completed items, and exploring node details.
     #[cfg(feature = "tui")]
     Tui {
-        /// Server port to connect to (default: 55823, or BN_GUI_PORT env var)
+        /// Server port to connect to (default: 3030, or BN_GUI_PORT env var)
         #[arg(short, long, env = "BN_GUI_PORT")]
         port: Option<u16>,
 
@@ -388,7 +388,7 @@ For detailed instructions, see: container/README.md
         #[arg(long, default_value = "localhost")]
         host: String,
 
-        /// WebSocket URL for remote session (e.g., wss://remote:55823/ws)
+        /// WebSocket URL for remote session (e.g., wss://remote:3030/ws)
         ///
         /// When provided, connects directly to the specified URL instead of
         /// auto-launching a local session server. Overrides --port and --host.
@@ -1406,7 +1406,7 @@ pub enum GuiCommands {
     /// Start the web GUI server (default if no subcommand given)
     #[command(name = "serve", visible_alias = "start")]
     Serve {
-        /// Port to listen on (default: auto-select starting from 55823, or BN_GUI_PORT env var)
+        /// Port to listen on (default: auto-select starting from 3030, or BN_GUI_PORT env var)
         #[arg(short, long, env = "BN_GUI_PORT")]
         port: Option<u16>,
 
@@ -2038,8 +2038,8 @@ pub enum SessionCommands {
     /// Runs a WebSocket server that provides real-time graph updates and
     /// accepts remote commands. Used by GUI/TUI for live data.
     Serve {
-        /// Port to listen on (default: 55823, or BN_GUI_PORT env var)
-        #[arg(short, long, env = "BN_GUI_PORT", default_value = "55823")]
+        /// Port to listen on (default: 3030, or BN_GUI_PORT env var)
+        #[arg(short, long, env = "BN_GUI_PORT", default_value = "3030")]
         port: u16,
 
         /// Host address to bind to (default: 127.0.0.1 for local only)
@@ -2078,7 +2078,7 @@ pub enum SessionCommands {
     ///
     /// Opens an interactive connection to a remote binnacle session.
     Connect {
-        /// WebSocket URL to connect to (e.g., wss://remote:55823/ws)
+        /// WebSocket URL to connect to (e.g., wss://remote:3030/ws)
         url: String,
     },
 }

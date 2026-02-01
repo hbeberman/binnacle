@@ -119,10 +119,10 @@ The test file includes an embedded checklist for manual validation:
 #### Manual Interactive Testing
 ```bash
 # Start GUI in dev mode
-bn gui serve --dev --port 55823
+bn gui serve --dev --port 3030
 
 # Open in browser
-# http://localhost:55823/test-panel-all-nodes.html
+# http://localhost:3030/test-panel-all-nodes.html
 ```
 
 Then click through all test buttons and verify behaviors match expectations.

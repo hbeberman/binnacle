@@ -299,7 +299,7 @@ bn task close bn-xxxx --reason "completed"
 
 When testing GUI changes, follow this workflow to avoid disrupting the user's session:
 
-1. **Use `just gui`** - Builds with `--features gui`, installs to ~/.local/bin, and launches on port 55823
+1. **Use `just gui`** - Builds with `--features gui`, installs to ~/.local/bin, and launches on port 3030
    - Each repo uses its own binary location, so running `just gui` won't kill GUI sessions from other repos
    - Within the same repo, it will restart the existing GUI (this is intended behavior)
 2. **Prefer `just install` for iterative changes** - Rebuilds without launching a new instance

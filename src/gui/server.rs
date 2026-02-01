@@ -15,7 +15,7 @@ use tokio::sync::{Mutex, broadcast};
 use tower_http::services::ServeDir;
 
 /// Default starting port for the GUI server
-pub const DEFAULT_PORT: u16 = 55823;
+pub const DEFAULT_PORT: u16 = 3030;
 
 /// Maximum number of ports to try when auto-selecting
 const MAX_PORT_ATTEMPTS: u16 = 100;

@@ -49,7 +49,7 @@ export class WebSocketConnection {
 
     /**
      * Connect to WebSocket server
-     * @param {string} url - WebSocket URL (e.g., 'ws://localhost:55823/ws')
+     * @param {string} url - WebSocket URL (e.g., 'ws://localhost:3030/ws')
      * @returns {Promise<void>} Resolves when connection is established
      */
     connect(url) {

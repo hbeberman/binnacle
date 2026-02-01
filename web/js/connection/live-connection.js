@@ -26,7 +26,7 @@ const RELOAD_DEBOUNCE_MS = 100;
  * Establishes WebSocket connection and sets up message handlers.
  * Automatically fetches initial data from REST API.
  * 
- * @param {string} wsUrl - WebSocket URL (e.g., 'ws://localhost:55823/ws')
+ * @param {string} wsUrl - WebSocket URL (e.g., 'ws://localhost:3030/ws')
  * @param {Object} options - Connection options
  * @param {Function} [options.onConnected] - Called when connection is established
  * @param {Function} [options.onDisconnected] - Called when connection is lost

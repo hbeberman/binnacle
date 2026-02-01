@@ -28,7 +28,7 @@ fi
 export LIGHTPANDA_DISABLE_TELEMETRY=true
 
 # Configuration
-GUI_PORT="${BN_GUI_PORT:-55823}"
+GUI_PORT="${BN_GUI_PORT:-3030}"
 GUI_URL="http://localhost:${GUI_PORT}"
 STARTED_GUI=0
 

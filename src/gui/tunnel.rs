@@ -555,7 +555,7 @@ mod tests {
 
         // Should match valid devtunnels URLs (various region codes)
         assert!(regex.is_match("https://7gs626gx-9999.use.devtunnels.ms"));
-        assert!(regex.is_match("https://1kzpxxln-55823.usw2.devtunnels.ms"));
+        assert!(regex.is_match("https://1kzpxxln-3030.usw2.devtunnels.ms"));
         assert!(regex.is_match("https://abc-123.eus.devtunnels.ms"));
         assert!(regex.is_match("https://a.use.devtunnels.ms"));
 
@@ -571,20 +571,20 @@ mod tests {
         // We can't easily test start() without devtunnel installed,
         // but we can at least verify the struct is properly defined
         let url = Arc::new(Mutex::new(Some(
-            "https://test-55823.use.devtunnels.ms".to_string(),
+            "https://test-3030.use.devtunnels.ms".to_string(),
         )));
 
         // Manually construct for testing (not public API)
         let manager = TunnelManager {
             child: None,
             public_url: url,
-            port: 55823,
+            port: 3030,
         };
 
-        assert_eq!(manager.port(), 55823);
+        assert_eq!(manager.port(), 3030);
         assert_eq!(
             manager.public_url(),
-            Some("https://test-55823.use.devtunnels.ms".to_string())
+            Some("https://test-3030.use.devtunnels.ms".to_string())
         );
     }
 
@@ -594,7 +594,7 @@ mod tests {
         let mut manager = TunnelManager {
             child: None,
             public_url: url,
-            port: 55823,
+            port: 3030,
         };
 
         assert!(!manager.is_running());
@@ -606,7 +606,7 @@ mod tests {
         let mut manager = TunnelManager {
             child: None,
             public_url: url,
-            port: 55823,
+            port: 3030,
         };
 
         // Should not panic
@@ -671,7 +671,7 @@ mod tests {
                 "hostConnections": 0,
                 "ports": [
                     {"portNumber": 22, "protocol": "auto"},
-                    {"portNumber": 55823, "protocol": "auto"}
+                    {"portNumber": 3030, "protocol": "auto"}
                 ]
             }
         }"#;
@@ -692,7 +692,7 @@ mod tests {
         );
         assert_eq!(
             ports[1].get("portNumber").and_then(|n| n.as_u64()),
-            Some(55823)
+            Some(3030)
         );
     }
 

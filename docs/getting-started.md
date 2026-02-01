@@ -155,7 +155,7 @@ bn milestone show bn-xxxx -H
 
 # Open the GUI for visual tracking
 bn gui
-# Then open http://localhost:55823 in your browser
+# Then open http://localhost:3030 in your browser
 ```
 
 ### Step 7: Loop Mode for Continuous Work

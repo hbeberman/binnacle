@@ -39,7 +39,7 @@ use super::views::{
 };
 
 /// Default server port
-pub const DEFAULT_PORT: u16 = 55823;
+pub const DEFAULT_PORT: u16 = 3030;
 
 /// Cooldown period after a fetch error before retrying (in seconds)
 const FETCH_ERROR_COOLDOWN_SECS: u64 = 5;
@@ -1642,7 +1642,7 @@ fn restore_terminal() -> io::Result<()> {
 /// Run the TUI application
 ///
 /// # Arguments
-/// * `port` - Server port to connect to (default: 55823)
+/// * `port` - Server port to connect to (default: 3030)
 /// * `host` - Server host to connect to (default: localhost)
 /// * `url` - Optional WebSocket URL for remote connections (overrides port/host)
 ///
@@ -1834,9 +1834,9 @@ mod tests {
 
     #[test]
     fn test_parse_ws_url_wss_with_port() {
-        let (host, port) = parse_ws_url("wss://remote.example.com:55823/ws");
+        let (host, port) = parse_ws_url("wss://remote.example.com:3030/ws");
         assert_eq!(host, "remote.example.com");
-        assert_eq!(port, 55823);
+        assert_eq!(port, 3030);
     }
 
     #[test]

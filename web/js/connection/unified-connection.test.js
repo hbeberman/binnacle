@@ -75,7 +75,7 @@ test('Connection base class defines abstract interface', () => {
 
 // Test 2: LiveConnection is not readonly
 test('LiveConnection isReadonly returns false', () => {
-    const conn = new LiveConnection({ wsUrl: 'ws://localhost:55823/ws' });
+    const conn = new LiveConnection({ wsUrl: 'ws://localhost:3030/ws' });
     assertEquals(conn.isReadonly(), false, 'LiveConnection should be writable');
 });
 
@@ -107,7 +107,7 @@ test('Event listeners can be added and removed', () => {
 test('createConnection creates LiveConnection for live mode', () => {
     const conn = createConnection({
         mode: 'live',
-        wsUrl: 'ws://localhost:55823/ws'
+        wsUrl: 'ws://localhost:3030/ws'
     });
     assert(conn instanceof LiveConnection, 'Should create LiveConnection');
     assertEquals(conn.isReadonly(), false, 'Should be writable');
@@ -127,7 +127,7 @@ test('createConnection creates ArchiveConnection for archive mode', () => {
 test('createConnection auto-detects live mode from wsUrl', () => {
     const conn = createConnection({
         mode: 'auto',
-        wsUrl: 'ws://localhost:55823/ws'
+        wsUrl: 'ws://localhost:3030/ws'
     });
     assert(conn instanceof LiveConnection, 'Should auto-detect LiveConnection');
 });
