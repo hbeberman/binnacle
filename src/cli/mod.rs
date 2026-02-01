@@ -1962,10 +1962,6 @@ pub enum SessionCommands {
         #[arg(long)]
         auto_global: bool,
 
-        /// Write binnacle section to AGENTS.md (creates file if needed)
-        #[arg(long)]
-        write_agents_md: bool,
-
         /// Write Copilot workflow agents to .github/agents/ and .github/instructions/
         #[arg(long)]
         write_copilot_prompts: bool,
@@ -2237,8 +2233,6 @@ pub enum HooksCommands {
 /// Template types for the emit command
 #[derive(Clone, Debug, clap::ValueEnum)]
 pub enum EmitTemplate {
-    /// AGENTS.md binnacle section content
-    Agents,
     /// SKILL.md file content
     Skill,
     /// Binnacle plan agent prompt (binnacle-plan.prompt.md)

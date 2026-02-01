@@ -1124,7 +1124,6 @@ fn run_command(
         Some(Commands::System { command }) => match command {
             SystemCommands::Emit { template } => {
                 let content = match template {
-                    EmitTemplate::Agents => commands::AGENTS_MD_BLURB,
                     EmitTemplate::Skill => commands::SKILLS_FILE_CONTENT,
                     EmitTemplate::PlanAgent => commands::PLAN_AGENT_CONTENT,
                     EmitTemplate::PrdAgent => commands::PRD_AGENT_CONTENT,
@@ -1647,7 +1646,6 @@ fn run_command(
             match command {
                 SessionCommands::Init {
                     auto_global,
-                    write_agents_md,
                     write_copilot_prompts,
                     install_hook,
                     write_mcp_vscode,
@@ -1659,7 +1657,6 @@ fn run_command(
                         || token.is_some()
                         || token_non_validated.is_some()
                         || auto_global
-                        || write_agents_md
                         || write_copilot_prompts
                         || install_hook
                         || write_mcp_vscode
@@ -1668,7 +1665,6 @@ fn run_command(
                         commands::session_init_non_interactive(
                             repo_path,
                             auto_global,
-                            write_agents_md,
                             write_copilot_prompts,
                             install_hook,
                             write_mcp_vscode,
@@ -4355,7 +4351,6 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         Some(Commands::System { command }) => match command {
             SystemCommands::Emit { template } => {
                 let template_name = match template {
-                    EmitTemplate::Agents => "agents",
                     EmitTemplate::Skill => "skill",
                     EmitTemplate::PlanAgent => "plan-agent",
                     EmitTemplate::PrdAgent => "prd-agent",
@@ -4456,7 +4451,6 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         Some(Commands::Session { command }) => match command {
             SessionCommands::Init {
                 auto_global,
-                write_agents_md,
                 write_copilot_prompts,
                 install_hook,
                 write_mcp_vscode,
@@ -4467,7 +4461,6 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 "session init".to_string(),
                 serde_json::json!({
                     "auto_global": auto_global,
-                    "write_agents_md": write_agents_md,
                     "write_copilot_prompts": write_copilot_prompts,
                     "install_hook": install_hook,
                     "write_mcp_vscode": write_mcp_vscode,

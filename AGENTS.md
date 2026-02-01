@@ -5,22 +5,8 @@ This project uses **bn** (binnacle) for long-horizon task/test status tracking. 
 
 **After running `bn orient`**, report your assigned `agent_id` (e.g., `bn-486c`) to the user. This ID identifies your session in binnacle's tracking system.
 
-For new projects, the human should run `bn system host-init` (for first-time global setup) then `bn session init` (for repo-specific setup). If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
-
-### System vs Session Commands
-
-Binnacle has two administrative namespaces:
-- **`bn system`** - Host-global operations (stored in `~/.config/binnacle/`)
-  - `bn system host-init` - First-time global setup (run once per machine)
-  - `bn system copilot` - Copilot binary management
-  - `bn system emit` - Emit embedded templates
-  - `bn system build-info` - Build metadata
-  - `bn system sessions` - List all known repos on this host
-- **`bn session`** - Repo-specific operations (stored in `~/.local/share/binnacle/<REPO_HASH>/`)
-  - `bn session init` - Initialize binnacle for this repository
-  - `bn session store` - Import/export/inspect data
-  - `bn session migrate` - Migrate storage backends
-  - `bn session hooks` - Git hooks management
+For new projects, the human should run `bn system init` which provides helpful prompts for setup.
+If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
 
 ## Task Workflow (CRITICAL - READ CAREFULLY)
 
@@ -54,7 +40,6 @@ Binnacle has two administrative namespaces:
 
 - **NEVER run `git push`** - The human operator handles all pushes. Your job is to commit locally.
 - **NEVER run `git config user.email` or `git config user.name`** - Git identity is provided by the host. If git complains about missing identity, report the error - do not attempt to fix it.
-- **NEVER modify AGENTS.md** - This file is maintained by the repo owner. If pre-commit fails with "AGENTS.md out of sync", that means YOUR code changes broke the sync - revert any changes to AGENTS.md and fix your code instead.
 - Commit early and often with clear messages
 - Always run `just check` before committing
 

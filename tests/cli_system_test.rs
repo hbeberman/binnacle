@@ -112,7 +112,6 @@ fn test_session_init_existing_repo() {
 
     let json = parse_json(&output);
     assert_eq!(json["initialized"], false); // Already initialized
-    assert_eq!(json["agents_md_updated"], false);
 }
 
 #[test]

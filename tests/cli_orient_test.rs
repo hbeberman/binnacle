@@ -195,10 +195,6 @@ fn test_orient_without_init_fails_when_not_initialized() {
 #[test]
 fn test_orient_with_init_creates_database() {
     let temp = TestEnv::new();
-    let agents_path = temp.path().join("AGENTS.md");
-
-    // Verify not initialized
-    assert!(!agents_path.exists());
 
     // Run orient --init (should succeed and initialize)
     bn_in(&temp)
@@ -208,8 +204,13 @@ fn test_orient_with_init_creates_database() {
         .stdout(predicate::str::contains("\"ready\":true"))
         .stdout(predicate::str::contains("\"just_initialized\":true"));
 
-    // Verify AGENTS.md was created
-    assert!(agents_path.exists());
+    // Verify database was created (by checking storage exists)
+    let storage_path = temp.path().join(".git").join(".binnacle");
+    assert!(
+        binnacle::storage::Storage::exists(temp.path()).unwrap()
+            || storage_path.exists()
+            || temp.path().join(".binnacle").exists()
+    );
 }
 
 #[test]

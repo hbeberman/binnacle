@@ -236,7 +236,6 @@ fn mark_global_init_done() -> Result<()> {
 pub struct InitResult {
     pub initialized: bool,
     pub storage_path: String,
-    pub agents_md_updated: bool,
     pub skills_file_created: bool,
     pub codex_skills_file_created: bool,
     pub copilot_prompts_created: bool,
@@ -262,9 +261,6 @@ impl Output for InitResult {
                 "Binnacle already initialized at {}",
                 self.storage_path
             ));
-        }
-        if self.agents_md_updated {
-            lines.push("Updated AGENTS.md with binnacle reference.".to_string());
         }
         if self.skills_file_created {
             lines.push(
@@ -313,7 +309,6 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
     let global_init_done = is_global_init_done();
 
     // Repo-local prompts (always shown)
-    let update_agents_md = prompt_yes_no("Add binnacle reference to AGENTS.md?", true);
     let create_copilot_prompts = prompt_yes_no(
         "Create Copilot workflow agents at .github/agents/ and .github/instructions/?",
         false,
@@ -364,7 +359,6 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
 
     let result = init_with_options(
         repo_path,
-        update_agents_md,
         create_claude_skills,
         create_codex_skills,
         create_copilot_prompts,
@@ -388,9 +382,6 @@ pub fn init(repo_path: &Path) -> Result<InitResult> {
 /// Always prompts for all options regardless of marker file state.
 /// Updates/creates the marker file on success.
 pub fn init_reinit(repo_path: &Path) -> Result<InitResult> {
-    // Prompt for AGENTS.md update (default Yes)
-    let update_agents_md = prompt_yes_no("Add binnacle reference to AGENTS.md?", true);
-
     // Prompt for Claude Code skills file creation (default Yes)
     let create_claude_skills = prompt_yes_no(
         "Create Claude Code skills file at ~/.claude/skills/binnacle/SKILL.md?",
@@ -436,7 +427,6 @@ pub fn init_reinit(repo_path: &Path) -> Result<InitResult> {
 
     let result = init_with_options(
         repo_path,
-        update_agents_md,
         create_claude_skills,
         create_codex_skills,
         create_copilot_prompts,
@@ -459,7 +449,6 @@ pub fn init_reinit(repo_path: &Path) -> Result<InitResult> {
 #[allow(clippy::too_many_arguments)]
 pub fn init_non_interactive(
     repo_path: &Path,
-    write_agents_md: bool,
     write_claude_skills: bool,
     write_codex_skills: bool,
     write_copilot_prompts: bool,
@@ -472,7 +461,6 @@ pub fn init_non_interactive(
 ) -> Result<InitResult> {
     init_with_options(
         repo_path,
-        write_agents_md,
         write_claude_skills,
         write_codex_skills,
         write_copilot_prompts,
@@ -888,8 +876,6 @@ pub struct SessionInitResult {
     pub session_id: String,
     /// Path to session storage
     pub storage_path: String,
-    /// Whether AGENTS.md was updated
-    pub agents_md_updated: bool,
     /// Whether Copilot prompts were created
     pub copilot_prompts_created: bool,
     /// Whether commit-msg hook was installed
@@ -924,9 +910,6 @@ impl Output for SessionInitResult {
         } else {
             lines.push(format!("Session already initialized: {}", self.session_id));
             lines.push(format!("Storage: {}", self.storage_path));
-        }
-        if self.agents_md_updated {
-            lines.push("Updated AGENTS.md with binnacle reference.".to_string());
         }
         if self.copilot_prompts_created {
             lines.push(
@@ -979,7 +962,6 @@ pub fn session_init(repo_path: &Path) -> Result<SessionInitResult> {
     }
 
     // Interactive prompts for session-local setup
-    let update_agents_md = prompt_yes_no("Add binnacle reference to AGENTS.md?", true);
     let create_copilot_prompts = prompt_yes_no(
         "Create Copilot workflow agents at .github/agents/ and .github/instructions/?",
         false,
@@ -990,7 +972,6 @@ pub fn session_init(repo_path: &Path) -> Result<SessionInitResult> {
     session_init_with_options(
         repo_path,
         false, // auto_global - not needed, system is already initialized
-        update_agents_md,
         create_copilot_prompts,
         install_hook,
         write_mcp_vscode,
@@ -1006,7 +987,6 @@ pub fn session_init(repo_path: &Path) -> Result<SessionInitResult> {
 pub fn session_init_non_interactive(
     repo_path: &Path,
     auto_global: bool,
-    write_agents_md: bool,
     write_copilot_prompts: bool,
     install_hook: bool,
     write_mcp_vscode: bool,
@@ -1025,7 +1005,6 @@ pub fn session_init_non_interactive(
     session_init_with_options(
         repo_path,
         auto_global,
-        write_agents_md,
         write_copilot_prompts,
         install_hook,
         write_mcp_vscode,
@@ -1037,7 +1016,6 @@ pub fn session_init_non_interactive(
 /// Initialize session (repo-specific) storage for reinit.
 /// Always prompts interactively.
 pub fn session_init_reinit(repo_path: &Path) -> Result<SessionInitResult> {
-    let update_agents_md = prompt_yes_no("Add binnacle reference to AGENTS.md?", true);
     let create_copilot_prompts = prompt_yes_no(
         "Create Copilot workflow agents at .github/agents/ and .github/instructions/?",
         false,
@@ -1048,7 +1026,6 @@ pub fn session_init_reinit(repo_path: &Path) -> Result<SessionInitResult> {
     session_init_with_options(
         repo_path,
         false, // auto_global not relevant for reinit
-        update_agents_md,
         create_copilot_prompts,
         install_hook,
         write_mcp_vscode,
@@ -1062,7 +1039,6 @@ pub fn session_init_reinit(repo_path: &Path) -> Result<SessionInitResult> {
 fn session_init_with_options(
     repo_path: &Path,
     auto_global: bool,
-    should_update_agents_md: bool,
     create_copilot_prompts: bool,
     install_hook: bool,
     write_mcp_vscode: bool,
@@ -1091,13 +1067,6 @@ fn session_init_with_options(
 
     // Copy tmux layouts from .binnacle/tmux/ to session if present
     let tmux_layouts_copied = copy_project_tmux_layouts(repo_path, &storage_dir)?;
-
-    // Update AGENTS.md if requested
-    let agents_md_updated = if should_update_agents_md {
-        update_agents_md(repo_path)?
-    } else {
-        false
-    };
 
     // Create Copilot prompts if requested
     let copilot_prompts_created = if create_copilot_prompts {
@@ -1166,7 +1135,6 @@ fn session_init_with_options(
         initialized,
         session_id,
         storage_path,
-        agents_md_updated,
         copilot_prompts_created,
         hook_installed,
         mcp_vscode_config_created,
@@ -1373,7 +1341,6 @@ fn read_session_metadata(session_path: &Path) -> Option<String> {
 #[allow(clippy::too_many_arguments)]
 fn init_with_options(
     repo_path: &Path,
-    update_agents: bool,
     create_claude_skills: bool,
     create_codex_skills: bool,
     create_copilot_prompts: bool,
@@ -1389,13 +1356,6 @@ fn init_with_options(
         Storage::open(repo_path)?
     } else {
         Storage::init(repo_path)?
-    };
-
-    // Update AGENTS.md if requested (idempotent: create/replace as needed)
-    let agents_md_updated = if update_agents {
-        update_agents_md(repo_path)?
-    } else {
-        false
     };
 
     // Create Claude Code skills file if requested
@@ -1504,7 +1464,6 @@ fn init_with_options(
     Ok(InitResult {
         initialized: !already_exists,
         storage_path: storage.root().to_string_lossy().to_string(),
-        agents_md_updated,
         skills_file_created,
         codex_skills_file_created,
         copilot_prompts_created,
@@ -1516,211 +1475,6 @@ fn init_with_options(
         container_built,
     })
 }
-
-/// The blurb to add to AGENTS.md
-pub const AGENTS_MD_BLURB: &str = r#"<!-- BEGIN BINNACLE SECTION -->
-# Agent Instructions
-
-This project uses **bn** (binnacle) for long-horizon task/test status tracking. Run `bn orient` to get started!
-
-**After running `bn orient`**, report your assigned `agent_id` (e.g., `bn-486c`) to the user. This ID identifies your session in binnacle's tracking system.
-
-For new projects, the human should run `bn system host-init` (for first-time global setup) then `bn session init` (for repo-specific setup). If you absolutely must initialize without human intervention, use `bn orient --init` (uses conservative defaults, skips optional setup).
-
-### System vs Session Commands
-
-Binnacle has two administrative namespaces:
-- **`bn system`** - Host-global operations (stored in `~/.config/binnacle/`)
-  - `bn system host-init` - First-time global setup (run once per machine)
-  - `bn system copilot` - Copilot binary management
-  - `bn system emit` - Emit embedded templates
-  - `bn system build-info` - Build metadata
-  - `bn system sessions` - List all known repos on this host
-- **`bn session`** - Repo-specific operations (stored in `~/.local/share/binnacle/<REPO_HASH>/`)
-  - `bn session init` - Initialize binnacle for this repository
-  - `bn session store` - Import/export/inspect data
-  - `bn session migrate` - Migrate storage backends
-  - `bn session hooks` - Git hooks management
-
-## Task Workflow (CRITICAL - READ CAREFULLY)
-
-**⚠️ SINGLE TASK PER SESSION**: You must work on exactly ONE task or bug per session. After completing it, call `bn goodbye` and terminate. Another agent will handle the next task.
-
-### The Complete Workflow:
-
-1. **CLAIM ONE item**: Run `bn ready`, pick ONE task/bug, claim it with `bn task update <id> --status in_progress` (or `bn bug update`).
-2. **WORK on that item**: Implement, test, and commit your changes.
-3. **CLOSE the item**: Run `bn task close <id> --reason "what was done"` (or `bn bug close`).
-4. **TERMINATE immediately**: Run `bn goodbye "summary"` and end your session.
-
-### Why Single-Task Sessions Matter:
-- **Focused work**: One task gets full attention and proper completion
-- **Clean handoffs**: Each task has a clear owner and outcome
-- **Better tracking**: Task status accurately reflects work state
-- **Reduced errors**: No context-switching between unrelated work
-
-### What NOT to Do:
-- ❌ Pick multiple tasks from `bn ready`
-- ❌ Start a second task after closing the first
-- ❌ Continue working after calling `bn goodbye`
-- ❌ Skip the goodbye call
-
-### Additional Commands:
-- **If blocked**: Run `bn task update <id> --status blocked`, then `bn goodbye`
-- **For bugs**: Use `bn bug create/update/close` - not `bn task create --tag bug`
-- **For ideas**: Use `bn idea create/list/show` - ideas are low-stakes seeds that can be promoted to tasks later
-
-## Git Rules (CRITICAL)
-
-- **NEVER run `git push`** - The human operator handles all pushes. Your job is to commit locally.
-- **NEVER run `git config user.email` or `git config user.name`** - Git identity is provided by the host. If git complains about missing identity, report the error - do not attempt to fix it.
-- **NEVER modify AGENTS.md** - This file is maintained by the repo owner. If pre-commit fails with "AGENTS.md out of sync", that means YOUR code changes broke the sync - revert any changes to AGENTS.md and fix your code instead.
-- Commit early and often with clear messages
-- Always run `just check` before committing
-
-The task graph drives development priorities. Always update task status to keep it accurate.
-
-**Tip**: Use `bn show <id>` to view any entity by ID - it auto-detects the type from the prefix (bn-, bnt-, bnq-).
-
-## Finding Context for Your Task
-
-When starting work on a task, you often need to understand:
-- **Why** it exists (the parent PRD or milestone)
-- **What related work** is happening (sibling tasks)
-- **What subtasks** depend on it (child tasks)
-
-Use these graph navigation commands to explore the task hierarchy:
-
-### `bn graph lineage <id>`
-Walk **up** the ancestry chain to find the PRD, milestone, or parent task that explains why this task exists.
-
-```bash
-# Find the PRD or milestone that spawned this task
-bn graph lineage bn-xxxx
-
-# Limit to 5 hops up the chain
-bn graph lineage bn-xxxx --depth 5
-
-# Include descriptions for more context
-bn graph lineage bn-xxxx --verbose
-```
-
-**Use this when:** You need to understand the bigger picture or find documentation for your task.
-
-### `bn graph peers <id>`
-Find **sibling** tasks (tasks with the same parent) or **cousins** (tasks sharing a grandparent).
-
-```bash
-# Find sibling tasks (same parent)
-bn graph peers bn-xxxx
-
-# Find siblings and cousins (depth=2)
-bn graph peers bn-xxxx --depth 2
-
-# Include closed tasks in results
-bn graph peers bn-xxxx --include-closed
-```
-
-**Use this when:** You want to see what other work is happening in parallel, or find similar completed tasks to reference.
-
-### `bn graph descendants <id>`
-Walk **down** to find child tasks and subtasks.
-
-```bash
-# Find immediate children and grandchildren (depth=3)
-bn graph descendants bn-xxxx
-
-# Find all descendants regardless of depth
-bn graph descendants bn-xxxx --all
-
-# Include closed/completed subtasks
-bn graph descendants bn-xxxx --include-closed
-
-# Limit to direct children only
-bn graph descendants bn-xxxx --depth 1
-```
-
-**Use this when:** You're working on a high-level task and need to see what subtasks exist, or verify that all child work is complete.
-
-### Quick Reference
-
-| Goal | Command |
-|------|---------|
-| Find the PRD or parent goal | `bn graph lineage <id>` |
-| Find related parallel work | `bn graph peers <id>` |
-| Find subtasks or child work | `bn graph descendants <id>` |
-| See all connected entities | `bn show <id>` (includes edges) |
-
-## Creating Tasks (Best Practices)
-
-- **Always use short names** (`-s`): They appear in the GUI and make tasks scannable
-  - `bn task create -s "short name" -d "description" "Full task title"`
-- **Add dependencies with reasons**: `bn link add <task> <blocker> -t depends_on --reason "why"`
-- **Link to milestones**: `bn link add <task> <milestone> -t child_of`
-
-## Documentation Nodes (IMPORTANT)
-
-Use **doc nodes** instead of creating loose markdown files. Doc nodes are tracked in the task graph and linked to relevant entities.
-
-### When to Use Doc Nodes vs Markdown Files
-
-**Use doc nodes for:**
-- PRDs, specifications, and design documents
-- Implementation notes that explain *why* something was built a certain way
-- Handoff notes between agent sessions
-- Any documentation that relates to specific tasks, bugs, or features
-
-**Keep as regular files:**
-- README.md, CONTRIBUTING.md, LICENSE (repo-level standard files)
-- AGENTS.md (agent instructions - this file)
-- Code documentation (doc comments, inline comments)
-
-### Doc Node Commands
-
-```bash
-# Create a doc linked to a task
-bn doc create bn-task -T "Implementation Notes" -c "Content here..."
-
-# Create from a file
-bn doc create bn-task -T "PRD: Feature" --file spec.md --type prd
-
-# List, show, attach to more entities
-bn doc list
-bn doc show bn-xxxx
-bn doc attach bn-xxxx bn-other-task
-
-# Update (creates new version, preserves history)
-bn doc update bn-xxxx -c "Updated content..."
-```
-
-### Doc Types
-
-- `note` (default) - General documentation, notes
-- `prd` - Product requirements documents
-- `handoff` - Session handoff notes for the next agent
-
-## Before Ending Your Session (IMPORTANT)
-
-1. **Verify your ONE task is complete**: Tests pass, code is formatted, changes are committed
-2. **Close your task**: `bn task close <id> --reason "what was done"`
-3. **Terminate**: `bn goodbye "summary"` - then STOP working
-
-⚠️ Do NOT start another task. Let another agent handle it.
-
-## Workflow Stages
-
-For complex features, suggest the human use specialized agents:
-
-1. **@binnacle-plan** - Research and outline (for ambiguous or large tasks)
-2. **@binnacle-prd** - Detailed specification (when plan is approved)
-3. **@binnacle-tasks** - Create bn tasks from PRD
-4. **Execute** - Implement with task tracking (you're here)
-
-If a task seems too large or unclear, suggest the human invoke the planning workflow.
-
-Run `bn --help` for the complete command reference.
-<!-- END BINNACLE SECTION -->
-"#;
 
 /// The skills file content for Claude Code
 pub const SKILLS_FILE_CONTENT: &str = r#"---
@@ -2766,11 +2520,6 @@ pub fn create_copilot_prompt_files(repo_path: &Path) -> Result<bool> {
     Ok(true)
 }
 
-/// Marker used to detect the start of the binnacle section.
-const BINNACLE_SECTION_START: &str = "<!-- BEGIN BINNACLE SECTION -->";
-/// Marker used to detect the end of the binnacle section.
-const BINNACLE_SECTION_END: &str = "<!-- END BINNACLE SECTION -->";
-
 /// Marker used to detect the start of the binnacle hook section.
 const HOOK_SECTION_START: &str = "### BINNACLE HOOK START ###";
 /// Marker used to detect the end of the binnacle hook section.
@@ -2843,105 +2592,6 @@ if [[ -n "$archive_dir" ]] && [[ "$archive_dir" != "null" ]]; then
 fi
 ### BINNACLE HOOK END ###
 "#;
-
-/// Replace the binnacle section in the given content with the new blurb.
-/// Returns the new content with the section replaced.
-/// Assumes the content contains both BEGIN and END markers.
-fn replace_binnacle_section(content: &str) -> Result<String> {
-    let start_idx = content
-        .find(BINNACLE_SECTION_START)
-        .ok_or_else(|| Error::Other("BEGIN BINNACLE SECTION marker not found".to_string()))?;
-
-    // Find end marker - must search AFTER start to handle nested content
-    let search_start = start_idx + BINNACLE_SECTION_START.len();
-    let end_marker_relative = content[search_start..]
-        .find(BINNACLE_SECTION_END)
-        .ok_or_else(|| Error::Other("END BINNACLE SECTION marker not found".to_string()))?;
-    let end_idx = search_start + end_marker_relative + BINNACLE_SECTION_END.len();
-
-    // Build new content: before + new blurb + after
-    let before = &content[..start_idx];
-    let after = &content[end_idx..];
-
-    Ok(format!("{}{}{}", before, AGENTS_MD_BLURB.trim_end(), after))
-}
-
-/// Update AGENTS.md with the binnacle blurb.
-/// - If file doesn't exist: create with binnacle section
-/// - If file exists with markers: replace section between markers (only if different)
-/// - If file exists without markers: append binnacle section
-///
-/// Returns true if the file was actually modified.
-fn update_agents_md(repo_path: &Path) -> Result<bool> {
-    use std::fs;
-    use std::io::Write;
-
-    let agents_path = repo_path.join("AGENTS.md");
-
-    if agents_path.exists() {
-        let contents = fs::read_to_string(&agents_path)
-            .map_err(|e| Error::Other(format!("Failed to read AGENTS.md: {}", e)))?;
-
-        // Check if file has binnacle section markers
-        let has_start = contents.contains(BINNACLE_SECTION_START);
-        let has_end = contents.contains(BINNACLE_SECTION_END);
-
-        // Warn about malformed markers (one without the other)
-        if has_start != has_end {
-            eprintln!(
-                "Warning: AGENTS.md has {} but not {}. Appending fresh section.",
-                if has_start {
-                    "BEGIN marker"
-                } else {
-                    "END marker"
-                },
-                if has_start {
-                    "END marker"
-                } else {
-                    "BEGIN marker"
-                }
-            );
-        }
-
-        if has_start && has_end {
-            // Replace existing section
-            let new_contents = replace_binnacle_section(&contents)?;
-            // Only write if content actually changed
-            if new_contents != contents {
-                fs::write(&agents_path, new_contents)
-                    .map_err(|e| Error::Other(format!("Failed to write AGENTS.md: {}", e)))?;
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        } else {
-            // Append new section
-            let mut file = fs::OpenOptions::new()
-                .append(true)
-                .open(&agents_path)
-                .map_err(|e| Error::Other(format!("Failed to open AGENTS.md: {}", e)))?;
-
-            // Add a newline before the blurb if file doesn't end with one
-            let prefix = if contents.ends_with('\n') {
-                "\n"
-            } else {
-                "\n\n"
-            };
-            file.write_all(prefix.as_bytes())
-                .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
-            file.write_all(AGENTS_MD_BLURB.trim_end().as_bytes())
-                .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
-            file.write_all(b"\n")
-                .map_err(|e| Error::Other(format!("Failed to write to AGENTS.md: {}", e)))?;
-            Ok(true)
-        }
-    } else {
-        // Create new AGENTS.md with the blurb
-        fs::write(&agents_path, format!("{}\n", AGENTS_MD_BLURB.trim_end()))
-            .map_err(|e| Error::Other(format!("Failed to create AGENTS.md: {}", e)))?;
-        Ok(true)
-    }
-}
 
 /// Install the commit-msg hook for co-author attribution.
 /// - If hook doesn't exist: create it with shebang + binnacle section
@@ -4532,8 +4182,6 @@ pub fn orient(
     let just_initialized = if !Storage::exists(repo_path)? {
         if allow_init {
             Storage::init(repo_path)?;
-            // Auto-update AGENTS.md (idempotent)
-            let _ = update_agents_md(repo_path);
             true
         } else {
             return Err(Error::NotInitialized);
@@ -23933,7 +23581,6 @@ mod tests {
             false,
             false,
             false,
-            false,
             false, // install_bn_agent
             false, // build_container
         )
@@ -23948,7 +23595,6 @@ mod tests {
         Storage::init(env.path()).unwrap();
         let result = init_with_options(
             env.path(),
-            false,
             false,
             false,
             false,
@@ -26575,257 +26221,6 @@ mod tests {
         assert_eq!(result.value, Some("value2".to_string()));
     }
 
-    // === Init AGENTS.md Tests ===
-    // === Init AGENTS.md Tests ===
-
-    #[test]
-
-    fn test_init_creates_agents_md() {
-        let temp = TestEnv::new_isolated();
-        let agents_path = temp.path().join("AGENTS.md");
-
-        // Verify AGENTS.md doesn't exist yet
-        assert!(!agents_path.exists());
-
-        // Run init with AGENTS.md update enabled
-        let result = init_with_options(
-            temp.path(),
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false, // install_bn_agent
-            false, // build_container
-        )
-        .unwrap();
-        assert!(result.initialized);
-        assert!(result.agents_md_updated);
-        assert!(!result.skills_file_created);
-
-        // Verify AGENTS.md was created
-        assert!(agents_path.exists());
-        let contents = std::fs::read_to_string(&agents_path).unwrap();
-        assert!(contents.contains("bn orient"));
-        assert!(contents.contains("binnacle"));
-    }
-
-    #[test]
-
-    fn test_init_appends_to_existing_agents_md() {
-        let temp = TestEnv::new_isolated();
-        let agents_path = temp.path().join("AGENTS.md");
-
-        // Create existing AGENTS.md
-        std::fs::write(&agents_path, "# My Existing Agents\n\nSome content here.\n").unwrap();
-
-        // Run init with AGENTS.md update enabled
-        let result = init_with_options(
-            temp.path(),
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false, // install_bn_agent
-            false, // build_container
-        )
-        .unwrap();
-        assert!(result.initialized);
-        assert!(result.agents_md_updated);
-
-        // Verify content was appended
-        let contents = std::fs::read_to_string(&agents_path).unwrap();
-        assert!(contents.contains("My Existing Agents"));
-        assert!(contents.contains("bn orient"));
-    }
-
-    #[test]
-
-    fn test_init_appends_section_if_legacy_bn_orient() {
-        let temp = TestEnv::new_isolated();
-        let agents_path = temp.path().join("AGENTS.md");
-
-        // Create existing AGENTS.md that references bn orient but lacks markers
-        std::fs::write(
-            &agents_path,
-            "# Agents\n\nRun `bn orient` to get started.\n",
-        )
-        .unwrap();
-
-        // Run init with AGENTS.md update enabled
-        let result = init_with_options(
-            temp.path(),
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false, // install_bn_agent
-            false, // build_container
-        )
-        .unwrap();
-        assert!(result.initialized);
-        assert!(result.agents_md_updated); // Should be updated to add markers
-
-        // Verify markers were added and original content preserved
-        let contents = std::fs::read_to_string(&agents_path).unwrap();
-        assert!(contents.contains("# Agents")); // Original content preserved
-        assert!(contents.contains("<!-- BEGIN BINNACLE SECTION -->")); // Markers added
-        assert!(contents.contains("<!-- END BINNACLE SECTION -->"));
-    }
-
-    #[test]
-
-    fn test_init_idempotent_agents_md() {
-        let temp = TestEnv::new_isolated();
-
-        // Run init twice with AGENTS.md enabled
-        init_with_options(
-            temp.path(),
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false, // install_bn_agent
-            false, // build_container
-        )
-        .unwrap();
-        let result = init_with_options(
-            temp.path(),
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false, // install_bn_agent
-            false, // build_container
-        )
-        .unwrap();
-
-        // Second run should not update AGENTS.md (content unchanged)
-        assert!(!result.initialized); // binnacle already exists
-        assert!(!result.agents_md_updated); // AGENTS.md content unchanged
-    }
-
-    #[test]
-
-    fn test_init_no_change_when_standard_blurb_already_present() {
-        let temp = TestEnv::new_isolated();
-        let agents_path = temp.path().join("AGENTS.md");
-
-        // Pre-create AGENTS.md with the exact standard content (with trailing newline)
-        std::fs::write(&agents_path, format!("{}\n", AGENTS_MD_BLURB.trim_end())).unwrap();
-
-        // Initialize binnacle storage (without AGENTS.md update first)
-        Storage::init(temp.path()).unwrap();
-
-        // Now run init with AGENTS.md update - should detect no change needed
-        let result = init_with_options(
-            temp.path(),
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false, // install_bn_agent
-            false, // build_container
-        )
-        .unwrap();
-        assert!(!result.initialized); // binnacle already exists
-        assert!(!result.agents_md_updated); // Content already matches exactly
-
-        // Verify file wasn't modified (content identical)
-        let contents = std::fs::read_to_string(&agents_path).unwrap();
-        assert_eq!(contents, format!("{}\n", AGENTS_MD_BLURB.trim_end()));
-    }
-
-    #[test]
-
-    fn test_init_replaces_custom_binnacle_section() {
-        let temp = TestEnv::new_isolated();
-        let agents_path = temp.path().join("AGENTS.md");
-
-        // Create existing AGENTS.md with custom binnacle section
-        std::fs::write(
-            &agents_path,
-            "# Agents\n\n<!-- BEGIN BINNACLE SECTION -->\nCustom content\n<!-- END BINNACLE SECTION -->\n",
-        )
-        .unwrap();
-
-        // Run init with AGENTS.md update enabled
-        let result = init_with_options(
-            temp.path(),
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false, // install_bn_agent
-            false, // build_container
-        )
-        .unwrap();
-        assert!(result.initialized);
-        assert!(result.agents_md_updated); // Section was replaced with standard content
-
-        // Verify section was replaced with standard content
-        let contents = std::fs::read_to_string(&agents_path).unwrap();
-        assert!(contents.contains("# Agents")); // User content preserved
-        assert!(contents.contains("bn orient")); // Standard section added
-        assert!(!contents.contains("Custom content")); // Custom content replaced
-        assert_eq!(contents.matches("BEGIN BINNACLE SECTION").count(), 1);
-    }
-
-    #[test]
-
-    fn test_agents_md_has_html_markers() {
-        let temp = TestEnv::new_isolated();
-        let agents_path = temp.path().join("AGENTS.md");
-
-        // Run init with AGENTS.MD update enabled
-        init_with_options(
-            temp.path(),
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false, // install_bn_agent
-            false, // build_container
-        )
-        .unwrap();
-
-        // Verify AGENTS.md contains HTML markers
-        let contents = std::fs::read_to_string(&agents_path).unwrap();
-        assert!(contents.contains("<!-- BEGIN BINNACLE SECTION -->"));
-        assert!(contents.contains("<!-- END BINNACLE SECTION -->"));
-    }
-
     // === Commit-msg Hook Tests ===
 
     #[test]
@@ -26990,7 +26385,6 @@ mod tests {
             false,
             false,
             false,
-            false,
             true,
             false,
             false,
@@ -27014,7 +26408,6 @@ mod tests {
         // Init without hook installation
         let result = init_with_options(
             temp.path(),
-            false,
             false,
             false,
             false,
@@ -27063,10 +26456,6 @@ mod tests {
 
         // Verify now initialized
         assert!(Storage::exists(temp.path()).unwrap());
-
-        // Verify AGENTS.md was created
-        let agents_path = temp.path().join("AGENTS.md");
-        assert!(agents_path.exists());
     }
 
     #[test]
