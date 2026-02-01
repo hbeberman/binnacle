@@ -284,8 +284,8 @@ function notifyListeners(path, newValue, oldValue) {
         }
     }
     
-    // Debug log for entity changes
-    if (path.startsWith('entities.') && Array.isArray(newValue)) {
+    // Debug log for entity changes (gated behind BN_DEBUG_STATE flag)
+    if (isDebugEnabled() && path.startsWith('entities.') && Array.isArray(newValue)) {
         console.log(`[State.notify] "${path}" notified ${notifiedCount} listeners`);
     }
 }
@@ -307,8 +307,8 @@ export function get(path) {
         current = current[part];
     }
     
-    // Debug logging for entity queries
-    if (path.startsWith('entities.') && Array.isArray(current)) {
+    // Debug logging for entity queries (gated behind BN_DEBUG_STATE flag)
+    if (isDebugEnabled() && path.startsWith('entities.') && Array.isArray(current)) {
         console.log(`[State.get] "${path}" => array with ${current.length} items`);
     }
     
@@ -336,8 +336,8 @@ export function set(path, value) {
     const oldValue = current[lastPart];
     current[lastPart] = value;
     
-    // Debug logging for entity updates
-    if (path.startsWith('entities.') && Array.isArray(value)) {
+    // Debug logging for entity updates (gated behind BN_DEBUG_STATE flag)
+    if (isDebugEnabled() && path.startsWith('entities.') && Array.isArray(value)) {
         console.log(`[State.set] "${path}" => array with ${value.length} items`);
     }
     
@@ -898,6 +898,19 @@ export function clearUndoStack() {
 // ============================================
 
 const STORAGE_KEY_PREFIX = 'binnacle_viewer_';
+
+/**
+ * Check if debug logging is enabled via localStorage
+ * Set localStorage.setItem('BN_DEBUG_STATE', 'true') in browser console to enable
+ * @returns {boolean} True if debug logging is enabled
+ */
+function isDebugEnabled() {
+    try {
+        return localStorage.getItem('BN_DEBUG_STATE') === 'true';
+    } catch (e) {
+        return false;
+    }
+}
 
 /**
  * Load a value from localStorage
