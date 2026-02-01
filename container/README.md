@@ -2,6 +2,19 @@
 
 Run AI agents in isolated containers with full access to the binnacle task graph.
 
+## Container Images
+
+Binnacle provides two container images:
+
+| Image | Purpose | Build Command |
+|-------|---------|---------------|
+| `binnacle-default` | Minimal base layer with bn + copilot CLI | `bn container build default` |
+| `binnacle-worker` | Full development environment with LSPs and tooling | `bn container build worker` |
+
+**`binnacle-default`** is a minimal Fedora 43-based image containing only the essentials: `bn`, Copilot CLI, git, and basic tools. Use it as a base layer for custom containers.
+
+**`binnacle-worker`** includes the full development environment: Rust toolchain, Node.js, rust-analyzer, TypeScript LSP, Lightpanda, and more.
+
 ## Quick Start
 
 ```bash
@@ -84,6 +97,116 @@ The container worker provides:
 │  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+## Binnacle Default Base Image
+
+The `binnacle-default` image is a minimal Fedora 43-based container that serves as the foundational layer for all binnacle containers.
+
+### What's Included
+
+| Component | Description |
+|-----------|-------------|
+| `bn` binary | Binnacle CLI (embedded in image at build time) |
+| Copilot CLI | Pinned version, installed via `bn system copilot install --upstream` |
+| Essential tools | git, jq, curl, ripgrep, fd-find |
+| nss_wrapper | User identity for non-root containers |
+| git-wrapper.sh | Blocks `--no-verify` bypass for commit hooks |
+| bn-entry.sh | Unified entrypoint script |
+
+### Building the Default Image
+
+```bash
+# Build from the binnacle repository
+bn container build default
+```
+
+This builds a local image named `binnacle-default:latest`. The currently installed `bn` binary is automatically packed into the image.
+
+### Environment Variables
+
+**Required at runtime** (passed when starting the container):
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `GIT_AUTHOR_NAME` | Git commit author name | `"Jane Developer"` |
+| `GIT_AUTHOR_EMAIL` | Git commit author email | `"jane@example.com"` |
+| `GIT_COMMITTER_NAME` | Git committer name | `"Jane Developer"` |
+| `GIT_COMMITTER_EMAIL` | Git committer email | `"jane@example.com"` |
+
+**Optional at runtime:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BN_AGENT_TYPE` | `worker` | Agent type (worker, planner, buddy) |
+| `BN_INITIAL_PROMPT` | Type-specific | Custom system prompt for copilot |
+| `BN_MERGE_TARGET` | `main` | Branch for auto-merge on exit |
+| `BN_AUTO_MERGE` | `false` | Enable fast-forward merge on exit |
+| `BN_READONLY_WORKSPACE` | `false` | Mount workspace read-only |
+
+**Set automatically by the container:**
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `BN_CONTAINER_MODE` | `true` | Signals container context to `bn system host-init` |
+| `BN_DATA_DIR` | `/usr/local/share/binnacle` | Binnacle data directory in container |
+
+### Creating Child Containers
+
+Use `binnacle-default` as a base layer for project-specific containers:
+
+```dockerfile
+# Example: Rust development container
+FROM binnacle-default:latest
+
+# Add Rust toolchain
+RUN dnf install -y rust cargo rust-analyzer
+
+# Add project-specific tools
+RUN dnf install -y just nodejs npm
+
+# Optionally override entrypoint
+# ENTRYPOINT ["/my-custom-entrypoint.sh"]
+```
+
+Build your custom image:
+
+```bash
+podman build -t my-rust-agent:latest -f Containerfile.rust .
+```
+
+### Entrypoint Behavior
+
+The `bn-entry.sh` entrypoint performs the following steps:
+
+1. **HOME setup** - Creates writable home directory if needed
+2. **User identity** - Configures nss_wrapper for non-root execution
+3. **Git identity** - Validates `GIT_AUTHOR_*` env vars are set
+4. **SSH keys** - Pre-populates GitHub SSH host keys
+5. **Binnacle init** - Calls `bn system host-init -y` (auto-detects container mode)
+6. **Git hooks** - Configures `hooks/` directory if present
+7. **Agent orient** - Runs `bn orient --type $BN_AGENT_TYPE`
+8. **Shell mode** - If `shell` or `bash` argument, starts interactive shell
+9. **Copilot launch** - Runs pinned Copilot CLI with initial prompt
+10. **Auto-merge** - If enabled, merges work branch to target
+
+### Shell Mode
+
+For debugging or manual work, launch the container in shell mode:
+
+```bash
+# With bn container run
+bn container run ../worktree -- shell
+
+# Or directly with podman/containerd
+podman run -it binnacle-default:latest shell
+```
+
+### Security Features
+
+- **No baked-in secrets** - Tokens passed via environment at runtime
+- **Git hook enforcement** - `git-wrapper.sh` blocks `--no-verify` bypass
+- **User isolation** - Runs as host user via nss_wrapper
+- **Pinned Copilot** - Version controlled, no auto-updates
 
 ## Container Definitions
 
@@ -366,8 +489,11 @@ Environment variables are automatically passed to the container:
 
 | File | Description |
 |------|-------------|
-| `Containerfile` | Fedora 43 base with binnacle, npm, @github/copilot, nss_wrapper, and dev tools |
-| `entrypoint.sh` | Orchestrates agent setup (with nss_wrapper), execution, and merge |
+| `Containerfile` | Worker image: Fedora 43 with binnacle, npm, @github/copilot, nss_wrapper, LSPs, and dev tools |
+| `Containerfile.default` | Default base image: Minimal Fedora 43 with bn + copilot CLI only |
+| `entrypoint.sh` | Worker entrypoint: Agent setup with LSP configuration, execution, and merge |
+| `bn-entry.sh` | Default entrypoint: Minimal agent setup without LSP tooling |
+| `git-wrapper.sh` | Blocks `--no-verify` bypass for commit/push hooks |
 
 ## Workflow
 
