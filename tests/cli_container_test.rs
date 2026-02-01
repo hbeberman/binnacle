@@ -702,56 +702,59 @@ fn test_container_run_help_shows_shell_flag() {
 
 #[test]
 fn test_nss_wrapper_templates_exist() {
-    // Verify the Containerfile creates nss_wrapper template files
+    // Verify the Containerfile.default (base image) creates nss_wrapper template files
+    // Note: Worker container (Containerfile) derives from default and gets nss_wrapper from there
     let containerfile_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("container")
-        .join("Containerfile");
+        .join("Containerfile.default");
 
-    let content = fs::read_to_string(&containerfile_path).expect("Failed to read Containerfile");
+    let content =
+        fs::read_to_string(&containerfile_path).expect("Failed to read Containerfile.default");
 
     // Should create nss_wrapper directory with templates
     assert!(
         content.contains("/etc/nss_wrapper"),
-        "Containerfile should create /etc/nss_wrapper directory"
+        "Containerfile.default should create /etc/nss_wrapper directory"
     );
     assert!(
         content.contains("nss_wrapper"),
-        "Containerfile should install nss_wrapper package"
+        "Containerfile.default should install nss_wrapper package"
     );
     // Should NOT have the old passwd hacks
     assert!(
         !content.contains("chmod 666 /etc/passwd"),
-        "Containerfile should NOT make /etc/passwd world-writable"
+        "Containerfile.default should NOT make /etc/passwd world-writable"
     );
     assert!(
         !content.contains("chmod 666 /etc/shadow"),
-        "Containerfile should NOT make /etc/shadow world-writable"
+        "Containerfile.default should NOT make /etc/shadow world-writable"
     );
 }
 
 #[test]
 fn test_entrypoint_nss_wrapper_setup() {
-    // Verify entrypoint.sh sets up nss_wrapper for non-root mode
+    // Verify bn-entry.sh (base entrypoint) sets up nss_wrapper for non-root mode
+    // Note: entrypoint.sh (worker) sources bn-entry.sh which does the nss_wrapper setup
     let entrypoint_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("container")
-        .join("entrypoint.sh");
+        .join("bn-entry.sh");
 
-    let content = fs::read_to_string(&entrypoint_path).expect("Failed to read entrypoint.sh");
+    let content = fs::read_to_string(&entrypoint_path).expect("Failed to read bn-entry.sh");
 
     // Should check if running as root
     assert!(
         content.contains("CURRENT_UID") && content.contains("!= \"0\""),
-        "entrypoint.sh should check if running as non-root"
+        "bn-entry.sh should check if running as non-root"
     );
 
     // Should set up nss_wrapper env vars
     assert!(
         content.contains("LD_PRELOAD"),
-        "entrypoint.sh should set LD_PRELOAD for nss_wrapper"
+        "bn-entry.sh should set LD_PRELOAD for nss_wrapper"
     );
     assert!(
         content.contains("NSS_WRAPPER_PASSWD"),
-        "entrypoint.sh should set NSS_WRAPPER_PASSWD"
+        "bn-entry.sh should set NSS_WRAPPER_PASSWD"
     );
 }
 
@@ -825,7 +828,7 @@ fn test_container_list_definitions_human_readable() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("binnacle (embedded)"))
-        .stdout(predicate::str::contains("Embedded binnacle container"));
+        .stdout(predicate::str::contains("binnacle-worker container"));
 }
 
 #[test]
@@ -851,7 +854,6 @@ container "base" {
 container "rust-dev" {
     parent "base"
     description "Rust development environment"
-    entrypoint mode="before"
 }
 "#,
     )
@@ -1027,30 +1029,9 @@ container "test" {
         .stdout(predicate::str::contains("\"name\":\"test\""));
 }
 
-#[test]
-fn test_container_definition_invalid_entrypoint_mode() {
-    // Invalid entrypoint mode should fail at parse time
-    let env = TestEnv::new();
-
-    let containers_dir = env.repo_path().join(".binnacle").join("containers");
-    fs::create_dir_all(&containers_dir).unwrap();
-    fs::write(
-        containers_dir.join("config.kdl"),
-        r#"
-container "test" {
-    entrypoint mode="invalid"
-}
-"#,
-    )
-    .unwrap();
-
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
-    cmd.current_dir(env.repo_path());
-    cmd.args(["container", "list-definitions"]);
-    cmd.assert()
-        .failure()
-        .stderr(predicate::str::contains("invalid entrypoint mode"));
-}
+// Note: test_container_definition_invalid_entrypoint_mode was removed because
+// EntrypointMode support was removed as part of the container layering refactor.
+// Worker containers now derive from default and use bn-entry.sh sourcing.
 
 #[test]
 fn test_container_definition_invalid_mount_mode() {
@@ -1553,4 +1534,177 @@ container "go-dev" {
         3,
         "Should have 3 children with parent 'base'"
     );
+}
+
+// === Container Layering Tests ===
+// Tests for the container layering system where worker (binnacle) derives from default
+
+#[test]
+fn test_embedded_definitions_have_correct_parent_relationship() {
+    // Test that embedded binnacle (worker) derives from default
+    let env = TestEnv::new();
+
+    // In an empty repo with no config.kdl, list-definitions should show embedded fallbacks
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions"]);
+    let output = cmd.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Parse JSON output
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Valid JSON output");
+    let definitions = json["definitions"].as_array().expect("definitions array");
+
+    // Find binnacle (worker) and default definitions
+    let binnacle_def = definitions
+        .iter()
+        .find(|d| d["name"] == "binnacle")
+        .expect("binnacle definition should exist");
+    let default_def = definitions
+        .iter()
+        .find(|d| d["name"] == "default")
+        .expect("default definition should exist");
+
+    // Verify binnacle has parent "default"
+    assert_eq!(
+        binnacle_def["parent"].as_str(),
+        Some("default"),
+        "Embedded binnacle (worker) should have parent 'default'"
+    );
+
+    // Verify default has no parent (it's the base)
+    assert!(
+        default_def["parent"].is_null(),
+        "Embedded default should have no parent (it's the base image)"
+    );
+}
+
+#[test]
+fn test_embedded_definitions_build_order_is_default_then_binnacle() {
+    // Test that compute_build_order returns [default, binnacle] for embedded definitions
+    // This verifies that dependencies are built before dependents
+    let env = TestEnv::new();
+
+    // Create a config that references the embedded definitions
+    // We'll use the -H (human) output which shows "Build order: default → binnacle"
+    // when building the binnacle container
+
+    // First, verify both embedded definitions are discovered
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions"]);
+    let output = cmd.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Valid JSON output");
+    let definitions = json["definitions"].as_array().expect("definitions array");
+
+    // Both embedded definitions should be present
+    assert_eq!(
+        definitions.len(),
+        2,
+        "Should have 2 embedded definitions (default and binnacle)"
+    );
+
+    let names: Vec<&str> = definitions
+        .iter()
+        .filter_map(|d| d["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"default"),
+        "Should have 'default' definition"
+    );
+    assert!(
+        names.contains(&"binnacle"),
+        "Should have 'binnacle' definition"
+    );
+
+    // Verify binnacle's parent is default (which ensures correct build order)
+    let binnacle_def = definitions
+        .iter()
+        .find(|d| d["name"] == "binnacle")
+        .unwrap();
+    assert_eq!(
+        binnacle_def["parent"].as_str(),
+        Some("default"),
+        "Build order correctness depends on binnacle having parent 'default'"
+    );
+}
+
+#[test]
+fn test_custom_definition_with_parent_shows_correct_build_order() {
+    // Test that custom definitions with parent relationships show correct build order
+    let env = TestEnv::new();
+
+    let containers_dir = env.repo_path().join(".binnacle").join("containers");
+    fs::create_dir_all(&containers_dir).unwrap();
+    fs::write(
+        containers_dir.join("config.kdl"),
+        r#"
+container "base" {
+    description "Base container"
+}
+container "worker" {
+    parent "base"
+    description "Worker container derived from base"
+}
+"#,
+    )
+    .unwrap();
+
+    // List definitions to verify parent relationship
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions"]);
+    let output = cmd.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Valid JSON output");
+    let definitions = json["definitions"].as_array().expect("definitions array");
+
+    // Find worker definition and verify parent
+    let worker_def = definitions
+        .iter()
+        .find(|d| d["name"] == "worker")
+        .expect("worker definition should exist");
+
+    assert_eq!(
+        worker_def["parent"].as_str(),
+        Some("base"),
+        "Worker should derive from base"
+    );
+
+    // Verify base has no parent
+    let base_def = definitions
+        .iter()
+        .find(|d| d["name"] == "base")
+        .expect("base definition should exist");
+
+    assert!(base_def["parent"].is_null(), "Base should have no parent");
+}
+
+#[test]
+fn test_embedded_source_shows_correctly_for_fallback_definitions() {
+    // Test that embedded definitions show source as "embedded"
+    let env = TestEnv::new();
+
+    // With no config files, should get embedded fallbacks
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.args(["container", "list-definitions"]);
+    let output = cmd.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Valid JSON output");
+    let definitions = json["definitions"].as_array().expect("definitions array");
+
+    // All definitions should have source "embedded"
+    for def in definitions {
+        assert_eq!(
+            def["source"].as_str(),
+            Some("embedded"),
+            "Fallback definition {} should have source 'embedded'",
+            def["name"]
+        );
+    }
 }
