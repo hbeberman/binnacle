@@ -2455,6 +2455,9 @@ fn run_command(
         },
         #[cfg(feature = "tui")]
         Some(Commands::Tui { port, host }) => {
+            // Auto-launch session server if needed (before connecting TUI)
+            let _session_child = ensure_session_server(repo_path)?;
+
             // Create a tokio runtime and run the TUI
             let rt = tokio::runtime::Runtime::new()
                 .map_err(|e| binnacle::Error::Other(format!("Failed to create runtime: {}", e)))?;
@@ -2491,8 +2494,11 @@ fn output<T: Output>(result: &T, human: bool) {
 ///
 /// Returns the spawned child process if we started one, or None if an existing
 /// server was already running.
-#[cfg(feature = "gui")]
+#[cfg(any(feature = "gui", feature = "tui"))]
 fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>, binnacle::Error> {
+    // Note: This function requires the gui feature for ProcessStatus and verify_process.
+    // When only tui is enabled, we skip process verification and just check state.kdl.
+    #[cfg(feature = "gui")]
     use binnacle::gui::{ProcessStatus, verify_process};
     use binnacle::storage::Storage;
     use std::process::{Command, Stdio};
@@ -2505,31 +2511,50 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
 
     // Check if session server is already running
     if let Some(serve_state) = binnacle_state.serve {
-        let process_status = verify_process(serve_state.pid);
         let heartbeat_stale = serve_state.is_heartbeat_stale(HEARTBEAT_STALE_THRESHOLD_SECS);
 
-        match process_status {
-            ProcessStatus::Running if !heartbeat_stale => {
-                // Session server is running and healthy
+        // With gui feature, we can verify the process is actually running
+        #[cfg(feature = "gui")]
+        {
+            let process_status = verify_process(serve_state.pid);
+            match process_status {
+                ProcessStatus::Running if !heartbeat_stale => {
+                    // Session server is running and healthy
+                    eprintln!(
+                        "Session server already running (pid: {}, port: {})",
+                        serve_state.pid, serve_state.port
+                    );
+                    return Ok(None);
+                }
+                ProcessStatus::Running => {
+                    // Process exists but heartbeat is stale - might be hung
+                    eprintln!(
+                        "Session server heartbeat stale (pid: {}), restarting...",
+                        serve_state.pid
+                    );
+                    // Try to stop the old process
+                    let _ = send_signal(serve_state.pid, Signal::Term);
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+                ProcessStatus::Stale | ProcessStatus::NotRunning => {
+                    // Process doesn't exist or is a different process
+                    eprintln!("Session server not running, starting...");
+                }
+            }
+        }
+
+        // Without gui feature, just check heartbeat (best effort)
+        #[cfg(not(feature = "gui"))]
+        {
+            if !heartbeat_stale {
+                // Heartbeat is recent, assume server is running
                 eprintln!(
-                    "Session server already running (pid: {}, port: {})",
+                    "Session server appears to be running (pid: {}, port: {})",
                     serve_state.pid, serve_state.port
                 );
                 return Ok(None);
-            }
-            ProcessStatus::Running => {
-                // Process exists but heartbeat is stale - might be hung
-                eprintln!(
-                    "Session server heartbeat stale (pid: {}), restarting...",
-                    serve_state.pid
-                );
-                // Try to stop the old process
-                let _ = send_signal(serve_state.pid, Signal::Term);
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
-            ProcessStatus::Stale | ProcessStatus::NotRunning => {
-                // Process doesn't exist or is a different process
-                eprintln!("Session server not running, starting...");
+            } else {
+                eprintln!("Session server heartbeat stale, restarting...");
             }
         }
 
@@ -3100,14 +3125,14 @@ fn kill_gui(repo_path: &Path, force: bool, human: bool) -> Result<(), binnacle::
 }
 
 /// Signal type for process termination
-#[cfg(feature = "gui")]
+#[cfg(any(feature = "gui", feature = "tui"))]
 enum Signal {
     Term,
     Kill,
 }
 
 /// Send a signal to a process. Returns false if process doesn't exist.
-#[cfg(all(feature = "gui", unix))]
+#[cfg(all(any(feature = "gui", feature = "tui"), unix))]
 fn send_signal(pid: u32, signal: Signal) -> bool {
     use std::process::Command;
 
@@ -3124,7 +3149,7 @@ fn send_signal(pid: u32, signal: Signal) -> bool {
 }
 
 /// Send a signal to a process on Windows. Returns false if process doesn't exist.
-#[cfg(all(feature = "gui", windows))]
+#[cfg(all(any(feature = "gui", feature = "tui"), windows))]
 fn send_signal(pid: u32, signal: Signal) -> bool {
     use std::process::Command;
 
