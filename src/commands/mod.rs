@@ -6319,16 +6319,30 @@ fn check_and_auto_resolve_parent_issues(
     Ok(auto_resolved)
 }
 
-/// Check if any parent milestones should be auto-completed when a task or bug is closed.
+/// Check if any parent milestones should be auto-closed when a task, bug, or milestone is closed.
 ///
-/// When a task or bug is closed, this function:
-/// 1. Finds all parent milestones via child_of edges (where task/bug is the child/source)
-/// 2. For each parent milestone, checks if ALL children (tasks and bugs) are now closed
+/// When an entity is closed, this function:
+/// 1. Finds all parent milestones via child_of edges (where entity is the child/source)
+/// 2. For each parent milestone, checks if ALL children (tasks, bugs, milestones) are now closed
 /// 3. If yes and the milestone is not already in a terminal state, transitions it to `done`
-/// 4. Returns the list of milestone IDs that were auto-completed
+/// 4. Recursively checks the milestone's parent (cascade behavior)
+/// 5. Returns the list of milestone IDs that were auto-closed
+///
+/// Only tasks, bugs, and milestones count as children for completion checking.
+/// Docs, ideas, and other entity types are ignored.
 fn check_and_auto_complete_parent_milestones(
     storage: &mut Storage,
     entity_id: &str,
+) -> Result<Vec<String>> {
+    check_and_auto_complete_parent_milestones_impl(storage, entity_id, true)
+}
+
+/// Internal implementation with cascade control.
+/// When `cascade` is true, recursively checks parent milestones after auto-closing.
+fn check_and_auto_complete_parent_milestones_impl(
+    storage: &mut Storage,
+    entity_id: &str,
+    cascade: bool,
 ) -> Result<Vec<String>> {
     use crate::models::EdgeType;
 
@@ -6346,7 +6360,7 @@ fn check_and_auto_complete_parent_milestones(
             Err(_) => continue, // Parent is not a milestone, skip
         };
 
-        // Skip if milestone is already in a terminal state
+        // Skip if milestone is already in a terminal state (idempotent)
         if matches!(milestone.status, TaskStatus::Done | TaskStatus::Cancelled) {
             continue;
         }
@@ -6354,35 +6368,91 @@ fn check_and_auto_complete_parent_milestones(
         // Find all children of this milestone via child_of edges (where milestone is the target)
         let child_edges = storage.list_edges(Some(EdgeType::ChildOf), None, Some(parent_id))?;
 
-        // Check if all children are closed (tasks or bugs)
-        let all_children_closed = child_edges.iter().all(|child_edge| {
-            let child_id = &child_edge.source;
-            // Try to get as task first
-            if let Ok(task) = storage.get_task(child_id) {
-                return matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled);
-            }
-            // Then try as bug
-            if let Ok(bug) = storage.get_bug(child_id) {
-                return matches!(bug.status, TaskStatus::Done | TaskStatus::Cancelled);
-            }
-            // Not a task or bug (could be other entity type), consider it "done"
-            true
-        });
+        // Count children that are tasks, bugs, or milestones (ignore docs, ideas, etc.)
+        let mut child_count = 0;
+        let mut all_children_closed = true;
 
-        if all_children_closed {
-            // Auto-complete the milestone
+        for child_edge in &child_edges {
+            let child_id = &child_edge.source;
+
+            // Try to get as task
+            if let Ok(task) = storage.get_task(child_id) {
+                child_count += 1;
+                if !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                    all_children_closed = false;
+                }
+                continue;
+            }
+
+            // Try to get as bug
+            if let Ok(bug) = storage.get_bug(child_id) {
+                child_count += 1;
+                if !matches!(bug.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                    all_children_closed = false;
+                }
+                continue;
+            }
+
+            // Try to get as milestone
+            if let Ok(child_milestone) = storage.get_milestone(child_id) {
+                child_count += 1;
+                if !matches!(
+                    child_milestone.status,
+                    TaskStatus::Done | TaskStatus::Cancelled
+                ) {
+                    all_children_closed = false;
+                }
+                continue;
+            }
+
+            // Not a task, bug, or milestone - ignore (could be doc, idea, etc.)
+        }
+
+        // Only auto-close if there are countable children and all are closed
+        if child_count > 0 && all_children_closed {
+            // Format reason with proper grammar
+            let reason = if child_count == 1 {
+                "Only child completed".to_string()
+            } else {
+                format!("All {} children completed", child_count)
+            };
+
+            // Auto-close the milestone
             let mut milestone = milestone;
             milestone.status = TaskStatus::Done;
             milestone.closed_at = Some(Utc::now());
-            milestone.closed_reason =
-                Some("Auto-completed: all child tasks/bugs are done".to_string());
+            milestone.closed_reason = Some(reason);
             milestone.core.updated_at = Utc::now();
             storage.update_milestone(&milestone)?;
             auto_completed.push(parent_id.clone());
+
+            // Cascade: check if the milestone's parent should also be auto-closed
+            if cascade {
+                let cascaded = check_and_auto_complete_parent_milestones_impl(
+                    storage, parent_id, true, // Continue cascading
+                )?;
+                auto_completed.extend(cascaded);
+            }
         }
     }
 
     Ok(auto_completed)
+}
+
+/// Check if a milestone was auto-closed (vs manually closed).
+///
+/// Returns true if the closed_reason matches the auto-close pattern:
+/// - "Only child completed"
+/// - "All N children completed"
+///
+/// This is used to determine if a milestone should be auto-reopened
+/// when a new child is added.
+pub fn was_auto_closed(milestone: &crate::models::Milestone) -> bool {
+    milestone
+        .closed_reason
+        .as_ref()
+        .map(|r| r.contains("child") && r.contains("completed"))
+        .unwrap_or(false)
 }
 
 fn promote_partial_tasks(storage: &mut Storage) -> Result<Vec<String>> {
@@ -9953,6 +10023,9 @@ pub fn milestone_close(
 
     // Auto-remove milestone from any queues it's in
     let _ = remove_entity_from_queues(&mut storage, id);
+
+    // Cascade: check if any parent milestones should also be auto-closed
+    let _ = check_and_auto_complete_parent_milestones(&mut storage, id);
 
     Ok(MilestoneClosed {
         id: id.to_string(),
