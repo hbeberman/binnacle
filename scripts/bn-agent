@@ -49,6 +49,18 @@ check_dependencies() {
 # Run dependency checks before processing arguments
 check_dependencies
 
+# Display bn binary info (path and version) for debugging/transparency
+show_bn_info() {
+    local bn_path bn_version
+    bn_path=$(command -v bn)
+    bn_version=$(bn --version 2>/dev/null || echo "unknown")
+    echo "📦 bn binary: $bn_path"
+    echo "   version:  $bn_version"
+}
+
+# Show which bn binary we're using
+show_bn_info
+
 # Blocked commands - agents should not terminate each other
 # Note: bn goodbye is allowed - agents SHOULD terminate themselves gracefully when done
 BLOCKED_TOOLS=(
