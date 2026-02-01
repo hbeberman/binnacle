@@ -681,6 +681,10 @@ impl TuiApp {
                 self.enter_command_mode();
                 self.last_key = Some(key);
             }
+            // Reserved for future horizontal navigation (no-op)
+            KeyCode::Char('h') | KeyCode::Char('l') => {
+                self.last_key = Some(key);
+            }
             _ => {
                 self.last_key = Some(key);
             }
