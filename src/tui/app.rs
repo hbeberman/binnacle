@@ -269,10 +269,10 @@ pub struct TuiApp {
     active_view: ActiveView,
     /// Previous view (for returning from detail view)
     previous_list_view: ActiveView,
-    /// Current input mode (Normal, Search, etc.)
-    /// NOTE: Will be used by search mode implementation (bn-575f)
-    #[allow(dead_code)]
+    /// Current input mode (Normal, Search, Command)
     input_mode: InputMode,
+    /// Command input buffer (for command mode)
+    command_input: String,
     /// Queue/Ready view
     queue_ready_view: QueueReadyView,
     /// Recently Completed view
@@ -310,6 +310,7 @@ impl TuiApp {
             active_view: ActiveView::QueueReady,
             previous_list_view: ActiveView::QueueReady,
             input_mode: InputMode::Normal,
+            command_input: String::new(),
             queue_ready_view: QueueReadyView::new(),
             recently_completed_view: RecentlyCompletedView::new(),
             node_detail_view: NodeDetailView::new(),
@@ -355,10 +356,62 @@ impl TuiApp {
     }
 
     /// Check if we're in command mode
-    /// NOTE: Will be used by command mode implementation (bn-4101)
-    #[allow(dead_code)]
     pub fn is_command_mode(&self) -> bool {
         self.input_mode == InputMode::Command
+    }
+
+    /// Enter command mode
+    fn enter_command_mode(&mut self) {
+        self.input_mode = InputMode::Command;
+        self.command_input.clear();
+    }
+
+    /// Exit command mode (cancel)
+    fn exit_command_mode(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.command_input.clear();
+    }
+
+    /// Execute the current command and return to normal mode
+    fn execute_command(&mut self) {
+        let cmd = self.command_input.trim().to_lowercase();
+        self.input_mode = InputMode::Normal;
+        self.command_input.clear();
+
+        match cmd.as_str() {
+            "q" | "quit" => {
+                self.should_quit = true;
+            }
+            "help" | "h" => {
+                self.help_visible = true;
+            }
+            "refresh" | "r" => {
+                if matches!(self.connection_state, ConnectionState::Disconnected) {
+                    self.reconnect_requested = true;
+                    self.log_panel.log("reconnecting (command)");
+                } else {
+                    self.needs_refresh = true;
+                    self.log_panel.log("refreshing (command)");
+                }
+            }
+            "log" => {
+                self.log_panel.toggle_collapsed();
+            }
+            "history" | "hist" => {
+                self.notifications.toggle_history();
+            }
+            "clear" => {
+                self.notifications.dismiss_all();
+            }
+            "" => {
+                // Empty command, just exit
+            }
+            _ => {
+                // Unknown command - show error toast
+                self.notifications
+                    .warning(format!("Unknown command: {}", cmd));
+            }
+        }
     }
 
     /// Switch to the next view (only cycles between list views, not detail)
@@ -465,6 +518,27 @@ impl TuiApp {
                 }
                 KeyCode::Char('q') => {
                     self.should_quit = true;
+                }
+                _ => {}
+            }
+            self.last_key = Some(key);
+            return;
+        }
+
+        // Handle command mode input
+        if self.is_command_mode() {
+            match key {
+                KeyCode::Esc => {
+                    self.exit_command_mode();
+                }
+                KeyCode::Enter => {
+                    self.execute_command();
+                }
+                KeyCode::Backspace => {
+                    self.command_input.pop();
+                }
+                KeyCode::Char(c) => {
+                    self.command_input.push(c);
                 }
                 _ => {}
             }
@@ -600,6 +674,11 @@ impl TuiApp {
                     self.needs_refresh = true;
                     self.log_panel.log("refreshing");
                 }
+                self.last_key = Some(key);
+            }
+            KeyCode::Char(':') => {
+                // Enter command mode
+                self.enter_command_mode();
                 self.last_key = Some(key);
             }
             _ => {
@@ -1329,8 +1408,20 @@ impl TuiApp {
         frame.render_widget(title, area);
     }
 
-    /// Render the status bar with keybindings
+    /// Render the status bar with keybindings or command input
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
+        // If in command mode, show command input instead of keybinding hints
+        if self.is_command_mode() {
+            let command_text = format!(":{}", self.command_input);
+            let status = Paragraph::new(Line::from(vec![
+                Span::styled(command_text, Style::default().fg(Color::White)),
+                Span::styled("█", Style::default().fg(Color::White)), // Cursor
+            ]))
+            .block(Block::default().borders(Borders::ALL));
+            frame.render_widget(status, area);
+            return;
+        }
+
         let help_text = match self.active_view {
             ActiveView::QueueReady | ActiveView::RecentlyCompleted => {
                 " Tab:View  j/k:Nav  Enter:Detail  r:Refresh  L:Log  H:History  ?:Help  q:Quit"
