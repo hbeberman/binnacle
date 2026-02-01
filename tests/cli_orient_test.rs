@@ -1,9 +1,8 @@
 //! Integration tests for Phase 7: Agent Onboarding (`bn orient`).
 //!
-//! These tests verify that the orient command and AGENTS.md functionality
-//! work correctly through the CLI:
+//! These tests verify that the orient command works correctly through the CLI:
 //! - `bn orient` - Auto-initializes and shows project state
-//! - `bn system init` - Creates/updates AGENTS.md with binnacle reference
+//! - `bn session init` - Initializes binnacle for a repo (does NOT touch AGENTS.md)
 
 mod common;
 
@@ -40,141 +39,89 @@ fn create_task(env: &TestEnv, title: &str) -> String {
 }
 
 // === bn session init AGENTS.md Tests ===
+// These tests verify that bn session init does NOT create or modify AGENTS.md.
+// Agent instructions are now delivered via container prompt injection.
+// See PRD bn-3e98 for details.
 
 #[test]
-fn test_init_creates_agents_md() {
+fn test_init_does_not_create_agents_md() {
     let temp = TestEnv::new();
     let agents_path = temp.path().join("AGENTS.md");
 
     // Verify AGENTS.md doesn't exist yet
     assert!(!agents_path.exists());
 
-    // Run init with --write-agents-md
+    // Run init (without --write-agents-md flag which no longer exists)
     bn_in(&temp)
-        .args([
-            "session",
-            "init",
-            "--auto-global",
-            "--write-agents-md",
-            "-y",
-        ])
+        .args(["session", "init", "--auto-global", "-y"])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("\"agents_md_updated\":true"));
+        .success();
 
-    // Verify AGENTS.md was created
-    assert!(agents_path.exists());
-    let contents = fs::read_to_string(&agents_path).unwrap();
-    assert!(contents.contains("bn orient"));
-    assert!(contents.contains("binnacle"));
+    // Verify AGENTS.md was NOT created
+    assert!(
+        !agents_path.exists(),
+        "bn session init should NOT create AGENTS.md"
+    );
 }
 
 #[test]
-fn test_init_appends_to_existing_agents_md() {
+fn test_init_does_not_modify_existing_agents_md() {
     let temp = TestEnv::new();
     let agents_path = temp.path().join("AGENTS.md");
 
-    // Create existing AGENTS.md
-    fs::write(&agents_path, "# My Existing Agents\n\nSome content here.\n").unwrap();
+    // Create existing AGENTS.md with custom content
+    let original_content = "# My Existing Agents\n\nSome content here.\n";
+    fs::write(&agents_path, original_content).unwrap();
 
-    // Run init with --write-agents-md
+    // Run init
     bn_in(&temp)
-        .args([
-            "session",
-            "init",
-            "--auto-global",
-            "--write-agents-md",
-            "-y",
-        ])
+        .args(["session", "init", "--auto-global", "-y"])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("\"agents_md_updated\":true"));
+        .success();
 
-    // Verify content was appended, not replaced
+    // Verify content was NOT modified
     let contents = fs::read_to_string(&agents_path).unwrap();
-    assert!(contents.contains("My Existing Agents"));
-    assert!(contents.contains("bn orient"));
+    assert_eq!(
+        contents, original_content,
+        "bn session init should NOT modify existing AGENTS.md"
+    );
 }
 
 #[test]
-fn test_init_appends_markers_if_legacy_bn_orient() {
+fn test_init_idempotent_without_agents_md() {
     let temp = TestEnv::new();
     let agents_path = temp.path().join("AGENTS.md");
 
-    // Create existing AGENTS.md that references bn orient but lacks markers
-    fs::write(
-        &agents_path,
-        "# Agents\n\nRun `bn orient` to get started.\n",
-    )
-    .unwrap();
-
-    // Run init with --write-agents-md - should append section with markers
+    // Run init twice
     bn_in(&temp)
-        .args([
-            "session",
-            "init",
-            "--auto-global",
-            "--write-agents-md",
-            "-y",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"agents_md_updated\":true"));
-
-    // Verify markers were added and original content preserved
-    let contents = fs::read_to_string(&agents_path).unwrap();
-    assert!(contents.contains("# Agents")); // Original content preserved
-    assert!(contents.contains("<!-- BEGIN BINNACLE SECTION -->")); // Markers added
-    assert!(contents.contains("<!-- END BINNACLE SECTION -->"));
-}
-
-#[test]
-fn test_init_idempotent_agents_md() {
-    let temp = TestEnv::new();
-
-    // Run init twice with --write-agents-md
-    bn_in(&temp)
-        .args([
-            "session",
-            "init",
-            "--auto-global",
-            "--write-agents-md",
-            "-y",
-        ])
+        .args(["session", "init", "--auto-global", "-y"])
         .assert()
         .success();
 
     bn_in(&temp)
-        .args([
-            "session",
-            "init",
-            "--auto-global",
-            "--write-agents-md",
-            "-y",
-        ])
+        .args(["session", "init", "--auto-global", "-y"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"initialized\":false"))
-        .stdout(predicate::str::contains("\"agents_md_updated\":false"));
+        .stdout(predicate::str::contains("\"initialized\":false"));
+
+    // Verify AGENTS.md was never created
+    assert!(
+        !agents_path.exists(),
+        "bn session init should NOT create AGENTS.md even on repeated runs"
+    );
 }
 
 #[test]
-fn test_init_human_shows_agents_md_update() {
+fn test_init_human_does_not_mention_agents_md() {
     let temp = TestEnv::new();
 
     bn_in(&temp)
-        .args([
-            "-H",
-            "session",
-            "init",
-            "--auto-global",
-            "--write-agents-md",
-            "-y",
-        ])
+        .args(["-H", "session", "init", "--auto-global", "-y"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Session initialized"))
-        .stdout(predicate::str::contains("Updated AGENTS.md"));
+        // Should NOT mention AGENTS.md updates
+        .stdout(predicate::str::contains("AGENTS.md").not());
 }
 
 // === bn orient Tests ===
