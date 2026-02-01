@@ -21830,6 +21830,14 @@ pub fn container_build(
 
 /// Build the embedded binnacle container (legacy, for backward compatibility)
 fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
+    // Ensure binnacle-default base image exists before building binnacle-worker
+    // The worker Containerfile uses "FROM binnacle-default:latest"
+    let default_image = format!("localhost/binnacle-default:{}", tag);
+    if !container_image_exists(&default_image) {
+        eprintln!("📦 Building base image (binnacle-default) first...");
+        build_embedded_default_container(tag, no_cache)?;
+    }
+
     // Determine build context: prefer external files if available, otherwise use embedded
     // Check in order: new location (.binnacle/containers/worker/), legacy location (container/), embedded
     let (build_context_dir, containerfile_path, binary_path, using_embedded) =
