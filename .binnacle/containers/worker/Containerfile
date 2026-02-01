@@ -1,6 +1,6 @@
 # Binnacle Container Worker
 # Derived from binnacle-default which provides: bn, copilot, git-wrapper, nss_wrapper setup
-FROM binnacle-default:latest
+FROM localhost/binnacle-default:latest
 
 LABEL org.opencontainers.image.title="binnacle-worker"
 LABEL org.opencontainers.image.description="AI agent worker with binnacle task tracking"
