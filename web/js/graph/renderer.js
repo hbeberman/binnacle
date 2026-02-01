@@ -100,7 +100,17 @@ export function init(canvasElement, callbacks = {}) {
     });
     
     // Subscribe to state changes that require re-render
+    // Use both wildcard pattern AND explicit subscriptions for reliability
     state.subscribe('entities.*', onEntitiesChanged);
+    // Explicit subscriptions as backup for entity types (ensures updates trigger even if pattern matching fails)
+    state.subscribe('entities.tasks', onEntitiesChanged);
+    state.subscribe('entities.bugs', onEntitiesChanged);
+    state.subscribe('entities.ideas', onEntitiesChanged);
+    state.subscribe('entities.milestones', onEntitiesChanged);
+    state.subscribe('entities.agents', onEntitiesChanged);
+    state.subscribe('entities.tests', onEntitiesChanged);
+    state.subscribe('entities.docs', onEntitiesChanged);
+    state.subscribe('entities.queues', onEntitiesChanged);
     state.subscribe('edges', onEdgesChanged);
     state.subscribe('ui.viewport', scheduleRender);
     state.subscribe('ui.hideCompleted', scheduleRender);
@@ -498,13 +508,23 @@ export function rebuildGraph() {
 
 /**
  * Handle entity changes
+ * Debounced to prevent multiple calls for the same change (since we subscribe
+ * to both wildcard and explicit patterns for reliability)
  */
+let entitiesChangedTimer = null;
 function onEntitiesChanged(newValue, oldValue, path) {
-    console.log(`[Graph] Entity changed: ${path}`, { nodesBefore: graphNodes.length, visibleBefore: visibleNodes.length });
-    buildGraphNodes();
-    filterVisibleNodes();
-    console.log(`[Graph] After rebuild: ${graphNodes.length} nodes, ${visibleNodes.length} visible`);
-    startAnimation();
+    // Debounce: if called multiple times within the same frame, only run once
+    if (entitiesChangedTimer) {
+        cancelAnimationFrame(entitiesChangedTimer);
+    }
+    entitiesChangedTimer = requestAnimationFrame(() => {
+        entitiesChangedTimer = null;
+        console.log(`[Graph] Entity changed: ${path}`, { nodesBefore: graphNodes.length, visibleBefore: visibleNodes.length });
+        buildGraphNodes();
+        filterVisibleNodes();
+        console.log(`[Graph] After rebuild: ${graphNodes.length} nodes, ${visibleNodes.length} visible`);
+        startAnimation();
+    });
 }
 
 /**
