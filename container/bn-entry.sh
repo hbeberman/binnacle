@@ -2,8 +2,38 @@
 # Binnacle Container Entrypoint (default image)
 # Minimal entrypoint for the binnacle-default base image.
 # Worker containers may use entrypoint.sh which adds LSP configuration.
+#
+# Usage:
+#   ./bn-entry.sh              # Normal mode: run full entrypoint including copilot
+#   ./bn-entry.sh shell        # Interactive shell mode
+#   ./bn-entry.sh --source-only # Source mode: set up environment only, skip copilot
+#   source ./bn-entry.sh --source-only  # Source from child script
+#
+# When --source-only is used, this script sets up:
+#   - HOME directory
+#   - nss_wrapper (user identity)
+#   - Git identity validation
+#   - SSH host keys
+#   - Binnacle initialization
+#   - Git hooks
+#   - BN_AGENT_SESSION environment variable
+#
+# But skips:
+#   - Agent orientation (bn orient)
+#   - Copilot execution
+#   - Auto-merge
 
 set -eu
+
+# === SOURCE-ONLY MODE CHECK ===
+# When --source-only is passed, set up environment but don't run copilot.
+# This allows child entrypoints (e.g., worker entrypoint.sh) to source this
+# script and inherit the common setup without duplicating code.
+BN_ENTRY_SOURCE_ONLY=false
+if [ "${1:-}" = "--source-only" ]; then
+    BN_ENTRY_SOURCE_ONLY=true
+    shift  # Remove --source-only from args
+fi
 
 # === 1. HOME DIRECTORY SETUP ===
 if [ ! -w "${HOME:-/}" ]; then
@@ -78,18 +108,33 @@ if [ "$BN_READONLY_WORKSPACE" != "true" ] && [ -d "hooks" ]; then
 fi
 export BN_AGENT_SESSION=1
 
-# === 7. ORIENT AGENT ===
+# === 7. SOURCE-ONLY EXIT POINT ===
+# If --source-only was passed, we've set up the environment.
+# Export key variables and return control to the sourcing script.
+if [ "$BN_ENTRY_SOURCE_ONLY" = "true" ]; then
+    # Export variables that child scripts may need
+    export HOME
+    export BN_AGENT_SESSION
+    export BN_READONLY_WORKSPACE
+    [ -n "${LD_PRELOAD:-}" ] && export LD_PRELOAD
+    [ -n "${NSS_WRAPPER_PASSWD:-}" ] && export NSS_WRAPPER_PASSWD
+    [ -n "${NSS_WRAPPER_GROUP:-}" ] && export NSS_WRAPPER_GROUP
+    # Return successfully - do not exit (may be sourced)
+    return 0 2>/dev/null || exit 0
+fi
+
+# === 8. ORIENT AGENT ===
 BN_AGENT_TYPE="${BN_AGENT_TYPE:-worker}"
 echo "🧭 Orienting agent (type: $BN_AGENT_TYPE)..."
 bn orient --type "$BN_AGENT_TYPE" -H
 
-# === 8. SHELL MODE CHECK ===
+# === 9. SHELL MODE CHECK ===
 if [ "${1:-}" = "shell" ] || [ "${1:-}" = "bash" ]; then
     echo "🐚 Starting interactive shell..."
     exec /bin/bash
 fi
 
-# === 9. RUN COPILOT ===
+# === 10. RUN COPILOT ===
 BN_INITIAL_PROMPT="${BN_INITIAL_PROMPT:-Run bn ready to see available tasks, pick one, and complete it. Call bn goodbye when done.}"
 
 BLOCKED_TOOLS=(
@@ -111,7 +156,7 @@ else
     exit 1
 fi
 
-# === 10. AUTO-MERGE (if enabled) ===
+# === 11. AUTO-MERGE (if enabled) ===
 BN_AUTO_MERGE="${BN_AUTO_MERGE:-false}"
 BN_MERGE_TARGET="${BN_MERGE_TARGET:-main}"
 
