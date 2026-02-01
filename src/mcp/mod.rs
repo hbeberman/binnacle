@@ -110,6 +110,21 @@ pub struct ResourceDef {
     pub mime_type: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptDef {
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<Vec<PromptArgument>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptArgument {
+    pub name: String,
+    pub description: String,
+    pub required: bool,
+}
+
 // === MCP Server ===
 
 pub struct McpServer {
@@ -156,6 +171,8 @@ impl McpServer {
             "tools/call" => self.handle_tools_call(request),
             "resources/list" => self.handle_resources_list(request),
             "resources/read" => self.handle_resources_read(request),
+            "prompts/list" => self.handle_prompts_list(request),
+            "prompts/get" => self.handle_prompts_get(request),
             _ => JsonRpcResponse::error(
                 request.id.clone(),
                 -32601,
@@ -174,7 +191,8 @@ impl McpServer {
                     "resources": {
                         "subscribe": false,
                         "listChanged": false
-                    }
+                    },
+                    "prompts": {}
                 },
                 "serverInfo": {
                     "name": SERVER_NAME,
@@ -277,6 +295,45 @@ impl McpServer {
                         "mimeType": "application/json",
                         "text": content
                     }]
+                }),
+            ),
+            Err(e) => JsonRpcResponse::error(request.id.clone(), -32603, e),
+        }
+    }
+
+    fn handle_prompts_list(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
+        let prompts = get_prompt_definitions();
+        JsonRpcResponse::success(request.id.clone(), json!({ "prompts": prompts }))
+    }
+
+    fn handle_prompts_get(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
+        let params = match &request.params {
+            Some(p) => p,
+            None => {
+                return JsonRpcResponse::error(
+                    request.id.clone(),
+                    -32602,
+                    "Missing params".to_string(),
+                );
+            }
+        };
+
+        let name = match params.get("name").and_then(|v| v.as_str()) {
+            Some(n) => n,
+            None => {
+                return JsonRpcResponse::error(
+                    request.id.clone(),
+                    -32602,
+                    "Missing prompt name".to_string(),
+                );
+            }
+        };
+
+        match self.get_prompt(name) {
+            Ok(messages) => JsonRpcResponse::success(
+                request.id.clone(),
+                json!({
+                    "messages": messages
                 }),
             ),
             Err(e) => JsonRpcResponse::error(request.id.clone(), -32603, e),
@@ -808,6 +865,24 @@ impl McpServer {
             _ => Err(format!("Unknown resource: {}", uri)),
         }
     }
+
+    fn get_prompt(&self, name: &str) -> Result<Vec<Value>, String> {
+        use crate::commands::COPILOT_INSTRUCTIONS_CONTENT;
+
+        match name {
+            "agent_instructions" => {
+                // Return the AGENTS.md blurb content as a user message
+                Ok(vec![json!({
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": COPILOT_INSTRUCTIONS_CONTENT.trim()
+                    }
+                })])
+            }
+            _ => Err(format!("Unknown prompt: {}", name)),
+        }
+    }
 }
 
 impl Default for McpServer {
@@ -993,6 +1068,17 @@ fn get_resource_definitions() -> Vec<ResourceDef> {
     ]
 }
 
+/// Get prompt definitions for MCP
+fn get_prompt_definitions() -> Vec<PromptDef> {
+    vec![PromptDef {
+        name: "agent_instructions".to_string(),
+        description:
+            "Returns binnacle project instructions for AI agents. Use for mid-session refresh of agent guidelines."
+                .to_string(),
+        arguments: None,
+    }]
+}
+
 /// Start the MCP server (stdio mode)
 pub fn serve(_repo_path: &std::path::Path, cwd: Option<PathBuf>) {
     let stdin = io::stdin();
@@ -1062,6 +1148,7 @@ pub fn manifest() {
         "protocolVersion": MCP_PROTOCOL_VERSION,
         "tools": get_tool_definitions(),
         "resources": get_resource_definitions(),
+        "prompts": get_prompt_definitions(),
     });
     println!("{}", serde_json::to_string_pretty(&manifest).unwrap());
 }
@@ -1092,6 +1179,47 @@ mod tests {
         assert!(resources.iter().any(|r| r.uri == "binnacle://status"));
         assert!(resources.iter().any(|r| r.uri == "binnacle://agents"));
         assert!(resources.iter().any(|r| r.uri == "binnacle://issues"));
+    }
+
+    #[test]
+    fn test_prompt_definitions() {
+        let prompts = get_prompt_definitions();
+        assert_eq!(prompts.len(), 1);
+        assert!(prompts.iter().any(|p| p.name == "agent_instructions"));
+        let agent_instructions = prompts
+            .iter()
+            .find(|p| p.name == "agent_instructions")
+            .unwrap();
+        assert!(
+            agent_instructions
+                .description
+                .contains("mid-session refresh")
+        );
+    }
+
+    #[test]
+    fn test_get_prompt_agent_instructions() {
+        let server = McpServer::new();
+        let result = server.get_prompt("agent_instructions");
+        assert!(result.is_ok());
+        let messages = result.unwrap();
+        assert_eq!(messages.len(), 1);
+        let msg = &messages[0];
+        assert_eq!(msg["role"], "user");
+        assert!(
+            msg["content"]["text"]
+                .as_str()
+                .unwrap()
+                .contains("binnacle")
+        );
+    }
+
+    #[test]
+    fn test_get_prompt_unknown() {
+        let server = McpServer::new();
+        let result = server.get_prompt("nonexistent_prompt");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown prompt"));
     }
 
     #[test]
