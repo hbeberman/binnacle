@@ -512,6 +512,10 @@ pub struct SystemInitResult {
     pub token_username: Option<String>,
     /// Whether Copilot access was validated (--token) vs just GitHub user (--token-non-validated)
     pub copilot_validated: bool,
+    /// Whether running in container mode (BN_CONTAINER_MODE=true)
+    pub container_mode: bool,
+    /// Whether copilot staff config was written
+    pub copilot_staff_config_created: bool,
 }
 
 impl Output for SystemInitResult {
@@ -576,6 +580,12 @@ impl SystemInitResult {
                 lines.push("✅ Stored GitHub token".to_string());
             }
         }
+        if self.copilot_staff_config_created {
+            lines.push("✅ Created Copilot staff config".to_string());
+        }
+        if self.container_mode {
+            lines.push("🐳 Running in container mode".to_string());
+        }
         lines.join("\n")
     }
 }
@@ -638,8 +648,9 @@ pub fn system_init() -> Result<SystemInitResult> {
         install_copilot,
         install_bn_agent,
         build_container,
-        None, // token not supported in interactive mode
-        None, // token_non_validated not supported in interactive mode
+        None,  // token not supported in interactive mode
+        None,  // token_non_validated not supported in interactive mode
+        false, // Not container mode in interactive mode
     )
 }
 
@@ -666,6 +677,29 @@ pub fn system_init_non_interactive(
         build_container,
         token,
         token_non_validated,
+        false, // Not container mode when called directly
+    )
+}
+
+/// Initialize host-global binnacle configuration for container mode.
+///
+/// Auto-enables skills/MCP, skips copilot/container install, and adds
+/// container-specific configuration.
+pub fn system_init_container_mode() -> Result<SystemInitResult> {
+    // In container mode:
+    // - Auto-enable skills and MCP writing
+    // - Skip copilot and container install (already in container, copilot pre-installed)
+    // - Skip bn-agent install (not needed in container)
+    system_init_with_options(
+        true,  // write_claude_skills
+        true,  // write_codex_skills
+        true,  // write_mcp_copilot
+        false, // install_copilot - already installed in image
+        false, // install_bn_agent - not needed in container
+        false, // build_container - already in one
+        None,  // token - not stored, passed via env
+        None,  // token_non_validated
+        true,  // container_mode
     )
 }
 
@@ -680,6 +714,7 @@ fn system_init_with_options(
     build_container: bool,
     token: Option<&str>,
     token_non_validated: Option<&str>,
+    container_mode: bool,
 ) -> Result<SystemInitResult> {
     let config_dir = get_system_config_dir()?;
     let already_exists = config_dir.exists();
@@ -715,8 +750,20 @@ output-format "json"
     };
 
     // Write GitHub Copilot CLI MCP config if requested
+    // In container mode, inject container env vars into the config
     let mcp_copilot_config_created = if write_mcp_copilot {
-        write_mcp_copilot_config()?
+        if container_mode {
+            write_mcp_copilot_config_with_container_env()?
+        } else {
+            write_mcp_copilot_config()?
+        }
+    } else {
+        false
+    };
+
+    // In container mode, write copilot staff config for LSP support
+    let copilot_staff_config_created = if container_mode {
+        write_copilot_staff_config()?
     } else {
         false
     };
@@ -827,6 +874,8 @@ output-format "json"
         token_stored,
         token_username,
         copilot_validated,
+        container_mode,
+        copilot_staff_config_created,
     })
 }
 
@@ -2546,6 +2595,129 @@ fn write_mcp_copilot_config() -> Result<bool> {
         .map_err(|e| Error::Other(format!("Failed to serialize Copilot CLI config: {}", e)))?;
     fs::write(&config_path, formatted)
         .map_err(|e| Error::Other(format!("Failed to write Copilot CLI config: {}", e)))?;
+
+    Ok(true)
+}
+
+/// Write GitHub Copilot CLI MCP config with container environment variables injected.
+///
+/// This is called when BN_CONTAINER_MODE=true is detected. It injects container
+/// env vars (BN_DATA_DIR, BN_CONTAINER_MODE, BN_STORAGE_HASH, BN_AGENT_ID,
+/// BN_AGENT_NAME, BN_AGENT_TYPE) into the MCP config's env block so the MCP
+/// server has access to them.
+fn write_mcp_copilot_config_with_container_env() -> Result<bool> {
+    use serde_json::{Map, Value};
+
+    // Get home directory
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| Error::Other("Could not determine home directory".to_string()))?;
+
+    let copilot_dir = home_dir.join(".copilot");
+    let config_path = copilot_dir.join("mcp-config.json");
+
+    // Create directory if it doesn't exist
+    fs::create_dir_all(&copilot_dir)
+        .map_err(|e| Error::Other(format!("Failed to create Copilot config directory: {}", e)))?;
+
+    // Read existing config or start with empty object
+    let mut config: Value = if config_path.exists() {
+        let content = fs::read_to_string(&config_path).map_err(|e| {
+            Error::Other(format!("Failed to read existing Copilot CLI config: {}", e))
+        })?;
+        serde_json::from_str(&content).unwrap_or_else(|_| Value::Object(Map::new()))
+    } else {
+        Value::Object(Map::new())
+    };
+
+    // Ensure config is an object
+    let config_obj = config
+        .as_object_mut()
+        .ok_or_else(|| Error::Other("Copilot CLI config is not a JSON object".to_string()))?;
+
+    // Get or create mcpServers object (Copilot CLI uses "mcpServers")
+    if !config_obj.contains_key("mcpServers") {
+        config_obj.insert("mcpServers".to_string(), Value::Object(Map::new()));
+    }
+    let mcp_servers = config_obj
+        .get_mut("mcpServers")
+        .and_then(|v| v.as_object_mut())
+        .ok_or_else(|| Error::Other("mcpServers is not a JSON object".to_string()))?;
+
+    // Build env object with container env vars that are actually set
+    // Only include vars that are present in the environment
+    let mut env_obj = Map::new();
+    for var in &[
+        "BN_DATA_DIR",
+        "BN_CONTAINER_MODE",
+        "BN_STORAGE_HASH",
+        "BN_AGENT_ID",
+        "BN_AGENT_NAME",
+        "BN_AGENT_TYPE",
+    ] {
+        if let Ok(val) = std::env::var(var) {
+            env_obj.insert(var.to_string(), Value::String(val));
+        }
+    }
+
+    // Add or update binnacle entry with container env vars
+    let binnacle_config = serde_json::json!({
+        "type": "local",
+        "command": "bn",
+        "args": ["mcp", "serve"],
+        "tools": ["*"],
+        "env": env_obj
+    });
+    mcp_servers.insert("binnacle".to_string(), binnacle_config);
+
+    // Write back with pretty formatting
+    let formatted = serde_json::to_string_pretty(&config)
+        .map_err(|e| Error::Other(format!("Failed to serialize Copilot CLI config: {}", e)))?;
+    fs::write(&config_path, formatted)
+        .map_err(|e| Error::Other(format!("Failed to write Copilot CLI config: {}", e)))?;
+
+    Ok(true)
+}
+
+/// Write GitHub Copilot staff config for LSP support.
+///
+/// Creates ~/.copilot/config.json with {"staff": true} which enables
+/// additional features in the Copilot CLI.
+fn write_copilot_staff_config() -> Result<bool> {
+    use serde_json::{Map, Value};
+
+    // Get home directory
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| Error::Other("Could not determine home directory".to_string()))?;
+
+    let copilot_dir = home_dir.join(".copilot");
+    let config_path = copilot_dir.join("config.json");
+
+    // Create directory if it doesn't exist
+    fs::create_dir_all(&copilot_dir)
+        .map_err(|e| Error::Other(format!("Failed to create Copilot config directory: {}", e)))?;
+
+    // Read existing config or start with empty object
+    let mut config: Value = if config_path.exists() {
+        let content = fs::read_to_string(&config_path)
+            .map_err(|e| Error::Other(format!("Failed to read existing Copilot config: {}", e)))?;
+        serde_json::from_str(&content).unwrap_or_else(|_| Value::Object(Map::new()))
+    } else {
+        Value::Object(Map::new())
+    };
+
+    // Ensure config is an object
+    let config_obj = config
+        .as_object_mut()
+        .ok_or_else(|| Error::Other("Copilot config is not a JSON object".to_string()))?;
+
+    // Add staff: true
+    config_obj.insert("staff".to_string(), Value::Bool(true));
+
+    // Write back with pretty formatting
+    let formatted = serde_json::to_string_pretty(&config)
+        .map_err(|e| Error::Other(format!("Failed to serialize Copilot config: {}", e)))?;
+    fs::write(&config_path, formatted)
+        .map_err(|e| Error::Other(format!("Failed to write Copilot config: {}", e)))?;
 
     Ok(true)
 }

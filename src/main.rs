@@ -1187,7 +1187,15 @@ fn run_command(
                 token,
                 token_non_validated,
             } => {
-                let result = if yes {
+                // Check for container mode (BN_CONTAINER_MODE=true)
+                let container_mode = std::env::var("BN_CONTAINER_MODE")
+                    .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+                    .unwrap_or(false);
+
+                let result = if container_mode {
+                    // Container mode: auto-enable skills/MCP, skip installs
+                    commands::system_init_container_mode()?
+                } else if yes {
                     // Non-interactive: use flags directly
                     commands::system_init_non_interactive(
                         write_claude_skills,
