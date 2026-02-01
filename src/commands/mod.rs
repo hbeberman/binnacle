@@ -22003,6 +22003,10 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     eprintln!("📤 Exporting image to docker archive...");
     let temp_dir = get_binnacle_temp_dir()?;
     let temp_archive = temp_dir.join("binnacle-self.tar");
+    // Remove existing archive if present (docker-archive can't overwrite)
+    if temp_archive.exists() {
+        let _ = fs::remove_file(&temp_archive);
+    }
     let temp_archive_str = temp_archive.to_string_lossy();
     let image_ref = format!("localhost/binnacle-self:{}", tag);
 
@@ -22156,6 +22160,10 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
     eprintln!("📤 Exporting image to docker archive...");
     let temp_dir = get_binnacle_temp_dir()?;
     let temp_archive = temp_dir.join("binnacle-default.tar");
+    // Remove existing archive if present (docker-archive can't overwrite)
+    if temp_archive.exists() {
+        let _ = fs::remove_file(&temp_archive);
+    }
     let temp_archive_str = temp_archive.to_string_lossy();
 
     let push_output = Command::new("buildah")
@@ -22306,6 +22314,10 @@ fn build_definition_container(
     eprintln!("📤 Exporting image to docker archive...");
     let temp_dir = get_binnacle_temp_dir()?;
     let temp_archive = temp_dir.join(format!("binnacle-{}.tar", def_name));
+    // Remove existing archive if present (docker-archive can't overwrite)
+    if temp_archive.exists() {
+        let _ = fs::remove_file(&temp_archive);
+    }
     let temp_archive_str = temp_archive.to_string_lossy();
 
     let push_output = Command::new("buildah")
