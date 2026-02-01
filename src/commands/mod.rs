@@ -15136,6 +15136,22 @@ pub fn doctor(repo_path: &Path) -> Result<DoctorResult> {
                 entity_id: Some(milestone.core.id.clone()),
             });
         }
+
+        // Warn if milestone has no children and is older than 24 hours (empty/stale)
+        if child_count == 0 {
+            let age = Utc::now() - milestone.core.created_at;
+            if age.num_hours() >= 24 {
+                issues.push(DoctorIssue {
+                    severity: "warning".to_string(),
+                    category: "empty".to_string(),
+                    message: format!(
+                        "Milestone {} has no children and is older than 24 hours - may be stale",
+                        milestone.core.id
+                    ),
+                    entity_id: Some(milestone.core.id.clone()),
+                });
+            }
+        }
     }
 
     let stats = DoctorStats {
@@ -34599,5 +34615,103 @@ mod tests {
         assert!(human.contains("LINEAGE"));
         assert!(human.contains("PEERS"));
         assert!(human.contains("DESCENDANTS"));
+    }
+
+    #[test]
+    fn test_doctor_detects_empty_milestone_older_than_24h() {
+        use crate::storage::Storage;
+        use chrono::{Duration, Utc};
+
+        let temp = setup_isolated();
+
+        // Create a milestone with old timestamp directly in storage
+        let mut storage = Storage::open(temp.path()).unwrap();
+        let mut milestone =
+            crate::models::Milestone::new("bn-old1".to_string(), "Old Empty Milestone".to_string());
+        // Set created_at to 48 hours ago
+        milestone.core.created_at = Utc::now() - Duration::hours(48);
+        storage.add_milestone(&milestone).unwrap();
+        drop(storage);
+
+        // Run doctor - should detect the empty milestone warning
+        let result = doctor(temp.path()).unwrap();
+        let empty_issue = result.issues.iter().find(|i| {
+            i.category == "empty" && i.entity_id.as_ref() == Some(&"bn-old1".to_string())
+        });
+        assert!(
+            empty_issue.is_some(),
+            "Should detect empty milestone older than 24h"
+        );
+        let issue = empty_issue.unwrap();
+        assert_eq!(issue.severity, "warning");
+        assert!(issue.message.contains("no children"));
+        assert!(issue.message.contains("older than 24 hours"));
+    }
+
+    #[test]
+    fn test_doctor_no_empty_warning_for_new_milestone() {
+        let temp = setup_isolated();
+
+        // Create a milestone (will have recent timestamp)
+        let _milestone = milestone_create(
+            temp.path(),
+            "New Empty Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Run doctor - should NOT detect empty milestone warning (too recent)
+        let result = doctor(temp.path()).unwrap();
+        assert!(
+            !result.issues.iter().any(|i| i.category == "empty"),
+            "Should not flag empty milestone that is less than 24h old"
+        );
+    }
+
+    #[test]
+    fn test_doctor_no_empty_warning_for_milestone_with_children() {
+        use crate::storage::Storage;
+        use chrono::{Duration, Utc};
+
+        let temp = setup_isolated();
+
+        // Create an old milestone directly in storage
+        let mut storage = Storage::open(temp.path()).unwrap();
+        let mut milestone = crate::models::Milestone::new(
+            "bn-parent".to_string(),
+            "Old Milestone With Child".to_string(),
+        );
+        milestone.core.created_at = Utc::now() - Duration::hours(48);
+        storage.add_milestone(&milestone).unwrap();
+        drop(storage);
+
+        // Create a child task linked to the milestone
+        let task = task_create(
+            temp.path(),
+            "Child Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        link_add(temp.path(), &task.id, "bn-parent", "child_of", None, false).unwrap();
+
+        // Run doctor - should NOT flag "empty" since milestone has a child
+        let result = doctor(temp.path()).unwrap();
+        assert!(
+            !result
+                .issues
+                .iter()
+                .any(|i| i.category == "empty"
+                    && i.entity_id.as_ref() == Some(&"bn-parent".to_string())),
+            "Should not flag empty milestone that has children"
+        );
     }
 }

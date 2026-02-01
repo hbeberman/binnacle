@@ -905,3 +905,7 @@ fn test_doctor_ok_without_state_kdl_file() {
         .success()
         .stdout(predicate::str::contains("\"healthy\":true"));
 }
+
+// NOTE: Empty milestone doctor check tests have been moved to unit tests in
+// src/commands/mod.rs because they require direct manipulation of milestone
+// timestamps, which is easier via the Storage API than via CLI/JSONL manipulation.
