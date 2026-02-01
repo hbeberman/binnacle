@@ -1315,22 +1315,10 @@ impl TuiApp {
             ]),
             Line::from(""),
             Line::from(vec![Span::styled(
-                "  SEARCH & COMMANDS",
+                "  COMMANDS",
                 Style::default().bold().fg(Color::Cyan),
             )]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("    /      ", Style::default().fg(Color::Yellow)),
-                Span::raw("Enter search mode (filter list)"),
-            ]),
-            Line::from(vec![
-                Span::styled("    n      ", Style::default().fg(Color::Yellow)),
-                Span::raw("Next search result"),
-            ]),
-            Line::from(vec![
-                Span::styled("    N      ", Style::default().fg(Color::Yellow)),
-                Span::raw("Previous search result"),
-            ]),
             Line::from(vec![
                 Span::styled("    :      ", Style::default().fg(Color::Yellow)),
                 Span::raw("Enter command mode"),
