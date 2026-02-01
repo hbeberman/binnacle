@@ -21,6 +21,8 @@ fn bn() -> Command {
     // Set isolated data directory to prevent polluting host's binnacle data
     let temp_dir = tempfile::tempdir().unwrap();
     cmd.env("BN_DATA_DIR", temp_dir.path());
+    // Enable test mode for production write protection
+    cmd.env("BN_TEST_MODE", "1");
     // Clear container mode to prevent tests from polluting production /binnacle
     cmd.env_remove("BN_CONTAINER_MODE");
     cmd.env_remove("BN_AGENT_ID");

@@ -19,6 +19,8 @@ mod gui_enabled {
         // use TestEnv instead.
         let temp_dir = tempfile::tempdir().unwrap();
         cmd.env("BN_DATA_DIR", temp_dir.path());
+        // Enable test mode for production write protection
+        cmd.env("BN_TEST_MODE", "1");
         cmd.env_remove("BN_CONTAINER_MODE");
         cmd.env_remove("BN_AGENT_ID");
         cmd.env_remove("BN_AGENT_NAME");

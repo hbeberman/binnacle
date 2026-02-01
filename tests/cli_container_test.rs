@@ -29,6 +29,7 @@ fn test_container_mode_env_var_recognized() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(env.repo_path());
     cmd.env("BN_DATA_DIR", &container_data);
+    cmd.env("BN_TEST_MODE", "1");
     cmd.args(["session", "init", "--auto-global", "-y"]);
     cmd.assert().success();
 
@@ -36,6 +37,7 @@ fn test_container_mode_env_var_recognized() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(env.repo_path());
     cmd.env("BN_DATA_DIR", &container_data);
+    cmd.env("BN_TEST_MODE", "1");
     cmd.args(["orient", "--type", "worker", "-H", "--dry-run"]);
     cmd.assert()
         .success()
@@ -56,6 +58,7 @@ fn test_container_mode_task_operations() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(env.repo_path());
         cmd.env("BN_DATA_DIR", &container_data);
+        cmd.env("BN_TEST_MODE", "1");
         cmd
     };
 
@@ -125,6 +128,7 @@ fn test_container_mode_ready_and_blocked() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(env.repo_path());
         cmd.env("BN_DATA_DIR", &container_data);
+        cmd.env("BN_TEST_MODE", "1");
         cmd
     };
 
@@ -195,6 +199,7 @@ fn test_container_mode_bug_operations() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(env.repo_path());
         cmd.env("BN_DATA_DIR", &container_data);
+        cmd.env("BN_TEST_MODE", "1");
         cmd
     };
 
@@ -242,6 +247,7 @@ fn test_container_mode_idea_operations() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(env.repo_path());
         cmd.env("BN_DATA_DIR", &container_data);
+        cmd.env("BN_TEST_MODE", "1");
         cmd
     };
 
@@ -285,6 +291,7 @@ fn test_container_mode_queue_operations() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(env.repo_path());
         cmd.env("BN_DATA_DIR", &container_data);
+        cmd.env("BN_TEST_MODE", "1");
         cmd
     };
 
@@ -344,6 +351,7 @@ fn test_container_mode_agent_registration() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(env.repo_path());
         cmd.env("BN_DATA_DIR", &container_data);
+        cmd.env("BN_TEST_MODE", "1");
         cmd
     };
 
@@ -387,6 +395,7 @@ fn test_container_mode_test_operations() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(env.repo_path());
         cmd.env("BN_DATA_DIR", &container_data);
+        cmd.env("BN_TEST_MODE", "1");
         cmd
     };
 
@@ -434,6 +443,7 @@ fn test_container_mode_data_persistence() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
         cmd.current_dir(env.repo_path());
         cmd.env("BN_DATA_DIR", &container_data);
+        cmd.env("BN_TEST_MODE", "1");
         cmd
     };
 
@@ -758,6 +768,7 @@ fn test_container_mode_requires_bn_agent_id_for_orient() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(env.repo_path());
     cmd.env("BN_DATA_DIR", &container_data);
+    cmd.env("BN_TEST_MODE", "1");
     cmd.args(["session", "init", "--auto-global", "-y"]);
     cmd.assert().success();
 
@@ -765,6 +776,7 @@ fn test_container_mode_requires_bn_agent_id_for_orient() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(env.repo_path());
     cmd.env("BN_DATA_DIR", &container_data);
+    cmd.env("BN_TEST_MODE", "1");
     cmd.env("BN_CONTAINER_MODE", "true");
     // Explicitly clear BN_AGENT_ID to prevent inheriting from parent shell
     cmd.env_remove("BN_AGENT_ID");
@@ -778,6 +790,7 @@ fn test_container_mode_requires_bn_agent_id_for_orient() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
     cmd.current_dir(env.repo_path());
     cmd.env("BN_DATA_DIR", &container_data);
+    cmd.env("BN_TEST_MODE", "1");
     cmd.env("BN_CONTAINER_MODE", "true");
     cmd.env("BN_AGENT_ID", "bn-test");
     cmd.env("BN_AGENT_NAME", "test-agent");

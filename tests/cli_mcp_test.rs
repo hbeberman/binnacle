@@ -231,6 +231,7 @@ impl McpServerHandle {
             .args(["mcp", "serve"])
             .current_dir(env.repo_path())
             .env("BN_DATA_DIR", env.data_path())
+            .env("BN_TEST_MODE", "1") // Enable test mode for production write protection
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -292,6 +293,8 @@ fn test_mcp_help() {
     // Set isolated data directory to prevent polluting host's binnacle data
     let temp_dir = tempfile::tempdir().unwrap();
     cmd.env("BN_DATA_DIR", temp_dir.path());
+    // Enable test mode for production write protection
+    cmd.env("BN_TEST_MODE", "1");
     cmd.args(["mcp", "--help"])
         .assert()
         .success()
@@ -341,6 +344,7 @@ fn test_mcp_timeout_with_slow_command() {
         .args(["mcp", "serve"])
         .current_dir(env.repo_path())
         .env("BN_DATA_DIR", env.data_path())
+        .env("BN_TEST_MODE", "1") // Enable test mode for production write protection
         .env("BN_MCP_TIMEOUT", "1") // 1 second timeout
         .env_remove("BN_CONTAINER_MODE") // Clear container mode to ensure consistent hashing
         .env_remove("BN_STORAGE_HASH") // Clear pre-computed hash

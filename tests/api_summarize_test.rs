@@ -36,6 +36,7 @@ fn setup_test_repo() -> (TempDir, TempDir) {
         .current_dir(repo_path)
         .env("BN_DATA_DIR", data_temp.path())
         .env("BN_CONFIG_DIR", data_temp.path())
+        .env("BN_TEST_MODE", "1")
         .output()
         .expect("Failed to init binnacle");
 
@@ -55,6 +56,7 @@ fn test_summarize_endpoints_exist() {
         .current_dir(repo_path)
         .env("BN_DATA_DIR", data_temp.path())
         .env("BN_CONFIG_DIR", data_temp.path())
+        .env("BN_TEST_MODE", "1")
         .spawn()
         .expect("Failed to start GUI server");
 
