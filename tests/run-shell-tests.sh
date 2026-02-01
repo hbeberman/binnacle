@@ -33,6 +33,16 @@ else
 fi
 echo ""
 
+# Run container prompt injection tests
+echo "Running container prompt injection tests..."
+if bash "$SCRIPT_DIR/container-prompt-injection-test.sh"; then
+    echo "✓ Container prompt injection tests passed"
+else
+    echo "✗ Container prompt injection tests failed"
+    FAILED=$((FAILED + 1))
+fi
+echo ""
+
 # Summary
 echo "========================================="
 if [ $FAILED -eq 0 ]; then

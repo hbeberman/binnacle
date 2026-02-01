@@ -1970,6 +1970,195 @@ fn test_system_emit_mcp_copilot() {
     // Note: env vars are injected dynamically by entrypoint.sh, not in the static config
 }
 
+#[test]
+fn test_system_emit_mcp_lifecycle_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "mcp-lifecycle"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "IMPORTANT - Binnacle MCP Lifecycle",
+        ))
+        .stdout(predicate::str::contains("bn orient"))
+        .stdout(predicate::str::contains("bn goodbye"))
+        .stdout(predicate::str::contains("shell"));
+}
+
+#[test]
+fn test_system_emit_mcp_lifecycle_json_format() {
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["system", "emit", "mcp-lifecycle"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json = parse_json(&output);
+    let content = json["content"]
+        .as_str()
+        .expect("content field should exist");
+    assert!(content.contains("Binnacle MCP Lifecycle"));
+    assert!(content.contains("orient"));
+    assert!(content.contains("goodbye"));
+}
+
+#[test]
+fn test_system_emit_mcp_lifecycle_planner_human_format() {
+    let temp = TestEnv::new();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "mcp-lifecycle-planner"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "IMPORTANT - Binnacle MCP Lifecycle",
+        ))
+        .stdout(predicate::str::contains("bn orient"))
+        // Planner agents don't call goodbye
+        .stdout(predicate::str::contains("should NOT call bn goodbye"));
+}
+
+// ============================================================================
+// Container Prompt Injection Tests (validates entrypoint.sh logic)
+// ============================================================================
+// These tests verify that the templates used by container/entrypoint.sh work correctly
+// for the hybrid prompt injection approach: AGENT_INSTRUCTIONS + BN_INITIAL_PROMPT
+
+#[test]
+fn test_container_prompt_injection_copilot_instructions_produces_content() {
+    // The entrypoint.sh loads copilot-instructions as base workflow rules
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["-H", "system", "emit", "copilot-instructions"])
+        .output()
+        .expect("Failed to run command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should produce non-empty content with core instructions
+    assert!(
+        !stdout.is_empty(),
+        "copilot-instructions should produce content"
+    );
+    assert!(
+        stdout.contains("Binnacle Project Instructions"),
+        "Should contain project instructions"
+    );
+    assert!(
+        stdout.contains("bn orient"),
+        "Should mention bn orient command"
+    );
+    assert!(
+        stdout.contains("bn ready"),
+        "Should mention bn ready command"
+    );
+}
+
+#[test]
+fn test_container_prompt_injection_mcp_lifecycle_produces_content() {
+    // The entrypoint.sh loads mcp-lifecycle as MCP usage guidance
+    let temp = TestEnv::new();
+
+    let output = bn_in(&temp)
+        .args(["-H", "system", "emit", "mcp-lifecycle"])
+        .output()
+        .expect("Failed to run command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should produce non-empty content with MCP lifecycle rules
+    assert!(!stdout.is_empty(), "mcp-lifecycle should produce content");
+    assert!(
+        stdout.contains("MCP Lifecycle"),
+        "Should mention MCP lifecycle"
+    );
+    assert!(
+        stdout.contains("shell"),
+        "Should mention shell commands for orient/goodbye"
+    );
+}
+
+#[test]
+fn test_container_prompt_injection_both_templates_can_be_combined() {
+    // The entrypoint.sh combines copilot-instructions + mcp-lifecycle with "---" delimiter
+    // This test verifies both templates work and could be combined
+    let temp = TestEnv::new();
+
+    // Get copilot-instructions content
+    let copilot_output = bn_in(&temp)
+        .args(["-H", "system", "emit", "copilot-instructions"])
+        .output()
+        .expect("Failed to run copilot-instructions");
+    let copilot_content = String::from_utf8_lossy(&copilot_output.stdout);
+
+    // Get mcp-lifecycle content
+    let mcp_output = bn_in(&temp)
+        .args(["-H", "system", "emit", "mcp-lifecycle"])
+        .output()
+        .expect("Failed to run mcp-lifecycle");
+    let mcp_content = String::from_utf8_lossy(&mcp_output.stdout);
+
+    // Both should succeed and have content
+    assert!(
+        copilot_output.status.success(),
+        "copilot-instructions should succeed"
+    );
+    assert!(mcp_output.status.success(), "mcp-lifecycle should succeed");
+
+    // Simulate the entrypoint.sh combination
+    let combined = format!("{}\n\n{}", copilot_content.trim(), mcp_content.trim());
+
+    // Verify combined prompt has content from both sources
+    assert!(
+        combined.contains("Binnacle Project Instructions"),
+        "Combined should have project instructions"
+    );
+    assert!(
+        combined.contains("MCP Lifecycle"),
+        "Combined should have MCP lifecycle"
+    );
+    assert!(
+        combined.len() > copilot_content.len(),
+        "Combined should be larger than just copilot-instructions"
+    );
+
+    // Verify neither template is empty (would break the hybrid injection)
+    assert!(
+        copilot_content.lines().count() > 5,
+        "copilot-instructions should have substantial content"
+    );
+    assert!(
+        mcp_content.lines().count() > 5,
+        "mcp-lifecycle should have substantial content"
+    );
+}
+
+#[test]
+fn test_container_prompt_injection_templates_no_init_required() {
+    // The entrypoint.sh runs before bn init, so templates must work without initialization
+    // This is critical for container startup
+    let temp = TestEnv::new();
+
+    // Do NOT initialize binnacle - simulate fresh container
+
+    // Both templates should work without init
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "copilot-instructions"])
+        .assert()
+        .success();
+
+    bn_in(&temp)
+        .args(["-H", "system", "emit", "mcp-lifecycle"])
+        .assert()
+        .success();
+}
+
 // ============================================================================
 // bn system store clear Tests
 // ============================================================================
