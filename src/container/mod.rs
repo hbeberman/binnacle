@@ -14,6 +14,9 @@ use std::path::{Path, PathBuf};
 /// Reserved container name that cannot be used by projects/users.
 pub const RESERVED_NAME: &str = "binnacle";
 
+/// Name for the embedded default container (minimal base image).
+pub const EMBEDDED_DEFAULT_NAME: &str = "default";
+
 /// Container definition parsed from config.kdl
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContainerDefinition {
@@ -691,14 +694,34 @@ pub fn discover_definitions(repo_path: &Path) -> Result<Vec<DefinitionWithSource
     }
 
     // 3. Embedded fallback: only if no config.kdl files found anywhere
-    // The embedded "binnacle" definition is always available as a last resort
+    // The embedded "binnacle" and "default" definitions are always available as a last resort
     // but only returned if no other definitions were found
     if results.is_empty() {
-        // Create a minimal embedded fallback definition
+        // Create embedded fallback definitions
         results.push(DefinitionWithSource {
             definition: ContainerDefinition {
                 name: RESERVED_NAME.to_string(),
-                description: Some("Embedded binnacle container (fallback)".to_string()),
+                description: Some(
+                    "Embedded binnacle-worker container (full development environment)".to_string(),
+                ),
+                parent: None,
+                entrypoint_mode: EntrypointMode::Replace,
+                defaults: None,
+                mounts: vec![],
+            },
+            source: DefinitionSource::Embedded,
+            config_path: PathBuf::from("<embedded>"),
+            modified_at: None,
+        });
+
+        // Add embedded default container (minimal base image)
+        results.push(DefinitionWithSource {
+            definition: ContainerDefinition {
+                name: EMBEDDED_DEFAULT_NAME.to_string(),
+                description: Some(
+                    "Embedded binnacle-default container (minimal base with bn + copilot)"
+                        .to_string(),
+                ),
                 parent: None,
                 entrypoint_mode: EntrypointMode::Replace,
                 defaults: None,
@@ -1189,18 +1212,40 @@ container "rust-dev" {
         let temp = TempDir::new().unwrap();
         let repo_path = temp.path();
 
-        // No config files exist, should return embedded fallback
+        // No config files exist, should return embedded fallback (both binnacle and default)
         let defs = super::discover_definitions(repo_path).unwrap();
 
         assert_eq!(
             defs.len(),
-            1,
-            "Expected 1 definition, got {}: {:?}",
+            2,
+            "Expected 2 embedded definitions, got {}: {:?}",
             defs.len(),
             defs.iter().map(|d| &d.definition.name).collect::<Vec<_>>()
         );
-        assert_eq!(defs[0].definition.name, RESERVED_NAME);
-        assert_eq!(defs[0].source, super::DefinitionSource::Embedded);
+
+        // Check that binnacle (worker) is included
+        let binnacle_def = defs.iter().find(|d| d.definition.name == RESERVED_NAME);
+        assert!(
+            binnacle_def.is_some(),
+            "Expected embedded binnacle definition"
+        );
+        assert_eq!(
+            binnacle_def.unwrap().source,
+            super::DefinitionSource::Embedded
+        );
+
+        // Check that default is included
+        let default_def = defs
+            .iter()
+            .find(|d| d.definition.name == EMBEDDED_DEFAULT_NAME);
+        assert!(
+            default_def.is_some(),
+            "Expected embedded default definition"
+        );
+        assert_eq!(
+            default_def.unwrap().source,
+            super::DefinitionSource::Embedded
+        );
     }
 
     #[test]

@@ -21655,6 +21655,11 @@ const EMBEDDED_CONTAINERFILE: &[u8] = include_bytes!("../../container/Containerf
 const EMBEDDED_ENTRYPOINT: &[u8] = include_bytes!("../../container/entrypoint.sh");
 const EMBEDDED_GIT_WRAPPER: &[u8] = include_bytes!("../../container/git-wrapper.sh");
 
+/// Embedded default container files - minimal base image
+const EMBEDDED_CONTAINERFILE_DEFAULT: &[u8] =
+    include_bytes!("../../container/Containerfile.default");
+const EMBEDDED_BN_ENTRY: &[u8] = include_bytes!("../../container/bn-entry.sh");
+
 /// Write embedded container files to a directory.
 /// Returns the path to the directory containing the files.
 fn write_embedded_container_files() -> Result<PathBuf> {
@@ -21682,6 +21687,43 @@ fn write_embedded_container_files() -> Result<PathBuf> {
         .map_err(|e| Error::Other(format!("Failed to write entrypoint.sh: {}", e)))?;
 
     // Write git-wrapper.sh
+    let mut git_wrapper = fs::File::create(container_dir.join("git-wrapper.sh"))
+        .map_err(|e| Error::Other(format!("Failed to create git-wrapper.sh: {}", e)))?;
+    git_wrapper
+        .write_all(EMBEDDED_GIT_WRAPPER)
+        .map_err(|e| Error::Other(format!("Failed to write git-wrapper.sh: {}", e)))?;
+
+    Ok(temp_dir)
+}
+
+/// Write embedded default container files to a directory.
+/// Returns the path to the directory containing the files.
+fn write_embedded_default_container_files() -> Result<PathBuf> {
+    use std::fs;
+    use std::io::Write;
+
+    // Create a temp directory for the container context
+    let temp_dir =
+        std::env::temp_dir().join(format!("bn-container-default-{}", std::process::id()));
+    let container_dir = temp_dir.join("container");
+    fs::create_dir_all(&container_dir)
+        .map_err(|e| Error::Other(format!("Failed to create temp container directory: {}", e)))?;
+
+    // Write Containerfile.default
+    let mut containerfile = fs::File::create(container_dir.join("Containerfile.default"))
+        .map_err(|e| Error::Other(format!("Failed to create Containerfile.default: {}", e)))?;
+    containerfile
+        .write_all(EMBEDDED_CONTAINERFILE_DEFAULT)
+        .map_err(|e| Error::Other(format!("Failed to write Containerfile.default: {}", e)))?;
+
+    // Write bn-entry.sh
+    let mut bn_entry = fs::File::create(container_dir.join("bn-entry.sh"))
+        .map_err(|e| Error::Other(format!("Failed to create bn-entry.sh: {}", e)))?;
+    bn_entry
+        .write_all(EMBEDDED_BN_ENTRY)
+        .map_err(|e| Error::Other(format!("Failed to write bn-entry.sh: {}", e)))?;
+
+    // Write git-wrapper.sh (shared with worker)
     let mut git_wrapper = fs::File::create(container_dir.join("git-wrapper.sh"))
         .map_err(|e| Error::Other(format!("Failed to create git-wrapper.sh: {}", e)))?;
     git_wrapper
@@ -22049,11 +22091,19 @@ pub fn container_build(
         eprintln!("\n📦 Building {} ({})...", def_name, def_src.source);
 
         // Determine if we're using embedded or config-based build
-        if def_name == RESERVED_NAME
-            && def_src.source == crate::container::DefinitionSource::Embedded
-        {
-            // Legacy embedded build (backward compatibility)
-            build_embedded_container(tag, no_cache)?;
+        if def_src.source == crate::container::DefinitionSource::Embedded {
+            if def_name == RESERVED_NAME {
+                // Legacy embedded build for binnacle-worker (backward compatibility)
+                build_embedded_container(tag, no_cache)?;
+            } else if def_name == crate::container::EMBEDDED_DEFAULT_NAME {
+                // Embedded build for binnacle-default (minimal base image)
+                build_embedded_default_container(tag, no_cache)?;
+            } else {
+                return Err(Error::Other(format!(
+                    "Unknown embedded container definition: {}",
+                    def_name
+                )));
+            }
         } else {
             // Build from definition
             build_definition_container(repo_path, def_name, &def_src.definition, tag, no_cache)?;
@@ -22165,6 +22215,158 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     let temp_archive = temp_dir.join("binnacle-worker.tar");
     let temp_archive_str = temp_archive.to_string_lossy();
     let image_ref = format!("localhost/binnacle-worker:{}", tag);
+
+    let push_output = Command::new("buildah")
+        .args([
+            "push",
+            &image_ref,
+            &format!("docker-archive:{}:{}", temp_archive_str, image_ref),
+        ])
+        .output()?;
+
+    if !push_output.status.success() {
+        return Err(Error::Other(format!(
+            "Failed to export image: {}",
+            String::from_utf8_lossy(&push_output.stderr)
+        )));
+    }
+
+    eprintln!("📥 Importing image to containerd...");
+    let mode = detect_containerd_mode();
+    warn_system_containerd_mode(&mode);
+    let import_output = ctr_command(&mode)
+        .args([
+            "-n",
+            "binnacle",
+            "images",
+            "import",
+            temp_archive_str.as_ref(),
+        ])
+        .output()?;
+
+    // Clean up temp file
+    eprintln!("🧹 Cleaning up...");
+    let _ = fs::remove_file(&temp_archive);
+
+    if !import_output.status.success() {
+        let stderr = String::from_utf8_lossy(&import_output.stderr);
+
+        // Check for permission denied errors and provide helpful message
+        let error_msg = if let Some(helpful_msg) = check_containerd_permission_error(&stderr) {
+            helpful_msg
+        } else {
+            format!("Failed to import image to containerd: {}", stderr)
+        };
+
+        return Err(Error::Other(error_msg));
+    }
+
+    Ok(())
+}
+
+/// Build the embedded default container (binnacle-default base image)
+fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
+    // Determine build context: prefer external files if available, otherwise use embedded
+    // Check in order: new location (.binnacle/containers/default/), legacy location (container/), embedded
+    let (
+        build_context_dir,
+        containerfile_path,
+        binary_path,
+        bn_entry_path,
+        git_wrapper_path,
+        using_embedded,
+    ) = if Path::new(".binnacle/containers/default/Containerfile").exists() {
+        // Use new project-level container definition
+        (
+            PathBuf::from("."),
+            PathBuf::from(".binnacle/containers/default/Containerfile"),
+            PathBuf::from(".binnacle/containers/default/bn"),
+            PathBuf::from(".binnacle/containers/default/bn-entry.sh"),
+            PathBuf::from(".binnacle/containers/default/git-wrapper.sh"),
+            false,
+        )
+    } else if Path::new("container/Containerfile.default").exists() {
+        // Use legacy repository files
+        (
+            PathBuf::from("."),
+            PathBuf::from("container/Containerfile.default"),
+            PathBuf::from("container/bn"),
+            PathBuf::from("container/bn-entry.sh"),
+            PathBuf::from("container/git-wrapper.sh"),
+            false,
+        )
+    } else {
+        // Use embedded files - write them to a temp directory
+        eprintln!("📦 Using embedded container files...");
+        let temp_dir = write_embedded_default_container_files()?;
+        let containerfile = temp_dir.join("container/Containerfile.default");
+        let binary = temp_dir.join("container/bn");
+        let bn_entry = temp_dir.join("container/bn-entry.sh");
+        let git_wrapper = temp_dir.join("container/git-wrapper.sh");
+        (temp_dir, containerfile, binary, bn_entry, git_wrapper, true)
+    };
+
+    // Get the currently running binary and copy it to the build context
+    let current_exe = std::env::current_exe()
+        .map_err(|e| Error::Other(format!("Failed to get current executable path: {}", e)))?;
+
+    eprintln!(
+        "📋 Copying bn binary from {} to {}...",
+        current_exe.display(),
+        binary_path.display()
+    );
+
+    // Copy the binary to the container build context
+    fs::copy(&current_exe, &binary_path).map_err(|e| {
+        Error::Other(format!(
+            "Failed to copy binary from {} to {}: {}",
+            current_exe.display(),
+            binary_path.display(),
+            e
+        ))
+    })?;
+
+    // Build with buildah - stream output for real-time feedback
+    let image_ref = format!("localhost/binnacle-default:{}", tag);
+    eprintln!("📦 Building container image ({})...", image_ref);
+    let mut build_cmd = Command::new("buildah");
+    build_cmd
+        .arg("bud")
+        .arg("--layers") // Enable layer caching for faster rebuilds
+        .arg("-t")
+        .arg(&image_ref)
+        .arg("-f")
+        .arg(&containerfile_path)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    if no_cache {
+        build_cmd.arg("--no-cache");
+    }
+
+    build_cmd.arg(&build_context_dir);
+
+    let status = build_cmd.status()?;
+
+    // Clean up the copied binary and temp directory
+    let _ = fs::remove_file(&binary_path);
+    // We don't need to clean up bn_entry_path or git_wrapper_path if using external files
+    // They are only used at build time via COPY commands
+    let _ = bn_entry_path; // suppress unused warning
+    let _ = git_wrapper_path; // suppress unused warning
+    if using_embedded {
+        let _ = fs::remove_dir_all(&build_context_dir);
+    }
+
+    if !status.success() {
+        return Err(Error::Other("Build failed (see output above)".to_string()));
+    }
+
+    // Export and import to containerd
+    eprintln!("📤 Exporting image to docker archive...");
+    let temp_dir = get_binnacle_temp_dir()?;
+    let temp_archive = temp_dir.join("binnacle-default.tar");
+    let temp_archive_str = temp_archive.to_string_lossy();
 
     let push_output = Command::new("buildah")
         .args([
@@ -33474,8 +33676,7 @@ mod tests {
     #[test]
 
     fn test_graph_context_basic() {
-        let temp = tempfile::tempdir().unwrap();
-        Storage::init(temp.path()).unwrap();
+        let temp = setup_isolated();
 
         // Create a simple task
         let task = task_create(
@@ -33580,8 +33781,7 @@ mod tests {
     #[test]
 
     fn test_graph_context_with_descendants() {
-        let temp = tempfile::tempdir().unwrap();
-        Storage::init(temp.path()).unwrap();
+        let temp = setup_isolated();
 
         // Create parent task
         let parent = task_create(
@@ -33620,8 +33820,7 @@ mod tests {
     #[test]
 
     fn test_graph_context_human_output() {
-        let temp = tempfile::tempdir().unwrap();
-        Storage::init(temp.path()).unwrap();
+        let temp = setup_isolated();
 
         let task = task_create(
             temp.path(),
