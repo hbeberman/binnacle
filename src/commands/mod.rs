@@ -784,7 +784,7 @@ output-format "json"
 
     // Build container image if requested and not already present
     let container_built = if build_container {
-        let image_name = "localhost/binnacle-worker:latest";
+        let image_name = "localhost/binnacle-self:latest";
         if !container_image_exists(image_name) {
             eprintln!("📦 Building binnacle container image...");
             match build_embedded_container("latest", false) {
@@ -1430,7 +1430,7 @@ fn init_with_options(
 
     // Build container image if requested and not already present
     let container_built = if build_container {
-        let image_name = "localhost/binnacle-worker:latest";
+        let image_name = "localhost/binnacle-self:latest";
         if !container_image_exists(image_name) {
             eprintln!("📦 Building binnacle container image...");
             match container_build(
@@ -19864,7 +19864,7 @@ pub fn agent_spawn(
         Some(def_src) => {
             if def_src.source == DefinitionSource::Embedded {
                 (
-                    "localhost/binnacle-worker:latest".to_string(),
+                    "localhost/binnacle-self:latest".to_string(),
                     def_src.definition.name.clone(),
                 )
             } else {
@@ -19877,7 +19877,7 @@ pub fn agent_spawn(
         None => {
             // Fallback to embedded
             (
-                "localhost/binnacle-worker:latest".to_string(),
+                "localhost/binnacle-self:latest".to_string(),
                 "binnacle".to_string(),
             )
         }
@@ -21171,7 +21171,7 @@ impl Output for ContainerBuildResult {
 
             if parts.is_empty() {
                 if let Some(tag) = &self.tag {
-                    format!("Built image: localhost/binnacle-worker:{}", tag)
+                    format!("Built image: localhost/binnacle-self:{}", tag)
                 } else {
                     "Build succeeded".to_string()
                 }
@@ -21783,7 +21783,7 @@ pub fn container_build(
         // Determine if we're using embedded or config-based build
         if is_embedded {
             if def_name == RESERVED_NAME {
-                // Legacy embedded build for binnacle-worker (backward compatibility)
+                // Legacy embedded build for binnacle-self (backward compatibility)
                 build_embedded_container(tag, no_cache)?;
             } else if def_name == crate::container::EMBEDDED_DEFAULT_NAME {
                 // Embedded build for binnacle-default (minimal base image)
@@ -21830,7 +21830,7 @@ pub fn container_build(
 
 /// Build the embedded binnacle container (legacy, for backward compatibility)
 fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
-    // Ensure binnacle-default base image exists before building binnacle-worker
+    // Ensure binnacle-default base image exists before building binnacle-self
     // The worker Containerfile uses "FROM binnacle-default:latest"
     let default_image = format!("localhost/binnacle-default:{}", tag);
     if !container_image_exists(&default_image) {
@@ -21888,7 +21888,7 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
 
     // Build with buildah - stream output for real-time feedback
     eprintln!(
-        "📦 Building container image (localhost/binnacle-worker:{})...",
+        "📦 Building container image (localhost/binnacle-self:{})...",
         tag
     );
     let mut build_cmd = Command::new("buildah");
@@ -21896,7 +21896,7 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
         .arg("bud")
         .arg("--layers") // Enable layer caching for faster rebuilds
         .arg("-t")
-        .arg(format!("localhost/binnacle-worker:{}", tag))
+        .arg(format!("localhost/binnacle-self:{}", tag))
         .arg("-f")
         .arg(&containerfile_path)
         .stdout(Stdio::inherit())
@@ -21926,9 +21926,9 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     // OCI archives require annotations that buildah doesn't always include.
     eprintln!("📤 Exporting image to docker archive...");
     let temp_dir = get_binnacle_temp_dir()?;
-    let temp_archive = temp_dir.join("binnacle-worker.tar");
+    let temp_archive = temp_dir.join("binnacle-self.tar");
     let temp_archive_str = temp_archive.to_string_lossy();
-    let image_ref = format!("localhost/binnacle-worker:{}", tag);
+    let image_ref = format!("localhost/binnacle-self:{}", tag);
 
     let push_output = Command::new("buildah")
         .args([
@@ -22390,7 +22390,7 @@ pub fn container_run(
                 if def_src.source == DefinitionSource::Embedded {
                     // Embedded uses the hardcoded name
                     (
-                        "localhost/binnacle-worker:latest".to_string(),
+                        "localhost/binnacle-self:latest".to_string(),
                         def_name.to_string(),
                     )
                 } else {
@@ -22431,7 +22431,7 @@ pub fn container_run(
             Some(def_src) => {
                 if def_src.source == DefinitionSource::Embedded {
                     (
-                        "localhost/binnacle-worker:latest".to_string(),
+                        "localhost/binnacle-self:latest".to_string(),
                         def_src.definition.name.clone(),
                     )
                 } else {
@@ -22444,7 +22444,7 @@ pub fn container_run(
             None => {
                 // Fallback to embedded
                 (
-                    "localhost/binnacle-worker:latest".to_string(),
+                    "localhost/binnacle-self:latest".to_string(),
                     "binnacle".to_string(),
                 )
             }

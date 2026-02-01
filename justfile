@@ -295,7 +295,7 @@ gui-check:
     ./scripts/gui-check.sh
 
 # Build the container image (builds release binary first)
-container tag="binnacle-worker:latest":
+container tag="binnacle-self:latest":
     @echo "Building release binary..."
     cargo build --release
     @echo "Copying binary to container/bn..."

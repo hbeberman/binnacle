@@ -9,11 +9,11 @@ Binnacle provides two container images:
 | Image | Purpose | Build Command |
 |-------|---------|---------------|
 | `binnacle-default` | Minimal base layer with bn + copilot CLI | `bn container build default` |
-| `binnacle-worker` | Full development environment with LSPs and tooling | `bn container build worker` |
+| `binnacle-self` | Full development environment with LSPs and tooling | `bn container build worker` |
 
 **`binnacle-default`** is a minimal Fedora 43-based image containing only the essentials: `bn`, Copilot CLI, git, and basic tools. Use it as a base layer for custom containers.
 
-**`binnacle-worker`** includes the full development environment: Rust toolchain, Node.js, rust-analyzer, TypeScript LSP, Lightpanda, and more.
+**`binnacle-self`** includes the full development environment: Rust toolchain, Node.js, rust-analyzer, TypeScript LSP, Lightpanda, and more.
 
 ## Quick Start
 
@@ -85,7 +85,7 @@ The container worker provides:
 │                    namespace: binnacle                          │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │              binnacle-worker container                   │   │
+│  │              binnacle-self container                   │   │
 │  │                                                          │   │
 │  │  /workspace (repo worktree)    [bind mount, r/w]        │   │
 │  │  /binnacle  (graph data)       [bind mount, r/w]        │   │
@@ -426,7 +426,7 @@ Existing images are skipped, so subsequent builds are fast. Use `--all` to rebui
 For development builds using the justfile:
 
 ```bash
-just container                   # Build binary + container with tag 'binnacle-worker:latest'
+just container                   # Build binary + container with tag 'binnacle-self:latest'
 just container myimage:v1.0      # Build with custom tag
 ```
 
@@ -440,7 +440,7 @@ cargo build --release
 cp target/release/bn container/bn
 
 # 3. Build the container image
-podman build -t binnacle-worker:latest -f container/Containerfile .
+podman build -t binnacle-self:latest -f container/Containerfile .
 
 # 4. Clean up
 rm container/bn

@@ -69,7 +69,7 @@ Replace the Docker Compose-based container workflow with direct containerd integ
 │                    namespace: binnacle                          │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │              binnacle-worker container                   │   │
+│  │              binnacle-self container                   │   │
 │  │                                                          │   │
 │  │  /workspace (repo worktree)    [bind mount, r/w]        │   │
 │  │  /binnacle  (graph data)       [bind mount, r/w]        │   │
@@ -100,7 +100,7 @@ Build the binnacle worker image using buildah.
 bn container build [--tag TAG] [--no-cache]
 
 # Examples:
-bn container build                    # Build localhost/binnacle-worker:latest
+bn container build                    # Build localhost/binnacle-self:latest
 bn container build --tag v0.5.0       # Build with specific tag
 bn container build --no-cache         # Force rebuild without cache
 ```
@@ -108,9 +108,9 @@ bn container build --no-cache         # Force rebuild without cache
 **Implementation:**
 ```bash
 # Equivalent to:
-buildah bud -t localhost/binnacle-worker:latest -f container/Containerfile .
-buildah push localhost/binnacle-worker:latest oci-archive:/tmp/binnacle-worker.tar
-sudo ctr -n binnacle images import /tmp/binnacle-worker.tar
+buildah bud -t localhost/binnacle-self:latest -f container/Containerfile .
+buildah push localhost/binnacle-self:latest oci-archive:/tmp/binnacle-self.tar
+sudo ctr -n binnacle images import /tmp/binnacle-self.tar
 ```
 
 #### `bn container run`
@@ -144,8 +144,8 @@ sudo ctr -n binnacle run \
   --env BN_AGENT_TYPE=worker \
   --env BN_CONTAINER_MODE=true \
   --env COPILOT_GITHUB_TOKEN=$COPILOT_GITHUB_TOKEN \
-  localhost/binnacle-worker:latest \
-  binnacle-worker-$(date +%s)
+  localhost/binnacle-self:latest \
+  binnacle-self-$(date +%s)
 ```
 
 #### `bn container stop`
@@ -156,7 +156,7 @@ Stop a running binnacle container.
 bn container stop [NAME]
 
 # Examples:
-bn container stop binnacle-worker-1706083200    # Stop specific container
+bn container stop binnacle-self-1706083200    # Stop specific container
 bn container stop --all                          # Stop all binnacle containers
 ```
 
@@ -194,10 +194,10 @@ Rename `container/Dockerfile` to `container/Containerfile` for OCI compliance:
 
 ```dockerfile
 # Binnacle Worker Container
-# Build with: buildah bud -t binnacle-worker -f container/Containerfile .
+# Build with: buildah bud -t binnacle-self -f container/Containerfile .
 FROM docker.io/library/fedora:43
 
-LABEL org.opencontainers.image.title="binnacle-worker"
+LABEL org.opencontainers.image.title="binnacle-self"
 LABEL org.opencontainers.image.description="AI agent worker with binnacle task tracking"
 
 # Install system dependencies
@@ -354,7 +354,7 @@ which ctr buildah  # Both should exist
 
 # 2. Build image
 bn container build
-sudo ctr -n binnacle images list  # Should show binnacle-worker
+sudo ctr -n binnacle images list  # Should show binnacle-self
 
 # 3. Create test worktree
 git worktree add ../test-worker -b test-agent

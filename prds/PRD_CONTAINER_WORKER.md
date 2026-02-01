@@ -174,7 +174,7 @@ echo "🎉 Agent work complete!"
 # Base: Fedora 43
 FROM docker.io/library/fedora:43
 
-LABEL org.opencontainers.image.title="binnacle-worker"
+LABEL org.opencontainers.image.title="binnacle-self"
 LABEL org.opencontainers.image.description="AI agent worker with binnacle task tracking"
 LABEL org.opencontainers.image.source="https://github.com/henry/binnacle"
 
@@ -232,16 +232,16 @@ ENTRYPOINT ["/entrypoint.sh"]
 
 ```yaml
 # docker-compose.yml
-# Usage: docker-compose up binnacle-worker
+# Usage: docker-compose up binnacle-self
 
 version: "3.8"
 
 services:
-  binnacle-worker:
+  binnacle-self:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: binnacle-worker
+    container_name: binnacle-self
 
     environment:
       - BN_AGENT_TYPE=${BN_AGENT_TYPE:-coder}
@@ -283,7 +283,7 @@ services:
   # Debug shell variant - doesn't auto-start agent
   binnacle-shell:
     extends:
-      service: binnacle-worker
+      service: binnacle-self
     container_name: binnacle-shell
     entrypoint: /bin/bash
     command: []
@@ -331,7 +331,7 @@ export WORKTREE_PATH
 export BINNACLE_DATA_PATH="$BINNACLE_DATA"
 export BN_AGENT_TYPE="$AGENT_TYPE"
 
-docker-compose up binnacle-worker
+docker-compose up binnacle-self
 ```
 
 ## Implementation Plan
@@ -388,7 +388,7 @@ docker-compose up binnacle-worker
 
 ```bash
 # 1. Build container
-docker build -t binnacle-worker -f container/Dockerfile .
+docker build -t binnacle-self -f container/Dockerfile .
 
 # 2. Create test worktree
 git worktree add ../test-worktree -b test-agent
@@ -398,7 +398,7 @@ docker run -it --rm \
   -v $(pwd)/../test-worktree:/workspace \
   -v ~/.local/share/binnacle/$(echo -n $(pwd) | sha256sum | cut -c1-16):/binnacle \
   -e COPILOT_GITHUB_TOKEN=$COPILOT_GITHUB_TOKEN \
-  binnacle-worker /bin/bash
+  binnacle-self /bin/bash
 
 # 4. Inside container, verify:
 bn orient -H              # Should show project state
@@ -425,7 +425,7 @@ git worktree remove ../test-worktree
 
 ## Success Criteria
 
-1. `docker-compose up binnacle-worker` launches an agent that can complete tasks
+1. `docker-compose up binnacle-self` launches an agent that can complete tasks
 2. Agent can read and modify the binnacle graph
 3. Completed work is automatically merged to target branch
 4. Merge failures are clearly reported without data loss

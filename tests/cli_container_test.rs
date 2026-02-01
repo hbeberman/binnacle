@@ -828,7 +828,7 @@ fn test_container_list_definitions_human_readable() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("binnacle (embedded)"))
-        .stdout(predicate::str::contains("binnacle-worker container"));
+        .stdout(predicate::str::contains("binnacle-self container"));
 }
 
 #[test]
@@ -868,7 +868,8 @@ container "rust-dev" {
         .stdout(predicate::str::contains("\"name\":\"base\""))
         .stdout(predicate::str::contains("\"name\":\"rust-dev\""))
         .stdout(predicate::str::contains("\"source\":\"project\""))
-        .stdout(predicate::str::contains("\"count\":2"));
+        // 2 user-defined + 2 embedded (binnacle, default)
+        .stdout(predicate::str::contains("\"count\":4"));
 
     // List definitions in human-readable format
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
@@ -879,7 +880,8 @@ container "rust-dev" {
         .stdout(predicate::str::contains("base (project)"))
         .stdout(predicate::str::contains("rust-dev (project)"))
         .stdout(predicate::str::contains("Parent: base"))
-        .stdout(predicate::str::contains("2 container definition(s) found"));
+        // 2 user-defined + 2 embedded = 4
+        .stdout(predicate::str::contains("4 container definition(s) found"));
 }
 
 #[test]
@@ -1104,7 +1106,8 @@ container "replace-mode" {
         .stdout(predicate::str::contains("\"name\":\"before-mode\""))
         .stdout(predicate::str::contains("\"name\":\"after-mode\""))
         .stdout(predicate::str::contains("\"name\":\"replace-mode\""))
-        .stdout(predicate::str::contains("\"count\":4"));
+        // 4 user-defined + 2 embedded (binnacle, default)
+        .stdout(predicate::str::contains("\"count\":6"));
 }
 
 #[test]
@@ -1342,8 +1345,8 @@ container "child" {
     cmd.current_dir(env.repo_path());
     cmd.args(["container", "build", "child"]);
     cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("\"success\":false"));
+        .failure()
+        .stderr(predicate::str::contains("parent container not found"));
 }
 
 #[test]
@@ -1377,7 +1380,8 @@ container "child" {
     cmd.args(["container", "list-definitions"]);
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("\"count\":3"));
+        // 3 user-defined + 2 embedded = 5
+        .stdout(predicate::str::contains("\"count\":5"));
 
     // Human-readable should show parent relationships
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
@@ -1423,7 +1427,8 @@ container "c" {
         .stdout(predicate::str::contains("\"name\":\"a\""))
         .stdout(predicate::str::contains("\"name\":\"b\""))
         .stdout(predicate::str::contains("\"name\":\"c\""))
-        .stdout(predicate::str::contains("\"count\":3"));
+        // 3 user-defined + 2 embedded = 5
+        .stdout(predicate::str::contains("\"count\":5"));
 }
 
 #[test]
@@ -1520,7 +1525,8 @@ container "go-dev" {
     cmd.args(["container", "list-definitions"]);
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("\"count\":4"));
+        // 4 user-defined + 2 embedded = 6
+        .stdout(predicate::str::contains("\"count\":6"));
 
     // All should show parent "base"
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
