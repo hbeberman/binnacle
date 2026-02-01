@@ -261,6 +261,78 @@ registerHandler('log_entry', (message) => {
     console.debug('Added log entry:', entry);
 });
 
+/**
+ * Handle 'sync_catchup' message - incremental catch-up from missed messages
+ * 
+ * When a client reconnects or detects a version gap, it sends a request_sync
+ * with last_version. If the server can provide incremental updates, it sends
+ * sync_catchup with an array of missed messages to replay.
+ * 
+ * Expected message format:
+ * {
+ *   type: 'sync_catchup',
+ *   version: number,
+ *   messages: Array<{type: string, ...}>  // Array of missed incremental messages
+ * }
+ */
+registerHandler('sync_catchup', (message) => {
+    const { version, messages } = message;
+    
+    console.log(`Processing sync_catchup: ${messages?.length || 0} messages to version ${version}`);
+    
+    if (!Array.isArray(messages)) {
+        console.warn('sync_catchup missing messages array');
+        return;
+    }
+    
+    // Process each missed message in order
+    for (const msg of messages) {
+        if (msg && msg.type) {
+            handleMessage(msg);
+        }
+    }
+    
+    // Update version after processing all messages
+    if (version !== undefined) {
+        state.set('sync.version', version);
+    }
+    
+    console.log(`Sync catch-up complete, now at version ${version}`);
+});
+
+/**
+ * Handle 'sync_response' message - server response when catch-up not possible
+ * 
+ * When the server cannot provide incremental catch-up (e.g., client version
+ * is too old or no version was provided), it sends sync_response with
+ * action='reload' to tell the client to do a full state refresh.
+ * 
+ * Expected message format:
+ * {
+ *   type: 'sync_response',
+ *   version: number,
+ *   action: 'reload',
+ *   reason: 'version_too_old' | 'no_version_provided'
+ * }
+ */
+registerHandler('sync_response', (message) => {
+    const { version, action, reason } = message;
+    
+    console.log(`Sync response: action=${action}, reason=${reason}, version=${version}`);
+    
+    if (action === 'reload') {
+        // Trigger full reload via the reload callback
+        // This is the fallback when incremental sync isn't possible
+        if (reloadCallback) {
+            reloadCallback();
+        }
+    }
+    
+    if (version !== undefined) {
+        state.set('sync.version', version);
+    }
+});
+
 // ============================================
 // Helper functions
 // ============================================

@@ -156,6 +156,24 @@ function routeMessage(message, baseUrl, onStateChange) {
         return handled;
     }
     
+    // Handle sync catch-up messages (incremental replay of missed messages)
+    if (message.type === 'sync_catchup') {
+        const handled = handleMessage(message);
+        if (handled && onStateChange) {
+            onStateChange('sync_catchup');
+        }
+        return handled;
+    }
+    
+    // Handle sync response messages (reload fallback when catch-up not possible)
+    if (message.type === 'sync_response') {
+        const handled = handleMessage(message);
+        if (handled && onStateChange) {
+            onStateChange('sync_response');
+        }
+        return handled;
+    }
+    
     // Try generic message handler
     return handleMessage(message);
 }
