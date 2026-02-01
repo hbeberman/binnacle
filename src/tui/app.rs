@@ -1547,13 +1547,13 @@ pub async fn run_tui(
                 eprintln!("Error: Failed to connect to remote session at {}", endpoint);
                 eprintln!("\nDetails: {}", e);
             } else {
-                // Local connection failed - suggest starting session server
+                // Local connection failed - auto-launch should have started the server
                 eprintln!(
                     "Error: No session server detected at {}:{}",
                     display_host, display_port
                 );
                 eprintln!("Session server should start automatically. If problems persist,");
-                eprintln!("try running: bn session serve");
+                eprintln!("check for errors in: bn session serve");
                 eprintln!("\nDetails: {}", e);
             }
             std::process::exit(1);

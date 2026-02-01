@@ -2502,12 +2502,22 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
     // Note: This function requires the gui feature for ProcessStatus and verify_process.
     // When only tui is enabled, we skip process verification and just check state.kdl.
     #[cfg(feature = "gui")]
-    use binnacle::gui::{ProcessStatus, verify_process};
+    use binnacle::gui::{ProcessStatus, get_repo_display_name, verify_process};
     use binnacle::storage::Storage;
     use std::process::{Command, Stdio};
 
     // Heartbeat staleness threshold: 60 seconds
     const HEARTBEAT_STALE_THRESHOLD_SECS: i64 = 60;
+
+    // Get repo@branch display name for messages
+    #[cfg(feature = "gui")]
+    let display_name = get_repo_display_name(repo_path);
+    #[cfg(not(feature = "gui"))]
+    let display_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
 
     let storage = Storage::open(repo_path)?;
     let binnacle_state = storage.read_binnacle_state()?;
@@ -2524,16 +2534,16 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
                 ProcessStatus::Running if !heartbeat_stale => {
                     // Session server is running and healthy
                     eprintln!(
-                        "Session server already running (pid: {}, port: {})",
-                        serve_state.pid, serve_state.port
+                        "Session server running: {} (pid: {}, port: {})",
+                        display_name, serve_state.pid, serve_state.port
                     );
                     return Ok(None);
                 }
                 ProcessStatus::Running => {
                     // Process exists but heartbeat is stale - might be hung
                     eprintln!(
-                        "Session server heartbeat stale (pid: {}), restarting...",
-                        serve_state.pid
+                        "Session server stale: {} (pid: {}), restarting...",
+                        display_name, serve_state.pid
                     );
                     // Try to stop the old process
                     let _ = send_signal(serve_state.pid, Signal::Term);
@@ -2541,7 +2551,7 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
                 }
                 ProcessStatus::Stale | ProcessStatus::NotRunning => {
                     // Process doesn't exist or is a different process
-                    eprintln!("Session server not running, starting...");
+                    eprintln!("Starting session server: {}...", display_name);
                 }
             }
         }
@@ -2552,12 +2562,12 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
             if !heartbeat_stale {
                 // Heartbeat is recent, assume server is running
                 eprintln!(
-                    "Session server appears to be running (pid: {}, port: {})",
-                    serve_state.pid, serve_state.port
+                    "Session server running: {} (pid: {}, port: {})",
+                    display_name, serve_state.pid, serve_state.port
                 );
                 return Ok(None);
             } else {
-                eprintln!("Session server heartbeat stale, restarting...");
+                eprintln!("Session server stale: {}, restarting...", display_name);
             }
         }
 
@@ -2566,7 +2576,7 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
         updated_state.clear_serve();
         storage.write_binnacle_state(&updated_state)?;
     } else {
-        eprintln!("Starting session server...");
+        eprintln!("Starting session server: {}...", display_name);
     }
 
     // Spawn new session server
@@ -2585,7 +2595,10 @@ fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>
         .map_err(|e| binnacle::Error::Other(format!("Failed to spawn session server: {}", e)))?;
 
     let child_pid = child.id();
-    eprintln!("Session server started (pid: {})", child_pid);
+    eprintln!(
+        "Session server started: {} (pid: {})",
+        display_name, child_pid
+    );
 
     // Wait a moment for the server to initialize and write its state
     std::thread::sleep(std::time::Duration::from_millis(500));

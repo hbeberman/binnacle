@@ -63,7 +63,7 @@ fn readonly_error() -> (StatusCode, Json<serde_json::Value>) {
 /// - `https://github.com/owner/repo` (no .git suffix) → `repo`
 ///
 /// Falls back to the directory name if git remote is not available.
-fn derive_repo_name(repo_path: &Path) -> String {
+pub fn derive_repo_name(repo_path: &Path) -> String {
     // Try to get remote URL from git
     if let Ok(output) = std::process::Command::new("git")
         .args(["remote", "get-url", "origin"])
@@ -114,6 +114,34 @@ fn parse_repo_name_from_url(url: &str) -> Option<String> {
     }
 
     None
+}
+
+/// Get the current git branch name for the given repository.
+///
+/// Returns "HEAD" if detached or "unknown" if git command fails.
+pub fn get_current_branch(repo_path: &Path) -> String {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Get repo@branch display string for the given repository.
+pub fn get_repo_display_name(repo_path: &Path) -> String {
+    let repo_name = derive_repo_name(repo_path);
+    let branch = get_current_branch(repo_path);
+    format!("{}@{}", repo_name, branch)
 }
 
 /// Extract repository name from a path like "owner/repo.git" or "owner/repo"

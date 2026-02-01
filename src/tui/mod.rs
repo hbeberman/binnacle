@@ -1,7 +1,7 @@
 //! Terminal User Interface module for binnacle
 //!
 //! This module provides a keyboard-driven TUI for real-time cluster monitoring.
-//! It connects to a running `bn serve` instance via WebSocket and displays
+//! It connects to a session server (`bn session serve`) via WebSocket and displays
 //! queue status, recently completed items, and node details.
 
 #[cfg(feature = "tui")]

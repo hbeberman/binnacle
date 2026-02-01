@@ -402,7 +402,7 @@ For detailed instructions, see: container/README.md
 
     /// Terminal UI for real-time cluster monitoring (requires 'tui' feature)
     ///
-    /// Connects to a running `bn serve` or `bn gui serve` instance via WebSocket
+    /// Connects to a session server (`bn session serve`) via WebSocket
     /// and displays a keyboard-driven interface for monitoring queued tasks,
     /// recently completed items, and exploring node details.
     #[cfg(feature = "tui")]

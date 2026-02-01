@@ -32,6 +32,9 @@ pub use pid_file::{GuiPidFile, GuiPidInfo, ProcessStatus, verify_process};
 #[cfg(feature = "gui")]
 pub use protocol::{Change, ClientMessage, GraphState, ServerMessage, StateSummary};
 #[cfg(feature = "gui")]
-pub use server::{DEFAULT_PORT, find_available_port, start_server, start_session_server};
+pub use server::{
+    DEFAULT_PORT, derive_repo_name, find_available_port, get_current_branch, get_repo_display_name,
+    start_server, start_session_server,
+};
 #[cfg(feature = "gui")]
 pub use tunnel::{TunnelError, TunnelManager};
