@@ -9,111 +9,129 @@ Task tracker for AI agents. Stores data outside your repo so it doesn't pollute 
 > [!WARNING]
 > Early alpha. Things *will* break.
 
-## Quick Start
+## Onboarding
 
-Get from zero to running an AI agent in under 5 minutes.
-
-### 1. Install Binnacle
-
+**Prerequisites:**
 ```bash
-# Ensure ~/.local/bin is in your PATH
-export PATH=$HOME/.local/bin:$PATH
-
-# Download and install (Linux x86_64)
-wget https://github.com/hbeberman/binnacle/releases/download/v0.0.1-alpha.8/bn-x86_64-unknown-linux-gnu.tar.gz
-tar -xf bn-x86_64-unknown-linux-gnu.tar.gz
-install -m 755 bn ~/.local/bin/
-rm bn bn-x86_64-unknown-linux-gnu.tar.gz
-
-# Or install via cargo
-cargo install binnacle@=0.0.1-alpha.8
-```
-
-### 2. Create a GitHub PAT with Copilot Permissions
-
-1. Go to https://github.com/settings/tokens
-2. Click **"Generate new token"** → **"Fine-grained token"**
-3. Give it a name (e.g., "binnacle")
-4. Set expiration (90 days recommended)
-5. Under **"Repository access"**, select your target repositories or "All repositories"
-6. Under **"Permissions"**, enable:
-   - **"Copilot"** → Read-only (required for AI agents)
-7. Click **"Generate token"** and copy the token
-
-### 3. Install Copilot CLI
-
-```bash
-npm install -g @github/copilot
-```
-
-### 4. Initialize Binnacle
-
-```bash
-# Create a project (or use an existing git repo)
-mkdir hello && cd hello && git init
-
-# First-time setup (once per machine) - validates token and stores it
-bn system host-init --token <your-token>
-
-# Initialize binnacle for this repository
-bn session init
-
-# Or use the shorthand that does both (auto-initializes system if needed)
-bn orient
-```
-
-### 5. Run Your First Agent
-
-```bash
-bn-agent buddy                  # Interactive assistant for task management
-bn gui                          # Web interface at http://localhost:3030
-```
-
-**Container mode** (isolated environment):
-```bash
-# Prerequisites: containerd, buildah
-bn container build binnacle
-bn-agent --container buddy
-```
-
-For more details, see [Running Agents](#running-agents) and [Containerized Agents](#containerized-agents-quick-start).
-
-## Build Prerequisites
-
-### Rust Toolchain
-
-Install Rust via [rustup](https://rustup.rs/):
-
-```bash
+# Rust Things
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-### System Dependencies
-
-**Fedora/RHEL/Rocky Linux:**
-
-```bash
-sudo dnf install gcc make pkg-config openssl-devel
-```
-
-**Ubuntu/Debian:**
-
-```bash
-sudo apt-get update
-sudo apt-get install build-essential pkg-config libssl-dev
-```
-
-**For WASM viewer builds** (optional):
-
-```bash
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
+
+# System deps (Fedora/RHEL)
+sudo dnf install gcc make pkg-config openssl-devel containerd buildah nodejs npm
+sudo systemctl enable --now containerd
+
+# System deps (Ubuntu/Debian)
+sudo apt-get install build-essential pkg-config libssl-dev containerd buildah nodejs npm
+sudo systemctl enable --now containerd
+
+# GUI bundling deps
+npm install marked highlight.js
 ```
 
-## Install
+**Install binnacle:**
+```bash
+cargo install binnacle@=0.0.1-alpha.9 --all-features # from crates.io (unit tests willing)
+# or
+cargo install --git https://github.com/hbeberman/binnacle --tag v0.0.1-alpha.9 --all-features  # from git
+
+# Initialize Binnacle on your system (and build its default containers)
+bn system host-init
+bn container build default  # Minimal Binnacle base layer of bn + copilot
+
+# Go to your GIT project
+cd your-project
+cp ~/repos/binnacle/.binnacle . # Yoink Binnacle's container definition
+
+# Initialize (creates data store outside your repo)
+bn session init --auto-global
+bn container build worker # We just copied binnacle's for now
+
+# Create your first task
+bn task create "Build the thing" -s "build thing" -p 1
+
+# See what's ready to work on
+bn ready -H
+
+# Work on it
+bn task update bn-xxxx --status in_progress
+
+# Done? Close it
+bn task close bn-xxxx --reason "shipped it"
+```
+
+**What just happened?**
+- `bn session init --auto-global` created `~/.local/share/binnacle/<repo-hash>/` to store your tasks (not in your repo!)
+- Tasks get IDs like `bn-a1b2` — use these to reference them
+- `-H` means "human readable" — without it you get JSON (great for scripts/agents)
+- `-s "short name"` gives tasks a scannable label
+
+**Visual dashboard?**
+```bash
+bn gui                     # Opens http://localhost:3030 with a live task graph
+```
+
+**Model dependencies?**
+```bash
+bn link add bn-xxxx bn-yyyy --type depends_on   # xxxx depends on yyyy
+bn blocked -H              # See what's waiting
+```
+
+That's it. Everything else is refinement. Run `bn --help` when you need more.
+
+### Running a Worker Agent
+
+Once you have tasks, let an AI agent work through them.
+
+**Get a GitHub PAT with Copilot access:**
+1. Go to https://github.com/settings/tokens
+2. Click **"Generate new token"** → **"Fine-grained token"**
+3. Name it (e.g., "binnacle"), set expiration (default is fine)
+4. **Repository access**: select your target repos or "All repositories"
+5. **Permissions**: enable **"Copilot Requests"** → Read-only
+6. Click **"Generate token"** and copy it
 
 ```bash
-cargo install --path .
+# One-time setup
+#bn system host-init --token <your-token>              # Interactive — validates token, installs host files, builds containers
+#bn system host-init --token <your-token> --install-copilot --install-bn-agent  # Non-interactive — just Copilot + bn-agent
+
+# Setup Your PAT somewhere, for just a session or persist it, up to you.
+export COPILOT_GITHUB_TOKEN=<PAT>
+
+# Create some work
+bn task create "Add user authentication" -s "auth" -p 1
+bn task create "Write API tests" -s "api tests" -p 2
+
+# Let the agent pick a task and work on it
+bn-agent --once --host auto       # On host (direct access to filesystem)
+bn-agent --once auto              # In container (isolated, merges on success)
+```
+
+The agent will:
+1. Run `bn orient` to understand the project
+2. Pick a ready task from `bn ready`
+3. Implement it, commit changes locally
+4. Close the task with `bn task close`
+5. Exit gracefully with `bn goodbye`
+
+**Agent modes:**
+```bash
+bn-agent auto                 # Run in container (isolated, auto-merges to main)
+bn-agent --host auto          # Run on host, (shared with system, auto-merges to main)
+bn-agent --once --host auto   # Run once and exit
+bn-agent buddy                # Interactive — add tasks/bugs/ideas via chat
+bn-agent do "fix the bug"     # One-off task without creating a bn task first
+```
+
+**Define your own Containers:**
+More likely than not your project wont need Binnacle's build deps to compile, so binnacle supports a layered container approach where it ships a built-in minimal fedora container, then a project can define a .binnacle/containers/worker/ structure (see binnacle itself as a reference), to bring their own custom build tools. Currently bn-agent is hardcoded to look for the worker container
+Set all that up (i.e. just copy it from binnacle itself), then run the following in your session:
+```bash
+bn container list-definitions -H
+cp -r ~/repos/binnacle/.binnacle ~/repos/your-project
+bn container list-definitions -H
 ```
 
 ## Usage
@@ -168,35 +186,6 @@ bn-agent qa                      # interactive Q&A for exploring the codebase (r
 ```
 
 **Note:** `bn-agent` automatically resolves the Copilot binary via `bn system copilot path` and runs it with `--no-auto-update` to prevent mid-workflow updates. Install a pinned version with `bn system copilot install --upstream` before running agents.
-
-### Containerized Agents (Quick Start)
-
-Run AI agents in isolated containers with full access to the binnacle task graph:
-
-```bash
-# 1. Install prerequisites (Fedora/RHEL)
-sudo dnf install containerd buildah
-sudo systemctl enable --now containerd
-
-# 2. Create a worktree for the agent to work in
-git worktree add ../agent-work -b agent-feature
-
-# 3. Build the container image
-bn container build binnacle
-
-# 4. Run the container
-bn container run ../agent-work
-```
-
-The container mounts your worktree and binnacle data, runs an AI agent (copilot or claude with pinned versions), and auto-merges completed work back to `main`.
-
-**Copilot Version Management:**
-- Containers use a pinned GitHub Copilot CLI version pre-installed during image build
-- The pinned version is managed by `bn system copilot` commands
-- Copilot runs with `--no-auto-update` to prevent runtime updates
-- This ensures consistent agent behavior across container runs
-
-See [container/README.md](container/README.md) for full documentation including resource limits, environment variables, and troubleshooting.
 
 ## What It Tracks
 
@@ -322,6 +311,7 @@ Development mode (`--dev` flag):
 - `BN_GUI_TUNNEL`: Enable tunnel mode (see below)
 
 ### Public URL via Dev Tunnels
+(Currently out of commission)
 
 Share your GUI publicly without port forwarding using Microsoft Dev Tunnels:
 

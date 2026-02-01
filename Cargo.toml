@@ -1,6 +1,6 @@
 [package]
 name = "binnacle"
-version = "0.0.1-alpha.8"
+version = "0.0.1-alpha.9"
 edition = "2024"
 rust-version = "1.85"
 description = "A CLI tool for AI agents and humans to track project graphs"
@@ -82,7 +82,10 @@ libc = { version = "0.2", optional = true }
 ratatui = { version = "0.29", optional = true }
 crossterm = { version = "0.28", optional = true }
 tokio-tungstenite = { version = "0.24", optional = true }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls",
+], optional = true }
 
 [features]
 gui = [
