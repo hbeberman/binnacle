@@ -3,6 +3,7 @@
 
 container "worker" {
     description "AI agent worker with binnacle task tracking"
+    parent "default"
     
     defaults {
         cpus 4
