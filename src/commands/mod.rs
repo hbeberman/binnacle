@@ -23480,16 +23480,18 @@ mod tests {
     use crate::test_utils::TestEnv;
     use serial_test::serial;
 
-    fn setup() -> TestEnv {
-        let env = TestEnv::new_with_env();
+    /// Setup function for parallel tests using thread-local isolation.
+    /// Tests using this don't need #[serial].
+    fn setup_isolated() -> TestEnv {
+        let env = TestEnv::new_isolated();
         Storage::init(env.path()).unwrap();
         env
     }
 
     #[test]
-    #[serial]
+
     fn test_init_new() {
-        let env = TestEnv::new_with_env();
+        let env = TestEnv::new_isolated();
         let result = init_with_options(
             env.path(),
             false,
@@ -23508,9 +23510,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_init_existing() {
-        let env = TestEnv::new_with_env();
+        let env = TestEnv::new_isolated();
         Storage::init(env.path()).unwrap();
         let result = init_with_options(
             env.path(),
@@ -23530,9 +23532,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_create() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = task_create(
             temp.path(),
             "Test task".to_string(),
@@ -23548,9 +23550,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = task_create(
             temp.path(),
             "Test".to_string(),
@@ -23567,9 +23569,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_list() {
-        let temp = setup();
+        let temp = setup_isolated();
         task_create(
             temp.path(),
             "Task 1".to_string(),
@@ -23596,9 +23598,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_update() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = task_create(
             temp.path(),
             "Original".to_string(),
@@ -23636,9 +23638,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_reopen() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = task_create(
             temp.path(),
             "Test".to_string(),
@@ -23662,9 +23664,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_closed_task_update_requires_flag() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = task_create(
             temp.path(),
             "Test".to_string(),
@@ -23703,9 +23705,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_closed_task_update_with_keep_closed() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = task_create(
             temp.path(),
             "Test".to_string(),
@@ -23746,9 +23748,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_closed_task_update_with_reopen() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = task_create(
             temp.path(),
             "Test".to_string(),
@@ -23789,9 +23791,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_cancelled_task_update_requires_flag() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = task_create(
             temp.path(),
             "Test".to_string(),
@@ -23843,9 +23845,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_with_incomplete_deps_fails() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -23879,9 +23881,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_with_incomplete_deps_force() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -23918,9 +23920,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_with_complete_deps_success() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -23963,9 +23965,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_promotes_partial_dependents() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -24003,9 +24005,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_requires_commit_when_config_enabled() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Test task".to_string(),
@@ -24029,9 +24031,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_succeeds_with_linked_commit_when_config_enabled() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Test task".to_string(),
@@ -24060,9 +24062,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_force_bypasses_commit_requirement() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Test task".to_string(),
@@ -24083,9 +24085,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_works_without_commit_when_config_disabled() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Test task".to_string(),
@@ -24106,9 +24108,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_task_close_auto_completes_parent_milestone() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a milestone
         let milestone = milestone_create(
@@ -24189,9 +24190,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_bug_close_auto_completes_parent_milestone() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a milestone
         let milestone = milestone_create(
@@ -24235,9 +24235,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_task_close_no_auto_complete_when_milestone_already_done() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a milestone and close it manually
         let milestone = milestone_create(
@@ -24286,9 +24285,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_auto_completes_with_mixed_task_and_bug_children() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a milestone
         let milestone = milestone_create(
@@ -24352,9 +24351,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_warns_when_linked_commit_not_in_repo() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Initialize as a git repo
         std::process::Command::new("git")
@@ -24393,9 +24392,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_update_warns_when_linked_commit_not_in_repo() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Initialize as a git repo
         std::process::Command::new("git")
@@ -24447,9 +24446,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_close_removes_agent_association() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Register using parent PID since that's how agents are now identified
         // (the bn command itself exits, so we track the parent process instead)
@@ -24519,9 +24518,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_update_status_done_requires_commit_when_enabled() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Test task".to_string(),
@@ -24558,9 +24557,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_update_status_done_force_bypasses_commit_requirement() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Test task".to_string(),
@@ -24595,9 +24594,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_update_status_done_succeeds_with_linked_commit() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Test task".to_string(),
@@ -24640,9 +24639,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_update_status_cancelled_ignores_commit_requirement() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Test task".to_string(),
@@ -24677,9 +24676,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_update_in_progress_tracks_agent_association() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Register using parent PID since that's how agents are now identified
         let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
@@ -24735,9 +24734,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_update_in_progress_warns_on_multiple_tasks() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Register using parent PID since that's how agents are now identified
         let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
@@ -24818,9 +24817,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_update_in_progress_force_allows_multiple_tasks() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Register using parent PID since that's how agents are now identified
         let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
@@ -24901,9 +24900,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_delete() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = task_create(
             temp.path(),
             "Test".to_string(),
@@ -24923,9 +24922,9 @@ mod tests {
     // === Dependency Command Tests ===
 
     #[test]
-    #[serial]
+
     fn test_dep_add() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -24957,9 +24956,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_dep_add_transitions_done_to_partial() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -24995,9 +24994,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_dep_add_cycle_rejected() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25028,9 +25027,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_dep_rm() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25061,9 +25060,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_dep_show() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25108,9 +25107,9 @@ mod tests {
     // === Query Command Tests ===
 
     #[test]
-    #[serial]
+
     fn test_ready_command() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25141,9 +25140,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_blocked_command() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25175,9 +25174,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_ready_after_dependency_done() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25221,9 +25220,9 @@ mod tests {
     // === Commit Command Tests ===
 
     #[test]
-    #[serial]
+
     fn test_commit_link() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25241,9 +25240,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_commit_link_invalid_sha() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25261,18 +25260,18 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_commit_link_nonexistent_task() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let result = commit_link(temp.path(), "a1b2c3d", "bn-9999");
         assert!(result.is_err());
     }
 
     #[test]
-    #[serial]
+
     fn test_commit_unlink() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25296,9 +25295,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_commit_unlink_nonexistent() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25315,9 +25314,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_commit_list() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25338,9 +25337,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_commit_list_empty() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25357,18 +25356,18 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_commit_list_nonexistent_task() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let result = commit_list(temp.path(), "bn-9999");
         assert!(result.is_err());
     }
 
     #[test]
-    #[serial]
+
     fn test_git_commit_exists_valid() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a git repo and make a commit
         std::process::Command::new("git")
@@ -25413,9 +25412,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_git_commit_exists_invalid() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a git repo but don't make any commits
         std::process::Command::new("git")
@@ -25430,9 +25429,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_git_commit_exists_tree_object() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a git repo with a commit
         std::process::Command::new("git")
@@ -25478,9 +25477,9 @@ mod tests {
     // === Doctor Command Tests ===
 
     #[test]
-    #[serial]
+
     fn test_doctor_healthy() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a queue so the repo is fully healthy
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -25509,9 +25508,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_consistency_done_task_with_pending_dep() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create two tasks: A depends on B
         let task_a = task_create(
@@ -25549,9 +25548,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_stats() {
-        let temp = setup();
+        let temp = setup_isolated();
         task_create(
             temp.path(),
             "Task 1".to_string(),
@@ -25588,9 +25587,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_bug_stats() {
-        let temp = setup();
+        let temp = setup_isolated();
         task_create(
             temp.path(),
             "Task 1".to_string(),
@@ -25634,9 +25633,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_bug_done_with_pending_bug_dep() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create two bugs: Bug A depends on Bug B
         let bug_b = bug_create(
@@ -25690,9 +25689,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_detects_legacy_bni_prefix() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a queue so we don't get that warning
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -25710,9 +25709,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_fix_migrates_bni_prefix() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a queue so we don't get that warning
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -25740,9 +25739,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_detects_orphaned_edges() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a queue so we don't get that warning
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -25795,9 +25794,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_detects_orphaned_edge_source() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a queue so we don't get that warning
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -25850,9 +25849,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_detects_orphan_docs() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a queue so we don't get that warning
         let mut storage = Storage::open(temp.path()).unwrap();
@@ -25923,9 +25922,9 @@ mod tests {
     // === Log Command Tests ===
 
     #[test]
-    #[serial]
+
     fn test_log_basic() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25943,9 +25942,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_log_filter_by_task() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -25973,9 +25972,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_log_includes_updates() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -26013,9 +26012,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_log_includes_close() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -26036,9 +26035,9 @@ mod tests {
     // === Config Command Tests ===
 
     #[test]
-    #[serial]
+
     fn test_config_set_and_get() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         config_set(temp.path(), "test.key", "test_value").unwrap();
         let result = config_get(temp.path(), "test.key").unwrap();
@@ -26048,9 +26047,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_config_get_nonexistent() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let result = config_get(temp.path(), "nonexistent.key").unwrap();
         assert_eq!(result.key, "nonexistent.key");
@@ -26058,9 +26057,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_config_list() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Storage now initializes with 4 default configs
         let default_count = 6;
@@ -26085,9 +26084,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_config_list_with_defaults() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Verify default configs are present after initialization
         let result = config_list(temp.path()).unwrap();
@@ -26133,9 +26132,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_config_overwrite() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         config_set(temp.path(), "key", "value1").unwrap();
         config_set(temp.path(), "key", "value2").unwrap();
@@ -26148,9 +26147,9 @@ mod tests {
     // === Init AGENTS.md Tests ===
 
     #[test]
-    #[serial]
+
     fn test_init_creates_agents_md() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Verify AGENTS.md doesn't exist yet
@@ -26183,9 +26182,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_init_appends_to_existing_agents_md() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Create existing AGENTS.md
@@ -26216,9 +26215,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_init_appends_section_if_legacy_bn_orient() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Create existing AGENTS.md that references bn orient but lacks markers
@@ -26254,9 +26253,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_init_idempotent_agents_md() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
 
         // Run init twice with AGENTS.md enabled
         init_with_options(
@@ -26294,9 +26293,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_init_no_change_when_standard_blurb_already_present() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Pre-create AGENTS.md with the exact standard content (with trailing newline)
@@ -26329,9 +26328,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_init_replaces_custom_binnacle_section() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Create existing AGENTS.md with custom binnacle section
@@ -26368,9 +26367,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agents_md_has_html_markers() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         let agents_path = temp.path().join("AGENTS.md");
 
         // Run init with AGENTS.MD update enabled
@@ -26398,9 +26397,9 @@ mod tests {
     // === Commit-msg Hook Tests ===
 
     #[test]
-    #[serial]
+
     fn test_hook_install_creates_hook_file() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         // Create .git/hooks directory
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
@@ -26418,9 +26417,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_hook_install_appends_to_existing_hook() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         let hooks_dir = temp.path().join(".git").join("hooks");
         std::fs::create_dir_all(&hooks_dir).unwrap();
 
@@ -26437,9 +26436,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_hook_install_idempotent() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
         // Install hook first time
@@ -26457,9 +26456,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_hook_uninstall_removes_binnacle_section() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         let hooks_dir = temp.path().join(".git").join("hooks");
         std::fs::create_dir_all(&hooks_dir).unwrap();
 
@@ -26479,9 +26478,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_hook_uninstall_removes_file_if_only_binnacle() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
         // Install hook (creates new file)
@@ -26499,9 +26498,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_hook_uninstall_noop_when_no_hook() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
         // Uninstall when no hook exists
@@ -26510,9 +26509,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_hook_skips_coauthor_when_using_default_identity() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
         let result = install_commit_msg_hook(temp.path()).unwrap();
@@ -26528,9 +26527,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_hook_uninstall_noop_when_no_binnacle_section() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         let hooks_dir = temp.path().join(".git").join("hooks");
         std::fs::create_dir_all(&hooks_dir).unwrap();
 
@@ -26548,9 +26547,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_init_with_hook_flag() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
         // Init with hook installation
@@ -26575,9 +26574,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_init_without_hook_flag() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
         std::fs::create_dir_all(temp.path().join(".git").join("hooks")).unwrap();
 
         // Init without hook installation
@@ -26604,9 +26603,9 @@ mod tests {
     // === Orient Command Tests ===
 
     #[test]
-    #[serial]
+
     fn test_orient_without_init_fails_when_not_initialized() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
 
         // Verify not initialized
         assert!(!Storage::exists(temp.path()).unwrap());
@@ -26618,9 +26617,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_with_init_creates_database() {
-        let temp = TestEnv::new_with_env();
+        let temp = TestEnv::new_isolated();
 
         // Verify not initialized
         assert!(!Storage::exists(temp.path()).unwrap());
@@ -26639,9 +26638,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_shows_task_counts() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create some tasks
         task_create(
@@ -26673,9 +26672,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_shows_blocked_tasks() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let task_a = task_create(
             temp.path(),
@@ -26709,9 +26708,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_shows_in_progress_tasks() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let task = task_create(
             temp.path(),
@@ -26747,9 +26746,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_human_output() {
-        let temp = setup();
+        let temp = setup_isolated();
         task_create(
             temp.path(),
             "Task A".to_string(),
@@ -26771,9 +26770,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_shows_bug_counts() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create some bugs with different severities and statuses
         bug_create(
@@ -26837,9 +26836,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_with_purpose_registers_agent() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Orient with a purpose (dry_run: false to actually register)
         let _result = orient(
@@ -26866,9 +26865,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_without_purpose_shows_unregistered() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Orient without a purpose (dry_run: false to actually register)
         let _result = orient(
@@ -26894,9 +26893,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_can_update_purpose() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // First orient without purpose (dry_run: false to actually register)
         let _result = orient(
@@ -26938,7 +26937,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_orient_test_mode_indicator_in_human_output() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // SAFETY: Test runs in isolation (serial). Set env vars before test.
         unsafe {
@@ -26994,7 +26993,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_orient_no_test_mode_indicator_in_production() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // SAFETY: Test runs in isolation (serial). Ensure env vars are unset.
         unsafe {
@@ -27031,9 +27030,9 @@ mod tests {
     // === Blocker Analysis Tests ===
 
     #[test]
-    #[serial]
+
     fn test_task_show_no_dependencies_no_blocking_info() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task = task_create(
             temp.path(),
             "Solo Task".to_string(),
@@ -27052,9 +27051,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_all_dependencies_complete() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -27106,9 +27105,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_direct_blockers() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -27194,9 +27193,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_transitive_blockers() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -27258,9 +27257,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_mixed_complete_incomplete_deps() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -27312,9 +27311,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_blocker_summary_format() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -27366,9 +27365,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_cancelled_dependencies_dont_block() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -27437,9 +27436,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_blocked_status_is_blocker() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -27493,9 +27492,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_partial_status_is_blocker() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -27547,9 +27546,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_reopened_status_is_blocker() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -27589,9 +27588,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_deep_transitive_blocker_chain() {
-        let temp = setup();
+        let temp = setup_isolated();
         // Create chain: D -> C -> B -> A
         let task_a = task_create(
             temp.path(),
@@ -27661,9 +27660,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_show_multiple_transitive_blockers() {
-        let temp = setup();
+        let temp = setup_isolated();
         // Create diamond: D depends on B and C, both B and C depend on A
         let task_a = task_create(
             temp.path(),
@@ -27729,7 +27728,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_build_blocker_summary_single() {
         let blockers = vec![DirectBlocker {
             id: "bn-test1".to_string(),
@@ -27747,7 +27746,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_build_blocker_summary_multiple_with_assignees() {
         let blockers = vec![
             DirectBlocker {
@@ -27779,7 +27778,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_build_blocker_summary_no_assignee() {
         let blockers = vec![DirectBlocker {
             id: "bn-test1".to_string(),
@@ -27796,7 +27795,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_build_blocker_summary_with_transitive_blockers() {
         let blockers = vec![DirectBlocker {
             id: "bn-test1".to_string(),
@@ -27815,9 +27814,9 @@ mod tests {
     // === Bug Command Tests ===
 
     #[test]
-    #[serial]
+
     fn test_bug_create() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = bug_create(
             temp.path(),
             "Test bug".to_string(),
@@ -27836,9 +27835,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_create_defaults() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = bug_create(
             temp.path(),
             "Minimal bug".to_string(),
@@ -27861,9 +27860,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_create_invalid_priority() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = bug_create(
             temp.path(),
             "Bad priority".to_string(),
@@ -27886,9 +27885,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_create_with_parent_issue() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a parent issue first
         let issue = issue_create(
@@ -27931,9 +27930,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_create_with_invalid_parent() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a task (not an issue)
         let task = task_create(
@@ -27973,9 +27972,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_create_with_nonexistent_parent() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Attempt to create a bug with nonexistent parent
         let result = bug_create_with_queue(
@@ -28003,9 +28002,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_show() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Test bug".to_string(),
@@ -28033,17 +28032,17 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_show_not_found() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = bug_show(temp.path(), "bn-nonexistent");
         assert!(result.is_err());
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_list() {
-        let temp = setup();
+        let temp = setup_isolated();
         bug_create(
             temp.path(),
             "Bug 1".to_string(),
@@ -28076,9 +28075,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_list_filter_by_status() {
-        let temp = setup();
+        let temp = setup_isolated();
         let bug1 = bug_create(
             temp.path(),
             "Bug 1".to_string(),
@@ -28117,9 +28116,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_list_filter_by_priority() {
-        let temp = setup();
+        let temp = setup_isolated();
         bug_create(
             temp.path(),
             "High priority".to_string(),
@@ -28153,9 +28152,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_list_filter_by_severity() {
-        let temp = setup();
+        let temp = setup_isolated();
         bug_create(
             temp.path(),
             "Critical bug".to_string(),
@@ -28190,9 +28189,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_list_filter_by_tag() {
-        let temp = setup();
+        let temp = setup_isolated();
         bug_create(
             temp.path(),
             "UI bug".to_string(),
@@ -28226,9 +28225,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_update() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Original bug".to_string(),
@@ -28293,9 +28292,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_closed_bug_update_requires_flag() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Test Bug".to_string(),
@@ -28340,9 +28339,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_closed_bug_update_with_keep_closed() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Test Bug".to_string(),
@@ -28388,9 +28387,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_closed_bug_update_with_reopen() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Test Bug".to_string(),
@@ -28436,9 +28435,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_update_status() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
@@ -28478,9 +28477,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_update_add_remove_tags() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
@@ -28521,9 +28520,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_update_no_fields_error() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
@@ -28566,9 +28565,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_update_invalid_priority() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
@@ -28611,9 +28610,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_update_in_progress_tracks_agent_association() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Register using parent PID since that's how agents are now identified
         let parent_pid = get_parent_pid().unwrap_or_else(std::process::id);
@@ -28675,9 +28674,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_close() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
@@ -28712,9 +28711,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_close_auto_resolves_parent_issue_when_all_children_closed() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create an issue
         let issue = issue_create(
@@ -28784,9 +28783,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_close_no_auto_resolve_when_no_parent_issue() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a bug without a parent issue
         let bug = bug_create(
@@ -28809,9 +28808,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_close_no_auto_resolve_when_parent_issue_already_resolved() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create an issue
         let issue = issue_create(
@@ -28866,9 +28865,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_reopen() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
@@ -28900,9 +28899,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_delete() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
@@ -28925,9 +28924,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_severity_values() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         for (severity_str, expected) in [
             ("triage", BugSeverity::Triage),
@@ -28956,9 +28955,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_output_human_format() {
-        let temp = setup();
+        let temp = setup_isolated();
         let created = bug_create(
             temp.path(),
             "Test bug".to_string(),
@@ -28988,9 +28987,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_list_output_human_format() {
-        let temp = setup();
+        let temp = setup_isolated();
         bug_create(
             temp.path(),
             "Bug 1".to_string(),
@@ -29016,9 +29015,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_list_empty_output() {
-        let temp = setup();
+        let temp = setup_isolated();
         let list = bug_list(temp.path(), None, None, None, None, false).unwrap();
         let human = list.to_human();
         assert_eq!(human, "No bugs found.");
@@ -29027,9 +29026,9 @@ mod tests {
     // === Search Link Tests ===
 
     #[test]
-    #[serial]
+
     fn test_search_link_empty() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = search_link(temp.path(), None, None, None).unwrap();
         assert_eq!(result.count, 0);
         assert!(result.edges.is_empty());
@@ -29037,9 +29036,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_search_link_by_type() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create two tasks to link (title, short_name, description, priority, tags, assignee)
         let task1 = task_create(
@@ -29089,9 +29088,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_search_link_by_source() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let task1 = task_create(
             temp.path(),
@@ -29156,9 +29155,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_search_link_by_target() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let task1 = task_create(
             temp.path(),
@@ -29199,9 +29198,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_search_link_combined_filters() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let task1 = task_create(
             temp.path(),
@@ -29253,9 +29252,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_link_add_depends_on_requires_reason() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let task1 = task_create(
             temp.path(),
@@ -29305,9 +29304,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_link_add_pinned_edge() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let task1 = task_create(
             temp.path(),
@@ -29345,9 +29344,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_link_add_non_pinned_edge() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let task1 = task_create(
             temp.path(),
@@ -29386,9 +29385,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_search_link_output_human_format() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let task1 = task_create(
             temp.path(),
@@ -29432,9 +29431,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_search_link_empty_output() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = search_link(temp.path(), None, None, None).unwrap();
         let human = result.to_human();
         assert_eq!(human, "No edges found.");
@@ -29443,9 +29442,9 @@ mod tests {
     // === Doctor Edge Migration Tests ===
 
     #[test]
-    #[serial]
+
     fn test_doctor_migrate_edges_no_legacy_deps() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create tasks without depends_on
         task_create(
@@ -29479,9 +29478,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_migrate_edges_with_legacy_deps() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Create tasks
@@ -29529,9 +29528,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_migrate_edges_dry_run() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Create tasks
@@ -29577,9 +29576,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_migrate_edges_clean_unused() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Create tasks
@@ -29623,9 +29622,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_migrate_edges_skips_existing() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Create tasks
@@ -29675,9 +29674,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_doctor_migrate_edges_output_format() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create task without deps
         task_create(
@@ -29707,9 +29706,9 @@ mod tests {
     // === Entity Type Mismatch Tests ===
 
     #[test]
-    #[serial]
+
     fn test_task_show_returns_bug_when_id_is_bug() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a bug
         let bug = bug_create(
@@ -29744,9 +29743,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_bug_show_returns_task_when_id_is_task() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a task
         let task = task_create(
@@ -29778,9 +29777,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_entity_mismatch_json_output() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a bug
         let bug = bug_create(
@@ -29809,9 +29808,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_config_get_bool_default() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Non-existent key should return default
         assert!(!config_get_bool(
@@ -29827,9 +29826,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_config_get_bool_true_values() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Test various "true" values
@@ -29844,9 +29843,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_config_get_bool_false_values() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Test various "false" values
@@ -29861,9 +29860,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_require_commit_for_close_config_validation() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Valid boolean values should work
         assert!(config_set(temp.path(), "require_commit_for_close", "true").is_ok());
@@ -29879,9 +29878,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_co_author_enabled_config_validation() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Valid boolean values should work
         assert!(config_set(temp.path(), "git.co-author.enabled", "true").is_ok());
@@ -29897,9 +29896,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_git_bot_name_config_validation() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Valid non-empty name should work
         assert!(config_set(temp.path(), "git-bot.name", "my-bot").is_ok());
@@ -29911,9 +29910,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_git_bot_email_config_validation() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Valid non-empty email should work
         assert!(config_set(temp.path(), "git-bot.email", "bot@example.com").is_ok());
@@ -29925,9 +29924,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_git_anonymous_allow_config_validation() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Valid boolean values should work
         assert!(config_set(temp.path(), "git.anonymous.allow", "true").is_ok());
@@ -29943,9 +29942,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_resolve_git_identity_with_host_identity() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // When host identity is provided, it should be used regardless of config
@@ -29958,9 +29957,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_resolve_git_identity_anonymous_allowed_no_host() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Set anonymous mode to true (explicitly)
@@ -29975,9 +29974,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_resolve_git_identity_anonymous_disallowed_no_host() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Disable anonymous mode
@@ -29992,9 +29991,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_resolve_git_identity_uses_custom_bot_config() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Set custom bot identity
@@ -30013,9 +30012,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_resolve_git_identity_host_takes_precedence_over_config() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Even with anonymous disallowed, host identity should work
@@ -30030,9 +30029,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_resolve_git_identity_partial_host_identity_uses_bot() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
         storage.set_config("git.anonymous.allow", "true").unwrap();
 
@@ -30048,9 +30047,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_resolve_git_identity_empty_strings_treated_as_missing() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
         storage.set_config("git.anonymous.allow", "true").unwrap();
 
@@ -30064,9 +30063,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_config_get_string_default() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Non-existent key should return default
         assert_eq!(
@@ -30080,9 +30079,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_config_get_string_set_value() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Set custom values
         config_set(temp.path(), "git-bot.name", "my-bot").unwrap();
@@ -30102,9 +30101,9 @@ mod tests {
     // === Agent Scaling Config Tests ===
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_defaults() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Without any config set, should return defaults (min=0, max=1)
         let scaling = config_get_agent_scaling(temp.path()).unwrap();
@@ -30117,9 +30116,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_set_and_get() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Set worker scaling
         let result = config_set_agent_scaling(temp.path(), "worker", Some(1), Some(3)).unwrap();
@@ -30139,9 +30138,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_partial_update() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Set initial values
         config_set_agent_scaling(temp.path(), "worker", Some(1), Some(3)).unwrap();
@@ -30158,9 +30157,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_min_greater_than_max_fails() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Try to set min > max
         let result = config_set_agent_scaling(temp.path(), "worker", Some(5), Some(3));
@@ -30171,9 +30170,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_invalid_type() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Try invalid agent type
         let result = config_set_agent_scaling(temp.path(), "invalid", Some(1), Some(2));
@@ -30186,9 +30185,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_via_config_set() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Set via the general config_set function (validates the key format)
         // Set max first to avoid min > max validation error
@@ -30202,9 +30201,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_validation_invalid_value() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Non-integer value should fail
         let result = config_set(temp.path(), "agents.worker.min", "abc");
@@ -30222,9 +30221,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_validation_invalid_field() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Invalid field name should fail
         let result = config_set(temp.path(), "agents.worker.invalid_field", "1");
@@ -30238,9 +30237,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_all_types() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Set scaling for all types
         config_set_agent_scaling(temp.path(), "worker", Some(1), Some(3)).unwrap();
@@ -30258,9 +30257,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_copilot_version_defaults_to_latest() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Should default to "latest" when not set
@@ -30269,9 +30268,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_copilot_version_set_creates_block_format() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Set copilot version
@@ -30300,9 +30299,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_copilot_version_reads_old_attribute_format() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Manually write old attribute format
@@ -30314,9 +30313,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_copilot_version_reads_new_block_format() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Manually write new block format
@@ -30332,9 +30331,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_copilot_version_update_replaces_old_format() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Write old attribute format
@@ -30355,9 +30354,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_copilot_path_uses_config_version() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Set a specific version
@@ -30370,9 +30369,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_copilot_path_uses_binnacle_preferred_when_latest() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Explicitly set to "latest"
@@ -30387,9 +30386,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_persists_to_kdl() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Set scaling config
         config_set_agent_scaling(temp.path(), "worker", Some(2), Some(4)).unwrap();
@@ -30414,9 +30413,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_reads_from_kdl() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Manually write config.kdl
         let storage = Storage::open(temp.path()).unwrap();
@@ -30433,9 +30432,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_scaling_config_updates_existing_kdl() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Set initial config
         config_set_agent_scaling(temp.path(), "worker", Some(1), Some(2)).unwrap();
@@ -30458,7 +30457,7 @@ mod tests {
     #[serial]
     fn test_config_inherits_from_system() {
         // Use separate temp dirs for system and session
-        let temp = setup();
+        let temp = setup_isolated();
         let system_temp = tempfile::tempdir().unwrap();
 
         // Set up system config
@@ -30511,7 +30510,7 @@ mod tests {
     #[serial]
     fn test_session_config_overrides_system() {
         // Use separate temp dirs for system and session
-        let temp = setup();
+        let temp = setup_isolated();
         let system_temp = tempfile::tempdir().unwrap();
 
         // Set up system config
@@ -30581,7 +30580,7 @@ mod tests {
     #[serial]
     fn test_get_all_agent_scaling_merges_system_and_session() {
         // Use separate temp dirs for system and session
-        let temp = setup();
+        let temp = setup_isolated();
         let system_temp = tempfile::tempdir().unwrap();
 
         // Set up system config with worker and planner
@@ -30644,9 +30643,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_parent_of_rejects_multiple_parents() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create three tasks (title, short_name, description, priority, tags, assignee)
         let parent1 = task_create(
@@ -30707,9 +30706,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_child_of_rejects_multiple_parents() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create three tasks
         let parent1 = task_create(
@@ -30756,9 +30755,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_parent_of_blocks_child_of() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create tasks
         let parent1 = task_create(
@@ -30811,9 +30810,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_child_of_blocks_parent_of() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create tasks
         let parent1 = task_create(
@@ -30867,9 +30866,9 @@ mod tests {
     // === Goodbye Tests ===
 
     #[test]
-    #[serial]
+
     fn test_goodbye_unregistered_agent() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Goodbye without orient should still work (unregistered agent)
         let result = goodbye(temp.path(), None, false);
@@ -30883,9 +30882,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_goodbye_with_reason() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let result = goodbye(temp.path(), Some("Task completed".to_string()), false);
         assert!(result.is_ok());
@@ -30895,9 +30894,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_goodbye_output_format() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         let result = goodbye(temp.path(), Some("Done".to_string()), false).unwrap();
 
@@ -30917,9 +30916,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_reconcile_handles_goodbye_agents() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Register an agent with goodbye_at set
@@ -30946,9 +30945,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_reconcile_handles_goodbye_agents_with_container_id() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Use the current process PID so is_alive() returns true
@@ -30991,9 +30990,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_reconcile_removes_goodbye_agents_when_not_dry_run() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Use a derived PID to avoid conflicts with other tests
@@ -31034,9 +31033,9 @@ mod tests {
     // === Agent Kill Tests ===
 
     #[test]
-    #[serial]
+
     fn test_agent_kill_not_found() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Try to kill a non-existent agent
         let result = agent_kill(temp.path(), "99999", 1);
@@ -31048,9 +31047,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_kill_by_pid_dead_process() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Register an agent with a fake PID (won't be running)
@@ -31069,9 +31068,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_kill_by_name_dead_process() {
-        let temp = setup();
+        let temp = setup_isolated();
         let mut storage = Storage::open(temp.path()).unwrap();
 
         // Register an agent with a fake PID
@@ -31089,7 +31088,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_agent_kill_output_format() {
         let result = AgentKillResult {
             pid: 12345,
@@ -31112,7 +31111,7 @@ mod tests {
     // === Sync Tests ===
 
     #[test]
-    #[serial]
+
     fn test_sync_result_output_no_branch() {
         let result = SyncResult {
             operation: "none".to_string(),
@@ -31135,7 +31134,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_sync_result_output_success() {
         let result = SyncResult {
             operation: "sync".to_string(),
@@ -31161,7 +31160,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_sync_result_no_changes() {
         let result = SyncResult {
             operation: "sync".to_string(),
@@ -31183,7 +31182,7 @@ mod tests {
     #[serial]
     fn test_sync_no_orphan_branch() {
         // Create a git repo without orphan branch
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Initialize git
         Command::new("git")
@@ -31213,9 +31212,9 @@ mod tests {
     // === Graph Component Tests ===
 
     #[test]
-    #[serial]
+
     fn test_graph_components_empty() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = graph_components(temp.path()).unwrap();
         assert_eq!(result.component_count, 0);
         assert!(result.components.is_empty());
@@ -31223,9 +31222,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_components_single_isolated_task() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a single task
         task_create(
@@ -31248,9 +31247,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_components_multiple_isolated() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create two unconnected tasks
         task_create(
@@ -31280,9 +31279,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_components_connected_tasks() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create two tasks and link them
         let task1 = task_create(
@@ -31325,9 +31324,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_components_human_output() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create two isolated tasks
         task_create(
@@ -31360,9 +31359,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_writes_session_state() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Run orient (dry_run: false to test session state writing)
         let _result = orient(temp.path(), "worker", false, None, None, false).unwrap();
@@ -31377,9 +31376,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_orient_updates_session_state_on_reorient() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // First orient as worker (dry_run: false to test session state writing)
         orient(temp.path(), "worker", false, None, None, false).unwrap();
@@ -31396,9 +31395,9 @@ mod tests {
     // === Partial Status Transition Tests ===
 
     #[test]
-    #[serial]
+
     fn test_partial_task_excluded_from_ready() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -31434,9 +31433,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_partial_task_appears_in_blocked() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -31472,9 +31471,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_done_to_partial_skipped_when_dependency_already_done() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -31510,9 +31509,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_done_to_partial_skipped_when_dependency_cancelled() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -31563,9 +31562,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_cascading_partial_promotion() {
-        let temp = setup();
+        let temp = setup_isolated();
         // Create chain: C -> B -> A
         let task_a = task_create(
             temp.path(),
@@ -31636,9 +31635,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_partial_with_multiple_dependencies_all_must_complete() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -31692,9 +31691,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_removing_dependency_does_not_auto_promote_partial() {
-        let temp = setup();
+        let temp = setup_isolated();
         let task_a = task_create(
             temp.path(),
             "Task A".to_string(),
@@ -31734,21 +31733,21 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_parse_memory_limit_bytes() {
         assert_eq!(parse_memory_limit("1024").unwrap(), 1024);
         assert_eq!(parse_memory_limit("2048").unwrap(), 2048);
     }
 
     #[test]
-    #[serial]
+
     fn test_parse_memory_limit_kilobytes() {
         assert_eq!(parse_memory_limit("512k").unwrap(), 512 * 1024);
         assert_eq!(parse_memory_limit("1kb").unwrap(), 1024);
     }
 
     #[test]
-    #[serial]
+
     fn test_parse_memory_limit_megabytes() {
         assert_eq!(parse_memory_limit("512m").unwrap(), 512 * 1024 * 1024);
         assert_eq!(parse_memory_limit("1mb").unwrap(), 1024 * 1024);
@@ -31756,7 +31755,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_parse_memory_limit_gigabytes() {
         assert_eq!(parse_memory_limit("1g").unwrap(), 1024 * 1024 * 1024);
         assert_eq!(parse_memory_limit("2gb").unwrap(), 2 * 1024 * 1024 * 1024);
@@ -31764,7 +31763,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_parse_memory_limit_invalid() {
         assert!(parse_memory_limit("invalid").is_err());
         assert!(parse_memory_limit("512x").is_err());
@@ -31814,7 +31813,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_archive_schema_fingerprint_export_manifest() {
         // Create an ExportManifest with all fields populated
         let mut checksums = std::collections::HashMap::new();
@@ -31852,7 +31851,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_archive_schema_fingerprint_export_config() {
         let config = super::ExportConfig {
             repo_path: "/path/to/repo".to_string(),
@@ -31872,7 +31871,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_archive_format_version() {
         // This test ensures the archive format version is explicitly tracked.
         // If you need to make breaking changes to the archive format:
@@ -31895,9 +31894,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_create_with_complexity_check_simple() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = task_create_with_complexity_check(
             temp.path(),
             "Fix typo in README".to_string(),
@@ -31918,9 +31917,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_create_with_complexity_check_complex() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = task_create_with_complexity_check(
             temp.path(),
             "Add authentication and fix database and improve logging".to_string(),
@@ -31947,9 +31946,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_task_create_with_complexity_check_preserves_options() {
-        let temp = setup();
+        let temp = setup_isolated();
         let result = task_create_with_complexity_check(
             temp.path(),
             "Explore caching options and investigate patterns".to_string(),
@@ -31976,10 +31975,10 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_detect_worktree_parent_git_regular_repo() {
         // Regular git repo has .git directory, not file
-        let env = TestEnv::new_with_env();
+        let env = TestEnv::new_isolated();
         let git_dir = env.path().join(".git");
         std::fs::create_dir_all(&git_dir).unwrap();
 
@@ -31989,10 +31988,10 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_detect_worktree_parent_git_no_git() {
         // Directory with no .git at all
-        let env = TestEnv::new_with_env();
+        let env = TestEnv::new_isolated();
 
         // Should return None when no .git exists
         let result = detect_worktree_parent_git(env.path());
@@ -32000,7 +31999,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_detect_worktree_parent_git_worktree() {
         use tempfile::tempdir;
 
@@ -32030,7 +32029,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_get_default_archive_directory_returns_archive_path() {
         // Just test that the function returns a path ending with /archives
         // We can't easily manipulate env vars in Rust 2024 without unsafe
@@ -32095,7 +32094,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_ctr_command_system_mode() {
         let mode = ContainerdMode::System;
         let cmd = ctr_command(&mode);
@@ -32104,7 +32103,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_ctr_command_rootless_mode() {
         let mode = ContainerdMode::Rootless {
             socket_path: "/run/user/1000/containerd/containerd.sock".to_string(),
@@ -32115,9 +32114,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_find_queued_ancestors_direct_parent() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Create queue
@@ -32159,9 +32158,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_find_queued_ancestors_grandparent() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Create queue
@@ -32235,9 +32234,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_find_queued_ancestors_none() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Create parent task (not queued)
@@ -32273,9 +32272,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_find_queued_ancestors_no_parents() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Create standalone task
@@ -32296,9 +32295,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_find_queued_ancestors_finds_nearest() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Create queue
@@ -32373,9 +32372,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_find_queued_ancestors_handles_cycles() {
-        let temp = setup();
+        let temp = setup_isolated();
         let storage = Storage::open(temp.path()).unwrap();
 
         // Create queue
@@ -32452,9 +32451,9 @@ mod tests {
     // Graph traversal tests
 
     #[test]
-    #[serial]
+
     fn test_graph_lineage_stops_at_prd() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create PRD doc with a temporary milestone to attach it to
         let temp_milestone = milestone_create(
@@ -32540,9 +32539,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_lineage_continues_past_prd() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create chain: task -> milestone1 -> PRD doc -> milestone2 (parent)
         // First create a parent milestone that the PRD is attached to
@@ -32648,9 +32647,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_lineage_respects_depth_limit() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a deep chain: task1 -> task2 -> task3 -> task4 -> task5
         let task5 = task_create(
@@ -32727,9 +32726,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_lineage_no_parents() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create task with no parent
         let task = task_create(
@@ -32754,9 +32753,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_peers_identifies_siblings() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create parent milestone
         let parent = milestone_create(
@@ -32828,9 +32827,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_peers_identifies_cousins() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create a simpler structure for testing depth=2 peers
         // We'll test that peers correctly identifies entities through shared grandparents
@@ -32943,9 +32942,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_peers_filters_closed_tasks() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create parent
         let parent = milestone_create(
@@ -33018,9 +33017,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_descendants_respects_depth() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create parent
         let parent = task_create(
@@ -33135,9 +33134,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_descendants_reports_unexplored_count() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create parent with 3 children, each with 2 grandchildren
         let parent = task_create(
@@ -33199,9 +33198,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_descendants_filters_closed() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create parent
         let parent = task_create(
@@ -33277,9 +33276,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_descendants_no_children() {
-        let temp = setup();
+        let temp = setup_isolated();
 
         // Create leaf task with no children
         let task = task_create(
@@ -33301,7 +33300,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_context_basic() {
         let temp = tempfile::tempdir().unwrap();
         Storage::init(temp.path()).unwrap();
@@ -33330,10 +33329,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_graph_context_with_hierarchy() {
-        let temp = tempfile::tempdir().unwrap();
-        Storage::init(temp.path()).unwrap();
+        let temp = setup_isolated();
 
         // Create a milestone as parent
         let milestone = milestone_create(
@@ -33409,7 +33406,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_context_with_descendants() {
         let temp = tempfile::tempdir().unwrap();
         Storage::init(temp.path()).unwrap();
@@ -33449,7 +33446,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+
     fn test_graph_context_human_output() {
         let temp = tempfile::tempdir().unwrap();
         Storage::init(temp.path()).unwrap();

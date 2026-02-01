@@ -192,20 +192,16 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn setup_test_env() -> TempDir {
+    /// Thread-local test setup that doesn't require #[serial].
+    /// Uses thread-local data dir override instead of env vars.
+    fn setup_test_env_isolated() -> TempDir {
         let temp_dir = TempDir::new().unwrap();
-        // SAFETY: Setting env var in test - must be single-threaded via serial_test
-        unsafe {
-            std::env::set_var("BN_DATA_DIR", temp_dir.path().to_str().unwrap());
-        }
+        crate::storage::set_data_dir_override(temp_dir.path().to_path_buf());
         temp_dir
     }
 
-    fn cleanup_test_env() {
-        // SAFETY: Removing env var in test - must be single-threaded via serial_test
-        unsafe {
-            std::env::remove_var("BN_DATA_DIR");
-        }
+    fn cleanup_test_env_isolated() {
+        crate::storage::clear_data_dir_override();
     }
 
     #[test]
@@ -216,16 +212,18 @@ mod tests {
     }
 
     #[test]
+
     fn test_get_session_log_path_with_override() {
-        let temp_dir = setup_test_env();
+        let temp_dir = setup_test_env_isolated();
         let path = get_session_log_path().unwrap();
         assert_eq!(path, temp_dir.path().join("session.log"));
-        cleanup_test_env();
+        cleanup_test_env_isolated();
     }
 
     #[test]
+
     fn test_log_session_event_creates_file() {
-        let temp_dir = setup_test_env();
+        let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
         log_session_event(LogLevel::Info, "Test message");
@@ -233,12 +231,13 @@ mod tests {
         assert!(log_path.exists());
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("[INFO] Test message"));
-        cleanup_test_env();
+        cleanup_test_env_isolated();
     }
 
     #[test]
+
     fn test_log_session_event_appends() {
-        let temp_dir = setup_test_env();
+        let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
         log_session_event(LogLevel::Info, "First message");
@@ -251,12 +250,13 @@ mod tests {
         assert!(lines[0].contains("[INFO] First message"));
         assert!(lines[1].contains("[WARN] Second message"));
         assert!(lines[2].contains("[ERROR] Third message"));
-        cleanup_test_env();
+        cleanup_test_env_isolated();
     }
 
     #[test]
+
     fn test_log_server_start() {
-        let temp_dir = setup_test_env();
+        let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
         log_server_start("myrepo@main", "127.0.0.1", 3030, 12345);
@@ -265,24 +265,26 @@ mod tests {
         assert!(
             content.contains("Session server started: myrepo@main on 127.0.0.1:3030 (pid: 12345)")
         );
-        cleanup_test_env();
+        cleanup_test_env_isolated();
     }
 
     #[test]
+
     fn test_log_server_stop() {
-        let temp_dir = setup_test_env();
+        let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
         log_server_stop("myrepo@main", 12345);
 
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("Session server stopped: myrepo@main (pid: 12345)"));
-        cleanup_test_env();
+        cleanup_test_env_isolated();
     }
 
     #[test]
+
     fn test_log_gui_start() {
-        let temp_dir = setup_test_env();
+        let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
         log_gui_start("/path/to/repo", "0.0.0.0", 3030, 54321, false);
@@ -291,36 +293,39 @@ mod tests {
         assert!(content.contains(
             "GUI server started: /path/to/repo on 0.0.0.0:3030 (pid: 54321, mode: read-write)"
         ));
-        cleanup_test_env();
+        cleanup_test_env_isolated();
     }
 
     #[test]
+
     fn test_log_gui_start_readonly() {
-        let temp_dir = setup_test_env();
+        let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
         log_gui_start("/path/to/repo", "0.0.0.0", 3030, 54321, true);
 
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("mode: readonly"));
-        cleanup_test_env();
+        cleanup_test_env_isolated();
     }
 
     #[test]
+
     fn test_log_auto_launch_attempt() {
-        let temp_dir = setup_test_env();
+        let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
         log_auto_launch_attempt("GUI", "/workspace/myrepo");
 
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("Auto-launch attempt from GUI: /workspace/myrepo"));
-        cleanup_test_env();
+        cleanup_test_env_isolated();
     }
 
     #[test]
+
     fn test_log_auto_launch_success() {
-        let temp_dir = setup_test_env();
+        let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
         log_auto_launch_success("TUI", "127.0.0.1", 3031, 99999);
@@ -329,18 +334,19 @@ mod tests {
         assert!(content.contains(
             "Auto-launch success from TUI: spawned server on 127.0.0.1:3031 (pid: 99999)"
         ));
-        cleanup_test_env();
+        cleanup_test_env_isolated();
     }
 
     #[test]
+
     fn test_log_auto_launch_failure() {
-        let temp_dir = setup_test_env();
+        let temp_dir = setup_test_env_isolated();
         let log_path = temp_dir.path().join("session.log");
 
         log_auto_launch_failure("GUI", "Port already in use");
 
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("Auto-launch failed from GUI: Port already in use"));
-        cleanup_test_env();
+        cleanup_test_env_isolated();
     }
 }

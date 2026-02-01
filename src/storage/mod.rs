@@ -36,9 +36,38 @@ use kdl::{KdlDocument, KdlEntry, KdlNode, KdlValue};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+
+// Thread-local data directory override for test isolation.
+// This allows tests to run in parallel without env var races.
+thread_local! {
+    static DATA_DIR_OVERRIDE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+/// Set a thread-local data directory override.
+/// Used by tests to isolate storage without mutating global env vars.
+#[doc(hidden)]
+pub fn set_data_dir_override(path: PathBuf) {
+    DATA_DIR_OVERRIDE.with(|cell| {
+        *cell.borrow_mut() = Some(path);
+    });
+}
+
+/// Clear the thread-local data directory override.
+#[doc(hidden)]
+pub fn clear_data_dir_override() {
+    DATA_DIR_OVERRIDE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+}
+
+/// Get the current thread-local data directory override, if set.
+fn get_data_dir_override() -> Option<PathBuf> {
+    DATA_DIR_OVERRIDE.with(|cell| cell.borrow().clone())
+}
 
 /// Entity type enum for generic entity lookup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -6161,20 +6190,25 @@ pub fn check_test_mode_sync_push() -> Result<()> {
 /// Get the storage directory for a repository.
 ///
 /// Uses a hash of the repository path to create a unique directory.
-/// The base directory is determined by:
-/// 1. `BN_DATA_DIR` environment variable (if set) - highest priority for test isolation
-/// 2. `BN_TEST_MODE=1` - uses `~/.local/share/binnacle-test/` (or with `BN_TEST_ID`, `~/.local/share/binnacle-test/<id>/`)
-/// 3. `BN_CONTAINER_MODE` environment variable (if set, uses `/binnacle`)
-/// 4. `/binnacle` path exists (auto-detect container environment)
-/// 5. Falls back to `~/.local/share/binnacle/`
+/// The base directory is determined by (in priority order):
+/// 1. Thread-local override (set via `set_data_dir_override`) - enables parallel test isolation
+/// 2. `BN_DATA_DIR` environment variable (if set) - for explicit test isolation
+/// 3. `BN_TEST_MODE=1` - uses `~/.local/share/binnacle-test/` (or with `BN_TEST_ID`, `~/.local/share/binnacle-test/<id>/`)
+/// 4. `BN_CONTAINER_MODE` environment variable (if set, uses `/binnacle`)
+/// 5. `/binnacle` path exists (auto-detect container environment)
+/// 6. Falls back to `~/.local/share/binnacle/`
 ///
 /// The provided path is used directly; git root detection (if desired)
 /// should be done by the caller before invoking this function.
 pub fn get_storage_dir(repo_path: &Path) -> Result<PathBuf> {
     let container_path = Path::new("/binnacle");
 
-    // BN_DATA_DIR takes highest priority - enables explicit test isolation even in containers
-    let base_dir = if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
+    // Thread-local override takes highest priority - enables parallel test isolation
+    // without env var races between threads
+    let base_dir = if let Some(override_dir) = get_data_dir_override() {
+        override_dir
+    } else if let Ok(override_dir) = std::env::var("BN_DATA_DIR") {
+        // BN_DATA_DIR env var - for explicit test isolation (requires #[serial])
         PathBuf::from(override_dir)
     } else if is_test_mode() {
         // Test mode: use binnacle-test/ root to isolate test data from production
@@ -6360,6 +6394,7 @@ mod tests {
     use super::*;
     use crate::models::{AgentType, BugSeverity, IssueStatus};
     use crate::test_utils::TestEnv;
+    use serial_test::serial;
 
     fn create_test_storage() -> (TestEnv, Storage) {
         let env = TestEnv::new();
@@ -7441,6 +7476,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_find_git_root_worktree_container_mode_skips_resolution() {
         let env = TestEnv::new();
         let base = env.path();
@@ -7495,6 +7531,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_storage_dir_uses_path_literally() {
         let env = TestEnv::new();
         let root = env.path();
@@ -8838,6 +8875,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_effective_config_merges_session_over_system() {
         use crate::config::OutputFormat;
 
@@ -9042,6 +9080,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_state_kdl_merged_precedence() {
         let (_temp_dir, storage) = create_test_storage();
 
@@ -9098,6 +9137,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_session_metadata_written_on_init() {
         // Create a new storage (which should write metadata automatically)
         let temp_dir = tempfile::tempdir().unwrap();
