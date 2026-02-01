@@ -2508,6 +2508,10 @@ pub async fn start_session_server(
 
     let display_name = format!("{}@{}", project_name, branch);
 
+    // Save values we need later before moving into AppState
+    let serve_project_name = project_name.clone();
+    let serve_branch = branch.clone();
+
     let version = StateVersion::new();
     let message_history = MessageHistory::default();
 
@@ -2557,6 +2561,36 @@ pub async fn start_session_server(
     // Log server start to session.log
     crate::gui::session_log::log_server_start(&display_name, host, port, std::process::id());
 
+    // Write serve state to state.kdl
+    let serve_state = crate::config::ServeState::new(
+        std::process::id(),
+        port,
+        host.to_string(),
+        serve_project_name,
+        serve_branch,
+    );
+    {
+        let storage_for_state = Storage::open(repo_path)?;
+        let mut binnacle_state = storage_for_state.read_binnacle_state()?;
+        binnacle_state.set_serve(serve_state);
+        storage_for_state.write_binnacle_state(&binnacle_state)?;
+    }
+
+    // Start heartbeat task to update state.kdl every 30 seconds
+    let heartbeat_repo_path = repo_path.to_path_buf();
+    let heartbeat_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            if let Ok(storage) = Storage::open(&heartbeat_repo_path) {
+                if let Ok(mut state) = storage.read_binnacle_state() {
+                    state.touch_heartbeat();
+                    let _ = storage.write_binnacle_state(&state);
+                }
+            }
+        }
+    });
+
     println!(
         "Session server started: {} on {}:{}",
         display_name, host, port
@@ -2565,8 +2599,30 @@ pub async fn start_session_server(
     println!("Press Ctrl+C to stop");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
 
+    // Run server with graceful shutdown
+    let cleanup_repo_path = repo_path.to_path_buf();
+    let server_result = axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            // Wait for Ctrl+C
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to install Ctrl+C handler");
+        })
+        .await;
+
+    // Stop heartbeat task
+    heartbeat_handle.abort();
+
+    // Clear serve state from state.kdl on shutdown
+    if let Ok(storage) = Storage::open(&cleanup_repo_path) {
+        if let Ok(mut state) = storage.read_binnacle_state() {
+            state.clear_serve();
+            let _ = storage.write_binnacle_state(&state);
+        }
+    }
+
+    server_result?;
     Ok(())
 }
 

@@ -2483,6 +2483,95 @@ fn output<T: Output>(result: &T, human: bool) {
     }
 }
 
+/// Ensure a session server is running for the given repository.
+///
+/// Checks state.kdl for an existing serve block. If found, validates that the
+/// process is alive and the heartbeat is recent. If not running or stale,
+/// spawns a new `bn session serve` process.
+///
+/// Returns the spawned child process if we started one, or None if an existing
+/// server was already running.
+#[cfg(feature = "gui")]
+fn ensure_session_server(repo_path: &Path) -> Result<Option<std::process::Child>, binnacle::Error> {
+    use binnacle::gui::{ProcessStatus, verify_process};
+    use binnacle::storage::Storage;
+    use std::process::{Command, Stdio};
+
+    // Heartbeat staleness threshold: 60 seconds
+    const HEARTBEAT_STALE_THRESHOLD_SECS: i64 = 60;
+
+    let storage = Storage::open(repo_path)?;
+    let binnacle_state = storage.read_binnacle_state()?;
+
+    // Check if session server is already running
+    if let Some(serve_state) = binnacle_state.serve {
+        let process_status = verify_process(serve_state.pid);
+        let heartbeat_stale = serve_state.is_heartbeat_stale(HEARTBEAT_STALE_THRESHOLD_SECS);
+
+        match process_status {
+            ProcessStatus::Running if !heartbeat_stale => {
+                // Session server is running and healthy
+                eprintln!(
+                    "Session server already running (pid: {}, port: {})",
+                    serve_state.pid, serve_state.port
+                );
+                return Ok(None);
+            }
+            ProcessStatus::Running => {
+                // Process exists but heartbeat is stale - might be hung
+                eprintln!(
+                    "Session server heartbeat stale (pid: {}), restarting...",
+                    serve_state.pid
+                );
+                // Try to stop the old process
+                let _ = send_signal(serve_state.pid, Signal::Term);
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            ProcessStatus::Stale | ProcessStatus::NotRunning => {
+                // Process doesn't exist or is a different process
+                eprintln!("Session server not running, starting...");
+            }
+        }
+
+        // Clear stale serve state
+        let mut updated_state = storage.read_binnacle_state()?;
+        updated_state.clear_serve();
+        storage.write_binnacle_state(&updated_state)?;
+    } else {
+        eprintln!("Starting session server...");
+    }
+
+    // Spawn new session server
+    let current_exe = std::env::current_exe().map_err(|e| {
+        binnacle::Error::Other(format!("Failed to get current executable path: {}", e))
+    })?;
+
+    let child = Command::new(&current_exe)
+        .arg("session")
+        .arg("serve")
+        .current_dir(repo_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| binnacle::Error::Other(format!("Failed to spawn session server: {}", e)))?;
+
+    let child_pid = child.id();
+    eprintln!("Session server started (pid: {})", child_pid);
+
+    // Wait a moment for the server to initialize and write its state
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // Verify it started successfully by checking state.kdl
+    let updated_state = storage.read_binnacle_state()?;
+    if updated_state.serve.is_none() {
+        // Give it a bit more time
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+
+    Ok(Some(child))
+}
+
 /// Run the GUI web server
 #[cfg(feature = "gui")]
 fn run_gui(
@@ -2555,6 +2644,13 @@ fn run_gui(
             }
         }
     }
+
+    // Auto-launch session server if needed (skip for archive mode which is read-only)
+    let session_child = if archive_path.is_none() {
+        ensure_session_server(&actual_repo_path)?
+    } else {
+        None
+    };
 
     // Tunnel mode: check devtunnel availability and authentication
     if tunnel {
@@ -2637,6 +2733,16 @@ fn run_gui(
 
     // Clean up PID file on shutdown (whether success or error)
     pid_file.delete().ok();
+
+    // Stop session server if we started it
+    if let Some(mut child) = session_child {
+        // Send SIGTERM for graceful shutdown
+        let _ = send_signal(child.id(), Signal::Term);
+        // Give it a moment to clean up
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        // Force kill if still running
+        let _ = child.kill();
+    }
 
     // Note: _tunnel_manager is automatically dropped here, which calls shutdown()
     // Note: temp_dir is automatically cleaned up when it goes out of scope
