@@ -378,49 +378,17 @@ Environment variables are automatically passed to the container:
 5. **Execute**: AI agent picks and completes tasks
 6. **Merge**: On success, work is merged to target branch
 
-## Agent Supervisor Daemon
+## Running Containers Manually
 
-For continuous operation, use the `bn serve` daemon to automatically manage agent containers:
-
-```bash
-sudo bn serve
-```
-
-The supervisor watches your scaling configuration and spawns/stops containers to match desired agent counts.
-
-### Why sudo?
-
-The `bn serve` command needs access to the containerd socket at `/run/containerd/containerd.sock`, which requires root privileges. However, binnacle is designed to preserve your user's file ownership:
-
-1. **SUDO_USER Detection**: When you run `sudo bn serve`, binnacle reads the `SUDO_USER`, `SUDO_UID`, and `SUDO_GID` environment variables
-2. **Socket Access**: Opens the containerd socket while running as root
-3. **Privilege Drop**: Immediately drops privileges back to your user account
-4. **HOME Setting**: Sets `HOME` to your user's home directory
-5. **File Ownership**: All files created by the daemon (logs, configs, container mounts) are owned by you, not root
-
-This means you invoke the command with `sudo`, but the process runs as your user after initialization.
-
-### Example Output
+For continuous operation, use `bn container run` to launch agent containers manually:
 
 ```bash
-$ sudo bn serve
-Agent supervisor starting (interval: 10s)
-Dropping privileges to user alice (UID: 1000, GID: 1000)
-Reconciling agents...
-  Current: 0 workers
-  Desired: 2 workers
-  Action: spawn 2 worker containers
-Container worker-1 started
-Container worker-2 started
+bn container run ../agent-worktree
 ```
 
-### Running Without sudo
+The container will run a single agent session, with work auto-merged on completion.
 
-For rootless operation, see the [Rootless Setup](#rootless-setup) section below. With rootless containerd configured, you can run:
-
-```bash
-bn serve  # no sudo needed
-```
+For scripted automation, combine `bn container run` with shell loops or cron jobs.
 
 ## Rootless Setup
 

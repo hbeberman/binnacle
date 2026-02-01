@@ -227,26 +227,24 @@ bn mcp serve                    # MCP server for agents
 
 Run `bn --help` for everything else.
 
-## Agent Supervisor (`bn serve`)
+## Session Server (`bn session serve`)
 
-Run a daemon that continuously manages containerized AI agents based on your scaling configuration:
+Run a WebSocket server that provides real-time graph updates and accepts remote commands:
 
 ```bash
-sudo bn serve
+bn session serve             # Start on localhost:3030
+bn session serve --public    # Bind to all interfaces for network access
+bn session serve --tunnel    # Create a public URL via devtunnel
 ```
 
-**Why sudo?** The `bn serve` command needs to access the containerd socket at `/run/containerd/containerd.sock`, which requires root privileges. However, binnacle automatically detects when running under sudo and:
+**Commands:**
+- `bn session serve` - Start the WebSocket server
+- `bn session status` - Check if the server is running
+- `bn session stop` - Stop the server
 
-1. Opens the containerd socket while elevated
-2. Drops privileges back to your user (via `SUDO_USER` detection)
-3. Sets `HOME` to your user's home directory
-4. Creates all files with your user's ownership
+The session server enables live updates for the GUI and TUI, allowing multiple clients to observe and interact with the task graph simultaneously.
 
-This means you run as sudo but **all files remain owned by you**, not root. The process only retains elevated privileges for the containerd socket connection.
-
-If you see a warning like "Running as root without SUDO_USER", it means you're running directly as root (not via sudo), and files will be owned by root. To preserve user ownership, always run with `sudo bn serve`.
-
-For rootless operation without sudo, see the [Rootless Setup](#rootless-setup) section in [container/README.md](container/README.md).
+**Note:** For containerized agent management, use `bn container run` directly. See [container/README.md](container/README.md) for details.
 
 ## GUI
 

@@ -21598,7 +21598,7 @@ fn check_containerd_permission_error(stderr: &str) -> Option<String> {
              \n\
              To fix this, run with sudo:\n\
              \n\
-             \x20   sudo bn serve\n\
+             \x20   sudo bn container run <worktree>\n\
              \n\
              Or set up rootless containerd (see: bn help container)"
                 .to_string(),
