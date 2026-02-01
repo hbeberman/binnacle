@@ -642,16 +642,33 @@ async fn get_ready(State(state): State<AppState>) -> Result<Json<serde_json::Val
     let storage = state.storage.lock().await;
 
     // Use the same logic as CLI `bn ready` - checks both legacy depends_on and edge-based dependencies
-    let ready = storage
+    let ready_tasks = storage
         .get_ready_tasks()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get ready bugs (same dependency logic as tasks)
+    let ready_bugs = storage
+        .get_ready_bugs()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Combine tasks and bugs into a single array for TUI compatibility
+    // Tasks already have type: "task" and bugs have type: "bug" in their serialization
+    let mut all_ready: Vec<serde_json::Value> = ready_tasks
+        .into_iter()
+        .map(|t| serde_json::to_value(t).unwrap_or_default())
+        .collect();
+    all_ready.extend(
+        ready_bugs
+            .into_iter()
+            .map(|b| serde_json::to_value(b).unwrap_or_default()),
+    );
 
     // Include recently completed items for TUI display
     let recently_completed_tasks = storage.get_recently_completed_tasks().unwrap_or_default();
     let recently_completed_bugs = storage.get_recently_completed_bugs().unwrap_or_default();
 
     Ok(Json(serde_json::json!({
-        "tasks": ready,
+        "tasks": all_ready,
         "recently_completed_tasks": recently_completed_tasks,
         "recently_completed_bugs": recently_completed_bugs
     })))
