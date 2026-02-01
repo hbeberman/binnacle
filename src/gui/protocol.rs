@@ -276,6 +276,22 @@ pub enum UpstreamMessage {
         /// The change that occurred.
         event: Change,
     },
+
+    /// Command execution result.
+    ///
+    /// Sent in response to a `command` message from the hub.
+    CommandResult {
+        /// Correlation ID from the original command.
+        id: String,
+        /// Whether the command succeeded.
+        success: bool,
+        /// Result data on success, or null on failure.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        data: Option<serde_json::Value>,
+        /// Error message on failure.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
 }
 
 /// Messages sent from an upstream hub to session servers.
@@ -576,6 +592,42 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"event""#));
         assert!(json.contains(r#""event""#));
+
+        let parsed: UpstreamMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn test_upstream_message_command_result_success_serialization() {
+        let msg = UpstreamMessage::CommandResult {
+            id: "hub-123".to_string(),
+            success: true,
+            data: Some(serde_json::json!({"tasks": []})),
+            error: None,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"command_result""#));
+        assert!(json.contains(r#""id":"hub-123""#));
+        assert!(json.contains(r#""success":true"#));
+        assert!(!json.contains(r#""error""#)); // Skipped when None
+
+        let parsed: UpstreamMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn test_upstream_message_command_result_error_serialization() {
+        let msg = UpstreamMessage::CommandResult {
+            id: "hub-456".to_string(),
+            success: false,
+            data: None,
+            error: Some("Task not found".to_string()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"command_result""#));
+        assert!(json.contains(r#""success":false"#));
+        assert!(json.contains(r#""error":"Task not found""#));
+        assert!(!json.contains(r#""data""#)); // Skipped when None
 
         let parsed: UpstreamMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, msg);

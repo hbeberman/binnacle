@@ -12,7 +12,7 @@
 //! 5. Handle downstream commands from hub
 
 use futures::{SinkExt, StreamExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -21,6 +21,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, connect_async};
 
 use crate::gui::protocol::{Change, DownstreamMessage, UpstreamMessage};
+use crate::gui::websocket::execute_command;
 use crate::storage::Storage;
 
 /// Type alias for the WebSocket stream type.
@@ -131,7 +132,15 @@ impl UpstreamClient {
                 msg = read.next() => {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
-                            self.handle_downstream_message(&text).await;
+                            // Handle the message and send any response back
+                            if let Some(response) = self.handle_downstream_message(&text).await {
+                                if let Ok(response_json) = serde_json::to_string(&response) {
+                                    if let Err(e) = write.send(Message::Text(response_json)).await {
+                                        eprintln!("[upstream] Failed to send command result: {}", e);
+                                        return Err(e.into());
+                                    }
+                                }
+                            }
                         }
                         Some(Ok(Message::Ping(data))) => {
                             write.send(Message::Pong(data)).await?;
@@ -192,25 +201,50 @@ impl UpstreamClient {
     }
 
     /// Handle a message received from the upstream hub.
-    async fn handle_downstream_message(&self, text: &str) {
+    ///
+    /// Returns an optional response message to send back to the hub.
+    async fn handle_downstream_message(&self, text: &str) -> Option<UpstreamMessage> {
         match serde_json::from_str::<DownstreamMessage>(text) {
             Ok(DownstreamMessage::Command { id, cmd, args }) => {
                 eprintln!(
                     "[upstream] Received command from hub: id={}, cmd={}, args={}",
                     id, cmd, args
                 );
-                // TODO: Execute command and send result back
-                // This would require integrating with the command execution system
+
+                // Execute the command
+                let repo_path = PathBuf::from(&self.session_info.repo_path);
+                let result = execute_command(&repo_path, &cmd, args).await;
+
+                // Build response
+                let response = match result {
+                    Ok(data) => UpstreamMessage::CommandResult {
+                        id,
+                        success: true,
+                        data: Some(data),
+                        error: None,
+                    },
+                    Err(e) => UpstreamMessage::CommandResult {
+                        id,
+                        success: false,
+                        data: None,
+                        error: Some(e),
+                    },
+                };
+
+                Some(response)
             }
             Ok(DownstreamMessage::Config { settings }) => {
                 eprintln!("[upstream] Received config from hub: {}", settings);
                 // TODO: Apply configuration
+                None
             }
             Ok(DownstreamMessage::Ack) => {
                 eprintln!("[upstream] Received ack from hub");
+                None
             }
             Err(e) => {
                 eprintln!("[upstream] Failed to parse hub message: {}", e);
+                None
             }
         }
     }
@@ -447,5 +481,49 @@ mod tests {
         // Missing id for update
         let json = r#"{"type": "entity_updated", "entity_type": "task", "entity": {}}"#;
         assert!(parse_graph_event(json).is_none());
+    }
+
+    #[test]
+    fn test_downstream_command_parsing() {
+        let json = r#"{"type":"command","id":"hub-123","cmd":"task list","args":{}}"#;
+        let msg: DownstreamMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            DownstreamMessage::Command { id, cmd, args } => {
+                assert_eq!(id, "hub-123");
+                assert_eq!(cmd, "task list");
+                assert!(args.is_object());
+            }
+            _ => panic!("Expected Command variant"),
+        }
+    }
+
+    #[test]
+    fn test_upstream_command_result_success() {
+        let result = UpstreamMessage::CommandResult {
+            id: "hub-123".to_string(),
+            success: true,
+            data: Some(serde_json::json!({"tasks": []})),
+            error: None,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains(r#""type":"command_result""#));
+        assert!(json.contains(r#""id":"hub-123""#));
+        assert!(json.contains(r#""success":true"#));
+        assert!(!json.contains(r#""error""#));
+    }
+
+    #[test]
+    fn test_upstream_command_result_error() {
+        let result = UpstreamMessage::CommandResult {
+            id: "hub-456".to_string(),
+            success: false,
+            data: None,
+            error: Some("Unknown command".to_string()),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains(r#""type":"command_result""#));
+        assert!(json.contains(r#""success":false"#));
+        assert!(json.contains(r#""error":"Unknown command""#));
+        assert!(!json.contains(r#""data""#));
     }
 }

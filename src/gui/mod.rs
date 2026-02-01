@@ -45,3 +45,5 @@ pub use server::{
 pub use tunnel::{TunnelError, TunnelManager};
 #[cfg(feature = "gui")]
 pub use upstream::{SessionInfo, UpstreamClient};
+#[cfg(feature = "gui")]
+pub use websocket::execute_command;

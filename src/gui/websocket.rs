@@ -442,7 +442,7 @@ fn build_graph_state(repo_path: &Path) -> Result<GraphState, String> {
 /// - `milestone show <id>` - Show milestone details
 /// - `idea list` - List ideas
 /// - `queue show` - Show work queue
-async fn execute_command(
+pub async fn execute_command(
     repo_path: &Path,
     cmd: &str,
     args: serde_json::Value,
