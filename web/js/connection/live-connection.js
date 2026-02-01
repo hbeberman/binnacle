@@ -221,7 +221,8 @@ export function send(message) {
  */
 export function requestSync() {
     return new Promise((resolve, reject) => {
-        const success = send({ type: 'request_sync' });
+        const lastVersion = state.get('sync.version') || 0;
+        const success = send({ type: 'request_sync', last_version: lastVersion });
         if (success) {
             resolve();
         } else {
