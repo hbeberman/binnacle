@@ -189,6 +189,10 @@ pub enum InputMode {
 struct ReadyResponse {
     tasks: Vec<TaskData>,
     #[serde(default)]
+    in_progress_tasks: Vec<InProgressTaskData>,
+    #[serde(default)]
+    in_progress_bugs: Vec<InProgressBugData>,
+    #[serde(default)]
     recently_completed_tasks: Vec<CompletedTaskData>,
     #[serde(default)]
     recently_completed_bugs: Vec<CompletedBugData>,
@@ -237,6 +241,26 @@ struct TaskCore {
     short_name: Option<String>,
     #[serde(default, rename = "type")]
     entity_type: Option<String>,
+}
+
+/// In-progress task data from API
+#[derive(Debug, Clone, Deserialize)]
+struct InProgressTaskData {
+    #[serde(flatten)]
+    core: TaskCore,
+    priority: u8,
+    #[serde(default)]
+    assignee: Option<String>,
+}
+
+/// In-progress bug data from API
+#[derive(Debug, Clone, Deserialize)]
+struct InProgressBugData {
+    #[serde(flatten)]
+    core: TaskCore,
+    priority: u8,
+    #[serde(default)]
+    assignee: Option<String>,
 }
 
 /// Completed task data from API
@@ -312,6 +336,34 @@ impl From<TaskData> for WorkItem {
             assignee: task.assignee,
             queued: task.queued,
             entity_type: task.core.entity_type,
+        }
+    }
+}
+
+impl From<InProgressTaskData> for WorkItem {
+    fn from(task: InProgressTaskData) -> Self {
+        WorkItem {
+            id: task.core.id,
+            title: task.core.title,
+            short_name: task.core.short_name,
+            priority: task.priority,
+            assignee: task.assignee,
+            queued: false,
+            entity_type: task.core.entity_type.or(Some("task".to_string())),
+        }
+    }
+}
+
+impl From<InProgressBugData> for WorkItem {
+    fn from(bug: InProgressBugData) -> Self {
+        WorkItem {
+            id: bug.core.id,
+            title: bug.core.title,
+            short_name: bug.core.short_name,
+            priority: bug.priority,
+            assignee: bug.assignee,
+            queued: false,
+            entity_type: Some("bug".to_string()),
         }
     }
 }
@@ -1158,6 +1210,21 @@ impl TuiApp {
 
         let ready_data: ReadyResponse = ready_resp.json().await?;
 
+        // Convert in-progress items (tasks and bugs combined)
+        let mut in_progress: Vec<WorkItem> = ready_data
+            .in_progress_tasks
+            .into_iter()
+            .map(|t| t.into())
+            .collect();
+        in_progress.extend(
+            ready_data
+                .in_progress_bugs
+                .into_iter()
+                .map(|b| -> WorkItem { b.into() }),
+        );
+        // Sort in-progress by priority
+        in_progress.sort_by_key(|item| item.priority);
+
         // Separate queued and non-queued items
         let mut queued: Vec<WorkItem> = Vec::new();
         let mut ready: Vec<WorkItem> = Vec::new();
@@ -1175,7 +1242,8 @@ impl TuiApp {
         queued.sort_by_key(|item| item.priority);
         ready.sort_by_key(|item| item.priority);
 
-        self.queue_ready_view.update_items(queued, ready);
+        self.queue_ready_view
+            .update_items_with_in_progress(in_progress, queued, ready);
 
         // Convert recently completed items
         let completed_tasks: Vec<CompletedItem> = ready_data

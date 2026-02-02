@@ -653,6 +653,14 @@ async fn get_ready(State(state): State<AppState>) -> Result<Json<serde_json::Val
         .get_ready_bugs()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Get in-progress tasks and bugs
+    let in_progress_tasks = storage
+        .list_tasks(Some("in_progress"), None, None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let in_progress_bugs = storage
+        .list_bugs(Some("in_progress"), None, None, None, false)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     // Combine tasks and bugs into a single array for TUI compatibility
     // Tasks already have type: "task" and bugs have type: "bug" in their serialization
     let mut all_ready: Vec<serde_json::Value> = ready_tasks
@@ -671,6 +679,8 @@ async fn get_ready(State(state): State<AppState>) -> Result<Json<serde_json::Val
 
     Ok(Json(serde_json::json!({
         "tasks": all_ready,
+        "in_progress_tasks": in_progress_tasks,
+        "in_progress_bugs": in_progress_bugs,
         "recently_completed_tasks": recently_completed_tasks,
         "recently_completed_bugs": recently_completed_bugs
     })))

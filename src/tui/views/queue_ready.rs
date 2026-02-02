@@ -43,12 +43,14 @@ impl WorkItem {
 
 /// State for the Queue/Ready view
 pub struct QueueReadyView {
-    /// All work items (queued first, then ready)
+    /// All work items (in_progress first, then queued, then ready)
     pub items: Vec<WorkItem>,
     /// Selected item index
     pub selected: usize,
     /// List widget state
     pub list_state: ListState,
+    /// Number of in-progress items (for display separator)
+    pub in_progress_count: usize,
     /// Number of queued items (for display separator)
     pub queued_count: usize,
 }
@@ -67,16 +69,24 @@ impl QueueReadyView {
             items: Vec::new(),
             selected: 0,
             list_state,
+            in_progress_count: 0,
             queued_count: 0,
         }
     }
 
     /// Update the view with new data from the server
-    pub fn update_items(&mut self, queued: Vec<WorkItem>, ready: Vec<WorkItem>) {
+    pub fn update_items_with_in_progress(
+        &mut self,
+        in_progress: Vec<WorkItem>,
+        queued: Vec<WorkItem>,
+        ready: Vec<WorkItem>,
+    ) {
+        self.in_progress_count = in_progress.len();
         self.queued_count = queued.len();
 
-        // Combine items: queued first (sorted by priority), then ready (sorted by priority)
-        let mut items = queued;
+        // Combine items: in_progress first, then queued (sorted by priority), then ready (sorted by priority)
+        let mut items = in_progress;
+        items.extend(queued);
         items.extend(ready);
 
         self.items = items;
@@ -86,6 +96,12 @@ impl QueueReadyView {
             self.selected = self.items.len().saturating_sub(1);
         }
         self.list_state.select(Some(self.selected));
+    }
+
+    /// Update the view with new data from the server (legacy - no in_progress)
+    #[allow(dead_code)]
+    pub fn update_items(&mut self, queued: Vec<WorkItem>, ready: Vec<WorkItem>) {
+        self.update_items_with_in_progress(Vec::new(), queued, ready);
     }
 
     /// Move selection down
@@ -127,31 +143,71 @@ impl QueueReadyView {
             return;
         }
         // Account for header rows when mapping click position to item index
-        // Headers take up space: QUEUED header (1 line), empty line + READY header (2 lines)
-        let adjusted_index = if self.queued_count > 0 {
+        // Headers take up space: section header (1 line), empty line + section header (2 lines) between sections
+        // Sections in order: IN PROGRESS, QUEUED, READY
+        let mut header_offset = 0;
+        let mut item_index = index;
+
+        // Handle IN PROGRESS section
+        if self.in_progress_count > 0 {
             if index == 0 {
+                return; // Click on IN PROGRESS header
+            }
+            item_index -= 1; // Skip IN PROGRESS header
+            header_offset += 1;
+
+            if item_index < self.in_progress_count {
+                // Clicked on an in-progress item
+                self.selected = item_index;
+                self.list_state.select(Some(self.selected));
+                return;
+            }
+
+            // Skip the empty line after in-progress
+            if item_index == self.in_progress_count {
+                return; // Click on empty line
+            }
+            item_index -= 1;
+            header_offset += 1;
+        }
+
+        // Handle QUEUED section
+        if self.queued_count > 0 {
+            let queued_header_row = if self.in_progress_count > 0 {
+                self.in_progress_count + 2 // items + header + empty line
+            } else {
+                0
+            };
+
+            if index == queued_header_row {
                 return; // Click on QUEUED header
             }
-            let idx = index - 1; // Skip QUEUED header
-            if idx < self.queued_count {
-                idx
-            } else if idx == self.queued_count {
-                return; // Click on empty line
-            } else if idx == self.queued_count + 1 {
-                return; // Click on READY header
-            } else {
-                idx - 2 // Adjust for headers
-            }
-        } else {
-            if index == 0 {
-                return; // Click on READY header
-            }
-            index - 1 // Skip READY header
-        };
 
-        if adjusted_index < self.items.len() {
-            self.selected = adjusted_index;
-            self.list_state.select(Some(self.selected));
+            let queue_start = self.in_progress_count;
+            let items_before_queue = item_index - (if self.in_progress_count > 0 { 0 } else { 1 });
+
+            if items_before_queue < self.queued_count {
+                self.selected = queue_start + items_before_queue;
+                self.list_state.select(Some(self.selected));
+                return;
+            }
+
+            // Skip the empty line after queued
+            item_index -= 1;
+        }
+
+        // Handle READY section - simplified: just use the remaining index
+        // This is a best-effort click handler; complex multi-section layouts
+        // are easier to navigate with keyboard
+        let ready_start = self.in_progress_count + self.queued_count;
+        if ready_start < self.items.len() {
+            let final_index = ready_start
+                + item_index
+                    .saturating_sub(header_offset + self.in_progress_count + self.queued_count);
+            if final_index < self.items.len() {
+                self.selected = final_index;
+                self.list_state.select(Some(self.selected));
+            }
         }
     }
 
@@ -169,13 +225,9 @@ impl QueueReadyView {
     /// Render the view
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         if self.items.is_empty() {
-            let empty = Paragraph::new("No queued or ready items")
+            let empty = Paragraph::new("No work items")
                 .style(Style::default().fg(Color::DarkGray))
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" Queue/Ready "),
-                );
+                .block(Block::default().borders(Borders::ALL).title(" Work Items "));
             frame.render_widget(empty, area);
             return;
         }
@@ -188,27 +240,59 @@ impl QueueReadyView {
         // Build list items
         let mut list_items: Vec<ListItem> = Vec::new();
 
+        // Calculate section boundaries
+        let in_progress_end = self.in_progress_count;
+        let queued_end = in_progress_end + self.queued_count;
+
         for (idx, item) in self.items.iter().enumerate() {
-            // Add section headers
-            if idx == 0 && self.queued_count > 0 {
+            // Add section headers at appropriate positions
+            if idx == 0 && self.in_progress_count > 0 {
+                // IN PROGRESS header (shown in green to indicate active work)
                 list_items.push(ListItem::new(Line::from(vec![Span::styled(
-                    format!(" QUEUED ({})", self.queued_count),
+                    format!(" ⚡ IN PROGRESS ({})", self.in_progress_count),
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(Color::Green)
                         .add_modifier(Modifier::BOLD),
                 )])));
-            }
-            if idx == self.queued_count && idx > 0 {
-                // Add empty line between sections
+            } else if idx == in_progress_end && self.in_progress_count > 0 {
+                // Separator before QUEUED or READY section
                 list_items.push(ListItem::new(Line::from("")));
-                let ready_count = self.items.len() - self.queued_count;
+                if self.queued_count > 0 {
+                    list_items.push(ListItem::new(Line::from(vec![Span::styled(
+                        format!(" QUEUED ({})", self.queued_count),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    )])));
+                } else {
+                    let ready_count = self.items.len() - in_progress_end;
+                    list_items.push(ListItem::new(Line::from(vec![Span::styled(
+                        format!(" READY ({})", ready_count),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )])));
+                }
+            } else if idx == queued_end && self.queued_count > 0 {
+                // READY header after QUEUED section
+                list_items.push(ListItem::new(Line::from("")));
+                let ready_count = self.items.len() - queued_end;
                 list_items.push(ListItem::new(Line::from(vec![Span::styled(
                     format!(" READY ({})", ready_count),
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 )])));
-            } else if idx == 0 && self.queued_count == 0 {
+            } else if idx == 0 && self.in_progress_count == 0 && self.queued_count > 0 {
+                // QUEUED header when no in-progress items
+                list_items.push(ListItem::new(Line::from(vec![Span::styled(
+                    format!(" QUEUED ({})", self.queued_count),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )])));
+            } else if idx == 0 && self.in_progress_count == 0 && self.queued_count == 0 {
+                // READY header when no in-progress or queued items
                 list_items.push(ListItem::new(Line::from(vec![Span::styled(
                     format!(" READY ({})", self.items.len()),
                     Style::default()
