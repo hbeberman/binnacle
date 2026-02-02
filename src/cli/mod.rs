@@ -1099,6 +1099,23 @@ pub enum DocCommands {
         id: String,
     },
 
+    /// Approve a draft PRD document
+    ///
+    /// Sets the document status to Approved and records who approved it.
+    /// Only draft documents can be approved; already-approved docs will error.
+    Approve {
+        /// Doc ID to approve
+        id: String,
+
+        /// Reason for approval (optional comment)
+        #[arg(short, long)]
+        reason: Option<String>,
+
+        /// Who is approving (defaults to git config user.name)
+        #[arg(long)]
+        approver: Option<String>,
+    },
+
     /// Attach a doc to another entity (creates 'documents' edge)
     Attach {
         /// Doc ID (e.g., bn-a1b2)

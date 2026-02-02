@@ -99,6 +99,52 @@ impl fmt::Display for DocType {
     }
 }
 
+/// Status of a documentation node.
+///
+/// PRD documents default to `Draft` and require explicit approval before
+/// tasks can be created from them. Other doc types default to `Approved`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocStatus {
+    /// Document is under review and not yet approved
+    #[default]
+    Draft,
+    /// Document has been approved by a human operator
+    Approved,
+}
+
+impl fmt::Display for DocStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DocStatus::Draft => write!(f, "draft"),
+            DocStatus::Approved => write!(f, "approved"),
+        }
+    }
+}
+
+/// Metadata about when and by whom a document was approved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalInfo {
+    /// Who approved the document (from git config user.name or --approver flag)
+    pub approved_by: Option<String>,
+    /// When the document was approved
+    pub approved_at: DateTime<Utc>,
+    /// Optional reason/comment for the approval
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl ApprovalInfo {
+    /// Create new approval info with the current timestamp.
+    pub fn new(approved_by: Option<String>, reason: Option<String>) -> Self {
+        Self {
+            approved_by,
+            approved_at: Utc::now(),
+            reason,
+        }
+    }
+}
+
 /// Type of editor that modified a document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -693,6 +739,10 @@ impl Entity for Idea {
 ///
 /// The `summary_dirty` flag tracks when content changes but the `# Summary`
 /// section doesn't, signaling that an agent should update the summary.
+///
+/// The `status` field tracks draft/approved state for PRD documents.
+/// PRD docs default to `Draft` and require explicit `bn doc approve` before
+/// tasks can be created from them. Other doc types default to `Approved`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Doc {
     /// Common entity fields (id, type, title, short_name, description, tags, timestamps)
@@ -719,6 +769,16 @@ pub struct Doc {
     /// ID of previous version (if this is an update)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supersedes: Option<String>,
+
+    /// Document status (draft or approved).
+    /// PRD docs default to Draft, others default to Approved.
+    #[serde(default)]
+    pub status: DocStatus,
+
+    /// Approval metadata (who approved, when, and why).
+    /// Only set when status is Approved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval: Option<ApprovalInfo>,
 }
 
 /// Maximum compressed+encoded content size (32KB)
@@ -726,6 +786,9 @@ pub const DOC_CONTENT_MAX_SIZE: usize = 32768;
 
 impl Doc {
     /// Create a new doc with the given ID and title.
+    ///
+    /// Note: doc_type defaults to PRD, which defaults to Draft status.
+    /// Use `new_with_type` to specify the doc type and get proper status defaults.
     pub fn new(id: String, title: String) -> Self {
         Self {
             core: EntityCore::new("doc", id, title),
@@ -734,6 +797,29 @@ impl Doc {
             summary_dirty: false,
             editors: Vec::new(),
             supersedes: None,
+            // Default status is Draft, which is correct for PRDs (the default doc_type)
+            status: DocStatus::Draft,
+            approval: None,
+        }
+    }
+
+    /// Create a new doc with a specific type, using appropriate status defaults.
+    ///
+    /// PRD docs default to Draft (require approval), others default to Approved.
+    pub fn new_with_type(id: String, title: String, doc_type: DocType) -> Self {
+        let status = match doc_type {
+            DocType::Prd => DocStatus::Draft,
+            DocType::Note | DocType::Handoff => DocStatus::Approved,
+        };
+        Self {
+            core: EntityCore::new("doc", id, title),
+            doc_type,
+            content: String::new(),
+            summary_dirty: false,
+            editors: Vec::new(),
+            supersedes: None,
+            status,
+            approval: None,
         }
     }
 
@@ -745,6 +831,10 @@ impl Doc {
         content: &str,
         editors: Vec<Editor>,
     ) -> Result<Self, DocCompressionError> {
+        let status = match doc_type {
+            DocType::Prd => DocStatus::Draft,
+            DocType::Note | DocType::Handoff => DocStatus::Approved,
+        };
         let mut doc = Self {
             core: EntityCore::new("doc", id, title),
             doc_type,
@@ -752,6 +842,8 @@ impl Doc {
             summary_dirty: false,
             editors,
             supersedes: None,
+            status,
+            approval: None,
         };
         doc.set_content(content)?;
         Ok(doc)
@@ -818,6 +910,25 @@ impl Doc {
     pub fn get_summary(&self) -> Result<String, DocCompressionError> {
         let content = self.get_content()?;
         Ok(extract_summary_section(&content))
+    }
+
+    /// Check if this document is approved.
+    pub fn is_approved(&self) -> bool {
+        self.status == DocStatus::Approved
+    }
+
+    /// Check if this document is a draft.
+    pub fn is_draft(&self) -> bool {
+        self.status == DocStatus::Draft
+    }
+
+    /// Approve this document with the given metadata.
+    ///
+    /// Sets status to Approved and records who approved it and why.
+    pub fn approve(&mut self, approved_by: Option<String>, reason: Option<String>) {
+        self.status = DocStatus::Approved;
+        self.approval = Some(ApprovalInfo::new(approved_by, reason));
+        self.core.updated_at = Utc::now();
     }
 }
 
@@ -3135,7 +3246,8 @@ mod tests {
         let fp = fingerprint(&keys);
 
         // Note: description and short_name only appear when set (skip_serializing_if)
-        let expected = "content|created_at|doc_type|editors|id|summary_dirty|supersedes|tags|title|type|updated_at";
+        // Note: status field was added for PRD draft/approved workflow
+        let expected = "content|created_at|doc_type|editors|id|status|summary_dirty|supersedes|tags|title|type|updated_at";
         assert_eq!(
             fp, expected,
             "Doc schema changed! Update expected fingerprint if intentional."

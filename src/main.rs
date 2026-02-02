@@ -663,6 +663,14 @@ fn run_command(
                 let result = commands::doc_history(repo_path, &id)?;
                 output(&result, human);
             }
+            DocCommands::Approve {
+                id,
+                reason,
+                approver,
+            } => {
+                let result = commands::doc_approve(repo_path, &id, reason, approver)?;
+                output(&result, human);
+            }
             DocCommands::Attach { doc_id, target_id } => {
                 let result = commands::doc_attach(repo_path, &doc_id, &target_id)?;
                 output(&result, human);
@@ -3857,6 +3865,18 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             DocCommands::History { id } => {
                 ("doc history".to_string(), serde_json::json!({ "id": id }))
             }
+            DocCommands::Approve {
+                id,
+                reason,
+                approver,
+            } => (
+                "doc approve".to_string(),
+                serde_json::json!({
+                    "id": id,
+                    "reason": reason,
+                    "approver": approver,
+                }),
+            ),
             DocCommands::Attach { doc_id, target_id } => (
                 "doc attach".to_string(),
                 serde_json::json!({

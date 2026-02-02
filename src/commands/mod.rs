@@ -8836,6 +8836,7 @@ pub struct DocCreated {
     pub id: String,
     pub title: String,
     pub doc_type: String,
+    pub status: String,
     pub linked_entities: Vec<String>,
 }
 
@@ -8847,8 +8848,8 @@ impl Output for DocCreated {
     fn to_human(&self) -> String {
         let links = self.linked_entities.join(", ");
         format!(
-            "Created {} doc {} \"{}\" linked to: {}",
-            self.doc_type, self.id, self.title, links
+            "Created {} doc {} [{}] \"{}\" linked to: {}",
+            self.doc_type, self.id, self.status, self.title, links
         )
     }
 }
@@ -8884,10 +8885,10 @@ pub fn doc_create(
     }
 
     let id = storage.generate_unique_id("bn", &title);
-    let mut doc = Doc::new(id.clone(), title.clone());
+    // Use new_with_type to get proper status defaults (Draft for PRD, Approved for others)
+    let mut doc = Doc::new_with_type(id.clone(), title.clone(), doc_type.clone());
     doc.core.short_name = normalize_short_name(short_name);
     doc.core.tags = tags;
-    doc.doc_type = doc_type.clone();
 
     // Build content with optional summary section prepended
     let final_content = match (summary, content) {
@@ -8921,6 +8922,7 @@ pub fn doc_create(
         id,
         title,
         doc_type: doc_type.to_string(),
+        status: doc.status.to_string(),
         linked_entities: entity_ids,
     })
 }
@@ -8931,16 +8933,37 @@ impl Output for Doc {
     }
 
     fn to_human(&self) -> String {
+        use crate::models::DocStatus;
+
         let mut lines = Vec::new();
+        // Include status in header for PRDs
+        let status_str = match self.status {
+            DocStatus::Draft => " [draft]",
+            DocStatus::Approved => " [approved]",
+        };
         lines.push(format!(
-            "{} [{}] {}",
-            self.core.id, self.doc_type, self.core.title
+            "{}{} [{}] {}",
+            self.core.id, status_str, self.doc_type, self.core.title
         ));
         if let Some(ref sn) = self.core.short_name {
             lines.push(format!("  Short Name: {}", sn));
         }
         if let Some(ref desc) = self.core.description {
             lines.push(format!("  Description: {}", desc));
+        }
+        lines.push(format!("  Status: {}", self.status));
+        // Show approval info if approved
+        if let Some(ref approval) = self.approval {
+            if let Some(ref by) = approval.approved_by {
+                lines.push(format!("  Approved by: {}", by));
+            }
+            lines.push(format!(
+                "  Approved at: {}",
+                approval.approved_at.format("%Y-%m-%d %H:%M")
+            ));
+            if let Some(ref reason) = approval.reason {
+                lines.push(format!("  Approval reason: {}", reason));
+            }
         }
         if !self.core.tags.is_empty() {
             lines.push(format!("  Tags: {}", self.core.tags.join(", ")));
@@ -8989,6 +9012,8 @@ impl Output for DocList {
     }
 
     fn to_human(&self) -> String {
+        use crate::models::DocStatus;
+
         if self.docs.is_empty() {
             return "No docs found.".to_string();
         }
@@ -9000,7 +9025,15 @@ impl Output for DocList {
             } else {
                 format!(" [{}]", doc.core.tags.join(", "))
             };
-            lines.push(format!("📄 {} {}{}", doc.core.id, doc.core.title, tags_str));
+            // Show status badge for PRDs
+            let status_badge = match doc.status {
+                DocStatus::Draft => " [draft]",
+                DocStatus::Approved => "",
+            };
+            lines.push(format!(
+                "📄 {}{} {}{}",
+                doc.core.id, status_badge, doc.core.title, tags_str
+            ));
         }
         lines.join("\n")
     }
@@ -9756,6 +9789,101 @@ pub fn doc_delete(repo_path: &Path, id: &str) -> Result<DocDeleted> {
     storage.delete_doc(id)?;
 
     Ok(DocDeleted { id: id.to_string() })
+}
+
+/// Result of approving a document.
+#[derive(Serialize)]
+pub struct DocApproved {
+    pub id: String,
+    pub status: String,
+    pub approved_by: Option<String>,
+    pub approved_at: String,
+    pub reason: Option<String>,
+}
+
+impl Output for DocApproved {
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let by = self
+            .approved_by
+            .as_ref()
+            .map(|s| format!(" by {}", s))
+            .unwrap_or_default();
+        let reason_str = self
+            .reason
+            .as_ref()
+            .map(|r| format!(" ({})", r))
+            .unwrap_or_default();
+        format!(
+            "Approved doc {}{} at {}{}",
+            self.id,
+            by,
+            &self.approved_at[..10],
+            reason_str
+        )
+    }
+}
+
+/// Approve a documentation node.
+///
+/// Sets the document status to Approved and records approval metadata.
+/// If approved_by is not provided, attempts to read from git config user.name.
+pub fn doc_approve(
+    repo_path: &Path,
+    id: &str,
+    reason: Option<String>,
+    approver: Option<String>,
+) -> Result<DocApproved> {
+    let mut storage = Storage::open(repo_path)?;
+
+    // Get the doc
+    let mut doc = storage.get_doc(id)?;
+
+    // Check if already approved
+    if doc.is_approved() {
+        return Err(Error::InvalidInput(format!(
+            "Doc {} is already approved",
+            id
+        )));
+    }
+
+    // Determine approver: explicit flag > git config > None
+    let approved_by = approver.or_else(|| {
+        std::process::Command::new("git")
+            .args(["config", "user.name"])
+            .current_dir(repo_path)
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout)
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                } else {
+                    None
+                }
+            })
+    });
+
+    // Approve the doc
+    doc.approve(approved_by.clone(), reason.clone());
+
+    // Save the updated doc
+    storage.update_doc(&doc)?;
+
+    let approval = doc.approval.as_ref().expect("approval should be set");
+
+    Ok(DocApproved {
+        id: id.to_string(),
+        status: doc.status.to_string(),
+        approved_by,
+        approved_at: approval.approved_at.to_rfc3339(),
+        reason,
+    })
 }
 
 // === Milestone Commands ===
