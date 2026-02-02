@@ -3924,6 +3924,9 @@ pub struct OrientResult {
     /// The agent ID assigned to the calling agent (e.g., "bn-1234").
     /// Agents should store this and can use it for subsequent commands.
     pub agent_id: String,
+    /// Agent-specific prompt/instructions based on the --type flag.
+    /// Contains the full system instructions for how this agent type should behave.
+    pub prompt: String,
     pub total_tasks: usize,
     pub ready_count: usize,
     pub ready_ids: Vec<String>,
@@ -3993,6 +3996,7 @@ impl Output for OrientResult {
         }
 
         lines.push(format!("Your agent ID: {}", self.agent_id));
+        lines.push("(Agent prompt available in JSON output)".to_string());
         lines.push(String::new());
         lines.push("Current State:".to_string());
         lines.push(format!("  Total tasks: {}", self.total_tasks));
@@ -4256,9 +4260,10 @@ pub fn orient(
     }
 
     // In dry-run mode, skip agent registration and session state writing
-    let agent_id = if dry_run {
+    let (agent_id, prompt) = if dry_run {
         // Return a placeholder ID for dry-run mode
-        "dry-run".to_string()
+        let prompt = prompts::prompt_for_agent_type(&agent_type).to_string();
+        ("dry-run".to_string(), prompt)
     } else {
         // Register agent (cleanup stale ones first)
         let _ = storage.cleanup_stale_agents();
@@ -4403,13 +4408,16 @@ pub fn orient(
             id
         };
 
+        // Get agent-specific prompt BEFORE moving agent_type to session state
+        let agent_prompt = prompts::prompt_for_agent_type(&agent_type).to_string();
+
         // Write session state for commit-msg hook detection (skip in MCP mode and env ID mode)
         if mcp_session_id.is_none() && env_agent_id.is_none() {
             let session_state = SessionState::new(agent_pid, agent_type);
             storage.write_session_state(&session_state)?;
         }
 
-        id
+        (id, agent_prompt)
     };
 
     let tasks = storage.list_tasks(None, None, None)?;
@@ -4554,6 +4562,7 @@ pub fn orient(
         ready: true, // Always true when orient succeeds - store is ready to use
         just_initialized,
         agent_id,
+        prompt,
         total_tasks: tasks.len(),
         ready_count,
         ready_ids,

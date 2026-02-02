@@ -81,6 +81,17 @@ pub fn do_prompt(description: &str) -> String {
     DO_PROMPT_TEMPLATE.replace("{description}", description)
 }
 
+/// Get the appropriate prompt for an agent type.
+/// Returns the prompt string for the given agent type.
+pub fn prompt_for_agent_type(agent_type: &super::AgentType) -> &'static str {
+    match agent_type {
+        super::AgentType::Worker => WORKER_PROMPT,
+        super::AgentType::Planner => PRD_PROMPT,
+        super::AgentType::Buddy => BUDDY_PROMPT,
+        super::AgentType::Ask => FREE_PROMPT,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +156,22 @@ mod tests {
 
         assert!(FREE_PROMPT.contains("LSP GUIDANCE"));
         assert!(FREE_PROMPT.contains("goToDefinition"));
+    }
+
+    #[test]
+    fn test_prompt_for_agent_type() {
+        use super::super::AgentType;
+
+        // Worker type returns WORKER_PROMPT
+        assert_eq!(prompt_for_agent_type(&AgentType::Worker), WORKER_PROMPT);
+
+        // Planner type returns PRD_PROMPT
+        assert_eq!(prompt_for_agent_type(&AgentType::Planner), PRD_PROMPT);
+
+        // Buddy type returns BUDDY_PROMPT
+        assert_eq!(prompt_for_agent_type(&AgentType::Buddy), BUDDY_PROMPT);
+
+        // Ask type returns FREE_PROMPT
+        assert_eq!(prompt_for_agent_type(&AgentType::Ask), FREE_PROMPT);
     }
 }
