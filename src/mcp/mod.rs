@@ -9,12 +9,12 @@
 //!
 //! Instead of 38+ individual tool handlers, this just executes the CLI directly.
 
-use crate::storage::get_basic_test_mode_info;
+use crate::storage::{get_basic_test_mode_info, get_storage_dir};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use uuid::Uuid;
@@ -22,6 +22,75 @@ use wait_timeout::ChildExt;
 
 /// MCP Protocol version
 const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
+
+/// Try to find the binnacle storage directory for a repo path.
+///
+/// This function has special handling for container environments:
+/// 1. First tries the standard `get_storage_dir` which respects env vars
+/// 2. If that fails but `/binnacle` exists (container mode), it searches for
+///    a storage directory that matches the given repo path in its metadata
+///
+/// Returns (data_dir, storage_hash) if found.
+fn find_storage_for_repo(repo_path: &Path) -> Option<(PathBuf, String)> {
+    // First, try standard storage resolution
+    if let Ok(storage_path) = get_storage_dir(repo_path) {
+        if storage_path.join("cache.db").exists() {
+            let hash = storage_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string());
+            let parent = storage_path.parent().map(|p| p.to_path_buf());
+            if let (Some(parent), Some(hash)) = (parent, hash) {
+                return Some((parent, hash));
+            }
+        }
+    }
+
+    // Fallback for container mode: if /binnacle exists, try to find matching storage
+    let container_base = Path::new("/binnacle");
+    if !container_base.exists() {
+        return None;
+    }
+
+    // Read entries in /binnacle looking for one that matches this repo
+    let canonical_path = repo_path.canonicalize().ok()?;
+    let canonical_str = canonical_path.to_string_lossy();
+
+    if let Ok(entries) = std::fs::read_dir(container_base) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let entry_path = entry.path();
+            if !entry_path.is_dir() {
+                continue;
+            }
+
+            // Check metadata.json for repo_path match
+            let metadata_path = entry_path.join("metadata.json");
+            if let Ok(content) = std::fs::read_to_string(&metadata_path) {
+                if let Ok(metadata) = serde_json::from_str::<Value>(&content) {
+                    if let Some(stored_path) = metadata.get("repo_path").and_then(|v| v.as_str()) {
+                        // Check if the stored path matches our canonical path
+                        // Also check if the last component matches (for /workspace matching /home/user/repo)
+                        let matches = stored_path == canonical_str
+                            || canonical_path.file_name().map(|n| n.to_string_lossy())
+                                == Path::new(stored_path)
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy());
+
+                        if matches && entry_path.join("cache.db").exists() {
+                            let hash = entry_path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .map(|s| s.to_string())?;
+                            return Some((container_base.to_path_buf(), hash));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
 
 /// Server information
 const SERVER_NAME: &str = "binnacle";
@@ -129,6 +198,10 @@ pub struct PromptArgument {
 
 pub struct McpServer {
     cwd: Option<PathBuf>,
+    /// Data directory for binnacle storage (parent of the hashed repo storage dir)
+    data_dir: Option<PathBuf>,
+    /// Storage hash (the directory name under data_dir)
+    storage_hash: Option<String>,
     session_id: String,
     /// True if session_id was provided externally (caller should use shell goodbye)
     /// False if auto-generated (safe to call bn goodbye via MCP)
@@ -145,6 +218,8 @@ impl McpServer {
         let bn_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("bn"));
         Self {
             cwd: None,
+            data_dir: None,
+            storage_hash: None,
             session_id: Uuid::new_v4().to_string(),
             session_id_is_external: false,
             bn_path,
@@ -153,8 +228,14 @@ impl McpServer {
 
     pub fn with_cwd(cwd: PathBuf) -> Self {
         let bn_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("bn"));
+        // When cwd is pre-set, find the storage directory (with container fallback)
+        let (data_dir, storage_hash) = find_storage_for_repo(&cwd)
+            .map(|(d, h)| (Some(d), Some(h)))
+            .unwrap_or((None, None));
         Self {
             cwd: Some(cwd),
+            data_dir,
+            storage_hash,
             session_id: Uuid::new_v4().to_string(),
             session_id_is_external: false,
             bn_path,
@@ -383,6 +464,37 @@ impl McpServer {
 
         self.cwd = Some(canonical.clone());
 
+        // Check for explicit storage_hash parameter (useful in container mode when
+        // env vars aren't passed through to the MCP server)
+        if let Some(explicit_hash) = args.get("storage_hash").and_then(|v| v.as_str()) {
+            // Verify the storage directory exists
+            let container_base = Path::new("/binnacle");
+            let storage_path = container_base.join(explicit_hash);
+            if storage_path.join("cache.db").exists() {
+                self.data_dir = Some(container_base.to_path_buf());
+                self.storage_hash = Some(explicit_hash.to_string());
+            } else {
+                // Also try with computed data_dir
+                if let Some(data_dir) = dirs::data_dir() {
+                    let storage_path = data_dir.join("binnacle").join(explicit_hash);
+                    if storage_path.join("cache.db").exists() {
+                        self.data_dir = Some(data_dir.join("binnacle"));
+                        self.storage_hash = Some(explicit_hash.to_string());
+                    }
+                }
+            }
+        }
+
+        // If no explicit storage_hash, try to find storage directory with container fallback.
+        // This ensures bn_run subprocesses can find storage even without BN_DATA_DIR or
+        // BN_STORAGE_HASH env vars.
+        if self.storage_hash.is_none() {
+            if let Some((data_dir, hash)) = find_storage_for_repo(&canonical) {
+                self.data_dir = Some(data_dir);
+                self.storage_hash = Some(hash);
+            }
+        }
+
         // Handle optional session_id - if provided externally, caller should use shell goodbye
         if let Some(session_id) = args.get("session_id").and_then(|v| v.as_str()) {
             self.session_id = session_id.to_string();
@@ -395,7 +507,9 @@ impl McpServer {
                 if self.session_id_is_external { " with external session" } else { "" }),
             "cwd": canonical.display().to_string(),
             "session_id": self.session_id,
-            "session_id_is_external": self.session_id_is_external
+            "session_id_is_external": self.session_id_is_external,
+            "storage_hash": self.storage_hash,
+            "data_dir": self.data_dir.as_ref().map(|p| p.display().to_string())
         })
         .to_string())
     }
@@ -525,7 +639,26 @@ impl McpServer {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Pass through binnacle-specific env vars for storage resolution and agent identity
+        // If we computed a data_dir during set_agent, use it as BN_DATA_DIR.
+        // This ensures subprocesses can find storage even if BN_DATA_DIR isn't
+        // set in the MCP server's environment.
+        if let Some(ref data_dir) = self.data_dir {
+            cmd.env("BN_DATA_DIR", data_dir);
+            // If data_dir is /binnacle, we're in container mode
+            if data_dir.as_os_str() == "/binnacle" {
+                cmd.env("BN_CONTAINER_MODE", "true");
+            }
+        }
+
+        // If we computed a storage_hash during set_agent, use it as BN_STORAGE_HASH.
+        // This ensures subprocesses use the same storage directory, especially in
+        // container mode where the hash might differ from path-based computation.
+        if let Some(ref hash) = self.storage_hash {
+            cmd.env("BN_STORAGE_HASH", hash);
+        }
+
+        // Pass through binnacle-specific env vars for storage resolution and agent identity.
+        // Note: BN_DATA_DIR and BN_STORAGE_HASH are only passed through if we didn't compute them.
         for var in [
             "BN_DATA_DIR",
             "BN_CONTAINER_MODE",
@@ -535,6 +668,13 @@ impl McpServer {
             "BN_AGENT_NAME",
             "BN_AGENT_TYPE",
         ] {
+            // Skip vars we already set from computed values
+            if var == "BN_DATA_DIR" && self.data_dir.is_some() {
+                continue;
+            }
+            if var == "BN_STORAGE_HASH" && self.storage_hash.is_some() {
+                continue;
+            }
             if let Ok(val) = std::env::var(var) {
                 cmd.env(var, val);
             }
@@ -907,6 +1047,10 @@ fn get_tool_definitions() -> Vec<ToolDef> {
                     "session_id": {
                         "type": "string",
                         "description": "Optional MCP session ID. If provided, binnacle-goodbye will hint to use shell goodbye instead (for external lifecycle management)."
+                    },
+                    "storage_hash": {
+                        "type": "string",
+                        "description": "Optional storage hash (directory name under /binnacle or ~/.local/share/binnacle). Use this in container environments when BN_STORAGE_HASH env var is not available to the MCP server."
                     }
                 },
                 "required": ["path"]
