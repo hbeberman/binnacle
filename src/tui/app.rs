@@ -11,7 +11,7 @@ use std::io::{self, stdout};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
@@ -407,6 +407,26 @@ enum Change {
     Delete { entity_type: String, id: String },
 }
 
+impl ServerMessage {
+    /// Returns a string description of the message type for logging
+    fn message_type(&self) -> &'static str {
+        match self {
+            ServerMessage::Connected { .. } => "connected",
+            ServerMessage::EntityAdded { .. } => "entity_added",
+            ServerMessage::EntityUpdated { .. } => "entity_updated",
+            ServerMessage::EntityRemoved { .. } => "entity_removed",
+            ServerMessage::LogEntry { .. } => "log_entry",
+            ServerMessage::EdgeAdded { .. } => "edge_added",
+            ServerMessage::EdgeRemoved { .. } => "edge_removed",
+            ServerMessage::Reload { .. } => "reload",
+            ServerMessage::SyncResponse { .. } => "sync_response",
+            ServerMessage::SyncAck { .. } => "sync_ack",
+            ServerMessage::SyncCatchup { .. } => "sync_catchup",
+            ServerMessage::Delta { .. } => "delta",
+        }
+    }
+}
+
 /// TUI Application state
 pub struct TuiApp {
     /// Connection state
@@ -632,6 +652,7 @@ impl TuiApp {
 
     /// Switch to the next view (only cycles between list views, not detail)
     fn next_view(&mut self) {
+        let from_view = self.active_view;
         // Only cycle between list views (not NodeDetail)
         match self.active_view {
             ActiveView::QueueReady => {
@@ -647,10 +668,12 @@ impl TuiApp {
                 self.go_back_from_detail();
             }
         }
+        debug!(from = ?from_view, to = ?self.active_view, "view switch");
     }
 
     /// Open detail view for the selected item
     fn open_detail_for_selection(&mut self) {
+        let from_view = self.active_view;
         let node_id = match self.active_view {
             ActiveView::QueueReady => self
                 .queue_ready_view
@@ -669,7 +692,8 @@ impl TuiApp {
             }
         };
 
-        if let Some(id) = node_id {
+        if let Some(ref id) = node_id {
+            debug!(from = ?from_view, node_id = %id, "view switch to detail");
             // If we're already in detail view, push current to nav stack
             if self.active_view == ActiveView::NodeDetail {
                 self.node_detail_view.push_navigation(false);
@@ -677,7 +701,7 @@ impl TuiApp {
                 // Coming from a list view
                 self.previous_list_view = self.active_view;
             }
-            self.needs_node_fetch = Some(id);
+            self.needs_node_fetch = Some(id.clone());
             self.active_view = ActiveView::NodeDetail;
         }
     }
@@ -687,14 +711,17 @@ impl TuiApp {
         if let Some(entry) = self.node_detail_view.pop_navigation() {
             if entry.from_list_view {
                 // Go back to the list view
+                debug!(to = ?self.previous_list_view, "view switch from detail to list");
                 self.active_view = self.previous_list_view;
                 self.node_detail_view.clear();
             } else {
                 // Navigate back to the previous node
+                debug!(node_id = %entry.node_id, "view switch to previous node");
                 self.needs_node_fetch = Some(entry.node_id);
             }
         } else {
             // Nothing in stack, go back to list view
+            debug!(to = ?self.previous_list_view, "view switch from detail to list");
             self.active_view = self.previous_list_view;
             self.node_detail_view.clear();
         }
@@ -702,6 +729,8 @@ impl TuiApp {
 
     /// Handle keyboard events
     fn handle_key(&mut self, key: KeyCode) {
+        trace!(key = ?key, view = ?self.active_view, "keyboard input");
+
         // Dismiss any brief notifications on keypress
         self.notifications.dismiss_on_keypress();
 
@@ -1009,6 +1038,7 @@ impl TuiApp {
         if let WsMessage::Text(text) = msg {
             // Try to parse as a server message
             if let Ok(server_msg) = serde_json::from_str::<ServerMessage>(&text) {
+                debug!(message_type = %server_msg.message_type(), "WebSocket message received");
                 match server_msg {
                     ServerMessage::Connected { .. } => {
                         // Initial connection, fetch data
@@ -1289,6 +1319,8 @@ impl TuiApp {
 
     /// Render the UI
     fn render(&mut self, frame: &mut Frame) {
+        trace!(view = ?self.active_view, "render cycle");
+
         // Clean up expired toasts
         self.notifications.cleanup();
 
