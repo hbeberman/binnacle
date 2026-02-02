@@ -27,6 +27,7 @@
     <link rel="stylesheet" href="/css/components/available-work-pane.css">
     <link rel="stylesheet" href="/css/components/active-task-pane.css">
     <link rel="stylesheet" href="/css/components/recently-completed-pane.css">
+    <link rel="stylesheet" href="/css/components/workflow-pane.css">
     <link rel="stylesheet" href="/css/components/connection-status.css">
     <link rel="stylesheet" href="/css/components/connection-picker.css">
     <link rel="stylesheet" href="/css/components/readonly-indicator.css">
@@ -254,10 +255,9 @@
                 </nav>
             </div>
             <div class="header-right">
-                <!-- Available work and active task panes will be inserted here -->
-                <div id="available-work-container"></div>
+                <!-- Workflow pane (ready + completed) and active task pane -->
                 <div id="active-task-container"></div>
-                <div id="recently-completed-container"></div>
+                <div id="workflow-container"></div>
             </div>
         </header>
         
@@ -317,6 +317,7 @@
         import { createAvailableWorkPane } from './js/components/available-work-pane.js';
         import { createActiveTaskPane } from './js/components/active-task-pane.js';
         import { createRecentlyCompletedPane } from './js/components/recently-completed-pane.js';
+        import { createWorkflowPane } from './js/components/workflow-pane.js';
         import { mountReadonlyIndicator } from './js/components/readonly-indicator.js';
         import { mountGraphControls } from './js/components/graph-controls.js';
         import { initializeNodeList } from './js/components/node-list.js';
@@ -638,17 +639,13 @@
         const mainContent = document.querySelector('.main-content');
         mountNodeDetailPane(mainContent);
         
-        // Create and mount available work pane
-        const availableWorkPane = createAvailableWorkPane();
-        document.getElementById('available-work-container').appendChild(availableWorkPane);
-        
         // Create and mount active task pane
         const activeTaskPane = createActiveTaskPane();
         document.getElementById('active-task-container').appendChild(activeTaskPane);
         
-        // Create and mount recently completed pane
-        const recentlyCompletedPane = createRecentlyCompletedPane();
-        document.getElementById('recently-completed-container').appendChild(recentlyCompletedPane);
+        // Create and mount workflow pane (combined ready + completed view)
+        const workflowPane = createWorkflowPane({ readyLimit: 5, completedLimit: 3 });
+        document.getElementById('workflow-container').appendChild(workflowPane);
         
         // Helper function to perform family reveal
         function performFamilyReveal(node, rootId, descendants, existingNodesArray, existingNodes) {

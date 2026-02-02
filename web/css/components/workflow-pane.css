@@ -1,0 +1,222 @@
+/**
+ * Workflow Pane Component Styles
+ * 
+ * Combined view of ready work and recently completed items.
+ * Shows a unified workflow cycle on page 1 of the TUI.
+ */
+
+.workflow-pane {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    margin-left: 1rem;
+    display: flex;
+    flex-direction: column;
+    min-width: 340px;
+    max-width: 440px;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+/* Header */
+.workflow-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.workflow-pane-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.workflow-pane-counts {
+    font-size: 0.7rem;
+    color: var(--text-tertiary);
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.workflow-pane-counts .ready-count {
+    color: var(--success);
+    font-weight: 600;
+}
+
+.workflow-pane-counts .completed-count {
+    color: var(--text-secondary);
+}
+
+.workflow-pane-counts .count-separator {
+    color: var(--border-color);
+}
+
+/* Sections */
+.workflow-section {
+    margin-bottom: 0.5rem;
+}
+
+.workflow-section:last-child {
+    margin-bottom: 0;
+}
+
+.workflow-section-header {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.35rem;
+    padding-left: 0.2rem;
+}
+
+.ready-section .workflow-section-header {
+    color: var(--success);
+}
+
+.completed-section .workflow-section-header {
+    color: var(--text-secondary);
+}
+
+.workflow-section-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+/* Individual items */
+.workflow-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.workflow-item:hover {
+    background: var(--bg-primary);
+    border-color: var(--accent);
+}
+
+.workflow-item-left {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 0;
+}
+
+.workflow-item-type {
+    font-size: 0.9rem;
+    line-height: 1;
+}
+
+.workflow-item-id {
+    font-family: var(--font-mono, 'SF Mono', 'Monaco', 'Menlo', monospace);
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--accent-light);
+    cursor: pointer;
+    padding: 0.1rem 0.25rem;
+    border-radius: 3px;
+    background: rgba(var(--accent-rgb, 88, 166, 255), 0.12);
+    transition: background-color 0.15s ease;
+}
+
+.workflow-item-id:hover {
+    background: rgba(var(--accent-rgb, 88, 166, 255), 0.22);
+}
+
+.workflow-item-title {
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.3;
+}
+
+.workflow-item-title .priority-indicator {
+    font-size: 0.7rem;
+}
+
+.workflow-item-right {
+    font-size: 0.65rem;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono, 'SF Mono', 'Monaco', 'Menlo', monospace);
+    flex-shrink: 0;
+}
+
+/* Queued badge */
+.queued-badge {
+    font-size: 0.55rem;
+    font-weight: 700;
+    color: var(--warning);
+    background: rgba(var(--warning-rgb, 255, 159, 10), 0.15);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    letter-spacing: 0.03em;
+}
+
+/* Queued items get a subtle highlight */
+.workflow-item.queued {
+    border-color: rgba(var(--warning-rgb, 255, 159, 10), 0.4);
+    background: rgba(var(--warning-rgb, 255, 159, 10), 0.08);
+}
+
+.workflow-item.queued:hover {
+    border-color: var(--warning);
+}
+
+/* Type-specific styling */
+.workflow-item.type-bug .workflow-item-id {
+    color: var(--error);
+    background: rgba(var(--error-rgb, 255, 69, 58), 0.12);
+}
+
+.workflow-item.type-bug .workflow-item-id:hover {
+    background: rgba(var(--error-rgb, 255, 69, 58), 0.22);
+}
+
+/* Completed items have green IDs */
+.workflow-item.section-completed .workflow-item-id {
+    color: var(--success);
+    background: rgba(var(--success-rgb, 46, 160, 67), 0.12);
+}
+
+.workflow-item.section-completed .workflow-item-id:hover {
+    background: rgba(var(--success-rgb, 46, 160, 67), 0.22);
+}
+
+.workflow-item.section-completed .workflow-item-title {
+    color: var(--text-secondary);
+}
+
+/* Empty state */
+.workflow-empty {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    opacity: 0.6;
+    font-style: italic;
+    padding: 1rem 0;
+    text-align: center;
+}
+
+/* State-based border colors */
+.workflow-pane.has-ready {
+    border-color: rgba(var(--success-rgb, 46, 160, 67), 0.35);
+}
+
+.workflow-pane.empty {
+    border-color: var(--border-color);
+}
