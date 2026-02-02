@@ -394,6 +394,13 @@ For detailed instructions, see: container/README.md
         /// auto-launching a local session server. Overrides --port and --host.
         #[arg(long)]
         url: Option<String>,
+
+        /// Log level for TUI diagnostics (error, warn, info, debug, trace)
+        ///
+        /// Sets the verbosity of logs written to ~/.local/share/binnacle/logs/tui.log.
+        /// Precedence: CLI flag > BN_LOG env var > warn (default).
+        #[arg(long, value_parser = ["error", "warn", "info", "debug", "trace"])]
+        log_level: Option<String>,
     },
 
     /// [REMOVED] Start the session server

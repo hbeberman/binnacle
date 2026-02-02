@@ -2471,7 +2471,16 @@ fn run_command(
             }
         },
         #[cfg(feature = "tui")]
-        Some(Commands::Tui { port, host, url }) => {
+        Some(Commands::Tui {
+            port,
+            host,
+            url,
+            log_level,
+        }) => {
+            // Initialize logging before anything else
+            // Hold the guard for the lifetime of the TUI to ensure logs are flushed
+            let _logging_guard = binnacle::tui::init_logging(log_level.as_deref());
+
             // Determine the port to use (CLI arg, env var, or default)
             let effective_port = port.unwrap_or(binnacle::tui::DEFAULT_PORT);
 
@@ -4752,9 +4761,14 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
         }
 
         #[cfg(feature = "tui")]
-        Some(Commands::Tui { port, host, url }) => (
+        Some(Commands::Tui {
+            port,
+            host,
+            url,
+            log_level,
+        }) => (
             "tui".to_string(),
-            serde_json::json!({ "port": port, "host": host, "url": url }),
+            serde_json::json!({ "port": port, "host": host, "url": url, "log_level": log_level }),
         ),
 
         Some(Commands::Serve) => ("serve".to_string(), serde_json::json!({"error": "removed"})),
