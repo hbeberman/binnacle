@@ -1440,7 +1440,28 @@ impl TuiApp {
 
         // Main content: render active view
         match self.active_view {
-            ActiveView::QueueReady => self.queue_ready_view.render(frame, chunks[1]),
+            ActiveView::QueueReady => {
+                // Split main content to show work items and recently completed
+                let completed_count = self.recently_completed_view.items.len();
+                if completed_count > 0 {
+                    // Show both sections: queue/ready at top, recently completed at bottom
+                    // Allocate ~30% or up to 8 lines for recently completed
+                    let completed_height =
+                        ((completed_count as u16 + 2).min(8)).min(chunks[1].height / 3);
+                    let main_chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([
+                            Constraint::Min(5),                   // Queue/Ready (flexible)
+                            Constraint::Length(completed_height), // Recently Completed (fixed)
+                        ])
+                        .split(chunks[1]);
+                    self.queue_ready_view.render(frame, main_chunks[0]);
+                    self.recently_completed_view.render(frame, main_chunks[1]);
+                } else {
+                    // No completed items, use full area for queue/ready
+                    self.queue_ready_view.render(frame, chunks[1]);
+                }
+            }
             ActiveView::RecentChanges => self.recent_changes_view.render(frame, chunks[1]),
             ActiveView::NodeDetail => self.node_detail_view.render(frame, chunks[1]),
         }
