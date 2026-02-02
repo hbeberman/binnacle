@@ -2487,6 +2487,10 @@ pub enum ContainerCommands {
         /// Use host-level definition (~/.local/share/binnacle/<hash>/containers/) when name conflicts exist
         #[arg(long, conflicts_with = "project")]
         host: bool,
+
+        /// Show full build output (default: quiet mode, only shows errors)
+        #[arg(short, long)]
+        verbose: bool,
     },
 
     /// Run a worker container in headed (interactive) mode

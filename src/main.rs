@@ -2332,6 +2332,7 @@ fn run_command(
                 skip_mount_validation,
                 project,
                 host,
+                verbose,
             } => {
                 // Convert flags to source preference
                 let source_preference = if project {
@@ -2350,6 +2351,7 @@ fn run_command(
                     no_cache,
                     skip_mount_validation,
                     source_preference,
+                    verbose,
                 )?;
                 output(&result, human);
             }
@@ -4684,6 +4686,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 skip_mount_validation,
                 project,
                 host,
+                verbose,
             } => (
                 "container build".to_string(),
                 serde_json::json!({
@@ -4693,7 +4696,8 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "no_cache": no_cache,
                     "skip_mount_validation": skip_mount_validation,
                     "project": project,
-                    "host": host
+                    "host": host,
+                    "verbose": verbose
                 }),
             ),
             ContainerCommands::Run {

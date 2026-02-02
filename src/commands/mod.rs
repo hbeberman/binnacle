@@ -786,7 +786,7 @@ output-format "json"
         let image_name = "localhost/binnacle-self:latest";
         if !container_image_exists(image_name) {
             eprintln!("📦 Building binnacle container image...");
-            match build_embedded_container("latest", false) {
+            match build_embedded_container("latest", false, true) {
                 Ok(()) => {
                     eprintln!("✅ Container image built successfully");
                     true
@@ -1441,6 +1441,7 @@ fn init_with_options(
                 false,
                 false,
                 crate::container::SourcePreference::None,
+                true, // verbose=true for init builds
             ) {
                 Ok(result) => {
                     if !result.success {
@@ -22173,6 +22174,7 @@ fn parse_memory_limit(s: &str) -> Result<u64> {
 /// When building a specific definition that exists in both project and host locations,
 /// use `source_preference` to specify which one to use. If no preference is given
 /// and a conflict exists, an error is returned.
+#[allow(clippy::too_many_arguments)]
 pub fn container_build(
     repo_path: &Path,
     definition: Option<&str>,
@@ -22181,6 +22183,7 @@ pub fn container_build(
     no_cache: bool,
     _skip_mount_validation: bool,
     source_preference: crate::container::SourcePreference,
+    verbose: bool,
 ) -> Result<ContainerBuildResult> {
     use crate::container::{
         RESERVED_NAME, SourcePreference, compute_build_order, detect_conflicts,
@@ -22372,10 +22375,10 @@ pub fn container_build(
         if is_embedded {
             if def_name == RESERVED_NAME {
                 // Legacy embedded build for binnacle-self (backward compatibility)
-                build_embedded_container(tag, no_cache)?;
+                build_embedded_container(tag, no_cache, verbose)?;
             } else if def_name == crate::container::EMBEDDED_DEFAULT_NAME {
                 // Embedded build for binnacle-default (minimal base image)
-                build_embedded_default_container(tag, no_cache)?;
+                build_embedded_default_container(tag, no_cache, verbose)?;
             } else {
                 return Err(Error::Other(format!(
                     "Unknown embedded container definition: {}",
@@ -22384,7 +22387,14 @@ pub fn container_build(
             }
         } else {
             // Build from definition
-            build_definition_container(repo_path, def_name, &def_src.definition, tag, no_cache)?;
+            build_definition_container(
+                repo_path,
+                def_name,
+                &def_src.definition,
+                tag,
+                no_cache,
+                verbose,
+            )?;
         }
 
         built.push(def_name.clone());
@@ -22417,13 +22427,15 @@ pub fn container_build(
 }
 
 /// Build the embedded binnacle container (legacy, for backward compatibility)
-fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
+fn build_embedded_container(tag: &str, no_cache: bool, verbose: bool) -> Result<()> {
     // Ensure binnacle-default base image exists before building binnacle-self
     // The worker Containerfile uses "FROM binnacle-default:latest"
     let default_image = format!("localhost/binnacle-default:{}", tag);
     if !container_image_exists(&default_image) {
-        eprintln!("📦 Building base image (binnacle-default) first...");
-        build_embedded_default_container(tag, no_cache)?;
+        if verbose {
+            eprintln!("📦 Building base image (binnacle-default) first...");
+        }
+        build_embedded_default_container(tag, no_cache, verbose)?;
     }
 
     // Determine build context: prefer external files if available, otherwise use embedded
@@ -22447,7 +22459,9 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
             )
         } else {
             // Use embedded files - write them to a temp directory
-            eprintln!("📦 Using embedded container files...");
+            if verbose {
+                eprintln!("📦 Using embedded container files...");
+            }
             let temp_dir = write_embedded_container_files()?;
             let containerfile = temp_dir.join("container/Containerfile");
             let binary = temp_dir.join("container/bn");
@@ -22458,11 +22472,13 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     let current_exe = std::env::current_exe()
         .map_err(|e| Error::Other(format!("Failed to get current executable path: {}", e)))?;
 
-    eprintln!(
-        "📋 Copying bn binary from {} to {}...",
-        current_exe.display(),
-        binary_path.display()
-    );
+    if verbose {
+        eprintln!(
+            "📋 Copying bn binary from {} to {}...",
+            current_exe.display(),
+            binary_path.display()
+        );
+    }
 
     // Copy the binary to the container build context
     fs::copy(&current_exe, &binary_path).map_err(|e| {
@@ -22474,21 +22490,22 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
         ))
     })?;
 
-    // Build with buildah - stream output for real-time feedback
-    eprintln!(
-        "📦 Building container image (localhost/binnacle-self:{})...",
-        tag
-    );
+    // Build with buildah
+    let image_ref = format!("localhost/binnacle-self:{}", tag);
+    if verbose {
+        eprintln!("📦 Building container image ({})...", image_ref);
+    } else {
+        eprint!("  Building {}... ", image_ref);
+    }
+
     let mut build_cmd = Command::new("buildah");
     build_cmd
         .arg("bud")
         .arg("--layers") // Enable layer caching for faster rebuilds
         .arg("-t")
-        .arg(format!("localhost/binnacle-self:{}", tag))
+        .arg(&image_ref)
         .arg("-f")
-        .arg(&containerfile_path)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+        .arg(&containerfile_path);
 
     if no_cache {
         build_cmd.arg("--no-cache");
@@ -22496,7 +22513,28 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
 
     build_cmd.arg(&build_context_dir);
 
-    let status = build_cmd.status()?;
+    // In verbose mode, stream output; in quiet mode, capture it
+    let build_result = if verbose {
+        build_cmd
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .map(|status| (status, String::new(), String::new()))
+    } else {
+        build_cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map(|output| {
+                (
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout).to_string(),
+                    String::from_utf8_lossy(&output.stderr).to_string(),
+                )
+            })
+    };
+
+    let (status, stdout, stderr) = build_result?;
 
     // Clean up the copied binary and temp directory
     let _ = fs::remove_file(&binary_path);
@@ -22505,14 +22543,30 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     }
 
     if !status.success() {
-        return Err(Error::Other("Build failed (see output above)".to_string()));
+        if !verbose {
+            eprintln!("FAILED");
+            // Show captured output on failure
+            if !stdout.is_empty() {
+                eprintln!("\n--- Build stdout ---\n{}", stdout);
+            }
+            if !stderr.is_empty() {
+                eprintln!("\n--- Build stderr ---\n{}", stderr);
+            }
+        }
+        return Err(Error::Other("Build failed".to_string()));
+    }
+
+    if !verbose {
+        eprintln!("OK");
     }
 
     // Export and import to containerd
     // Use docker-archive format (not oci-archive) because it embeds the full image
     // reference in the manifest, allowing ctr to import it with the correct name.
     // OCI archives require annotations that buildah doesn't always include.
-    eprintln!("📤 Exporting image to docker archive...");
+    if verbose {
+        eprintln!("📤 Exporting image to docker archive...");
+    }
     let temp_dir = get_binnacle_temp_dir()?;
     let temp_archive = temp_dir.join("binnacle-self.tar");
     // Remove existing archive if present (docker-archive can't overwrite)
@@ -22520,7 +22574,6 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
         let _ = fs::remove_file(&temp_archive);
     }
     let temp_archive_str = temp_archive.to_string_lossy();
-    let image_ref = format!("localhost/binnacle-self:{}", tag);
 
     let push_output = Command::new("buildah")
         .args([
@@ -22537,7 +22590,9 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
         )));
     }
 
-    eprintln!("📥 Importing image to containerd...");
+    if verbose {
+        eprintln!("📥 Importing image to containerd...");
+    }
     let mode = detect_containerd_mode();
     warn_system_containerd_mode(&mode);
     let import_output = ctr_command(&mode)
@@ -22551,7 +22606,9 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
         .output()?;
 
     // Clean up temp file
-    eprintln!("🧹 Cleaning up...");
+    if verbose {
+        eprintln!("🧹 Cleaning up...");
+    }
     let _ = fs::remove_file(&temp_archive);
 
     if !import_output.status.success() {
@@ -22571,7 +22628,7 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
 }
 
 /// Build the embedded default container (binnacle-default base image)
-fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
+fn build_embedded_default_container(tag: &str, no_cache: bool, verbose: bool) -> Result<()> {
     // Determine build context: prefer external files if available, otherwise use embedded
     // Check in order: new location (.binnacle/containers/default/), legacy location (container/), embedded
     let (
@@ -22603,7 +22660,9 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
         )
     } else {
         // Use embedded files - write them to a temp directory
-        eprintln!("📦 Using embedded container files...");
+        if verbose {
+            eprintln!("📦 Using embedded container files...");
+        }
         let temp_dir = write_embedded_default_container_files()?;
         let containerfile = temp_dir.join("container/Containerfile.default");
         let binary = temp_dir.join("container/bn");
@@ -22616,11 +22675,13 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
     let current_exe = std::env::current_exe()
         .map_err(|e| Error::Other(format!("Failed to get current executable path: {}", e)))?;
 
-    eprintln!(
-        "📋 Copying bn binary from {} to {}...",
-        current_exe.display(),
-        binary_path.display()
-    );
+    if verbose {
+        eprintln!(
+            "📋 Copying bn binary from {} to {}...",
+            current_exe.display(),
+            binary_path.display()
+        );
+    }
 
     // Copy the binary to the container build context
     fs::copy(&current_exe, &binary_path).map_err(|e| {
@@ -22632,9 +22693,14 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
         ))
     })?;
 
-    // Build with buildah - stream output for real-time feedback
+    // Build with buildah
     let image_ref = format!("localhost/binnacle-default:{}", tag);
-    eprintln!("📦 Building container image ({})...", image_ref);
+    if verbose {
+        eprintln!("📦 Building container image ({})...", image_ref);
+    } else {
+        eprint!("  Building {}... ", image_ref);
+    }
+
     let mut build_cmd = Command::new("buildah");
     build_cmd
         .arg("bud")
@@ -22642,9 +22708,7 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
         .arg("-t")
         .arg(&image_ref)
         .arg("-f")
-        .arg(&containerfile_path)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+        .arg(&containerfile_path);
 
     if no_cache {
         build_cmd.arg("--no-cache");
@@ -22652,7 +22716,28 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
 
     build_cmd.arg(&build_context_dir);
 
-    let status = build_cmd.status()?;
+    // In verbose mode, stream output; in quiet mode, capture it
+    let build_result = if verbose {
+        build_cmd
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .map(|status| (status, String::new(), String::new()))
+    } else {
+        build_cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map(|output| {
+                (
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout).to_string(),
+                    String::from_utf8_lossy(&output.stderr).to_string(),
+                )
+            })
+    };
+
+    let (status, stdout, stderr) = build_result?;
 
     // Clean up the copied binary and temp directory
     let _ = fs::remove_file(&binary_path);
@@ -22665,11 +22750,27 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
     }
 
     if !status.success() {
-        return Err(Error::Other("Build failed (see output above)".to_string()));
+        if !verbose {
+            eprintln!("FAILED");
+            // Show captured output on failure
+            if !stdout.is_empty() {
+                eprintln!("\n--- Build stdout ---\n{}", stdout);
+            }
+            if !stderr.is_empty() {
+                eprintln!("\n--- Build stderr ---\n{}", stderr);
+            }
+        }
+        return Err(Error::Other("Build failed".to_string()));
+    }
+
+    if !verbose {
+        eprintln!("OK");
     }
 
     // Export and import to containerd
-    eprintln!("📤 Exporting image to docker archive...");
+    if verbose {
+        eprintln!("📤 Exporting image to docker archive...");
+    }
     let temp_dir = get_binnacle_temp_dir()?;
     let temp_archive = temp_dir.join("binnacle-default.tar");
     // Remove existing archive if present (docker-archive can't overwrite)
@@ -22693,7 +22794,9 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
         )));
     }
 
-    eprintln!("📥 Importing image to containerd...");
+    if verbose {
+        eprintln!("📥 Importing image to containerd...");
+    }
     let mode = detect_containerd_mode();
     warn_system_containerd_mode(&mode);
     let import_output = ctr_command(&mode)
@@ -22707,7 +22810,9 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
         .output()?;
 
     // Clean up temp file
-    eprintln!("🧹 Cleaning up...");
+    if verbose {
+        eprintln!("🧹 Cleaning up...");
+    }
     let _ = fs::remove_file(&temp_archive);
 
     if !import_output.status.success() {
@@ -22733,6 +22838,7 @@ fn build_definition_container(
     _definition: &crate::container::ContainerDefinition,
     tag: &str,
     no_cache: bool,
+    verbose: bool,
 ) -> Result<()> {
     use crate::container::generate_image_name;
 
@@ -22744,7 +22850,9 @@ fn build_definition_container(
         .unwrap_or(&image_name_base);
     let image_ref = format!("{}:{}", image_name_base, tag);
 
-    eprintln!("🏗️  Image: {}", image_ref);
+    if verbose {
+        eprintln!("🏗️  Image: {}", image_ref);
+    }
 
     // Find the Containerfile for this definition
     // Convention: .binnacle/containers/<name>/Containerfile
@@ -22775,11 +22883,13 @@ fn build_definition_container(
     let current_exe = std::env::current_exe()
         .map_err(|e| Error::Other(format!("Failed to get current executable path: {}", e)))?;
 
-    eprintln!(
-        "📋 Copying bn binary from {} to {}...",
-        current_exe.display(),
-        binary_path.display()
-    );
+    if verbose {
+        eprintln!(
+            "📋 Copying bn binary from {} to {}...",
+            current_exe.display(),
+            binary_path.display()
+        );
+    }
 
     // Copy the binary to the container build context
     fs::copy(&current_exe, &binary_path).map_err(|e| {
@@ -22791,8 +22901,13 @@ fn build_definition_container(
         ))
     })?;
 
-    // Build with buildah - stream output for real-time feedback
-    eprintln!("📦 Building container image ({})...", image_ref);
+    // Build with buildah
+    if verbose {
+        eprintln!("📦 Building container image ({})...", image_ref);
+    } else {
+        eprint!("  Building {}... ", image_ref);
+    }
+
     let mut build_cmd = Command::new("buildah");
     build_cmd
         .arg("bud")
@@ -22800,9 +22915,7 @@ fn build_definition_container(
         .arg("-t")
         .arg(&image_ref)
         .arg("-f")
-        .arg(&containerfile_path)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+        .arg(&containerfile_path);
 
     if no_cache {
         build_cmd.arg("--no-cache");
@@ -22811,19 +22924,56 @@ fn build_definition_container(
     // Use repo root as build context (so COPY paths work correctly)
     build_cmd.arg(repo_path);
 
-    let status = build_cmd.status()?;
+    // In verbose mode, stream output; in quiet mode, capture it
+    let build_result = if verbose {
+        build_cmd
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .map(|status| (status, String::new(), String::new()))
+    } else {
+        build_cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map(|output| {
+                (
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout).to_string(),
+                    String::from_utf8_lossy(&output.stderr).to_string(),
+                )
+            })
+    };
+
+    let (status, stdout, stderr) = build_result?;
 
     // Clean up the copied binary
     let _ = fs::remove_file(&binary_path);
 
     if !status.success() {
-        return Err(Error::Other("Build failed (see output above)".to_string()));
+        if !verbose {
+            eprintln!("FAILED");
+            // Show captured output on failure
+            if !stdout.is_empty() {
+                eprintln!("\n--- Build stdout ---\n{}", stdout);
+            }
+            if !stderr.is_empty() {
+                eprintln!("\n--- Build stderr ---\n{}", stderr);
+            }
+        }
+        return Err(Error::Other("Build failed".to_string()));
+    }
+
+    if !verbose {
+        eprintln!("OK");
     }
 
     // Export and import to containerd
     // Use docker-archive format (not oci-archive) because it embeds the full image
     // reference in the manifest, allowing ctr to import it with the correct name.
-    eprintln!("📤 Exporting image to docker archive...");
+    if verbose {
+        eprintln!("📤 Exporting image to docker archive...");
+    }
     let temp_dir = get_binnacle_temp_dir()?;
     let temp_archive = temp_dir.join(format!("binnacle-{}.tar", def_name));
     // Remove existing archive if present (docker-archive can't overwrite)
@@ -22847,7 +22997,9 @@ fn build_definition_container(
         )));
     }
 
-    eprintln!("📥 Importing image to containerd...");
+    if verbose {
+        eprintln!("📥 Importing image to containerd...");
+    }
     let mode = detect_containerd_mode();
     warn_system_containerd_mode(&mode);
     let import_output = ctr_command(&mode)
@@ -22861,7 +23013,9 @@ fn build_definition_container(
         .output()?;
 
     // Clean up temp file
-    eprintln!("🧹 Cleaning up...");
+    if verbose {
+        eprintln!("🧹 Cleaning up...");
+    }
     let _ = fs::remove_file(&temp_archive);
 
     if !import_output.status.success() {
