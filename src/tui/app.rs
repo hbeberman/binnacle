@@ -11,6 +11,7 @@ use std::io::{self, stdout};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use tracing::{error, info, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
@@ -1189,6 +1190,7 @@ impl TuiApp {
             attempt: 1,
             next_retry: Some(Instant::now()),
         };
+        warn!("WebSocket connection lost, starting reconnection");
         self.log_panel.log("connection lost, reconnecting...");
         self.notifications.warning("Connection lost");
     }
@@ -1203,6 +1205,11 @@ impl TuiApp {
             let current_attempt = *attempt;
             if current_attempt >= MAX_RECONNECT_ATTEMPTS {
                 // Max retries exceeded
+                error!(
+                    attempts = current_attempt,
+                    max = MAX_RECONNECT_ATTEMPTS,
+                    "Max reconnect attempts reached, giving up"
+                );
                 self.connection_state = ConnectionState::Disconnected;
                 self.log_panel.log(format!(
                     "reconnect failed after {} attempts",
@@ -1213,6 +1220,12 @@ impl TuiApp {
             } else {
                 // Schedule next attempt
                 let backoff = calculate_backoff(current_attempt + 1);
+                warn!(
+                    attempt = current_attempt,
+                    next_attempt = current_attempt + 1,
+                    backoff_secs = backoff.as_secs(),
+                    "Reconnect attempt failed, scheduling retry"
+                );
                 self.connection_state = ConnectionState::Reconnecting {
                     attempt: current_attempt + 1,
                     next_retry: Some(Instant::now() + backoff),
@@ -1225,6 +1238,7 @@ impl TuiApp {
 
     /// Handle successful reconnection
     fn handle_reconnect_success(&mut self) {
+        info!("WebSocket reconnection successful");
         self.connection_state = ConnectionState::Connected;
         self.log_panel.log("reconnected, refreshing state...");
         self.notifications.info("Reconnected");
@@ -1233,6 +1247,7 @@ impl TuiApp {
     /// Mark connection as disconnected (max retries exceeded or initial failure)
     #[allow(dead_code)]
     fn set_disconnected(&mut self) {
+        warn!("Connection marked as disconnected");
         self.connection_state = ConnectionState::Disconnected;
         self.log_panel.log("disconnected");
         self.notifications.warning("Connection lost");
@@ -1755,16 +1770,20 @@ pub async fn run_tui(
 
     let mut app = TuiApp::new(&display_host, display_port);
 
+    info!(endpoint = %endpoint, host = %display_host, port = display_port, "TUI starting, connecting to server");
+
     // Try to connect to the server
     let (ws_stream, _response) = match tokio_tungstenite::connect_async(&endpoint).await {
         Ok(result) => result,
         Err(e) => {
             if url.is_some() {
                 // Remote URL connection failed
+                error!(endpoint = %endpoint, error = %e, "Failed to connect to remote session");
                 eprintln!("Error: Failed to connect to remote session at {}", endpoint);
                 eprintln!("\nDetails: {}", e);
             } else {
                 // Local connection failed - auto-launch should have started the server
+                error!(host = %display_host, port = display_port, error = %e, "No session server detected");
                 eprintln!(
                     "Error: No session server detected at {}:{}",
                     display_host, display_port
@@ -1777,6 +1796,7 @@ pub async fn run_tui(
         }
     };
 
+    info!(endpoint = %endpoint, "WebSocket connection established");
     app.set_connected();
     let (_write, read) = ws_stream.split();
     let mut ws_read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>> = Some(read);
@@ -1798,6 +1818,7 @@ pub async fn run_tui(
                     // Log error to TUI panel - data will be stale but user is informed
                     // Only log if this is a new error (not a repeated retry)
                     if app.last_fetch_error.is_none() {
+                        error!(error = %e, "Failed to fetch data from server");
                         app.log_panel.log(format!("fetch error: {}", e));
                     }
                     app.last_fetch_error = Some(Instant::now());
@@ -1812,6 +1833,7 @@ pub async fn run_tui(
         if let Some(node_id) = app.needs_node_fetch.take() {
             if let Err(e) = app.fetch_node_data(&node_id).await {
                 // Log error and go back to list view
+                error!(node_id = %node_id, error = %e, "Failed to fetch node data");
                 app.log_panel.log(format!("node fetch error: {}", e));
                 app.go_back_from_detail();
             }
