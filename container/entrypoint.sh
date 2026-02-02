@@ -23,6 +23,22 @@ set -eu
 # shellcheck source=/bn-entry.sh
 source /bn-entry.sh --source-only
 
+# === CLEANUP HANDLER FOR LSP LOGS ===
+# Print rust-analyzer log on exit for debugging
+# Must be defined after sourcing bn-entry.sh to use correct $HOME
+RA_LOG_FILE="${RA_LOG_FILE:-$HOME/.rust-analyzer/ra.log}"
+print_ra_log() {
+    if [ -f "$RA_LOG_FILE" ] && [ -s "$RA_LOG_FILE" ]; then
+        echo "=== rust-analyzer log ($RA_LOG_FILE) ==="
+        # Print last 200 lines to avoid overwhelming output
+        tail -n 200 "$RA_LOG_FILE"
+        echo "=== end rust-analyzer log ==="
+    else
+        echo "📝 No rust-analyzer log found at $RA_LOG_FILE"
+    fi
+}
+trap print_ra_log EXIT
+
 # === 2. WORKER-SPECIFIC: MCP CONFIG EXTENSIONS ===
 # Override binnacle init with additional skills files for worker
 echo "📝 Extending binnacle configuration for worker..."
@@ -68,12 +84,18 @@ EOF
 echo "🔧 Copilot config written to $COPILOT_CONFIG (staff mode enabled for LSP)"
 
 # Write LSP configuration for Copilot code intelligence
+# Ensure rust-analyzer log directory exists
+mkdir -p "$(dirname "$RA_LOG_FILE")"
 LSP_CONFIG="$HOME/.copilot/lsp-config.json"
-cat > "$LSP_CONFIG" << 'EOF'
+cat > "$LSP_CONFIG" << EOF
 {
   "lspServers": {
     "rust-analyzer": {
       "command": "rust-analyzer",
+      "env": {
+        "RA_LOG": "info",
+        "RA_LOG_FILE": "$RA_LOG_FILE"
+      },
       "fileExtensions": {
         ".rs": "rust"
       }
@@ -96,6 +118,7 @@ cat > "$LSP_CONFIG" << 'EOF'
 }
 EOF
 echo "🔧 LSP configuration written to $LSP_CONFIG"
+echo "📝 rust-analyzer logging to: $RA_LOG_FILE"
 jq -r '.lspServers | keys[] as $k | "   - \($k): \(.[$k].command)"' "$LSP_CONFIG"
 
 # === 5. ORIENT AGENT ===
