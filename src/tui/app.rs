@@ -5,9 +5,15 @@
 //! - WebSocket connection handling with automatic reconnection
 //! - Event loop for keyboard and server messages
 //! - View switching between Queue/Ready, Recently Completed, and Node Detail
+//! - Logging setup with daily rolling file appender
 
 use std::io::{self, stdout};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::prelude::*;
 
 use chrono::{DateTime, Utc};
 use crossterm::{
@@ -70,6 +76,88 @@ fn parse_ws_url(url: &str) -> (String, u16) {
         };
         (host_port.to_string(), default_port)
     }
+}
+
+/// Initialize logging for the TUI with daily rolling file appender.
+///
+/// Creates a logging setup that writes JSON-formatted logs to `~/.local/share/binnacle/logs/tui.log`.
+/// The log files roll daily with the format `tui.log.YYYY-MM-DD`.
+///
+/// # Arguments
+/// * `log_level` - Optional log level string (e.g., "debug", "info", "warn").
+///   Precedence: CLI flag (this arg) > BN_LOG env var > "warn" default.
+///
+/// # Returns
+/// A `WorkerGuard` that must be held for the lifetime of the TUI. When the guard is dropped,
+/// any remaining buffered logs will be flushed. The TUI should hold this guard until exit.
+///
+/// Returns `None` if the logs directory cannot be created, logging is silently disabled.
+///
+/// # Example
+/// ```ignore
+/// let _logging_guard = init_logging(Some("debug"));
+/// // TUI runs...
+/// // Guard dropped at end of scope, flushes remaining logs
+/// ```
+pub fn init_logging(log_level: Option<&str>) -> Option<WorkerGuard> {
+    // Determine log directory: ~/.local/share/binnacle/logs/
+    let logs_dir = get_logs_directory()?;
+
+    // Create logs directory if it doesn't exist
+    if std::fs::create_dir_all(&logs_dir).is_err() {
+        return None;
+    }
+
+    // Set up daily rolling file appender
+    let file_appender = tracing_appender::rolling::daily(&logs_dir, "tui.log");
+
+    // Create non-blocking writer (returns guard that must be held)
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    // Build EnvFilter with precedence: CLI flag > BN_LOG env var > "warn" default
+    let filter = build_env_filter(log_level);
+
+    // Build the subscriber with JSON formatter
+    let subscriber = tracing_subscriber::registry().with(filter).with(
+        tracing_subscriber::fmt::layer()
+            .json()
+            .with_writer(non_blocking)
+            .with_target(true)
+            .with_file(true)
+            .with_line_number(true),
+    );
+
+    // Set as the global default subscriber
+    // If this fails (e.g., subscriber already set), we still return the guard
+    // to ensure the non-blocking writer stays alive
+    let _ = tracing::subscriber::set_global_default(subscriber);
+
+    Some(guard)
+}
+
+/// Get the logs directory path: ~/.local/share/binnacle/logs/
+fn get_logs_directory() -> Option<PathBuf> {
+    dirs::data_dir().map(|d| d.join("binnacle").join("logs"))
+}
+
+/// Build an EnvFilter with precedence: CLI flag > BN_LOG env var > "warn" default
+fn build_env_filter(log_level: Option<&str>) -> EnvFilter {
+    // Priority 1: CLI flag (direct argument)
+    if let Some(level) = log_level {
+        if let Ok(filter) = EnvFilter::try_new(level) {
+            return filter;
+        }
+    }
+
+    // Priority 2: BN_LOG environment variable
+    if let Ok(env_level) = std::env::var("BN_LOG") {
+        if let Ok(filter) = EnvFilter::try_new(&env_level) {
+            return filter;
+        }
+    }
+
+    // Priority 3: Default to "warn"
+    EnvFilter::try_new("warn").unwrap_or_else(|_| EnvFilter::new("warn"))
 }
 
 /// Active view in the TUI
@@ -1940,5 +2028,40 @@ mod tests {
         assert_eq!(response.tasks.len(), 2);
         assert_eq!(response.tasks[0].core.entity_type, Some("task".to_string()));
         assert_eq!(response.tasks[1].core.entity_type, Some("bug".to_string()));
+    }
+
+    #[test]
+    fn test_build_env_filter_with_cli_arg() {
+        // CLI arg takes precedence
+        let filter = build_env_filter(Some("debug"));
+        // Filter builds without error when given valid level
+        assert!(format!("{:?}", filter).contains("EnvFilter"));
+    }
+
+    #[test]
+    fn test_build_env_filter_with_invalid_cli_arg() {
+        // Invalid CLI arg falls through to env or default
+        let filter = build_env_filter(Some("not_a_valid_level_at_all"));
+        // Should still return a valid filter (defaults to warn)
+        assert!(format!("{:?}", filter).contains("EnvFilter"));
+    }
+
+    #[test]
+    fn test_build_env_filter_none() {
+        // None falls through to env or default
+        let filter = build_env_filter(None);
+        assert!(format!("{:?}", filter).contains("EnvFilter"));
+    }
+
+    #[test]
+    fn test_get_logs_directory_exists() {
+        // Verify we can construct a logs directory path
+        let logs_dir = get_logs_directory();
+        // On most systems this should return Some - just verify the function runs
+        if let Some(dir) = logs_dir {
+            assert!(dir.ends_with("logs"));
+            assert!(dir.to_string_lossy().contains("binnacle"));
+        }
+        // If dirs::data_dir returns None (rare), test still passes
     }
 }

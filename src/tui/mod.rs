@@ -18,6 +18,8 @@ pub use app::DEFAULT_PORT;
 #[cfg(feature = "tui")]
 pub use app::InputMode;
 #[cfg(feature = "tui")]
+pub use app::init_logging;
+#[cfg(feature = "tui")]
 pub use app::run_tui;
 #[cfg(feature = "tui")]
 pub use notifications::{NotificationLevel, NotificationManager, Toast};
