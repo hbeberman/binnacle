@@ -58,6 +58,7 @@ const AGENT_STATUS_COLORS = {
 // Doc colors (by doc_type)
 const DOC_TYPE_COLORS = {
     'prd': '#9333ea',
+    'prd_draft': '#ea9333',  // Orange for draft PRDs
     'note': '#e8b84a',
     'handoff': '#e87d4a'
 };
@@ -96,6 +97,10 @@ export function getNodeColor(node) {
             return AGENT_STATUS_COLORS[status] || '#00d4ff';
         
         case 'doc':
+            // For PRD docs, check draft status
+            if (doc_type === 'prd' && status === 'draft') {
+                return DOC_TYPE_COLORS['prd_draft'];
+            }
             return DOC_TYPE_COLORS[doc_type] || '#4a90e2';
         
         case 'test':

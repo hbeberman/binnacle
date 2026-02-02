@@ -186,6 +186,25 @@ function renderNodeContent(node) {
         if (node.doc_type) {
             html += `<div class="detail-pane-field"><strong>Doc Type:</strong> ${escapeHtml(node.doc_type)}</div>`;
         }
+        // Show status for PRD docs
+        if (node.doc_type === 'prd' && node.status) {
+            const statusColor = node.status === 'draft' ? 'var(--accent-orange)' : 'var(--accent-green)';
+            const statusLabel = node.status === 'draft' ? 'Draft' : 'Approved';
+            html += `<div class="detail-pane-field"><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: 600;">${statusLabel}</span></div>`;
+        }
+        // Show approval metadata if available
+        if (node.approval) {
+            if (node.approval.approved_by) {
+                html += `<div class="detail-pane-field"><strong>Approved By:</strong> ${escapeHtml(node.approval.approved_by)}</div>`;
+            }
+            if (node.approval.approved_at) {
+                const date = new Date(node.approval.approved_at);
+                html += `<div class="detail-pane-field"><strong>Approved At:</strong> ${date.toLocaleString()}</div>`;
+            }
+            if (node.approval.reason) {
+                html += `<div class="detail-pane-field"><strong>Approval Reason:</strong> ${escapeHtml(node.approval.reason)}</div>`;
+            }
+        }
         if (node.content) {
             html += '<div class="detail-pane-field"><strong>Content:</strong><div class="detail-pane-markdown" id="detail-pane-markdown"></div></div>';
         }

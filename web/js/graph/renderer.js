@@ -1646,7 +1646,8 @@ function drawAgentLabel(node, screenPos, radius) {
 
 /**
  * Draw PRD label above doc nodes that are PRDs.
- * Shows "PRD" badge on top, title/short_name in middle, and description preview below.
+ * Shows "PRD DRAFT" badge (orange) or "PRD" badge (purple) based on status,
+ * title/short_name in middle, and description preview below.
  */
 function drawPRDLabel(node, screenPos, radius) {
     if (node.type !== 'doc' || node.doc_type !== 'prd') return;
@@ -1658,6 +1659,9 @@ function drawPRDLabel(node, screenPos, radius) {
     const pillPadding = 6 * zoom;
     const lineGap = 3 * zoom;
     
+    // Check if this is a draft PRD
+    const isDraft = node.status === 'draft';
+    
     // Get title text: prefer short_name, fall back to truncated title (increased limit)
     const titleText = node.short_name || (node.title ? truncateText(node.title, 50) : '');
     const hasTitle = titleText.length > 0;
@@ -1666,8 +1670,8 @@ function drawPRDLabel(node, screenPos, radius) {
     const descText = node.description ? truncateText(node.description, 60) : '';
     const hasDesc = descText.length > 0;
     
-    // Calculate dimensions
-    const prdText = 'PRD';
+    // Calculate dimensions - show "PRD DRAFT" for drafts, "PRD" for approved
+    const prdText = isDraft ? 'PRD DRAFT' : 'PRD';
     ctx.font = `bold ${baseFontSize}px sans-serif`;
     const prdTextWidth = ctx.measureText(prdText).width;
     
@@ -1703,8 +1707,8 @@ function drawPRDLabel(node, screenPos, radius) {
     
     ctx.save();
     
-    // Draw pill background
-    ctx.fillStyle = 'rgba(147, 51, 234, 0.95)';  // Purple background
+    // Draw pill background - orange for draft, purple for approved
+    ctx.fillStyle = isDraft ? 'rgba(234, 147, 51, 0.95)' : 'rgba(147, 51, 234, 0.95)';
     ctx.beginPath();
     ctx.roundRect(pillX, pillY, pillWidth, pillHeight, pillRadius);
     ctx.fill();

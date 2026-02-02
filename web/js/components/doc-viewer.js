@@ -22,9 +22,13 @@ export function createDocViewer() {
     overlay.innerHTML = `
         <div class="doc-viewer">
             <div class="doc-viewer-header">
-                <h2 class="doc-viewer-title" id="doc-viewer-title">Document</h2>
+                <div class="doc-viewer-header-left">
+                    <h2 class="doc-viewer-title" id="doc-viewer-title">Document</h2>
+                    <span class="doc-viewer-status" id="doc-viewer-status"></span>
+                </div>
                 <button class="doc-viewer-close" id="doc-viewer-close" title="Close">&times;</button>
             </div>
+            <div class="doc-viewer-meta" id="doc-viewer-meta"></div>
             <div class="doc-viewer-content" id="doc-viewer-content">
                 <div class="doc-viewer-loading">Loading document...</div>
             </div>
@@ -55,6 +59,21 @@ export async function showDocViewer(docId) {
     const titleEl = document.getElementById('doc-viewer-title');
     titleEl.textContent = node.title || docId;
     
+    // Update status badge for PRD docs
+    const statusEl = document.getElementById('doc-viewer-status');
+    if (node.doc_type === 'prd' && node.status) {
+        const isDraft = node.status === 'draft';
+        statusEl.textContent = isDraft ? 'DRAFT' : 'APPROVED';
+        statusEl.className = `doc-viewer-status ${isDraft ? 'status-draft' : 'status-approved'}`;
+        statusEl.style.display = 'inline-block';
+    } else {
+        statusEl.style.display = 'none';
+    }
+    
+    // Clear meta section initially
+    const metaEl = document.getElementById('doc-viewer-meta');
+    metaEl.innerHTML = '';
+    
     // Update content - render markdown
     const contentEl = document.getElementById('doc-viewer-content');
     
@@ -72,6 +91,23 @@ export async function showDocViewer(docId) {
         }
         const data = await response.json();
         const fullDoc = data.doc;
+        
+        // Update approval metadata if available
+        if (fullDoc.approval) {
+            let metaHtml = '<div class="doc-viewer-approval">';
+            if (fullDoc.approval.approved_by) {
+                metaHtml += `<span class="approval-by">Approved by <strong>${escapeHtml(fullDoc.approval.approved_by)}</strong></span>`;
+            }
+            if (fullDoc.approval.approved_at) {
+                const date = new Date(fullDoc.approval.approved_at);
+                metaHtml += ` <span class="approval-date">on ${date.toLocaleDateString()}</span>`;
+            }
+            if (fullDoc.approval.reason) {
+                metaHtml += ` <span class="approval-reason">— "${escapeHtml(fullDoc.approval.reason)}"</span>`;
+            }
+            metaHtml += '</div>';
+            metaEl.innerHTML = metaHtml;
+        }
         
         if (fullDoc.content) {
             // Render the markdown content
@@ -92,6 +128,21 @@ export async function showDocViewer(docId) {
             </div>
         `;
     }
+}
+
+/**
+ * Escape HTML characters to prevent XSS
+ * @param {string} str - String to escape
+ * @returns {string} Escaped string
+ */
+function escapeHtml(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 /**

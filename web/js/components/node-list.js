@@ -458,10 +458,15 @@ function renderDocCard(doc) {
         : doc.doc_type === 'handoff' ? '🤝 Handoff'
         : '📝 Note';
     
+    // Show status badge for PRD docs
+    const statusBadge = (doc.doc_type === 'prd' && doc.status) 
+        ? `<span class="badge ${doc.status === 'draft' ? 'badge-draft' : 'badge-approved'}">${doc.status === 'draft' ? 'Draft' : 'Approved'}</span>`
+        : '';
+    
     return `
     <div class="node-card" data-node-id="${doc.id}">
         <div class="card-header">
-            <div class="card-title">${docTypeLabel} ${escapeHtml(doc.title)}</div>
+            <div class="card-title">${docTypeLabel} ${statusBadge} ${escapeHtml(doc.title)}</div>
             <div class="card-actions">
                 <button class="card-read-btn" data-doc-id="${doc.id}" title="Open document viewer">View</button>
                 <button class="card-jump-btn" data-node-id="${doc.id}" title="Jump to graph">🎯</button>
