@@ -84,6 +84,7 @@ impl Default for RecentlyCompletedView {
     }
 }
 
+#[allow(dead_code)]
 impl RecentlyCompletedView {
     pub fn new() -> Self {
         let mut list_state = ListState::default();

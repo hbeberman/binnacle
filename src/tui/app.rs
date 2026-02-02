@@ -42,7 +42,7 @@ use super::connection::{
 use super::notifications::NotificationManager;
 use super::views::{
     CompletedItem, EdgeInfo, LogEntry, LogPanelView, NodeDetail, NodeDetailView, QueueReadyView,
-    RecentlyCompletedView, WorkItem,
+    RecentChangesView, RecentlyCompletedView, WorkItem,
 };
 
 /// Default server port
@@ -165,7 +165,7 @@ fn build_env_filter(log_level: Option<&str>) -> EnvFilter {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
     QueueReady,
-    RecentlyCompleted,
+    RecentChanges,
     NodeDetail,
 }
 
@@ -495,8 +495,10 @@ pub struct TuiApp {
     command_input: String,
     /// Queue/Ready view
     queue_ready_view: QueueReadyView,
-    /// Recently Completed view
+    /// Recently Completed view (for API data)
     recently_completed_view: RecentlyCompletedView,
+    /// Recent Changes view (activity log)
+    recent_changes_view: RecentChangesView,
     /// Node Detail view
     node_detail_view: NodeDetailView,
     /// Log panel view (always visible)
@@ -535,6 +537,7 @@ impl TuiApp {
             command_input: String::new(),
             queue_ready_view: QueueReadyView::new(),
             recently_completed_view: RecentlyCompletedView::new(),
+            recent_changes_view: RecentChangesView::new(),
             node_detail_view: NodeDetailView::new(),
             log_panel: LogPanelView::new(),
             notifications: NotificationManager::new(),
@@ -676,10 +679,10 @@ impl TuiApp {
             "refresh" | "r" => {
                 if matches!(self.connection_state, ConnectionState::Disconnected) {
                     self.reconnect_requested = true;
-                    self.log_panel.log("reconnecting (command)");
+                    self.log("reconnecting (command)");
                 } else {
                     self.needs_refresh = true;
-                    self.log_panel.log("refreshing (command)");
+                    self.log("refreshing (command)");
                 }
             }
             "log" => {
@@ -702,16 +705,44 @@ impl TuiApp {
         }
     }
 
+    /// Log a simple message to both log panel and recent changes view
+    fn log(&mut self, action: impl Into<String>) {
+        let action = action.into();
+        self.log_panel.log(&action);
+        self.recent_changes_view.log(action);
+    }
+
+    /// Log an entity event to both log panel and recent changes view
+    fn log_entity(
+        &mut self,
+        entity_type: impl Into<String>,
+        entity_id: impl Into<String>,
+        action: impl Into<String>,
+    ) {
+        let entity_type = entity_type.into();
+        let entity_id = entity_id.into();
+        let action = action.into();
+        self.log_panel.log_entity(&entity_type, &entity_id, &action);
+        self.recent_changes_view
+            .log_entity(entity_type, entity_id, action);
+    }
+
+    /// Add a log entry to both log panel and recent changes view
+    fn add_log_entry(&mut self, entry: LogEntry) {
+        self.log_panel.add_entry(entry.clone());
+        self.recent_changes_view.add_entry(entry);
+    }
+
     /// Switch to the next view (only cycles between list views, not detail)
     fn next_view(&mut self) {
         let from_view = self.active_view;
         // Only cycle between list views (not NodeDetail)
         match self.active_view {
             ActiveView::QueueReady => {
-                self.active_view = ActiveView::RecentlyCompleted;
-                self.previous_list_view = ActiveView::RecentlyCompleted;
+                self.active_view = ActiveView::RecentChanges;
+                self.previous_list_view = ActiveView::RecentChanges;
             }
-            ActiveView::RecentlyCompleted => {
+            ActiveView::RecentChanges => {
                 self.active_view = ActiveView::QueueReady;
                 self.previous_list_view = ActiveView::QueueReady;
             }
@@ -731,11 +762,10 @@ impl TuiApp {
                 .queue_ready_view
                 .selected_item()
                 .map(|item| item.id.clone()),
-            ActiveView::RecentlyCompleted => self
-                .recently_completed_view
-                .items
-                .get(self.recently_completed_view.selected)
-                .map(|item| item.id.clone()),
+            ActiveView::RecentChanges => self
+                .recent_changes_view
+                .selected_entity_id()
+                .map(String::from),
             ActiveView::NodeDetail => {
                 // Navigate to selected edge
                 self.node_detail_view
@@ -904,8 +934,8 @@ impl TuiApp {
                 self.last_key = Some(key);
             }
             KeyCode::Char('2') => {
-                self.active_view = ActiveView::RecentlyCompleted;
-                self.previous_list_view = ActiveView::RecentlyCompleted;
+                self.active_view = ActiveView::RecentChanges;
+                self.previous_list_view = ActiveView::RecentChanges;
                 self.last_key = Some(key);
             }
             KeyCode::Char('3') => {
@@ -924,7 +954,7 @@ impl TuiApp {
             KeyCode::Char('j') | KeyCode::Down => {
                 match self.active_view {
                     ActiveView::QueueReady => self.queue_ready_view.select_next(),
-                    ActiveView::RecentlyCompleted => self.recently_completed_view.select_next(),
+                    ActiveView::RecentChanges => self.recent_changes_view.select_next(),
                     ActiveView::NodeDetail => self.node_detail_view.select_next_edge(),
                 }
                 self.last_key = Some(key);
@@ -932,7 +962,7 @@ impl TuiApp {
             KeyCode::Char('k') | KeyCode::Up => {
                 match self.active_view {
                     ActiveView::QueueReady => self.queue_ready_view.select_previous(),
-                    ActiveView::RecentlyCompleted => self.recently_completed_view.select_previous(),
+                    ActiveView::RecentChanges => self.recent_changes_view.select_previous(),
                     ActiveView::NodeDetail => self.node_detail_view.select_previous_edge(),
                 }
                 self.last_key = Some(key);
@@ -942,9 +972,7 @@ impl TuiApp {
                 if self.last_key == Some(KeyCode::Char('g')) {
                     match self.active_view {
                         ActiveView::QueueReady => self.queue_ready_view.select_first(),
-                        ActiveView::RecentlyCompleted => {
-                            self.recently_completed_view.select_first()
-                        }
+                        ActiveView::RecentChanges => self.recent_changes_view.select_first(),
                         ActiveView::NodeDetail => self.node_detail_view.select_first_edge(),
                     }
                     self.last_key = None;
@@ -955,7 +983,7 @@ impl TuiApp {
             KeyCode::Char('G') | KeyCode::End => {
                 match self.active_view {
                     ActiveView::QueueReady => self.queue_ready_view.select_last(),
-                    ActiveView::RecentlyCompleted => self.recently_completed_view.select_last(),
+                    ActiveView::RecentChanges => self.recent_changes_view.select_last(),
                     ActiveView::NodeDetail => self.node_detail_view.select_last_edge(),
                 }
                 self.last_key = Some(key);
@@ -963,7 +991,7 @@ impl TuiApp {
             KeyCode::Home => {
                 match self.active_view {
                     ActiveView::QueueReady => self.queue_ready_view.select_first(),
-                    ActiveView::RecentlyCompleted => self.recently_completed_view.select_first(),
+                    ActiveView::RecentChanges => self.recent_changes_view.select_first(),
                     ActiveView::NodeDetail => self.node_detail_view.select_first_edge(),
                 }
                 self.last_key = Some(key);
@@ -972,10 +1000,10 @@ impl TuiApp {
                 // If disconnected, trigger manual reconnect; otherwise refresh data
                 if matches!(self.connection_state, ConnectionState::Disconnected) {
                     self.reconnect_requested = true;
-                    self.log_panel.log("reconnecting (manual)");
+                    self.log("reconnecting (manual)");
                 } else {
                     self.needs_refresh = true;
-                    self.log_panel.log("refreshing");
+                    self.log("refreshing");
                 }
                 self.last_key = Some(key);
             }
@@ -1039,9 +1067,9 @@ impl TuiApp {
                         self.active_view = ActiveView::QueueReady;
                         self.previous_list_view = ActiveView::QueueReady;
                     } else if column < title_area.x + 40 {
-                        // Click on Completed tab area
-                        self.active_view = ActiveView::RecentlyCompleted;
-                        self.previous_list_view = ActiveView::RecentlyCompleted;
+                        // Click on Changes tab area
+                        self.active_view = ActiveView::RecentChanges;
+                        self.previous_list_view = ActiveView::RecentChanges;
                     }
                 } else if in_content {
                     // Click in content area - select item at row
@@ -1050,9 +1078,8 @@ impl TuiApp {
                         ActiveView::QueueReady => {
                             self.queue_ready_view.select_at(relative_row as usize);
                         }
-                        ActiveView::RecentlyCompleted => {
-                            self.recently_completed_view
-                                .select_at(relative_row as usize);
+                        ActiveView::RecentChanges => {
+                            self.recent_changes_view.select_at(relative_row as usize);
                         }
                         ActiveView::NodeDetail => {
                             // In detail view, clicking on edges
@@ -1065,9 +1092,7 @@ impl TuiApp {
                 if in_content {
                     match self.active_view {
                         ActiveView::QueueReady => self.queue_ready_view.select_previous(),
-                        ActiveView::RecentlyCompleted => {
-                            self.recently_completed_view.select_previous()
-                        }
+                        ActiveView::RecentChanges => self.recent_changes_view.select_previous(),
                         ActiveView::NodeDetail => self.node_detail_view.select_previous_edge(),
                     }
                 }
@@ -1076,7 +1101,7 @@ impl TuiApp {
                 if in_content {
                     match self.active_view {
                         ActiveView::QueueReady => self.queue_ready_view.select_next(),
-                        ActiveView::RecentlyCompleted => self.recently_completed_view.select_next(),
+                        ActiveView::RecentChanges => self.recent_changes_view.select_next(),
                         ActiveView::NodeDetail => self.node_detail_view.select_next_edge(),
                     }
                 }
@@ -1095,7 +1120,7 @@ impl TuiApp {
                     ServerMessage::Connected { .. } => {
                         // Initial connection, fetch data
                         self.needs_refresh = true;
-                        self.log_panel.log("connected");
+                        self.log("connected");
                     }
                     ServerMessage::EntityAdded {
                         entity_type,
@@ -1103,7 +1128,7 @@ impl TuiApp {
                         id,
                     } => {
                         // Log the addition
-                        self.log_panel.log_entity(&entity_type, &id, "added");
+                        self.log_entity(&entity_type, &id, "added");
 
                         // Check if this affects ready/queued items
                         if entity_type == "task" || entity_type == "bug" {
@@ -1124,7 +1149,7 @@ impl TuiApp {
                         id,
                     } => {
                         // Log the update
-                        self.log_panel.log_entity(&entity_type, &id, "updated");
+                        self.log_entity(&entity_type, &id, "updated");
 
                         // Check if this affects ready/queued items
                         if entity_type == "task" || entity_type == "bug" {
@@ -1140,25 +1165,25 @@ impl TuiApp {
                         }
                     }
                     ServerMessage::EntityRemoved { entity_type, id } => {
-                        self.log_panel.log_entity(&entity_type, &id, "removed");
+                        self.log_entity(&entity_type, &id, "removed");
                         self.needs_refresh = true;
                     }
                     ServerMessage::EdgeAdded { id, .. } => {
-                        self.log_panel.log_entity("edge", &id, "added");
+                        self.log_entity("edge", &id, "added");
                         self.needs_refresh = true;
                     }
                     ServerMessage::EdgeRemoved { id, .. } => {
-                        self.log_panel.log_entity("edge", &id, "removed");
+                        self.log_entity("edge", &id, "removed");
                         self.needs_refresh = true;
                     }
                     ServerMessage::Reload { .. } => {
-                        self.log_panel.log("reload requested");
+                        self.log("reload requested");
                         self.needs_refresh = true;
                     }
                     ServerMessage::LogEntry { entry } => {
                         // Try to parse as a log entry
                         if let Ok(log_entry) = serde_json::from_value::<LogEntry>(entry) {
-                            self.log_panel.add_entry(log_entry);
+                            self.add_log_entry(log_entry);
                         }
                     }
                     ServerMessage::Delta { changes, .. } => {
@@ -1171,7 +1196,7 @@ impl TuiApp {
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("?")
                                         .to_string();
-                                    self.log_panel.log_entity(&entity_type, &id, "added");
+                                    self.log_entity(&entity_type, &id, "added");
                                     if entity_type == "task" || entity_type == "bug" {
                                         self.needs_refresh = true;
                                     }
@@ -1179,13 +1204,13 @@ impl TuiApp {
                                 Change::Update {
                                     entity_type, id, ..
                                 } => {
-                                    self.log_panel.log_entity(&entity_type, &id, "updated");
+                                    self.log_entity(&entity_type, &id, "updated");
                                     if entity_type == "task" || entity_type == "bug" {
                                         self.needs_refresh = true;
                                     }
                                 }
                                 Change::Delete { entity_type, id } => {
-                                    self.log_panel.log_entity(&entity_type, &id, "removed");
+                                    self.log_entity(&entity_type, &id, "removed");
                                     self.needs_refresh = true;
                                 }
                             }
@@ -1289,7 +1314,7 @@ impl TuiApp {
             next_retry: Some(Instant::now()),
         };
         warn!("WebSocket connection lost, starting reconnection");
-        self.log_panel.log("connection lost, reconnecting...");
+        self.log("connection lost, reconnecting...");
         self.notifications.warning("Connection lost");
     }
 
@@ -1309,7 +1334,7 @@ impl TuiApp {
                     "Max reconnect attempts reached, giving up"
                 );
                 self.connection_state = ConnectionState::Disconnected;
-                self.log_panel.log(format!(
+                self.log(format!(
                     "reconnect failed after {} attempts",
                     current_attempt
                 ));
@@ -1328,8 +1353,7 @@ impl TuiApp {
                     attempt: current_attempt + 1,
                     next_retry: Some(Instant::now() + backoff),
                 };
-                self.log_panel
-                    .log(format!("reconnect attempt {} failed", current_attempt));
+                self.log(format!("reconnect attempt {} failed", current_attempt));
             }
         }
     }
@@ -1338,7 +1362,7 @@ impl TuiApp {
     fn handle_reconnect_success(&mut self) {
         info!("WebSocket reconnection successful");
         self.connection_state = ConnectionState::Connected;
-        self.log_panel.log("reconnected, refreshing state...");
+        self.log("reconnected, refreshing state...");
         self.notifications.info("Reconnected");
     }
 
@@ -1347,7 +1371,7 @@ impl TuiApp {
     fn set_disconnected(&mut self) {
         warn!("Connection marked as disconnected");
         self.connection_state = ConnectionState::Disconnected;
-        self.log_panel.log("disconnected");
+        self.log("disconnected");
         self.notifications.warning("Connection lost");
     }
 
@@ -1417,7 +1441,7 @@ impl TuiApp {
         // Main content: render active view
         match self.active_view {
             ActiveView::QueueReady => self.queue_ready_view.render(frame, chunks[1]),
-            ActiveView::RecentlyCompleted => self.recently_completed_view.render(frame, chunks[1]),
+            ActiveView::RecentChanges => self.recent_changes_view.render(frame, chunks[1]),
             ActiveView::NodeDetail => self.node_detail_view.render(frame, chunks[1]),
         }
 
@@ -1720,8 +1744,8 @@ impl TuiApp {
 
         // Current view name and view switcher hint - changes based on active view
         let (view_name, view_hint) = match self.active_view {
-            ActiveView::QueueReady => (" [1] Queue/Ready", "[2] Completed"),
-            ActiveView::RecentlyCompleted => ("[1] Queue/Ready", " [2] Completed"),
+            ActiveView::QueueReady => (" [1] Queue/Ready", "[2] Changes"),
+            ActiveView::RecentChanges => ("[1] Queue/Ready", " [2] Changes"),
             ActiveView::NodeDetail => {
                 // Show node ID in title when viewing detail
                 if let Some(node) = &self.node_detail_view.node {
@@ -1750,7 +1774,7 @@ impl TuiApp {
 
         let (left_style, right_style) = match self.active_view {
             ActiveView::QueueReady => (view_style, inactive_style),
-            ActiveView::RecentlyCompleted => (inactive_style, view_style),
+            ActiveView::RecentChanges => (inactive_style, view_style),
             ActiveView::NodeDetail => (inactive_style, inactive_style),
         };
 
@@ -1809,7 +1833,7 @@ impl TuiApp {
         }
 
         let help_text = match self.active_view {
-            ActiveView::QueueReady | ActiveView::RecentlyCompleted => {
+            ActiveView::QueueReady | ActiveView::RecentChanges => {
                 " Tab:View  j/k:Nav  Enter:Detail  r:Refresh  L:Log  H:History  ?:Help  q:Quit"
             }
             ActiveView::NodeDetail => {
@@ -1919,7 +1943,7 @@ pub async fn run_tui(
                     // Only log if this is a new error (not a repeated retry)
                     if app.last_fetch_error.is_none() {
                         error!(error = %e, "Failed to fetch data from server");
-                        app.log_panel.log(format!("fetch error: {}", e));
+                        app.log(format!("fetch error: {}", e));
                     }
                     app.last_fetch_error = Some(Instant::now());
                 } else {
@@ -1934,7 +1958,7 @@ pub async fn run_tui(
             if let Err(e) = app.fetch_node_data(&node_id).await {
                 // Log error and go back to list view
                 error!(node_id = %node_id, error = %e, "Failed to fetch node data");
-                app.log_panel.log(format!("node fetch error: {}", e));
+                app.log(format!("node fetch error: {}", e));
                 app.go_back_from_detail();
             }
         }
@@ -1964,8 +1988,7 @@ pub async fn run_tui(
                     app.needs_refresh = true;
                     let item_count = app.queue_ready_view.total_items()
                         + app.recently_completed_view.items.len();
-                    app.log_panel
-                        .log(format!("state refresh complete ({} items)", item_count));
+                    app.log(format!("state refresh complete ({} items)", item_count));
                 }
                 Err(_) => {
                     app.handle_reconnect_failed();
