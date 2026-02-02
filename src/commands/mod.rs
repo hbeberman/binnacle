@@ -10,9 +10,9 @@
 
 use crate::config::resolver::resolve_state;
 use crate::models::{
-    Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Editor, Idea,
-    IdeaStatus, Issue, IssueStatus, Milestone, Mission, Queue, SessionState, Task, TaskStatus,
-    TestNode, TestResult, complexity::analyze_complexity, graph::UnionFind, prompts,
+    Agent, AgentType, Bug, BugSeverity, Doc, DocStatus, DocType, Edge, EdgeDirection, EdgeType,
+    Editor, Idea, IdeaStatus, Issue, IssueStatus, Milestone, Mission, Queue, SessionState, Task,
+    TaskStatus, TestNode, TestResult, complexity::analyze_complexity, graph::UnionFind, prompts,
 };
 use crate::storage::{
     EntityType, Storage, find_git_root, generate_id, get_test_mode_info, parse_status,
@@ -11767,6 +11767,20 @@ fn validate_edge_type_constraints(
                     "Entity {} already has a parent via parent_of edge ({}). Only one parent is allowed.",
                     source, existing_parent
                 )));
+            }
+            // Block child_of links to draft PRD documents
+            // Tasks cannot be created under a PRD until it has been approved
+            if target_type == "doc" {
+                if let Ok(doc) = storage.get_doc(target) {
+                    if doc.doc_type == DocType::Prd && doc.status == DocStatus::Draft {
+                        return Err(Error::Other(format!(
+                            "Cannot create child_of link to draft PRD '{}'. \
+                             PRD must be approved before tasks can be linked to it. \
+                             Use 'bn doc approve {}' to approve the PRD first.",
+                            target, target
+                        )));
+                    }
+                }
             }
         }
         EdgeType::CausedBy => {
@@ -30905,6 +30919,158 @@ mod tests {
         // Human-readable output should not show [pinned]
         let human = list.to_human();
         assert!(!human.contains("[pinned]"));
+    }
+
+    #[test]
+    fn test_link_add_blocks_child_of_to_draft_prd() {
+        let temp = setup_isolated();
+
+        // Create a milestone to attach the PRD to
+        let milestone = milestone_create(
+            temp.path(),
+            "Test Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a draft PRD doc
+        let prd = doc_create(
+            temp.path(),
+            "Draft PRD".to_string(),
+            DocType::Prd,
+            None,
+            Some("# Summary\nThis is a draft PRD".to_string()),
+            None,
+            vec![],
+            vec![milestone.id.clone()],
+        )
+        .unwrap();
+
+        // Verify it's in draft status
+        let doc = super::doc_show(temp.path(), &prd.id, false).unwrap();
+        assert_eq!(doc.doc.status.to_string(), "draft");
+
+        // Create a task
+        let task = task_create(
+            temp.path(),
+            "Task for PRD".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Try to link task as child of draft PRD - should fail
+        let result = link_add(temp.path(), &task.id, &prd.id, "child_of", None, false);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("draft PRD"));
+        assert!(err_msg.contains("must be approved"));
+        assert!(err_msg.contains("bn doc approve"));
+    }
+
+    #[test]
+    fn test_link_add_allows_child_of_to_approved_prd() {
+        let temp = setup_isolated();
+
+        // Create a milestone to attach the PRD to
+        let milestone = milestone_create(
+            temp.path(),
+            "Test Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a PRD doc and approve it
+        let prd = doc_create(
+            temp.path(),
+            "Approved PRD".to_string(),
+            DocType::Prd,
+            None,
+            Some("# Summary\nThis is an approved PRD".to_string()),
+            None,
+            vec![],
+            vec![milestone.id.clone()],
+        )
+        .unwrap();
+
+        // Approve the PRD
+        doc_approve(temp.path(), &prd.id, None, None).unwrap();
+
+        // Create a task
+        let task = task_create(
+            temp.path(),
+            "Task for PRD".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Try to link task as child of approved PRD - should succeed
+        let result = link_add(temp.path(), &task.id, &prd.id, "child_of", None, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_link_add_allows_other_edges_to_draft_prd() {
+        let temp = setup_isolated();
+
+        // Create a milestone to attach the PRD to
+        let milestone = milestone_create(
+            temp.path(),
+            "Test Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a draft PRD doc
+        let prd = doc_create(
+            temp.path(),
+            "Draft PRD".to_string(),
+            DocType::Prd,
+            None,
+            Some("# Summary\nThis is a draft PRD".to_string()),
+            None,
+            vec![],
+            vec![milestone.id.clone()],
+        )
+        .unwrap();
+
+        // Create a task
+        let task = task_create(
+            temp.path(),
+            "Task".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // related_to edge should still work (not child_of)
+        let result = link_add(temp.path(), &task.id, &prd.id, "related_to", None, false);
+        assert!(result.is_ok());
     }
 
     #[test]
