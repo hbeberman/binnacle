@@ -86,6 +86,8 @@ reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "rustls-tls",
 ], optional = true }
+tracing-appender = { version = "0.2", optional = true }
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"], optional = true }
 
 [features]
 gui = [
@@ -107,6 +109,9 @@ tui = [
   "tokio-tungstenite",
   "futures",
   "reqwest",
+  "tracing",
+  "tracing-appender",
+  "tracing-subscriber",
 ]
 tmux = []
 wasm = [
