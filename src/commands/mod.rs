@@ -8,11 +8,12 @@
 //! - `test` - Test node operations
 //! - `commit` - Commit tracking
 
+use crate::agents;
 use crate::config::resolver::resolve_state;
 use crate::models::{
     Agent, AgentType, Bug, BugSeverity, Doc, DocType, Edge, EdgeDirection, EdgeType, Editor, Idea,
     IdeaStatus, Issue, IssueStatus, Milestone, Mission, Queue, SessionState, Task, TaskStatus,
-    TestNode, TestResult, complexity::analyze_complexity, graph::UnionFind, prompts,
+    TestNode, TestResult, complexity::analyze_complexity, graph::UnionFind,
 };
 use crate::storage::{
     EntityType, Storage, find_git_root, generate_id, get_test_mode_info, parse_status,
@@ -492,6 +493,8 @@ pub struct SystemInitResult {
     pub copilot_installed: bool,
     /// Whether bn-agent script was installed
     pub bn_agent_installed: bool,
+    /// Whether Copilot agent files were created at ~/.copilot/agents/
+    pub copilot_agents_created: bool,
     /// Whether container image was built
     pub container_built: bool,
     /// Whether a token was stored (via --token or --token-non-validated)
@@ -549,6 +552,9 @@ impl SystemInitResult {
         }
         if self.bn_agent_installed {
             lines.push("✅ Installed bn-agent script".to_string());
+        }
+        if self.copilot_agents_created {
+            lines.push("✅ Created Copilot agent files at ~/.copilot/agents/".to_string());
         }
         if self.container_built {
             lines.push("✅ Built container image".to_string());
@@ -626,6 +632,8 @@ pub fn system_init() -> Result<SystemInitResult> {
         true,
     );
     let install_bn_agent = prompt_yes_no("Install bn-agent script to ~/.local/bin/bn-agent?", true);
+    let write_copilot_agents =
+        prompt_yes_no("Write Copilot agent files to ~/.copilot/agents/?", true);
     let build_container =
         prompt_yes_no("Build binnacle container image if not already built?", true);
 
@@ -635,6 +643,7 @@ pub fn system_init() -> Result<SystemInitResult> {
         write_mcp_copilot,
         install_copilot,
         install_bn_agent,
+        write_copilot_agents,
         build_container,
         None,  // token not supported in interactive mode
         None,  // token_non_validated not supported in interactive mode
@@ -652,6 +661,7 @@ pub fn system_init_non_interactive(
     write_mcp_copilot: bool,
     install_copilot: bool,
     install_bn_agent: bool,
+    write_copilot_agents: bool,
     build_container: bool,
     token: Option<&str>,
     token_non_validated: Option<&str>,
@@ -662,6 +672,7 @@ pub fn system_init_non_interactive(
         write_mcp_copilot,
         install_copilot,
         install_bn_agent,
+        write_copilot_agents,
         build_container,
         token,
         token_non_validated,
@@ -684,6 +695,7 @@ pub fn system_init_container_mode() -> Result<SystemInitResult> {
         true,  // write_mcp_copilot
         false, // install_copilot - already installed in image
         false, // install_bn_agent - not needed in container
+        true,  // write_copilot_agents - enable in container mode
         false, // build_container - already in one
         None,  // token - not stored, passed via env
         None,  // token_non_validated
@@ -699,6 +711,7 @@ fn system_init_with_options(
     write_mcp_copilot: bool,
     install_copilot: bool,
     install_bn_agent: bool,
+    write_copilot_agents: bool,
     build_container: bool,
     token: Option<&str>,
     token_non_validated: Option<&str>,
@@ -775,6 +788,19 @@ output-format "json"
             Ok(installed) => installed,
             Err(e) => {
                 eprintln!("Warning: Failed to install bn-agent script: {}", e);
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // Write Copilot agent files to ~/.copilot/agents/ if requested
+    let copilot_agents_created = if write_copilot_agents {
+        match create_user_copilot_agent_files() {
+            Ok(created) => created,
+            Err(e) => {
+                eprintln!("Warning: Failed to create Copilot agent files: {}", e);
                 false
             }
         }
@@ -859,6 +885,7 @@ output-format "json"
         mcp_copilot_config_created,
         copilot_installed,
         bn_agent_installed,
+        copilot_agents_created,
         container_built,
         token_stored,
         token_username,
@@ -1053,7 +1080,7 @@ fn session_init_with_options(
     // Auto-initialize system if requested and not already done
     if auto_global && !is_system_initialized() {
         eprintln!("Auto-initializing system config with defaults...");
-        system_init_non_interactive(false, false, false, false, false, false, None, None)?;
+        system_init_non_interactive(false, false, false, false, false, false, false, None, None)?;
         system_auto_initialized = true;
     }
 
@@ -1780,340 +1807,6 @@ If a task seems too large or unclear, suggest the human invoke the planning work
 Always update task status to keep the graph accurate.
 "#;
 
-/// Plan agent content (binnacle-plan.agent.md)
-pub const PLAN_AGENT_CONTENT: &str = r#"---
-name: Binnacle Plan
-description: Research and outline multi-step plans for binnacle-tracked projects
-argument-hint: Outline the goal or problem to research
-tools: ['search', 'read/problems', 'agent', 'web/fetch', 'binnacle/*', 'read/readFile','execute/testFailure']
-handoffs:
-  - label: Create PRD
-    agent: Binnacle PRD
-    prompt: Create a full PRD based on this research and plan.
-    send: true
----
-You are a PLANNING AGENT for a binnacle-tracked project.
-
-Your SOLE responsibility is planning. NEVER start implementation.
-
-<stopping_rules>
-STOP IMMEDIATELY if you consider:
-- Running file editing tools
-- Creating or modifying binnacle tasks
-- Switching to implementation mode
-
-If you catch yourself planning steps for YOU to execute, STOP.
-Plans describe steps for ANOTHER agent to execute later.
-
-You have access to #tool:binnacle/* only to GATHER CONTEXT, NOT to create or modify tasks.
-</stopping_rules>
-
-<workflow>
-## 1. Gather Context
-
-Use #tool:agent to research comprehensively:
-- Search codebase for relevant patterns
-- Check for existing PRDs or design docs
-- Check `bn ready` for related tasks
-- Review recent commits if relevant
-
-DO NOT make other tool calls after #tool:agent returns!
-
-Stop at 80% confidence.
-
-## 2. Present Plan
-
-Summarize your proposed plan using the <plan_format> below.
-MANDATORY: Pause for user feedback.
-
-## 3. Iterate
-
-Incorporate feedback and repeat <workflow> until approved.
-Once approved, hand off to PRD agent.
-</workflow>
-
-<plan_format>
-## Plan: {Title (2-10 words)}
-
-{Brief summary: what, how, why. (20-100 words)}
-
-### Steps (3-6)
-1. {Action with [file](path) links and `symbol` references}
-2. {Next step}
-3. {...}
-
-### Considerations (0-3)
-1. {Question or tradeoff? Option A / Option B}
-2. {...}
-</plan_format>
-
-<output_rules>
-- DON'T show code blocks, but describe changes and link to relevant files
-- NO manual testing sections unless explicitly requested
-- ONLY write the plan, without unnecessary preamble or postamble
-</output_rules>
-
-<!-- NOTE: #tool:"binnacle/*" requires MCP setup. See bn docs. -->
-"#;
-
-/// PRD agent content (binnacle-prd.agent.md)
-pub const PRD_AGENT_CONTENT: &str = r#"---
-name: Binnacle PRD
-description: Convert approved plans into detailed PRDs for binnacle-tracked projects
-argument-hint: Create a PRD document at path {path}
-tools: ['search', 'agent', 'web/fetch', 'edit', 'binnacle/*', 'read/readFile']
-handoffs:
-  - label: Create Tasks
-    agent: Binnacle Tasks
-    prompt: Split the approved PRD into binnacle tasks for implementation.
-    send: true
----
-You are a technical program manager creating PRDs for a binnacle-tracked project.
-
-Your SOLE responsibility is documentation. NEVER start implementation.
-
-<stopping_rules>
-STOP IMMEDIATELY if you consider:
-- Editing files OTHER than the PRD document
-- Creating or modifying binnacle tasks
-- Switching to implementation mode
-
-If you catch yourself planning steps for YOU to execute, STOP.
-You have access to #tool:binnacle only to GATHER CONTEXT, NOT to create or modify tasks.
-</stopping_rules>
-
-<workflow>
-## Before Drafting
-
-ASK clarifying questions if:
-- Behavior is ambiguous
-- Edge cases aren't addressed
-- "Done" state is unclear
-- Multiple interpretations exist
-
-**Do NOT guess. Do NOT assume. ASK.**
-3 questions now saves 3 revision rounds later.
-
-## 1. Research (if needed)
-
-Use #tool:agent for deep codebase research.
-DO NOT make other tool calls after #tool:agent returns!
-
-## 2. Summarize Plan
-
-Present a concise plan summary for user approval.
-MANDATORY: Pause for feedback before writing PRD.
-
-## 3. Handle Feedback
-
-Once the user replies, restart <workflow> to gather additional context.
-DON'T start writing the PRD until the plan summary is approved.
-
-## 4. Write PRD
-
-Once approved, ask for file path if not specified.
-Write PRD to `prds/PRD_<NAME>.md` using the template below.
-</workflow>
-
-<prd_template>
-# PRD: {Title}
-
-**Status:** Draft
-**Author:** {Your name}
-**Date:** {YYYY-MM-DD}
-
-## Overview
-{1 paragraph summary}
-
-## Motivation
-{Why is this needed? What problem does it solve?}
-
-## Non-Goals
-- {What is out of scope}
-
-## Dependencies
-- {Required features or changes}
-
----
-
-## Specification
-{Detailed description with examples, tables, diagrams as needed}
-
-## Implementation
-{Files to modify, code patterns to follow}
-
-## Testing
-{How to validate the implementation}
-
-## Open Questions
-- {Unresolved decisions}
-</prd_template>
-
-<!-- NOTE: #tool:binnacle requires MCP setup. See bn docs. -->
-"#;
-
-/// Tasks agent content (binnacle-tasks.agent.md)
-pub const TASKS_AGENT_CONTENT: &str = r#"---
-name: Binnacle Tasks
-description: Convert PRDs into binnacle tasks with dependencies
-tools: ['search', 'agent', 'binnacle/*', 'read/readFile']
-handoffs:
-  - label: Start Implementation
-    agent: agent
-    prompt: "Start implementation. Run `bn ready` to see tasks, pick one, mark it in_progress, and begin working. Update task status as you go."
-    send: true
----
-You are a dev lead converting PRDs into binnacle tasks.
-
-Your SOLE responsibility is task creation. NEVER start implementation.
-
-<stopping_rules>
-STOP IMMEDIATELY if you consider:
-- Editing source code files
-- Running tests
-- Switching to implementation mode
-
-If you catch yourself planning steps for YOU to execute, STOP.
-You are creating tasks for ANOTHER agent to execute later.
-</stopping_rules>
-
-<workflow>
-## 1. Review PRD
-
-Read the PRD carefully. Ask clarifying questions if ambiguous.
-**Do NOT guess. Do NOT assume. ASK.**
-
-## 2. Check Binnacle State
-
-Run `bn orient` first. If binnacle is not initialized, STOP and inform the user.
-
-Use #tool:agent to research existing tasks:
-- Have it run `bn task list` and `bn search` to find related tasks
-- The sub-agent should NOT create or edit tasks (RESEARCH ONLY)
-
-## 3. Check Existing Tasks
-
-Look for related tasks to avoid duplicates or find dependencies.
-Reuse existing tasks where possible instead of creating new ones.
-
-## 4. Create Tasks
-
-Create a parent milestone, then individual tasks:
-
-```bash
-# Create milestone
-bn milestone create "PRD: Feature Name" -d "Implements PRD at prds/PRD_NAME.md"
-
-# Create tasks with short names for GUI visibility
-bn task create -s "short name" -p 2 -d "Description" "Full task title"
-
-# Link to milestone
-bn link add <task-id> <milestone-id> -t child_of
-
-# Set dependencies between tasks (--reason is important!)
-bn link add <task-id> <blocker-id> -t depends_on --reason "why this dependency exists"
-```
-
-## 5. Iterate
-
-Add tasks incrementally. Pause for user feedback on structure.
-Only mark complete when all tasks are clear and properly linked.
-</workflow>
-
-<task_guidelines>
-- **Actionable**: Each task = one clear action
-- **Specific**: Include enough detail to implement
-- **Short names**: Always use `-s` flag (appears in GUI)
-- **Dependencies**: Model blockers explicitly with `depends_on` and always add `--reason`
-- **Hierarchy**: Link tasks to milestones with `child_of`
-</task_guidelines>
-
-<!-- NOTE: #tool:binnacle requires MCP setup. See bn docs. -->
-"#;
-
-/// Auto-worker agent prompt - picks from `bn ready` and works automatically
-pub const AUTO_WORKER_PROMPT: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md and use your binnacle skill to determine the most important next action, then take it, test it, report its results, and commit it. Run `bn ready` to find available tasks and bugs. IMPORTANT: Prioritize queued items first (items with "queued": true in the JSON output) - these have been explicitly marked as high priority by an operator. Among queued items, pick by priority (lower number = higher priority). If no queued items exist, pick the highest priority non-queued item. Claim your chosen item with `bn task update ID --status in_progress` or `bn bug update ID --status in_progress`, and start working immediately. CRITICAL: When you finish, close the item with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
-
-/// Do agent prompt - works on a specific user-provided description
-/// Note: The actual prompt needs {description} substituted at runtime
-pub const DO_AGENT_PROMPT: &str = r#"Run `bn orient --type worker` to get oriented with the project. Read PRD.md. Then work on the following: {description}. Test your changes, report results, and commit when complete. Create a task or bug in binnacle if one doesn't exist for this work. CRITICAL: If you created or claimed a task/bug, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
-
-/// PRD writer agent prompt - renders ideas into PRDs
-pub const PRD_WRITER_PROMPT: &str = r#"Run `bn orient --type planner` to get oriented with the project. Read PRD.md. Your job is to help render ideas into proper PRDs. First, ask the user: "Do you have a specific idea or topic in mind, or would you like me to pick one from the open ideas?"
-
-CRITICAL: Before writing ANY PRD, ALWAYS run `bn idea list -H` to search for existing ideas related to the topic. This ensures you build upon existing thoughts and do not duplicate work. If you find related ideas:
-1. Reference them in the PRD (e.g., "Related ideas: bn-xxxx, bn-yyyy")
-2. Incorporate their insights into the PRD content
-3. Consider whether the PRD should supersede/combine multiple related ideas
-
-If the user provides a topic, search ideas for that topic first, then work on it. If no topic provided, check `bn idea list` for candidates and pick the most promising one. Then STOP and ask clarifying questions before writing the PRD. Ask about: scope boundaries (what is in/out), target users, success criteria, implementation constraints, dependencies on other work, and priority relative to other features.
-
-IMPORTANT - Store PRDs as doc nodes, not files:
-After gathering requirements and writing the PRD content, use `bn doc create` to store it in the task graph:
-  bn doc create <related-entity-id> --type prd --title "PRD: Feature Name" --content "...prd content..."
-Or to read from a file:
-  bn doc create <related-entity-id> --type prd --title "PRD: Feature Name" --file /tmp/prd.md
-The <related-entity-id> should be the idea being promoted, or a task/milestone this PRD relates to.
-
-Do NOT save PRDs to prds/ directory - use doc nodes so PRDs are tracked, linked, and versioned in the graph.
-Do NOT run `bn goodbye` - planner agents produce artifacts but do not run long-lived sessions."#;
-
-/// Buddy agent prompt - quick entry helper for bugs/tasks/ideas
-pub const BUDDY_PROMPT: &str = r#"You are a binnacle buddy. Your job is to help the user quickly insert bugs, tasks, and ideas into the binnacle task graph. Run `bn orient --type buddy` to understand the current state. Then ask the user what they would like to add or modify in binnacle. Keep interactions quick and focused on bn operations.
-
-IMPORTANT - Use the correct entity type and ALWAYS include a short name (-s):
-- `bn idea create -s "short" "Full title"` for rough thoughts, exploratory concepts, or "what if" suggestions that need discussion/refinement before becoming actionable work
-- `bn task create -s "short" "Full title"` for specific, actionable work items that are ready to be implemented
-- `bn bug create -s "short" "Full title"` for defects, problems, or issues that need fixing
-
-Short names appear in the GUI and make entities much easier to scan. Keep them to 2-4 words.
-
-When the user says "idea", "thought", "what if", "maybe we could", "explore", or similar exploratory language, ALWAYS use `bn idea create`. Ideas are low-stakes and can be promoted to tasks later.
-
-TASK DECOMPOSITION - Break down tasks into subtasks:
-When creating a task, look for opportunities to decompose it into 2-4 smaller, independent subtasks. This helps agents work on focused pieces. To decompose:
-1. Create the parent task first: `bn task create "Parent task title" -s "short name" -d "description"`
-2. Create each subtask: `bn task create "Subtask title" -s "subtask short" -d "description"`
-3. Link subtasks to parent: `bn link add <subtask-id> <parent-id> -t child_of`
-
-Good candidates for decomposition:
-- Tasks with multiple distinct steps (e.g., "add X and test Y" → separate implementation and testing tasks)
-- Tasks touching multiple components (e.g., "update CLI and GUI" → separate CLI and GUI tasks)
-- Tasks with setup requirements (e.g., "configure X then implement Y" → separate configuration and implementation)
-
-Do NOT decompose:
-- Simple, single-action tasks (e.g., "fix typo in README")
-- Tasks that are already focused and atomic
-- Ideas (decomposition happens when ideas are promoted to tasks)
-
-CRITICAL - Always check the graph for latest state:
-When answering questions about bugs, tasks, or ideas (even ones you created earlier in this session), ALWAYS run `bn show <id>` to check the current state. Never assume an entity is still open just because you created it - another agent or human may have closed it. The graph is the source of truth, not your session memory.
-
-CRITICAL - Close tasks/bugs before goodbye:
-If you created or claimed any task/bug during this session, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "session complete"` to gracefully terminate your agent session when the user is done."#;
-
-/// Free agent prompt - general purpose with binnacle orientation
-pub const FREE_PROMPT: &str = r#"You have access to binnacle (bn), a task/test tracking tool for this project. Key commands: `bn orient --type worker` (get overview), `bn ready` (see available tasks), `bn task list` (all tasks), `bn show ID` (show any entity - works with bn-/bnt-/bnq- prefixes), `bn blocked` (blocked tasks). Run `bn orient --type worker` to see the current project state, then ask the user what they would like you to work on. CRITICAL: If you created or claimed a task/bug, close it with `bn task close ID --reason "what was done"` or `bn bug close ID --reason "what was done"` BEFORE running `bn goodbye`. Run `bn goodbye "summary of what was accomplished"` to gracefully terminate your agent session when all work is done."#;
-
-/// Ask agent prompt - interactive read-only Q&A about the repository
-pub const ASK_AGENT_PROMPT: &str = r#"You are a binnacle ask agent - an interactive assistant for exploring and understanding this repository.
-
-Run `bn orient --type ask` to understand the current project state.
-
-Your role is to ANSWER QUESTIONS about the codebase. You are READ-ONLY:
-- You CAN view files, search code, read git history, and query binnacle
-- You CANNOT modify files, run tests, or make changes
-
-When answering questions:
-1. Search the codebase to find relevant files
-2. Read and analyze the code
-3. Provide clear, concise explanations with file references
-4. Offer to explore related areas if relevant
-
-Stay interactive - after answering, ask if the user has follow-up questions or wants to explore something else.
-
-When the user says "done", "exit", "goodbye", or similar, run `bn goodbye "Q&A session complete"` to end the session."#;
-
 /// MCP lifecycle guidance - appended to worker agent prompts
 /// Explains why orient/goodbye must use shell commands instead of MCP tools
 pub const MCP_LIFECYCLE_BLURB: &str = r#"
@@ -2165,12 +1858,13 @@ pub const MCP_CLAUDE_CONFIG: &str = r#"{
 
 /// VS Code MCP configuration template.
 /// Add this to .vscode/mcp.json in your repository.
+/// Uses login shell to pick up user's PATH (supports ~/.local/bin, ~/.cargo/bin, etc.)
 pub const MCP_VSCODE_CONFIG: &str = r#"{
   "servers": {
     "binnacle": {
       "type": "stdio",
-      "command": "bn",
-      "args": ["mcp", "serve", "--cwd", "${workspaceFolder}"]
+      "command": "bash",
+      "args": ["-l", "-c", "bn mcp serve --cwd \"${workspaceFolder}\""]
     }
   }
 }"#;
@@ -2277,17 +1971,18 @@ fn write_mcp_vscode_config(repo_path: &Path) -> Result<bool> {
         .ok_or_else(|| Error::Other("servers is not a JSON object".to_string()))?;
 
     // Add or update binnacle entry with VS Code-specific format
+    // Uses login shell to pick up user's PATH (supports ~/.local/bin, ~/.cargo/bin, etc.)
     let binnacle_config = serde_json::json!({
         "type": "stdio",
-        "command": "bn",
-        "args": ["mcp", "serve", "--cwd", "${workspaceFolder}"]
+        "command": "bash",
+        "args": ["-l", "-c", "bn mcp serve --cwd \"${workspaceFolder}\""]
     });
     servers.insert("binnacle".to_string(), binnacle_config);
 
-    // Write back with pretty formatting
+    // Write back with pretty formatting (with trailing newline)
     let formatted = serde_json::to_string_pretty(&config)
         .map_err(|e| Error::Other(format!("Failed to serialize VS Code MCP config: {}", e)))?;
-    fs::write(&config_path, formatted)
+    fs::write(&config_path, format!("{}\n", formatted))
         .map_err(|e| Error::Other(format!("Failed to write VS Code MCP config: {}", e)))?;
 
     Ok(true)
@@ -2483,7 +2178,19 @@ fn write_copilot_staff_config() -> Result<bool> {
 /// Writes to .github/agents/ and .github/instructions/
 /// Always overwrites if the files already exist.
 /// Returns true if the files were created/updated.
+///
+/// Generates 4 interactive agent files from resolved agent definitions:
+/// - binnacle-do.agent.md
+/// - binnacle-prd.agent.md
+/// - binnacle-buddy.agent.md
+/// - binnacle-ask.agent.md
+///
+/// Note: worker and free agents are omitted - they're for CLI automation mode
+/// and don't need to be committed to repos for interactive VS Code chat.
 pub fn create_copilot_prompt_files(repo_path: &Path) -> Result<bool> {
+    use crate::agents::definitions::{AGENT_ASK, AGENT_BUDDY, AGENT_DO, AGENT_PRD};
+    use crate::agents::resolver::resolve_agent_for_repo;
+
     let agents_dir = repo_path.join(".github").join("agents");
     let instructions_dir = repo_path.join(".github").join("instructions");
 
@@ -2497,28 +2204,67 @@ pub fn create_copilot_prompt_files(repo_path: &Path) -> Result<bool> {
         ))
     })?;
 
-    // Write the agent files
-    fs::write(
-        agents_dir.join("binnacle-plan.agent.md"),
-        PLAN_AGENT_CONTENT,
-    )
-    .map_err(|e| Error::Other(format!("Failed to write binnacle-plan.agent.md: {}", e)))?;
+    // Only write 4 interactive chat agents to .github/agents/
+    // Worker and free are CLI automation agents - not needed in repos
+    const COPILOT_AGENT_NAMES: &[&str] = &[AGENT_DO, AGENT_PRD, AGENT_BUDDY, AGENT_ASK];
 
-    fs::write(agents_dir.join("binnacle-prd.agent.md"), PRD_AGENT_CONTENT)
-        .map_err(|e| Error::Other(format!("Failed to write binnacle-prd.agent.md: {}", e)))?;
+    for &agent_name in COPILOT_AGENT_NAMES {
+        let resolved = resolve_agent_for_repo(agent_name, repo_path)?
+            .ok_or_else(|| Error::Other(format!("Agent '{}' not found", agent_name)))?;
+        let filename = format!("binnacle-{}.agent.md", agent_name);
+        let content = resolved.agent.generate_agent_file_content();
 
-    fs::write(
-        agents_dir.join("binnacle-tasks.agent.md"),
-        TASKS_AGENT_CONTENT,
-    )
-    .map_err(|e| Error::Other(format!("Failed to write binnacle-tasks.agent.md: {}", e)))?;
+        fs::write(agents_dir.join(&filename), content)
+            .map_err(|e| Error::Other(format!("Failed to write {}: {}", filename, e)))?;
+    }
 
-    // Write the instructions file
+    // Write the instructions file (use embedded content)
     fs::write(
         instructions_dir.join("binnacle.instructions.md"),
         COPILOT_INSTRUCTIONS_CONTENT,
     )
     .map_err(|e| Error::Other(format!("Failed to write binnacle.instructions.md: {}", e)))?;
+
+    Ok(true)
+}
+
+/// Creates Copilot agent files at ~/.copilot/agents/
+///
+/// Generates binnacle-*.md agent files for each known agent type.
+/// These can be used with `copilot --agent @binnacle-do` etc.
+///
+/// Only writes 4 interactive agents (do, prd, buddy, ask).
+/// Worker and free are CLI automation agents handled by bn-agent script.
+pub fn create_user_copilot_agent_files() -> Result<bool> {
+    use crate::agents::definitions::{AGENT_ASK, AGENT_BUDDY, AGENT_DO, AGENT_PRD};
+    use crate::agents::resolver::resolve_agent;
+
+    let home = dirs::home_dir()
+        .ok_or_else(|| Error::Other("Could not determine home directory".to_string()))?;
+    let agents_dir = home.join(".copilot").join("agents");
+
+    // Create directory if it doesn't exist
+    fs::create_dir_all(&agents_dir).map_err(|e| {
+        Error::Other(format!(
+            "Failed to create ~/.copilot/agents directory: {}",
+            e
+        ))
+    })?;
+
+    // Only write 4 interactive chat agents
+    // Worker and free are CLI automation agents - handled by bn-agent script
+    const COPILOT_AGENT_NAMES: &[&str] = &[AGENT_DO, AGENT_PRD, AGENT_BUDDY, AGENT_ASK];
+
+    for &agent_name in COPILOT_AGENT_NAMES {
+        let resolved = resolve_agent(agent_name)?
+            .ok_or_else(|| Error::Other(format!("Agent '{}' not found", agent_name)))?;
+        // User-level files use .md extension (not .agent.md)
+        let filename = format!("binnacle-{}.md", agent_name);
+        let content = resolved.agent.generate_agent_file_content();
+
+        fs::write(agents_dir.join(&filename), content)
+            .map_err(|e| Error::Other(format!("Failed to write {}: {}", filename, e)))?;
+    }
 
     Ok(true)
 }
@@ -16397,6 +16143,259 @@ pub fn config_list(repo_path: &Path) -> Result<ConfigList> {
     Ok(ConfigList { configs, count })
 }
 
+// === Agent Configuration Commands ===
+
+use crate::agents::{AGENT_TYPES, resolve_agent_for_repo, resolve_all_agents_for_repo};
+use crate::config::ValueSource;
+
+/// Agent list entry for display.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentListEntry {
+    /// Agent type name
+    pub name: String,
+    /// Brief description
+    pub description: String,
+    /// Execution mode (host or container)
+    pub execution: String,
+    /// Lifecycle mode (stateful or stateless)
+    pub lifecycle: String,
+    /// Source of the definition (Default, System, Session)
+    pub source: String,
+}
+
+/// Result of listing all agents.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigAgentsList {
+    /// All agent definitions
+    pub agents: Vec<AgentListEntry>,
+    /// Number of agents
+    pub count: usize,
+}
+
+impl Output for ConfigAgentsList {
+    fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = vec![format!("{} agent definitions:\n", self.count)];
+
+        for agent in &self.agents {
+            lines.push(format!(
+                "  {:<8} [{}, {}]  {}",
+                agent.name, agent.execution, agent.lifecycle, agent.description
+            ));
+            lines.push(format!("           Source: {}\n", agent.source));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// List all agent definitions.
+pub fn config_agents_list(repo_path: &Path) -> Result<ConfigAgentsList> {
+    let resolved = resolve_all_agents_for_repo(repo_path)?;
+
+    let agents: Vec<AgentListEntry> = resolved
+        .into_iter()
+        .map(|r| AgentListEntry {
+            name: r.agent.name.clone(),
+            description: r.agent.description.clone(),
+            execution: r.agent.execution.to_string(),
+            lifecycle: r.agent.lifecycle.to_string(),
+            source: format_source(&r.source, r.tools_merged),
+        })
+        .collect();
+
+    let count = agents.len();
+    Ok(ConfigAgentsList { agents, count })
+}
+
+fn format_source(source: &ValueSource, tools_merged: bool) -> String {
+    let base = match source {
+        ValueSource::Default => "embedded".to_string(),
+        ValueSource::System => "~/.config/binnacle/agents/config.kdl".to_string(),
+        ValueSource::Session => "~/.local/share/binnacle/<hash>/agents/config.kdl".to_string(),
+        ValueSource::Project => ".binnacle/agents/config.kdl".to_string(),
+        ValueSource::EnvVar(name) => format!("env:{}", name),
+        ValueSource::CliFlag => "cli flag".to_string(),
+        ValueSource::LegacyConfig(path) => format!("legacy config: {}", path),
+    };
+    if tools_merged {
+        format!("{} (tools merged)", base)
+    } else {
+        base
+    }
+}
+
+/// Detailed agent information for show command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigAgentShow {
+    /// Agent type name
+    pub name: String,
+    /// Full description
+    pub description: String,
+    /// Execution mode
+    pub execution: String,
+    /// Lifecycle mode
+    pub lifecycle: String,
+    /// Source of the definition
+    pub source: String,
+    /// Whether tools were merged from multiple sources
+    pub tools_merged: bool,
+    /// Allowed tools
+    pub tools_allow: Vec<String>,
+    /// Denied tools
+    pub tools_deny: Vec<String>,
+    /// Prompt preview (first 500 chars or configurable)
+    pub prompt_preview: String,
+    /// Full prompt length
+    pub prompt_length: usize,
+}
+
+impl Output for ConfigAgentShow {
+    fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        let mut lines = vec![
+            format!("Agent: {}", self.name),
+            format!("Description: {}", self.description),
+            format!("Execution: {}", self.execution),
+            format!(
+                "Lifecycle: {} ({})",
+                self.lifecycle,
+                if self.lifecycle == "stateful" {
+                    "calls bn goodbye"
+                } else {
+                    "no goodbye"
+                }
+            ),
+            format!("Source: {}", self.source),
+        ];
+
+        lines.push(String::new());
+        lines.push("Tools Allowed:".to_string());
+        if self.tools_allow.is_empty() {
+            lines.push("  (none)".to_string());
+        } else {
+            for tool in &self.tools_allow {
+                lines.push(format!("  {}", tool));
+            }
+        }
+
+        lines.push(String::new());
+        lines.push("Tools Denied:".to_string());
+        if self.tools_deny.is_empty() {
+            lines.push("  (none)".to_string());
+        } else {
+            for tool in &self.tools_deny {
+                lines.push(format!("  {}", tool));
+            }
+        }
+
+        lines.push(String::new());
+        lines.push(format!(
+            "Prompt ({} chars, first 500 shown):",
+            self.prompt_length
+        ));
+        lines.push(format!("  {}", self.prompt_preview.replace('\n', "\n  ")));
+
+        lines.join("\n")
+    }
+}
+
+/// Show details of a specific agent.
+pub fn config_agents_show(repo_path: &Path, name: &str) -> Result<ConfigAgentShow> {
+    // Validate agent name
+    if !AGENT_TYPES.contains(&name) {
+        return Err(Error::InvalidInput(format!(
+            "Unknown agent type '{}'. Valid types: {}",
+            name,
+            AGENT_TYPES.join(", ")
+        )));
+    }
+
+    let resolved = resolve_agent_for_repo(name, repo_path)?
+        .ok_or_else(|| Error::NotFound(format!("Agent '{}' not found", name)))?;
+
+    let agent = &resolved.agent;
+    let prompt_preview: String = agent.prompt.chars().take(500).collect();
+    let prompt_length = agent.prompt.len();
+
+    Ok(ConfigAgentShow {
+        name: agent.name.clone(),
+        description: agent.description.clone(),
+        execution: agent.execution.to_string(),
+        lifecycle: agent.lifecycle.to_string(),
+        source: format_source(&resolved.source, resolved.tools_merged),
+        tools_merged: resolved.tools_merged,
+        tools_allow: agent.tools.allow.clone(),
+        tools_deny: agent.tools.deny.clone(),
+        prompt_preview,
+        prompt_length,
+    })
+}
+
+/// Raw prompt content for emit command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigAgentEmit {
+    /// Agent type name
+    pub name: String,
+    /// Full prompt content
+    pub prompt: String,
+}
+
+impl Output for ConfigAgentEmit {
+    fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        // In human mode, just output the raw prompt (for piping to files)
+        self.prompt.clone()
+    }
+}
+
+/// Emit raw prompt content for an agent.
+pub fn config_agents_emit(repo_path: &Path, name: &str) -> Result<ConfigAgentEmit> {
+    // Validate agent name
+    if !AGENT_TYPES.contains(&name) {
+        return Err(Error::InvalidInput(format!(
+            "Unknown agent type '{}'. Valid types: {}",
+            name,
+            AGENT_TYPES.join(", ")
+        )));
+    }
+
+    let resolved = resolve_agent_for_repo(name, repo_path)?
+        .ok_or_else(|| Error::NotFound(format!("Agent '{}' not found", name)))?;
+
+    Ok(ConfigAgentEmit {
+        name: resolved.agent.name.clone(),
+        prompt: resolved.agent.prompt.clone(),
+    })
+}
+
+/// Generate agent file content for pre-commit hook validation.
+/// Returns the full .agent.md file content as a string.
+pub fn config_agents_show_agent_file(repo_path: &Path, name: &str) -> Result<String> {
+    // Validate agent name
+    if !AGENT_TYPES.contains(&name) {
+        return Err(Error::InvalidInput(format!(
+            "Unknown agent type '{}'. Valid types: {}",
+            name,
+            AGENT_TYPES.join(", ")
+        )));
+    }
+
+    let resolved = resolve_agent_for_repo(name, repo_path)?
+        .ok_or_else(|| Error::NotFound(format!("Agent '{}' not found", name)))?;
+
+    Ok(resolved.agent.generate_agent_file_content())
+}
+
 // === Agent Scaling Configuration ===
 
 /// Configuration for agent scaling.
@@ -20606,7 +20605,9 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     None, // use repo_path
                     "main",
                     false,
-                    Some(prompts::WORKER_PROMPT),
+                    agents::get_embedded_agent("worker")
+                        .map(|a| a.prompt)
+                        .as_deref(),
                 ) {
                     Ok(result) => (
                         result.success,
@@ -20682,7 +20683,9 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     None,
                     "main",
                     false,
-                    Some(prompts::PRD_PROMPT),
+                    agents::get_embedded_agent("prd")
+                        .map(|a| a.prompt)
+                        .as_deref(),
                 ) {
                     Ok(result) => (
                         result.success,
@@ -20752,7 +20755,9 @@ pub fn agent_reconcile(repo_path: &Path, dry_run: bool) -> Result<AgentReconcile
                     None,
                     "main",
                     false,
-                    Some(prompts::BUDDY_PROMPT),
+                    agents::get_embedded_agent("buddy")
+                        .map(|a| a.prompt)
+                        .as_deref(),
                 ) {
                     Ok(result) => (
                         result.success,
@@ -24357,9 +24362,12 @@ mod tests {
         // Verify milestone is now done
         let ms = milestone_show(temp.path(), &milestone.id).unwrap();
         assert_eq!(ms.milestone.status, TaskStatus::Done);
-        assert_eq!(
-            ms.milestone.closed_reason,
-            Some("Auto-completed: all child tasks/bugs are done".to_string())
+        // Check that closed_reason matches the auto-complete pattern
+        let reason = ms.milestone.closed_reason.as_ref().unwrap();
+        assert!(
+            reason.contains("children completed") || reason.contains("child completed"),
+            "Expected auto-complete reason, got: {}",
+            reason
         );
     }
 

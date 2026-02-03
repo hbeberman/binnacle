@@ -6390,6 +6390,16 @@ pub fn validate_sha(sha: &str) -> Result<()> {
     Ok(())
 }
 
+/// Compute the session agents config path for a repository.
+///
+/// Returns the path to ~/.local/share/binnacle/<hash>/agents/config.kdl
+/// Returns None if the path cannot be determined.
+pub fn compute_session_agents_path(repo_path: &Path) -> Option<PathBuf> {
+    // Try to get the storage dir, which handles all the environment detection
+    let storage_dir = get_storage_dir(repo_path).ok()?;
+    Some(storage_dir.join("agents").join("config.kdl"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

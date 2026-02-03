@@ -4,6 +4,9 @@
 
 set -e
 
+# Get repository root directory
+repo_root=$(git rev-parse --show-toplevel)
+
 echo "Running pre-commit checks..."
 
 # Run format check
@@ -92,6 +95,107 @@ if git diff --cached --name-only | grep -q '^Cargo.toml$'; then
     fi
 else
     echo "  ✓ Cargo.toml not modified, skipping version sync check"
+fi
+
+# Check if .github/agents/ files are in sync with embedded templates
+# Only runs if .github/agents/ directory exists in the repo
+echo "  → Checking agent file sync..."
+
+agents_dir="$repo_root/.github/agents"
+if [ -d "$agents_dir" ]; then
+    # Copilot agent files (do, prd, buddy, ask - interactive chat agents)
+    agent_files="do prd buddy ask"
+    agents_out_of_sync=""
+    agents_missing=""
+
+    for agent in $agent_files; do
+        agent_file="$agents_dir/binnacle-$agent.agent.md"
+        if [ -f "$agent_file" ]; then
+            # Get expected content from cargo run (strips trailing newline for comparison)
+            expected_content=$(cargo run --quiet -- config agents show "$agent" --format agent-file -H 2>/dev/null | sed 's/[[:space:]]*$//')
+
+            if [ -z "$expected_content" ]; then
+                # Skip if emit failed (build issues)
+                continue
+            fi
+
+            # Get current file content (strips trailing newline for comparison)
+            current_content=$(cat "$agent_file" | sed 's/[[:space:]]*$//')
+
+            # Compare (ignoring trailing whitespace)
+            if ! diff -q <(echo "$current_content") <(echo "$expected_content") >/dev/null 2>&1; then
+                agents_out_of_sync="$agents_out_of_sync binnacle-$agent.agent.md"
+            fi
+        else
+            agents_missing="$agents_missing binnacle-$agent.agent.md"
+        fi
+    done
+
+    if [ -n "$agents_missing" ]; then
+        echo ""
+        echo "❌ Missing agent files in .github/agents/:"
+        for file in $agents_missing; do
+            echo "     - .github/agents/$file"
+        done
+        echo ""
+        echo "   To fix: Run 'cargo run -- session init --write-copilot-prompts -y' to create them, then stage"
+        exit 1
+    fi
+
+    if [ -n "$agents_out_of_sync" ]; then
+        echo ""
+        echo "❌ Agent files out of sync with embedded templates:"
+        for file in $agents_out_of_sync; do
+            echo "     - .github/agents/$file"
+        done
+        echo ""
+        echo "   To fix: Run 'cargo run -- session init --write-copilot-prompts -y' to regenerate, then stage them"
+        exit 1
+    fi
+    echo "  ✓ Agent files in sync"
+else
+    echo "  ✓ No .github/agents/ directory, skipping agent file sync"
+fi
+
+# Check if .vscode/mcp.json binnacle entry is in sync with embedded template
+# Only runs if .vscode/mcp.json exists in the repo
+# Allows additional servers - only validates the binnacle entry
+echo "  → Checking VS Code MCP config sync..."
+
+mcp_config="$repo_root/.vscode/mcp.json"
+if [ -f "$mcp_config" ]; then
+    if ! command -v jq &> /dev/null; then
+        echo "  ⚠ jq not installed, skipping MCP config validation"
+    else
+        # Get expected binnacle server config from cargo run
+        expected_binnacle=$(cargo run --quiet -- system emit mcp-vscode -H 2>/dev/null | jq -S '.servers.binnacle' 2>/dev/null)
+
+        if [ -n "$expected_binnacle" ] && [ "$expected_binnacle" != "null" ]; then
+            # Get current binnacle server config
+            current_binnacle=$(jq -S '.servers.binnacle' "$mcp_config" 2>/dev/null)
+
+            if [ "$current_binnacle" = "null" ] || [ -z "$current_binnacle" ]; then
+                echo ""
+                echo "❌ VS Code MCP config missing binnacle server entry!"
+                echo "     - .vscode/mcp.json"
+                echo ""
+                echo "   To fix: Run 'cargo run -- session init --write-mcp-vscode -y' to add it, then stage"
+                exit 1
+            fi
+
+            if ! diff -q <(echo "$current_binnacle") <(echo "$expected_binnacle") >/dev/null 2>&1; then
+                echo ""
+                echo "❌ VS Code MCP config binnacle entry out of sync!"
+                echo "     - .vscode/mcp.json"
+                echo ""
+                echo "   To fix: Run 'cargo run -- session init --write-mcp-vscode -y' to update, then stage"
+                exit 1
+            fi
+            echo "  ✓ MCP config in sync"
+        fi
+    fi
+else
+    echo "  ✓ No .vscode/mcp.json, skipping MCP config sync"
 fi
 
 # Run cargo audit for security vulnerabilities

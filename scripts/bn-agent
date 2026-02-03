@@ -49,85 +49,60 @@ check_dependencies() {
 # Run dependency checks before processing arguments
 check_dependencies
 
-# Blocked commands - agents should not terminate each other
-# Note: bn goodbye is allowed - agents SHOULD terminate themselves gracefully when done
-BLOCKED_TOOLS=(
-    --deny-tool "shell(bn agent kill:*)"
-    # Block MCP lifecycle tools to force shell usage for proper agent termination
-    --deny-tool "binnacle(binnacle-orient)"
-    --deny-tool "binnacle(binnacle-goodbye)"
-)
+# Map CLI agent types to internal config names
+# CLI uses stable names: auto, qa
+# Internal uses: worker, ask
+map_agent_type() {
+    case "$1" in
+        auto) echo "worker" ;;
+        qa)   echo "ask" ;;
+        *)    echo "$1" ;;
+    esac
+}
 
-# Tool permission sets (using arrays to properly handle arguments with spaces)
-TOOLS_FULL=(
-    --allow-tool "write"
-    --allow-tool "shell(bn:*)"
-    --allow-tool "shell(./target/release/bn)"
-    --allow-tool "shell(./target/debug/bn)"
-    --allow-tool "shell(cargo run)"
-    --allow-tool "shell(cargo fmt)"
-    --allow-tool "shell(cargo clippy)"
-    --allow-tool "shell(cargo test)"
-    --allow-tool "shell(cargo build)"
-    --allow-tool "shell(cargo check)"
-    --allow-tool "shell(cargo audit)"
-    --allow-tool "shell(rustc:*)"
-    --allow-tool "shell(sleep)"
-    --allow-tool "shell(wait)"
-    --allow-tool "shell(git add)"
-    --allow-tool "shell(git commit)"
-    --allow-tool "shell(git:*)"
-    --allow-tool "shell(just:*)"
-    --allow-tool "shell(jq:*)"
-    --allow-tool "shell(sed:*)"
-    --allow-tool "shell(cp:*)"
-    --allow-tool "shell(lsof:*)"
-    --allow-tool "shell(rm:*)"
-    --allow-tool "shell(mkdir:*)"
-    --allow-tool "shell(xargs:*)"
-    --allow-tool "shell(find:*)"
-    --allow-tool "shell(printf:*)"
-    --allow-tool "shell(curl:*)"
-    --allow-tool "shell(awk:*)"
-    --allow-tool "shell(pgrep:*)"
-    --allow-tool "shell(node:*)"
-    --allow-tool "binnacle"
-)
-
-TOOLS_PRD=(
-    --allow-tool "write"
-    --allow-tool "shell(bn:*)"
-    --allow-tool "shell(./target/release/bn)"
-    --allow-tool "shell(./target/debug/bn)"
-    --allow-tool "shell(git add)"
-    --allow-tool "shell(git commit)"
-    --allow-tool "shell(git:*)"
-    --allow-tool "shell(jq:*)"
-    --allow-tool "binnacle"
-)
-
-TOOLS_BUDDY=(
-    --allow-tool "shell(bn:*)"
-    --allow-tool "shell(./target/release/bn)"
-    --allow-tool "shell(./target/debug/bn)"
-    --allow-tool "shell(git add)"
-    --allow-tool "shell(git commit)"
-    --allow-tool "shell(git:*)"
-    --allow-tool "shell(jq:*)"
-    --allow-tool "binnacle"
-)
-
-TOOLS_QA=(
-    --allow-tool "shell(bn:*)"
-    --allow-tool "shell(./target/release/bn)"
-    --allow-tool "shell(./target/debug/bn)"
-    --allow-tool "shell(git log)"
-    --allow-tool "shell(git show)"
-    --allow-tool "shell(git diff)"
-    --allow-tool "shell(git:*)"
-    --allow-tool "shell(jq:*)"
-    --allow-tool "binnacle"
-)
+# Get tool permissions from bn config agents show
+# Returns arrays suitable for copilot --allow-tool and --deny-tool flags
+# Hard-errors if bn config agents is not available (no fallback)
+get_agent_tools() {
+    local agent_type="$1"
+    local config_name
+    config_name=$(map_agent_type "$agent_type")
+    
+    local agent_json
+    if ! agent_json=$(bn config agents show "$config_name" 2>/dev/null); then
+        echo "❌ Failed to get agent configuration for: $config_name" >&2
+        echo "   Ensure bn is built with the agents module" >&2
+        exit 1
+    fi
+    
+    # Extract tools_allow and tools_deny arrays
+    local tools_allow tools_deny
+    tools_allow=$(echo "$agent_json" | jq -r '.tools_allow[]? // empty')
+    tools_deny=$(echo "$agent_json" | jq -r '.tools_deny[]? // empty')
+    
+    # Build TOOLS array with proper quoting
+    # Using printf %q ensures shell metacharacters are escaped
+    TOOLS=()
+    while IFS= read -r tool; do
+        if [[ -n "$tool" ]]; then
+            # Escape the tool string to prevent shell injection
+            local escaped_tool
+            escaped_tool=$(printf '%s' "$tool")
+            TOOLS+=(--allow-tool "$escaped_tool")
+        fi
+    done <<< "$tools_allow"
+    
+    # Build BLOCKED_TOOLS array from deny list with proper quoting
+    BLOCKED_TOOLS=()
+    while IFS= read -r tool; do
+        if [[ -n "$tool" ]]; then
+            # Escape the tool string to prevent shell injection
+            local escaped_tool
+            escaped_tool=$(printf '%s' "$tool")
+            BLOCKED_TOOLS+=(--deny-tool "$escaped_tool")
+        fi
+    done <<< "$tools_deny"
+}
 
 usage() {
     cat << 'EOF'
@@ -145,6 +120,7 @@ Options:
   --host              Force host execution (even for 'auto')
   --container         Force container execution (for 'buddy' or 'prd')
   --once              Run once and exit (disable default looping)
+  --show-tools        Show resolved tool permissions and exit (for debugging)
   --cpus LIMIT        CPU limit for container mode
   --memory LIMIT      Memory limit for container mode
   --merge-target BRANCH  Branch to merge into (container mode, default: main)
@@ -175,6 +151,7 @@ EOF
 FORCE_HOST=false
 FORCE_CONTAINER=false
 ONCE_MODE=false
+SHOW_TOOLS=false
 CPUS=""
 MEMORY=""
 MERGE_TARGET="main"
@@ -193,6 +170,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --once)
             ONCE_MODE=true
+            shift
+            ;;
+        --show-tools)
+            SHOW_TOOLS=true
             shift
             ;;
         --cpus)
@@ -247,61 +228,103 @@ if [[ "$FORCE_HOST" == "true" && "$FORCE_CONTAINER" == "true" ]]; then
     exit 1
 fi
 
-# Helper function to safely emit templates with error handling
-emit_template() {
-    local template="$1"
-    local output
-    if ! output=$(bn system emit "$template" -H 2>&1); then
-        echo "❌ Failed to emit template: $template" >&2
-        echo "   Error: $output" >&2
+# Helper function to get prompt from bn config agents emit
+# Maps CLI names (auto, qa) to internal names (worker, ask)
+get_agent_prompt() {
+    local agent_type="$1"
+    local config_name
+    config_name=$(map_agent_type "$agent_type")
+    
+    local prompt
+    if ! prompt=$(bn config agents emit "$config_name" -H 2>&1); then
+        echo "❌ Failed to get prompt for agent: $config_name" >&2
+        echo "   Error: $prompt" >&2
         exit 1
     fi
-    echo "$output"
+    echo "$prompt"
+}
+
+# Helper function to get MCP lifecycle prompt
+get_mcp_lifecycle() {
+    local agent_type="$1"
+    # Planner types get the planner-specific lifecycle blurb
+    if [[ "$agent_type" == "prd" ]]; then
+        bn system emit mcp-lifecycle-planner -H 2>/dev/null || true
+    else
+        bn system emit mcp-lifecycle -H 2>/dev/null || true
+    fi
 }
 
 # Check if MCP lifecycle prompts should be added (default: true)
 BN_MCP_LIFECYCLE="${BN_MCP_LIFECYCLE:-true}"
 
-# Build prompt based on agent type
+# Build prompt based on agent type (CLI names map to internal names)
 case "$AGENT_TYPE" in
     auto)
-        PROMPT=$(emit_template auto-worker)
-        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
-        TOOLS=("${TOOLS_FULL[@]}")
+        PROMPT=$(get_agent_prompt auto)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$'\n\n'$(get_mcp_lifecycle worker)
+        get_agent_tools worker
         ;;
     do)
         [[ $# -lt 1 ]] && { echo "Error: 'do' requires a description argument"; usage; }
         [[ $# -gt 1 ]] && { echo "Error: Too many arguments. Did you forget to quote the description?"; echo "  Try: bn-agent do \"$*\""; exit 1; }
         DESC="$1"
-        PROMPT=$(emit_template do-agent | awk -v desc="$DESC" '{gsub(/{description}/, desc); print}')
-        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
-        TOOLS=("${TOOLS_FULL[@]}")
+        PROMPT=$(get_agent_prompt do)
+        # Replace {description} placeholder with actual description
+        PROMPT=$(echo "$PROMPT" | awk -v desc="$DESC" '{gsub(/{description}/, desc); print}')
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$'\n\n'$(get_mcp_lifecycle do)
+        get_agent_tools do
         ;;
     prd)
-        PROMPT=$(emit_template prd-writer)
-        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle-planner)
-        TOOLS=("${TOOLS_PRD[@]}")
+        PROMPT=$(get_agent_prompt prd)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$'\n\n'$(get_mcp_lifecycle prd)
+        get_agent_tools prd
         ;;
     buddy)
-        PROMPT=$(emit_template buddy)
-        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
-        TOOLS=("${TOOLS_BUDDY[@]}")
+        PROMPT=$(get_agent_prompt buddy)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$'\n\n'$(get_mcp_lifecycle buddy)
+        get_agent_tools buddy
         ;;
     free)
-        PROMPT=$(emit_template free)
-        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
-        TOOLS=("${TOOLS_FULL[@]}")
+        PROMPT=$(get_agent_prompt free)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$'\n\n'$(get_mcp_lifecycle free)
+        get_agent_tools free
         ;;
     qa)
-        PROMPT=$(emit_template ask-agent)
-        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$(emit_template mcp-lifecycle)
-        TOOLS=("${TOOLS_QA[@]}")
+        PROMPT=$(get_agent_prompt qa)
+        [[ "$BN_MCP_LIFECYCLE" == "true" ]] && PROMPT+=$'\n\n'$(get_mcp_lifecycle ask)
+        get_agent_tools ask
         ;;
     *)
         echo "Error: Unknown agent type '$AGENT_TYPE'"
         usage
         ;;
 esac
+
+# Handle --show-tools flag: display resolved tools and exit
+if [[ "$SHOW_TOOLS" == "true" ]]; then
+    echo "Agent Type: $AGENT_TYPE"
+    internal_name=$(map_agent_type "$AGENT_TYPE")
+    echo ""
+    echo "Allowed Tools:"
+    for arg in "${TOOLS[@]}"; do
+        if [[ "$arg" == "--allow-tool" ]]; then
+            continue
+        fi
+        echo "  $arg"
+    done
+    echo ""
+    echo "Blocked Tools:"
+    for arg in "${BLOCKED_TOOLS[@]}"; do
+        if [[ "$arg" == "--deny-tool" ]]; then
+            continue
+        fi
+        echo "  $arg"
+    done
+    echo ""
+    echo "Source: $(bn config agents show "$internal_name" 2>/dev/null | jq -r '.source // "unknown"')"
+    exit 0
+fi
 
 # Run agent in appropriate mode
 if [[ "$USE_CONTAINER" == "true" ]]; then
@@ -484,6 +507,11 @@ else
         --allow-all-urls  # Allow network requests without prompting
         --no-auto-update  # Prevent automatic updates during execution
     )
+
+    # Always use -i with prompt injection
+    # Agent files (.github/agents/) are useful for VS Code @binnacle-do etc,
+    # but bn-agent uses -i for consistency across host and container modes
+    echo "Using prompt injection (-i) with prompt from bn config agents"
 
     # Loop-by-default unless --once specified
     if [[ "$ONCE_MODE" == "true" ]]; then

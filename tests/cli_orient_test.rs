@@ -151,13 +151,14 @@ fn test_orient_with_init_creates_database() {
         .stdout(predicate::str::contains("\"ready\":true"))
         .stdout(predicate::str::contains("\"just_initialized\":true"));
 
-    // Verify database was created (by checking storage exists)
-    let storage_path = temp.path().join(".git").join(".binnacle");
-    assert!(
-        binnacle::storage::Storage::exists(temp.path()).unwrap()
-            || storage_path.exists()
-            || temp.path().join(".binnacle").exists()
-    );
+    // Verify database was created in the data directory (BN_DATA_DIR)
+    // Note: With dry-run, the database is created but agent registration is skipped
+    // The storage is created in data_dir, not in the repo directory
+    let data_path = temp.data_path();
+    let has_storage = std::fs::read_dir(data_path)
+        .map(|entries| entries.filter_map(|e| e.ok()).any(|e| e.path().is_dir()))
+        .unwrap_or(false);
+    assert!(has_storage, "Expected storage directory in {:?}", data_path);
 }
 
 #[test]

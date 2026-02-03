@@ -251,10 +251,10 @@ fn test_session_init_write_mcp_vscode_creates_config() {
     let content = fs::read_to_string(&config_path).unwrap();
     let config: Value = serde_json::from_str(&content).unwrap();
     assert!(config["servers"]["binnacle"].is_object());
-    assert_eq!(config["servers"]["binnacle"]["command"], "bn");
+    assert_eq!(config["servers"]["binnacle"]["command"], "bash");
     assert_eq!(
         config["servers"]["binnacle"]["args"],
-        serde_json::json!(["mcp", "serve", "--cwd", "${workspaceFolder}"])
+        serde_json::json!(["-l", "-c", "bn mcp serve --cwd \"${workspaceFolder}\""])
     );
     assert_eq!(config["servers"]["binnacle"]["type"], "stdio");
 }
@@ -1916,13 +1916,22 @@ fn test_system_emit_mcp_vscode() {
         "type should be stdio"
     );
     assert_eq!(
-        mcp_json["servers"]["binnacle"]["command"], "bn",
-        "command should be bn"
+        mcp_json["servers"]["binnacle"]["command"], "bash",
+        "command should be bash for login shell"
     );
-    // VS Code version should have workspaceFolder in args
+    // VS Code version should use login shell with workspaceFolder
     let args = mcp_json["servers"]["binnacle"]["args"]
         .as_array()
         .expect("args should be array");
+    assert_eq!(args[0], "-l", "first arg should be -l for login shell");
+    assert_eq!(args[1], "-c", "second arg should be -c");
+    assert!(
+        args[2]
+            .as_str()
+            .map(|s| s.contains("workspaceFolder") && s.contains("bn mcp serve"))
+            .unwrap_or(false),
+        "third arg should contain bn mcp serve and workspaceFolder"
+    );
     assert!(
         args.iter().any(|v| v
             .as_str()

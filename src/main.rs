@@ -8,11 +8,11 @@ use binnacle::cli::SessionTmuxCommands;
 #[cfg(feature = "tmux")]
 use binnacle::cli::SystemTmuxCommands;
 use binnacle::cli::{
-    AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigCommands, ContainerCommands,
-    CopilotCommands, DocCommands, EmitTemplate, GraphCommands, HooksCommands, IdeaCommands,
-    IssueCommands, LinkCommands, LogCommands, McpCommands, MilestoneCommands, MissionCommands,
-    QueueCommands, SearchCommands, SessionCommands, StoreCommands, SystemCommands, TaskCommands,
-    TestCommands, TokenCommands,
+    AgentCommands, BugCommands, Cli, Commands, CommitCommands, ConfigAgentsCommands,
+    ConfigCommands, ContainerCommands, CopilotCommands, DocCommands, EmitTemplate, GraphCommands,
+    HooksCommands, IdeaCommands, IssueCommands, LinkCommands, LogCommands, McpCommands,
+    MilestoneCommands, MissionCommands, QueueCommands, SearchCommands, SessionCommands,
+    StoreCommands, SystemCommands, TaskCommands, TestCommands, TokenCommands,
 };
 use binnacle::commands::{self, Output};
 use binnacle::mcp;
@@ -1036,6 +1036,36 @@ fn run_command(
                 let result = commands::config_list(repo_path)?;
                 output(&result, human);
             }
+            ConfigCommands::Agents { command } => match command {
+                ConfigAgentsCommands::List => {
+                    let result = commands::config_agents_list(repo_path)?;
+                    output(&result, human);
+                }
+                ConfigAgentsCommands::Show { name, format } => {
+                    if format == "agent-file" {
+                        // Output raw agent file content (for pre-commit hook validation)
+                        let content = commands::config_agents_show_agent_file(repo_path, &name)?;
+                        if human {
+                            println!("{}", content.trim());
+                        } else {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(
+                                    &serde_json::json!({"content": content})
+                                )
+                                .unwrap_or_default()
+                            );
+                        }
+                    } else {
+                        let result = commands::config_agents_show(repo_path, &name)?;
+                        output(&result, human);
+                    }
+                }
+                ConfigAgentsCommands::Emit { name } => {
+                    let result = commands::config_agents_emit(repo_path, &name)?;
+                    output(&result, human);
+                }
+            },
         },
         Some(Commands::Mcp { command }) => match command {
             McpCommands::Serve { cwd } => {
@@ -1123,24 +1153,50 @@ fn run_command(
         },
         Some(Commands::System { command }) => match command {
             SystemCommands::Emit { template } => {
-                let content = match template {
-                    EmitTemplate::Skill => commands::SKILLS_FILE_CONTENT,
-                    EmitTemplate::PlanAgent => commands::PLAN_AGENT_CONTENT,
-                    EmitTemplate::PrdAgent => commands::PRD_AGENT_CONTENT,
-                    EmitTemplate::TasksAgent => commands::TASKS_AGENT_CONTENT,
-                    EmitTemplate::CopilotInstructions => commands::COPILOT_INSTRUCTIONS_CONTENT,
-                    EmitTemplate::AutoWorker => commands::AUTO_WORKER_PROMPT,
-                    EmitTemplate::DoAgent => commands::DO_AGENT_PROMPT,
-                    EmitTemplate::PrdWriter => commands::PRD_WRITER_PROMPT,
-                    EmitTemplate::Buddy => commands::BUDDY_PROMPT,
-                    EmitTemplate::Free => commands::FREE_PROMPT,
-                    EmitTemplate::AskAgent => commands::ASK_AGENT_PROMPT,
-                    EmitTemplate::McpClaude => commands::MCP_CLAUDE_CONFIG,
-                    EmitTemplate::McpVscode => commands::MCP_VSCODE_CONFIG,
-                    EmitTemplate::McpCopilot => commands::MCP_COPILOT_CONFIG,
-                    EmitTemplate::McpLifecycle => commands::MCP_LIFECYCLE_BLURB,
-                    EmitTemplate::McpLifecyclePlanner => commands::MCP_LIFECYCLE_BLURB_PLANNER,
-                    EmitTemplate::BnAgent => commands::BN_AGENT_SCRIPT,
+                // Handle agent prompts via agents module
+                let content: String = match template {
+                    EmitTemplate::Skill => commands::SKILLS_FILE_CONTENT.to_string(),
+                    EmitTemplate::CopilotInstructions => {
+                        commands::COPILOT_INSTRUCTIONS_CONTENT.to_string()
+                    }
+                    EmitTemplate::AutoWorker => {
+                        binnacle::agents::get_embedded_agent("worker")
+                            .expect("worker agent must exist")
+                            .prompt
+                    }
+                    EmitTemplate::DoAgent => {
+                        binnacle::agents::get_embedded_agent("do")
+                            .expect("do agent must exist")
+                            .prompt
+                    }
+                    EmitTemplate::PrdWriter => {
+                        binnacle::agents::get_embedded_agent("prd")
+                            .expect("prd agent must exist")
+                            .prompt
+                    }
+                    EmitTemplate::Buddy => {
+                        binnacle::agents::get_embedded_agent("buddy")
+                            .expect("buddy agent must exist")
+                            .prompt
+                    }
+                    EmitTemplate::Free => {
+                        binnacle::agents::get_embedded_agent("free")
+                            .expect("free agent must exist")
+                            .prompt
+                    }
+                    EmitTemplate::AskAgent => {
+                        binnacle::agents::get_embedded_agent("ask")
+                            .expect("ask agent must exist")
+                            .prompt
+                    }
+                    EmitTemplate::McpClaude => commands::MCP_CLAUDE_CONFIG.to_string(),
+                    EmitTemplate::McpVscode => commands::MCP_VSCODE_CONFIG.to_string(),
+                    EmitTemplate::McpCopilot => commands::MCP_COPILOT_CONFIG.to_string(),
+                    EmitTemplate::McpLifecycle => commands::MCP_LIFECYCLE_BLURB.to_string(),
+                    EmitTemplate::McpLifecyclePlanner => {
+                        commands::MCP_LIFECYCLE_BLURB_PLANNER.to_string()
+                    }
+                    EmitTemplate::BnAgent => commands::BN_AGENT_SCRIPT.to_string(),
                 };
                 if human {
                     println!("{}", content.trim());
@@ -1181,6 +1237,7 @@ fn run_command(
                 write_mcp_copilot,
                 install_copilot,
                 install_bn_agent,
+                write_copilot_agents,
                 build_container,
                 yes,
                 token,
@@ -1202,6 +1259,7 @@ fn run_command(
                         write_mcp_copilot,
                         install_copilot,
                         install_bn_agent,
+                        write_copilot_agents,
                         build_container,
                         token.as_deref(),
                         token_non_validated.as_deref(),
@@ -1211,6 +1269,7 @@ fn run_command(
                     || write_mcp_copilot
                     || install_copilot
                     || install_bn_agent
+                    || write_copilot_agents
                     || build_container
                     || token.is_some()
                     || token_non_validated.is_some()
@@ -1222,6 +1281,7 @@ fn run_command(
                         write_mcp_copilot,
                         install_copilot,
                         install_bn_agent,
+                        write_copilot_agents,
                         build_container,
                         token.as_deref(),
                         token_non_validated.as_deref(),
@@ -4258,6 +4318,19 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 }),
             ),
             ConfigCommands::List => ("config list".to_string(), serde_json::json!({})),
+            ConfigCommands::Agents { command } => match command {
+                ConfigAgentsCommands::List => {
+                    ("config agents list".to_string(), serde_json::json!({}))
+                }
+                ConfigAgentsCommands::Show { name, format } => (
+                    "config agents show".to_string(),
+                    serde_json::json!({ "name": name, "format": format }),
+                ),
+                ConfigAgentsCommands::Emit { name } => (
+                    "config agents emit".to_string(),
+                    serde_json::json!({ "name": name }),
+                ),
+            },
         },
 
         Some(Commands::Mcp { command }) => match command {
@@ -4352,9 +4425,6 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
             SystemCommands::Emit { template } => {
                 let template_name = match template {
                     EmitTemplate::Skill => "skill",
-                    EmitTemplate::PlanAgent => "plan-agent",
-                    EmitTemplate::PrdAgent => "prd-agent",
-                    EmitTemplate::TasksAgent => "tasks-agent",
                     EmitTemplate::CopilotInstructions => "copilot-instructions",
                     EmitTemplate::AutoWorker => "auto-worker",
                     EmitTemplate::DoAgent => "do-agent",
@@ -4392,6 +4462,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 write_mcp_copilot,
                 install_copilot,
                 install_bn_agent,
+                write_copilot_agents,
                 build_container,
                 yes,
                 token,
@@ -4404,6 +4475,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "write_mcp_copilot": write_mcp_copilot,
                     "install_copilot": install_copilot,
                     "install_bn_agent": install_bn_agent,
+                    "write_copilot_agents": write_copilot_agents,
                     "build_container": build_container,
                     "yes": yes,
                     "token": token,

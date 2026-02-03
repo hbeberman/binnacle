@@ -1,4 +1,8 @@
 // Tests for summarize session API endpoints
+//
+// These tests require the GUI feature to be enabled since they test GUI API endpoints.
+
+#![cfg(feature = "gui")]
 
 use std::process::Command;
 use std::time::Duration;

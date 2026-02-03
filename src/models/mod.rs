@@ -14,7 +14,6 @@
 
 pub mod complexity;
 pub mod graph;
-pub mod prompts;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
