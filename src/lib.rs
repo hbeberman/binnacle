@@ -6,6 +6,8 @@
 #[cfg(not(target_arch = "wasm32"))]
 pub mod action_log;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod agents;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod cli;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod commands;

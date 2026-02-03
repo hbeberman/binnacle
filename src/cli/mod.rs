@@ -1639,6 +1639,41 @@ pub enum ConfigCommands {
 
     /// List all configuration values
     List,
+
+    /// Agent definition commands (list, show, emit)
+    Agents {
+        #[command(subcommand)]
+        command: ConfigAgentsCommands,
+    },
+}
+
+/// Agent configuration subcommands
+#[derive(Subcommand, Debug)]
+pub enum ConfigAgentsCommands {
+    /// List all agent definitions
+    ///
+    /// Shows all known agents with their sources (embedded, system, session, project).
+    List,
+
+    /// Show details of a specific agent
+    ///
+    /// Displays agent metadata, tool permissions, and prompt preview.
+    Show {
+        /// Agent name (worker, do, prd, buddy, ask, free)
+        name: String,
+
+        /// Output format: json (default), agent-file (Copilot agent file format)
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
+    /// Emit raw prompt content for an agent
+    ///
+    /// Outputs the full prompt text, suitable for use with `copilot -i`.
+    Emit {
+        /// Agent name (worker, do, prd, buddy, ask, free)
+        name: String,
+    },
 }
 
 /// MCP server subcommands
@@ -1889,6 +1924,13 @@ pub enum SystemCommands {
         /// Install bn-agent script to ~/.local/bin/bn-agent
         #[arg(long)]
         install_bn_agent: bool,
+
+        /// Write Copilot agent files to ~/.copilot/agents/
+        ///
+        /// Creates binnacle-*.md agent files that can be used with
+        /// `copilot --agent @binnacle-worker` etc.
+        #[arg(long)]
+        write_copilot_agents: bool,
 
         /// Build binnacle container image if not already built
         #[arg(long)]
@@ -2235,12 +2277,6 @@ pub enum HooksCommands {
 pub enum EmitTemplate {
     /// SKILL.md file content
     Skill,
-    /// Binnacle plan agent prompt (binnacle-plan.prompt.md)
-    PlanAgent,
-    /// Binnacle PRD agent prompt (binnacle-prd.prompt.md)
-    PrdAgent,
-    /// Binnacle tasks agent prompt (binnacle-tasks.prompt.md)
-    TasksAgent,
     /// Binnacle Copilot instructions (binnacle.instructions.md)
     CopilotInstructions,
     /// Auto-worker agent prompt (picks from bn ready)
