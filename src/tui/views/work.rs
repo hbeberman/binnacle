@@ -27,9 +27,9 @@ pub struct WorkItem {
 }
 
 impl WorkItem {
-    /// Get display title (prefer short_name if available)
+    /// Get display title (return full title for Work list)
     pub fn display_title(&self) -> &str {
-        self.short_name.as_deref().unwrap_or(&self.title)
+        &self.title
     }
 
     /// Format assignee for display
@@ -393,6 +393,7 @@ mod tests {
 
     #[test]
     fn test_work_item_display_title() {
+        // display_title() should always return the full title, regardless of short_name
         let item = WorkItem {
             id: "bn-1234".to_string(),
             title: "Full title".to_string(),
@@ -402,7 +403,7 @@ mod tests {
             queued: false,
             entity_type: Some("task".to_string()),
         };
-        assert_eq!(item.display_title(), "Short");
+        assert_eq!(item.display_title(), "Full title");
 
         let item_no_short = WorkItem {
             id: "bn-5678".to_string(),
