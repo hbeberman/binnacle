@@ -120,7 +120,9 @@ Options:
   --host              Force host execution (even for 'auto')
   --container         Force container execution (for 'buddy' or 'prd')
   --once              Run once and exit (disable default looping)
-  --drain             Exit when no work remains (mutually exclusive with --once)
+  --drain             Batch processing mode: loop until 'bn ready' returns 0,
+                      then exit gracefully. Mutually exclusive with --once.
+                      See DRAIN MODE below for details.
   --show-tools        Show resolved tool permissions and exit (for debugging)
   --cpus LIMIT        CPU limit for container mode
   --memory LIMIT      Memory limit for container mode
@@ -131,12 +133,37 @@ Options:
 Environment Variables:
   BN_MCP_LIFECYCLE    Control MCP lifecycle prompts (default: true)
                       Set to "false" to disable MCP orient/goodbye guidance
+  BN_DRAIN_JSON       When set to "1", output JSON summary to stderr on drain
+                      completion or interruption (useful for CI/CD integrations)
+
+Drain Mode:
+  The --drain flag enables batch processing mode, useful for CI/CD pipelines,
+  overnight processing, or any scenario where you want to process all available
+  work and then stop.
+
+  Behavior:
+    • Pre-flight check: exits immediately if no work available at startup
+    • Between iterations: checks 'bn ready' after each agent completes
+    • Exits with code 0 when all work is drained
+    • Counts both ready tasks AND bugs (not just queued items)
+
+  Exit reasons (shown in summary):
+    • no_work_remaining  - Normal completion, all work processed
+    • immediate_no_work  - No work at startup (pre-flight)
+    • interrupted        - Ctrl+C or signal received
+
+  Flag interactions:
+    (none)       Loop forever, sleep 10s when idle
+    --once       Run exactly once, then exit
+    --drain      Loop until 'bn ready' returns 0
+    --once --drain  ERROR: conflicting flags
 
 Examples:
   bn-agent auto                       # Run auto worker in container (loops by default)
   bn-agent --host auto                # Run auto worker on host
   bn-agent --once auto                # Run auto worker once and exit
   bn-agent --drain auto               # Process all tasks and exit when done
+  BN_DRAIN_JSON=1 bn-agent --drain auto  # Same, with JSON summary to stderr
   bn-agent do "fix the login bug"    # Run custom task on host
   bn-agent prd                        # Run PRD writer on host
   bn-agent --container buddy          # Run buddy in container
