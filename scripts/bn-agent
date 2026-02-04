@@ -239,6 +239,18 @@ if [[ "$ONCE_MODE" == "true" && "$DRAIN_MODE" == "true" ]]; then
     exit 1
 fi
 
+# Helper function to check how much work is available
+# Returns combined count of ready tasks + bugs
+# Used by both drain mode and idle sleep loop
+check_work_remaining() {
+    local ready_json
+    ready_json=$(bn ready 2>/dev/null) || { echo "0"; return; }
+    local task_count bug_count
+    task_count=$(echo "$ready_json" | jq -r '.count // 0')
+    bug_count=$(echo "$ready_json" | jq -r '.bug_count // 0')
+    echo $((task_count + bug_count))
+}
+
 # Helper function to get prompt from bn config agents emit
 # Maps CLI names (auto, qa) to internal names (worker, ask)
 get_agent_prompt() {
