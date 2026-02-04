@@ -358,6 +358,8 @@ pub struct TuiApp {
     reconnect_requested: bool,
     /// Whether help overlay is visible
     help_visible: bool,
+    /// Scroll offset for help overlay content
+    help_scroll_offset: u16,
     /// Last rendered layout chunks for mouse handling
     layout_chunks: Option<std::rc::Rc<[Rect]>>,
     /// Time of last fetch error (for rate limiting)
@@ -386,6 +388,7 @@ impl TuiApp {
             last_key: None,
             reconnect_requested: false,
             help_visible: false,
+            help_scroll_offset: 0,
             layout_chunks: None,
             last_fetch_error: None,
         }
@@ -513,6 +516,7 @@ impl TuiApp {
             }
             "help" | "h" => {
                 self.help_visible = true;
+                self.help_scroll_offset = 0;
             }
             "refresh" | "r" => {
                 if matches!(self.connection_state, ConnectionState::Disconnected) {
@@ -617,12 +621,26 @@ impl TuiApp {
 
         // Handle help overlay first (when visible)
         if self.help_visible {
+            // Help content has about 34 lines; max scroll is content - visible height
+            // Using a constant for simplicity since content is static
+            const HELP_CONTENT_LINES: u16 = 34;
             match key {
                 KeyCode::Esc | KeyCode::Char('?') => {
                     self.help_visible = false;
+                    self.help_scroll_offset = 0;
                 }
                 KeyCode::Char('q') => {
                     self.should_quit = true;
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    // Scroll down - max offset depends on content vs visible area
+                    // We'll cap at a reasonable max; render will handle edge cases
+                    if self.help_scroll_offset < HELP_CONTENT_LINES.saturating_sub(5) {
+                        self.help_scroll_offset = self.help_scroll_offset.saturating_add(1);
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.help_scroll_offset = self.help_scroll_offset.saturating_sub(1);
                 }
                 _ => {}
             }
@@ -699,6 +717,7 @@ impl TuiApp {
             // Help key
             KeyCode::Char('?') => {
                 self.help_visible = true;
+                self.help_scroll_offset = 0;
                 self.last_key = Some(key);
             }
             // Notification/log keys
@@ -1493,12 +1512,15 @@ impl TuiApp {
             ]),
         ];
 
-        let help_widget = Paragraph::new(help_text).wrap(Wrap { trim: false }).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Keyboard Shortcuts [?/Esc to close] ")
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
+        let help_widget = Paragraph::new(help_text)
+            .wrap(Wrap { trim: false })
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Keyboard Shortcuts [j/k:scroll | ?/Esc:close] ")
+                    .border_style(Style::default().fg(Color::Cyan)),
+            )
+            .scroll((self.help_scroll_offset, 0));
 
         frame.render_widget(help_widget, overlay_area);
     }
