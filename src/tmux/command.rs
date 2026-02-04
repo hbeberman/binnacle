@@ -243,6 +243,21 @@ impl TmuxCommand {
         Self::new("has-session").flag_with_value("-t", session_name)
     }
 
+    /// Start the tmux server without creating any sessions.
+    ///
+    /// This command ensures the tmux server is running. It's idempotent -
+    /// if the server is already running, this is a no-op.
+    ///
+    /// # Example
+    /// ```
+    /// use binnacle::tmux::command::TmuxCommand;
+    /// let cmd = TmuxCommand::start_server();
+    /// assert_eq!(cmd.build(), "tmux start-server");
+    /// ```
+    pub fn start_server() -> Self {
+        Self::new("start-server")
+    }
+
     /// Attach to an existing session.
     ///
     /// # Arguments
@@ -522,6 +537,12 @@ mod tests {
     fn test_has_session() {
         let cmd = TmuxCommand::has_session("my-session");
         assert_eq!(cmd.build(), "tmux has-session -t my-session");
+    }
+
+    #[test]
+    fn test_start_server() {
+        let cmd = TmuxCommand::start_server();
+        assert_eq!(cmd.build(), "tmux start-server");
     }
 
     #[test]
