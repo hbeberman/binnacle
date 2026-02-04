@@ -2752,9 +2752,13 @@ pub struct TmuxLoadResult {
     pub source: String,
     /// Path to the layout file
     pub path: String,
-    /// Warning message if attaching to session from different repo
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub warning: Option<String>,
+    /// Number of windows created
+    pub windows_created: usize,
+    /// Number of panes created
+    pub panes_created: usize,
+    /// Warnings collected during execution (non-fatal errors)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
     /// Whether we're already in tmux (commands to execute manually)
     pub in_tmux: bool,
     /// Commands to execute (when in_tmux is true, user must run these)
@@ -2771,15 +2775,22 @@ impl Output for TmuxLoadResult {
     fn to_human(&self) -> String {
         let mut msg = if self.created {
             format!(
-                "Created session '{}' from layout '{}' ({})",
-                self.session_name, self.layout_name, self.source
+                "Created session '{}' from layout '{}' ({}) - {} window(s), {} pane(s)",
+                self.session_name,
+                self.layout_name,
+                self.source,
+                self.windows_created,
+                self.panes_created
             )
         } else {
             format!("Attached to existing session '{}'", self.session_name)
         };
 
-        if let Some(warning) = &self.warning {
-            msg.push_str(&format!("\n⚠️  {}", warning));
+        if !self.warnings.is_empty() {
+            msg.push_str("\n\nWarnings:");
+            for warning in &self.warnings {
+                msg.push_str(&format!("\n  ⚠️  {}", warning));
+            }
         }
 
         if self.in_tmux {
@@ -33392,5 +33403,137 @@ mod tests {
         assert!(human.contains("LINEAGE"));
         assert!(human.contains("PEERS"));
         assert!(human.contains("DESCENDANTS"));
+    }
+
+    #[cfg(feature = "tmux")]
+    mod tmux_load_result_tests {
+        use super::*;
+
+        #[test]
+        fn test_tmux_load_result_created_with_stats() {
+            let result = TmuxLoadResult {
+                created: true,
+                session_name: "test-session".to_string(),
+                layout_name: "dev".to_string(),
+                source: "project".to_string(),
+                path: "/home/user/.binnacle/tmux/dev.kdl".to_string(),
+                windows_created: 3,
+                panes_created: 7,
+                warnings: vec![],
+                in_tmux: false,
+                commands: None,
+            };
+
+            let human = result.to_human();
+            assert!(human.contains("Created session 'test-session'"));
+            assert!(human.contains("3 window(s)"));
+            assert!(human.contains("7 pane(s)"));
+            assert!(!human.contains("Warnings"));
+        }
+
+        #[test]
+        fn test_tmux_load_result_with_warnings() {
+            let result = TmuxLoadResult {
+                created: true,
+                session_name: "test-session".to_string(),
+                layout_name: "dev".to_string(),
+                source: "project".to_string(),
+                path: "/home/user/.binnacle/tmux/dev.kdl".to_string(),
+                windows_created: 2,
+                panes_created: 4,
+                warnings: vec![
+                    "Command failed: tmux send-keys -t test:0.1 -l nvim".to_string(),
+                    "Command failed: tmux send-keys -t test:0.1 Enter".to_string(),
+                ],
+                in_tmux: false,
+                commands: None,
+            };
+
+            let human = result.to_human();
+            assert!(human.contains("Created session 'test-session'"));
+            assert!(human.contains("Warnings:"));
+            assert!(human.contains("⚠️  Command failed: tmux send-keys"));
+        }
+
+        #[test]
+        fn test_tmux_load_result_attached() {
+            let result = TmuxLoadResult {
+                created: false,
+                session_name: "existing-session".to_string(),
+                layout_name: "dev".to_string(),
+                source: "session".to_string(),
+                path: "/path/to/layout.kdl".to_string(),
+                windows_created: 0,
+                panes_created: 0,
+                warnings: vec![],
+                in_tmux: false,
+                commands: None,
+            };
+
+            let human = result.to_human();
+            assert!(human.contains("Attached to existing session"));
+            // windows/panes should not be shown for attached sessions
+            assert!(!human.contains("window(s)"));
+        }
+
+        #[test]
+        fn test_tmux_load_result_in_tmux() {
+            let result = TmuxLoadResult {
+                created: true,
+                session_name: "new-session".to_string(),
+                layout_name: "work".to_string(),
+                source: "project".to_string(),
+                path: "/path/to/work.kdl".to_string(),
+                windows_created: 1,
+                panes_created: 2,
+                warnings: vec![],
+                in_tmux: true,
+                commands: Some(vec!["tmux switch-client -t new-session".to_string()]),
+            };
+
+            let human = result.to_human();
+            assert!(human.contains("Already in tmux"));
+            assert!(human.contains("tmux switch-client -t new-session"));
+        }
+
+        #[test]
+        fn test_tmux_load_result_json_no_empty_warnings() {
+            let result = TmuxLoadResult {
+                created: true,
+                session_name: "test".to_string(),
+                layout_name: "dev".to_string(),
+                source: "project".to_string(),
+                path: "/path/dev.kdl".to_string(),
+                windows_created: 1,
+                panes_created: 1,
+                warnings: vec![],
+                in_tmux: false,
+                commands: None,
+            };
+
+            let json = result.to_json();
+            // Empty warnings should be skipped in JSON
+            assert!(!json.contains("warnings"));
+        }
+
+        #[test]
+        fn test_tmux_load_result_json_with_warnings() {
+            let result = TmuxLoadResult {
+                created: true,
+                session_name: "test".to_string(),
+                layout_name: "dev".to_string(),
+                source: "project".to_string(),
+                path: "/path/dev.kdl".to_string(),
+                windows_created: 1,
+                panes_created: 1,
+                warnings: vec!["test warning".to_string()],
+                in_tmux: false,
+                commands: None,
+            };
+
+            let json = result.to_json();
+            assert!(json.contains("warnings"));
+            assert!(json.contains("test warning"));
+        }
     }
 }
