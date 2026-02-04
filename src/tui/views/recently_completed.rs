@@ -29,9 +29,9 @@ pub struct CompletedItem {
 }
 
 impl CompletedItem {
-    /// Get display title (prefer short_name if available)
+    /// Get display title (return full title for Completed list)
     pub fn display_title(&self) -> &str {
-        self.short_name.as_deref().unwrap_or(&self.title)
+        &self.title
     }
 
     /// Format relative time since completion
