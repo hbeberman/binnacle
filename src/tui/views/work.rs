@@ -360,13 +360,7 @@ impl WorkView {
                 ),
             ]);
 
-            let item_style = if idx == self.selected {
-                Style::default().bg(Color::DarkGray)
-            } else {
-                Style::default()
-            };
-
-            list_items.push(ListItem::new(line).style(item_style));
+            list_items.push(ListItem::new(line));
         }
 
         let list = List::new(list_items).block(Block::default().borders(Borders::ALL));

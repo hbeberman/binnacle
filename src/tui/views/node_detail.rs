@@ -519,13 +519,7 @@ impl NodeDetailView {
                     Span::raw(format!("\"{}\"", title)),
                 ]);
 
-                let item_style = if idx == self.edge_selection {
-                    Style::default().bg(Color::DarkGray)
-                } else {
-                    Style::default()
-                };
-
-                ListItem::new(line).style(item_style)
+                ListItem::new(line)
             })
             .collect();
 
