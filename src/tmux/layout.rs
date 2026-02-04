@@ -89,9 +89,13 @@ impl ResolvedLayout {
     /// Generate tmux commands to recreate this layout.
     ///
     /// Returns a sequence of TmuxCommand that creates the session with all
-    /// windows and panes.
+    /// windows and panes. The first command is always `start-server` to ensure
+    /// the tmux server is running.
     pub fn to_commands(&self) -> Vec<TmuxCommand> {
         let mut commands = Vec::new();
+
+        // Ensure tmux server is running first (idempotent if already running)
+        commands.push(TmuxCommand::start_server());
 
         // Create detached session with first window
         if let Some(first_window) = self.windows.first() {
@@ -583,10 +587,13 @@ mod tests {
 
         let commands = resolved.to_commands();
 
-        // Should have: new-session, rename-window, send-keys (command), send-keys (Enter), select-window
+        // Should have: start-server, new-session, rename-window, send-keys (command), send-keys (Enter), select-window
         assert!(!commands.is_empty());
 
         let cmd_strings: Vec<_> = commands.into_iter().map(|c| c.build()).collect();
+
+        // Verify start-server is the first command
+        assert_eq!(cmd_strings[0], "tmux start-server");
         assert!(cmd_strings.iter().any(|s| s.contains("new-session")));
         assert!(cmd_strings.iter().any(|s| s.contains("test-session")));
     }
