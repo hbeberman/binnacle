@@ -120,6 +120,7 @@ Options:
   --host              Force host execution (even for 'auto')
   --container         Force container execution (for 'buddy' or 'prd')
   --once              Run once and exit (disable default looping)
+  --drain             Exit when no work remains (mutually exclusive with --once)
   --show-tools        Show resolved tool permissions and exit (for debugging)
   --cpus LIMIT        CPU limit for container mode
   --memory LIMIT      Memory limit for container mode
@@ -135,6 +136,7 @@ Examples:
   bn-agent auto                       # Run auto worker in container (loops by default)
   bn-agent --host auto                # Run auto worker on host
   bn-agent --once auto                # Run auto worker once and exit
+  bn-agent --drain auto               # Process all tasks and exit when done
   bn-agent do "fix the login bug"    # Run custom task on host
   bn-agent prd                        # Run PRD writer on host
   bn-agent --container buddy          # Run buddy in container
@@ -151,6 +153,7 @@ EOF
 FORCE_HOST=false
 FORCE_CONTAINER=false
 ONCE_MODE=false
+DRAIN_MODE=false
 SHOW_TOOLS=false
 CPUS=""
 MEMORY=""
@@ -170,6 +173,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --once)
             ONCE_MODE=true
+            shift
+            ;;
+        --drain)
+            DRAIN_MODE=true
             shift
             ;;
         --show-tools)
@@ -225,6 +232,10 @@ fi
 # Validate conflicting flags
 if [[ "$FORCE_HOST" == "true" && "$FORCE_CONTAINER" == "true" ]]; then
     echo "Error: Cannot specify both --host and --container flags"
+    exit 1
+fi
+if [[ "$ONCE_MODE" == "true" && "$DRAIN_MODE" == "true" ]]; then
+    echo "Error: --once and --drain are mutually exclusive"
     exit 1
 fi
 
