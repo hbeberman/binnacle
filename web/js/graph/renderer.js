@@ -355,14 +355,25 @@ function prdHasActiveWork(prdNode) {
     const bugs = state.get('entities.bugs') || [];
     
     // Build parent->children map for efficient traversal
+    // This map tracks: parent -> set of children
+    // For child_of: source is child, target is parent (reversed)
+    // For documents: source is doc, target is documented entity (not reversed)
     const childrenOf = new Map();
     for (const edge of edges) {
         if (edge.edge_type === 'child_of') {
             // child_of: source is child, target is parent
+            // So parent (target) -> children (sources)
             if (!childrenOf.has(edge.target)) {
                 childrenOf.set(edge.target, new Set());
             }
             childrenOf.get(edge.target).add(edge.source);
+        } else if (edge.edge_type === 'documents') {
+            // documents: source is doc, target is documented entity
+            // So doc (source) -> documented entities (targets)
+            if (!childrenOf.has(edge.source)) {
+                childrenOf.set(edge.source, new Set());
+            }
+            childrenOf.get(edge.source).add(edge.target);
         }
     }
     
