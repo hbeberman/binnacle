@@ -266,6 +266,9 @@ if [[ "$ONCE_MODE" == "true" && "$DRAIN_MODE" == "true" ]]; then
     exit 1
 fi
 
+# Sleep interval when no work is available (normal auto mode)
+IDLE_SLEEP_SECONDS=10
+
 # Helper function to check how much work is available
 # Returns combined count of ready tasks + bugs
 # Used by both drain mode and idle sleep loop
@@ -300,6 +303,16 @@ drain_complete() {
 {"status":"drained","iterations_completed":$iterations,"total_runtime_seconds":$runtime,"exit_reason":"$reason"}
 EOF
     fi
+}
+
+# Wait for work to become available (normal auto mode only)
+# Sleeps in a loop until check_work_remaining() returns > 0
+# Prevents CPU thrashing when no tasks are ready
+wait_for_work() {
+    while [[ "$(check_work_remaining)" -eq 0 ]]; do
+        echo "$(date '+%H:%M:%S') No work available, sleeping ${IDLE_SLEEP_SECONDS}s..."
+        sleep "$IDLE_SLEEP_SECONDS"
+    done
 }
 
 # Helper function to get prompt from bn config agents emit
@@ -515,6 +528,13 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
         while true; do
             # Reset SIGINT count at start of each iteration
             SIGINT_COUNT=0
+            
+            # In normal auto mode (not --drain), wait for work before starting agent
+            # This prevents thrashing when no work is available
+            if [[ "$DRAIN_MODE" != "true" ]]; then
+                wait_for_work
+            fi
+            
             START_TIME=$(date +%s)
             "${CMD[@]}" || true
             END_TIME=$(date +%s)
@@ -622,6 +642,13 @@ else
         while true; do
             # Reset SIGINT count at start of each iteration
             SIGINT_COUNT=0
+            
+            # In normal auto mode (not --drain), wait for work before starting agent
+            # This prevents thrashing when no work is available
+            if [[ "$DRAIN_MODE" != "true" ]]; then
+                wait_for_work
+            fi
+            
             START_TIME=$(date +%s)
             "$COPILOT_PATH" "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT" || true
             END_TIME=$(date +%s)
