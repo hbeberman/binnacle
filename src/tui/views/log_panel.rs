@@ -287,10 +287,7 @@ impl LogPanelView {
                     Block::default()
                         .borders(Borders::TOP)
                         .border_style(Style::default().fg(Color::DarkGray))
-                        .title(format!(
-                            " Activity Log ({}) [L to collapse] ",
-                            self.entry_count()
-                        )),
+                        .title(" Recent Activity [L to collapse] "),
                 );
             frame.render_widget(empty, area);
             return;
@@ -337,9 +334,9 @@ impl LogPanelView {
             .collect();
 
         let title = if self.focused {
-            format!(" Activity Log ({}) [L to collapse] ", self.entry_count())
+            " Recent Activity [L to collapse] "
         } else {
-            format!(" Activity Log ({}) ", self.entry_count())
+            " Recent Activity "
         };
 
         let border_style = if self.focused {
