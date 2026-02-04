@@ -1931,8 +1931,14 @@ fn run_command(
                                 }
                             }
 
-                            // Save layout
-                            binnacle::tmux::save::save_layout_to_file(&layout, &save_path)?;
+                            // Save layout (use portable paths for project-level saves)
+                            if project {
+                                binnacle::tmux::save::save_layout_to_file_portable(
+                                    &layout, &save_path, repo_path,
+                                )?;
+                            } else {
+                                binnacle::tmux::save::save_layout_to_file(&layout, &save_path)?;
+                            }
 
                             let result = commands::TmuxSaveResult {
                                 saved: true,
