@@ -89,7 +89,9 @@ fn parse_pane_node(node: &KdlNode) -> Result<Pane> {
     let mut command = None;
     if let Some(children) = node.children() {
         for child in children.nodes() {
-            if child.name().value() == "command"
+            // Accept both "command" and "cmd" as node names
+            let name = child.name().value();
+            if (name == "command" || name == "cmd")
                 && let Some(arg) = child.entries().first()
                 && let Some(val) = arg.value().as_string()
             {
@@ -107,12 +109,32 @@ fn parse_pane_node(node: &KdlNode) -> Result<Pane> {
 }
 
 fn get_string_attr(node: &KdlNode, attr_name: &str) -> Result<String> {
-    node.entries()
+    // First try named attribute (e.g., name="foo")
+    if let Some(val) = node
+        .entries()
         .iter()
         .find(|e| e.name().map(|n| n.value()) == Some(attr_name))
         .and_then(|e| e.value().as_string())
-        .map(|s| s.to_string())
-        .ok_or_else(|| Error::Other(format!("Missing required attribute '{}'", attr_name)))
+    {
+        return Ok(val.to_string());
+    }
+
+    // For "name" attribute, also accept first positional argument (e.g., layout "foo")
+    if attr_name == "name" {
+        if let Some(val) = node
+            .entries()
+            .first()
+            .filter(|e| e.name().is_none())
+            .and_then(|e| e.value().as_string())
+        {
+            return Ok(val.to_string());
+        }
+    }
+
+    Err(Error::Other(format!(
+        "Missing required attribute '{}'",
+        attr_name
+    )))
 }
 
 fn get_optional_string_attr(node: &KdlNode, attr_name: &str) -> Result<Option<String>> {
@@ -339,5 +361,54 @@ layout name="test" {
 "#;
         let layout = parse_layout(kdl).unwrap();
         assert_eq!(layout.windows[0].panes[0].size, Some(Size::Lines(20)));
+    }
+
+    #[test]
+    fn test_parse_positional_names() {
+        // Test positional argument syntax (layout "name" instead of layout name="name")
+        let kdl = r#"
+layout "myproject" {
+    window "editor" {
+        pane dir="/tmp" {}
+    }
+}
+"#;
+        let layout = parse_layout(kdl).unwrap();
+        assert_eq!(layout.name, "myproject");
+        assert_eq!(layout.windows[0].name, "editor");
+    }
+
+    #[test]
+    fn test_parse_mixed_positional_and_named() {
+        // Positional for layout, named for window
+        let kdl = r#"
+layout "test" {
+    window name="main" {
+        pane {}
+    }
+}
+"#;
+        let layout = parse_layout(kdl).unwrap();
+        assert_eq!(layout.name, "test");
+        assert_eq!(layout.windows[0].name, "main");
+    }
+
+    #[test]
+    fn test_parse_cmd_shorthand() {
+        // Test "cmd" as shorthand for "command"
+        let kdl = r#"
+layout "test" {
+    window "main" {
+        pane {
+            cmd "echo hello"
+        }
+    }
+}
+"#;
+        let layout = parse_layout(kdl).unwrap();
+        assert_eq!(
+            layout.windows[0].panes[0].command,
+            Some("echo hello".to_string())
+        );
     }
 }
