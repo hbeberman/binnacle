@@ -4,7 +4,7 @@
 //! - Terminal setup and restoration
 //! - WebSocket connection handling with automatic reconnection
 //! - Event loop for keyboard and server messages
-//! - View switching between Queue/Ready, Recently Completed, and Node Detail
+//! - View switching between Work, Recently Completed, and Node Detail
 
 use std::io::{self, stdout};
 use std::time::{Duration, Instant};
@@ -34,8 +34,8 @@ use super::connection::{
 };
 use super::notifications::NotificationManager;
 use super::views::{
-    CompletedItem, EdgeInfo, LogEntry, LogPanelView, NodeDetail, NodeDetailView, QueueReadyView,
-    RecentlyCompletedView, WorkItem,
+    CompletedItem, EdgeInfo, LogEntry, LogPanelView, NodeDetail, NodeDetailView,
+    RecentlyCompletedView, WorkItem, WorkView,
 };
 
 /// Default server port
@@ -75,7 +75,7 @@ fn parse_ws_url(url: &str) -> (String, u16) {
 /// Active view in the TUI
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
-    QueueReady,
+    Work,
     RecentlyCompleted,
     NodeDetail,
 }
@@ -334,8 +334,8 @@ pub struct TuiApp {
     input_mode: InputMode,
     /// Command input buffer (for command mode)
     command_input: String,
-    /// Queue/Ready view
-    queue_ready_view: QueueReadyView,
+    /// Work view
+    work_view: WorkView,
     /// Recently Completed view
     recently_completed_view: RecentlyCompletedView,
     /// Node Detail view
@@ -370,11 +370,11 @@ impl TuiApp {
         Self {
             connection_state: ConnectionState::Disconnected,
             should_quit: false,
-            active_view: ActiveView::QueueReady,
-            previous_list_view: ActiveView::QueueReady,
+            active_view: ActiveView::Work,
+            previous_list_view: ActiveView::Work,
             input_mode: InputMode::Normal,
             command_input: String::new(),
-            queue_ready_view: QueueReadyView::new(),
+            work_view: WorkView::new(),
             recently_completed_view: RecentlyCompletedView::new(),
             node_detail_view: NodeDetailView::new(),
             log_panel: LogPanelView::new(),
@@ -547,13 +547,13 @@ impl TuiApp {
     fn next_view(&mut self) {
         // Only cycle between list views (not NodeDetail)
         match self.active_view {
-            ActiveView::QueueReady => {
+            ActiveView::Work => {
                 self.active_view = ActiveView::RecentlyCompleted;
                 self.previous_list_view = ActiveView::RecentlyCompleted;
             }
             ActiveView::RecentlyCompleted => {
-                self.active_view = ActiveView::QueueReady;
-                self.previous_list_view = ActiveView::QueueReady;
+                self.active_view = ActiveView::Work;
+                self.previous_list_view = ActiveView::Work;
             }
             ActiveView::NodeDetail => {
                 // From detail, go back to previous list view
@@ -565,10 +565,7 @@ impl TuiApp {
     /// Open detail view for the selected item
     fn open_detail_for_selection(&mut self) {
         let node_id = match self.active_view {
-            ActiveView::QueueReady => self
-                .queue_ready_view
-                .selected_item()
-                .map(|item| item.id.clone()),
+            ActiveView::Work => self.work_view.selected_item().map(|item| item.id.clone()),
             ActiveView::RecentlyCompleted => self
                 .recently_completed_view
                 .items
@@ -731,8 +728,8 @@ impl TuiApp {
                 self.last_key = Some(key);
             }
             KeyCode::Char('1') => {
-                self.active_view = ActiveView::QueueReady;
-                self.previous_list_view = ActiveView::QueueReady;
+                self.active_view = ActiveView::Work;
+                self.previous_list_view = ActiveView::Work;
                 self.last_key = Some(key);
             }
             KeyCode::Char('2') => {
@@ -755,7 +752,7 @@ impl TuiApp {
             // Navigation
             KeyCode::Char('j') | KeyCode::Down => {
                 match self.active_view {
-                    ActiveView::QueueReady => self.queue_ready_view.select_next(),
+                    ActiveView::Work => self.work_view.select_next(),
                     ActiveView::RecentlyCompleted => self.recently_completed_view.select_next(),
                     ActiveView::NodeDetail => self.node_detail_view.select_next_edge(),
                 }
@@ -763,7 +760,7 @@ impl TuiApp {
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 match self.active_view {
-                    ActiveView::QueueReady => self.queue_ready_view.select_previous(),
+                    ActiveView::Work => self.work_view.select_previous(),
                     ActiveView::RecentlyCompleted => self.recently_completed_view.select_previous(),
                     ActiveView::NodeDetail => self.node_detail_view.select_previous_edge(),
                 }
@@ -773,7 +770,7 @@ impl TuiApp {
                 // Check for gg sequence
                 if self.last_key == Some(KeyCode::Char('g')) {
                     match self.active_view {
-                        ActiveView::QueueReady => self.queue_ready_view.select_first(),
+                        ActiveView::Work => self.work_view.select_first(),
                         ActiveView::RecentlyCompleted => {
                             self.recently_completed_view.select_first()
                         }
@@ -786,7 +783,7 @@ impl TuiApp {
             }
             KeyCode::Char('G') | KeyCode::End => {
                 match self.active_view {
-                    ActiveView::QueueReady => self.queue_ready_view.select_last(),
+                    ActiveView::Work => self.work_view.select_last(),
                     ActiveView::RecentlyCompleted => self.recently_completed_view.select_last(),
                     ActiveView::NodeDetail => self.node_detail_view.select_last_edge(),
                 }
@@ -794,7 +791,7 @@ impl TuiApp {
             }
             KeyCode::Home => {
                 match self.active_view {
-                    ActiveView::QueueReady => self.queue_ready_view.select_first(),
+                    ActiveView::Work => self.work_view.select_first(),
                     ActiveView::RecentlyCompleted => self.recently_completed_view.select_first(),
                     ActiveView::NodeDetail => self.node_detail_view.select_first_edge(),
                 }
@@ -864,12 +861,12 @@ impl TuiApp {
             MouseEventKind::Down(MouseButton::Left) => {
                 if in_title {
                     // Click on title bar - check if clicking on view tabs
-                    // [1] Queue/Ready | [2] Completed
+                    // [1] Work | [2] Completed
                     // Approximate positions based on typical rendering
                     if column < title_area.x + 20 {
-                        // Click on Queue/Ready tab area
-                        self.active_view = ActiveView::QueueReady;
-                        self.previous_list_view = ActiveView::QueueReady;
+                        // Click on Work tab area
+                        self.active_view = ActiveView::Work;
+                        self.previous_list_view = ActiveView::Work;
                     } else if column < title_area.x + 40 {
                         // Click on Completed tab area
                         self.active_view = ActiveView::RecentlyCompleted;
@@ -879,8 +876,8 @@ impl TuiApp {
                     // Click in content area - select item at row
                     let relative_row = row.saturating_sub(content_area.y + 1); // Account for border
                     match self.active_view {
-                        ActiveView::QueueReady => {
-                            self.queue_ready_view.select_at(relative_row as usize);
+                        ActiveView::Work => {
+                            self.work_view.select_at(relative_row as usize);
                         }
                         ActiveView::RecentlyCompleted => {
                             self.recently_completed_view
@@ -896,7 +893,7 @@ impl TuiApp {
             MouseEventKind::ScrollUp => {
                 if in_content {
                     match self.active_view {
-                        ActiveView::QueueReady => self.queue_ready_view.select_previous(),
+                        ActiveView::Work => self.work_view.select_previous(),
                         ActiveView::RecentlyCompleted => {
                             self.recently_completed_view.select_previous()
                         }
@@ -907,7 +904,7 @@ impl TuiApp {
             MouseEventKind::ScrollDown => {
                 if in_content {
                     match self.active_view {
-                        ActiveView::QueueReady => self.queue_ready_view.select_next(),
+                        ActiveView::Work => self.work_view.select_next(),
                         ActiveView::RecentlyCompleted => self.recently_completed_view.select_next(),
                         ActiveView::NodeDetail => self.node_detail_view.select_next_edge(),
                     }
@@ -1067,7 +1064,7 @@ impl TuiApp {
         queued.sort_by_key(|item| item.priority);
         ready.sort_by_key(|item| item.priority);
 
-        self.queue_ready_view.update_items(active, queued, ready);
+        self.work_view.update_items(active, queued, ready);
 
         // Convert recently completed items
         let completed_tasks: Vec<CompletedItem> = ready_data
@@ -1224,7 +1221,7 @@ impl TuiApp {
 
         // Main content: render active view
         match self.active_view {
-            ActiveView::QueueReady => self.queue_ready_view.render(frame, chunks[1]),
+            ActiveView::Work => self.work_view.render(frame, chunks[1]),
             ActiveView::RecentlyCompleted => self.recently_completed_view.render(frame, chunks[1]),
             ActiveView::NodeDetail => self.node_detail_view.render(frame, chunks[1]),
         }
@@ -1426,7 +1423,7 @@ impl TuiApp {
             ]),
             Line::from(vec![
                 Span::styled("    1/2    ", Style::default().fg(Color::Yellow)),
-                Span::raw("Jump to Queue/Ready or Completed view"),
+                Span::raw("Jump to Work or Completed view"),
             ]),
             Line::from(vec![
                 Span::styled("    3      ", Style::default().fg(Color::Yellow)),
@@ -1528,8 +1525,8 @@ impl TuiApp {
 
         // Current view name and view switcher hint - changes based on active view
         let (view_name, view_hint) = match self.active_view {
-            ActiveView::QueueReady => (" [1] Queue/Ready", "[2] Completed"),
-            ActiveView::RecentlyCompleted => ("[1] Queue/Ready", " [2] Completed"),
+            ActiveView::Work => (" [1] Work", "[2] Completed"),
+            ActiveView::RecentlyCompleted => ("[1] Work", " [2] Completed"),
             ActiveView::NodeDetail => {
                 // Show node ID in title when viewing detail
                 if let Some(node) = &self.node_detail_view.node {
@@ -1557,7 +1554,7 @@ impl TuiApp {
         let inactive_style = Style::default().fg(Color::DarkGray);
 
         let (left_style, right_style) = match self.active_view {
-            ActiveView::QueueReady => (view_style, inactive_style),
+            ActiveView::Work => (view_style, inactive_style),
             ActiveView::RecentlyCompleted => (inactive_style, view_style),
             ActiveView::NodeDetail => (inactive_style, inactive_style),
         };
@@ -1617,7 +1614,7 @@ impl TuiApp {
         }
 
         let help_text = match self.active_view {
-            ActiveView::QueueReady | ActiveView::RecentlyCompleted => {
+            ActiveView::Work | ActiveView::RecentlyCompleted => {
                 " Tab:View  j/k:Nav  Enter:Detail  r:Refresh  L:Log  H:History  ?:Help  q:Quit"
             }
             ActiveView::NodeDetail => {
@@ -1763,8 +1760,8 @@ pub async fn run_tui(
                     // Debounce before state refresh
                     tokio::time::sleep(Duration::from_millis(RECONNECT_DEBOUNCE_MS)).await;
                     app.needs_refresh = true;
-                    let item_count = app.queue_ready_view.total_items()
-                        + app.recently_completed_view.items.len();
+                    let item_count =
+                        app.work_view.total_items() + app.recently_completed_view.items.len();
                     app.log_panel
                         .log(format!("state refresh complete ({} items)", item_count));
                 }

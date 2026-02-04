@@ -1,4 +1,4 @@
-//! Queue/Ready View - Primary dashboard showing actionable work
+//! Work View - Primary dashboard showing actionable work
 //!
 //! Displays active, queued, and ready items with keyboard navigation.
 
@@ -41,8 +41,8 @@ impl WorkItem {
     }
 }
 
-/// State for the Queue/Ready view
-pub struct QueueReadyView {
+/// State for the Work view
+pub struct WorkView {
     /// All work items (active first, then queued, then ready)
     pub items: Vec<WorkItem>,
     /// Selected item index
@@ -55,13 +55,13 @@ pub struct QueueReadyView {
     pub queued_count: usize,
 }
 
-impl Default for QueueReadyView {
+impl Default for WorkView {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl QueueReadyView {
+impl WorkView {
     pub fn new() -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
@@ -228,11 +228,7 @@ impl QueueReadyView {
         if self.items.is_empty() {
             let empty = Paragraph::new("No active, queued, or ready items")
                 .style(Style::default().fg(Color::DarkGray))
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" Queue/Ready "),
-                );
+                .block(Block::default().borders(Borders::ALL).title(" Work "));
             frame.render_widget(empty, area);
             return;
         }
@@ -432,8 +428,8 @@ mod tests {
     }
 
     #[test]
-    fn test_queue_ready_view_update_items() {
-        let mut view = QueueReadyView::new();
+    fn test_work_view_update_items() {
+        let mut view = WorkView::new();
 
         let active = vec![make_item(Some("task"), "bn-1111")];
         let queued = vec![make_item(Some("bug"), "bn-2222")];
@@ -450,8 +446,8 @@ mod tests {
     }
 
     #[test]
-    fn test_queue_ready_view_navigation() {
-        let mut view = QueueReadyView::new();
+    fn test_work_view_navigation() {
+        let mut view = WorkView::new();
 
         let items = vec![
             make_item(Some("task"), "bn-1111"),
