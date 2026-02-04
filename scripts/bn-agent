@@ -499,35 +499,57 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
         exec "${CMD[@]}"
     else
         echo "Loop mode enabled - agent will restart on exit"
-        # Track consecutive Ctrl+C presses for clean exit
-        SIGINT_COUNT=0
-        LAST_SIGINT=0
+        
+        # Initialize drain mode tracking variables
+        DRAIN_START_TIME=$(date +%s)
+        ITERATION_COUNT=0
+        
+        # Set up signal handlers based on mode
+        if [[ "$DRAIN_MODE" == "true" ]]; then
+            # Drain mode: signal handlers call drain_complete() with 'interrupted' reason
+            handle_drain_sigint() {
+                drain_complete "$ITERATION_COUNT" "$DRAIN_START_TIME" "interrupted"
+                exit 130
+            }
+            handle_drain_sigterm() {
+                drain_complete "$ITERATION_COUNT" "$DRAIN_START_TIME" "interrupted"
+                exit 143
+            }
+            trap handle_drain_sigint INT
+            trap handle_drain_sigterm TERM
+        else
+            # Normal mode: track consecutive Ctrl+C presses for clean exit
+            SIGINT_COUNT=0
+            LAST_SIGINT=0
 
-        handle_sigint() {
-            local now
-            now=$(date +%s)
-            # If Ctrl+C pressed twice within 2 seconds, exit
-            if [[ $((now - LAST_SIGINT)) -le 2 ]]; then
-                SIGINT_COUNT=$((SIGINT_COUNT + 1))
-            else
-                SIGINT_COUNT=1
-            fi
-            LAST_SIGINT=$now
+            handle_sigint() {
+                local now
+                now=$(date +%s)
+                # If Ctrl+C pressed twice within 2 seconds, exit
+                if [[ $((now - LAST_SIGINT)) -le 2 ]]; then
+                    SIGINT_COUNT=$((SIGINT_COUNT + 1))
+                else
+                    SIGINT_COUNT=1
+                fi
+                LAST_SIGINT=$now
 
-            if [[ $SIGINT_COUNT -ge 2 ]]; then
+                if [[ $SIGINT_COUNT -ge 2 ]]; then
+                    echo ""
+                    echo "Ctrl+C pressed twice - exiting"
+                    exit 0
+                fi
                 echo ""
-                echo "Ctrl+C pressed twice - exiting"
-                exit 0
-            fi
-            echo ""
-            echo "(Press Ctrl+C again within 2 seconds to exit)"
-        }
+                echo "(Press Ctrl+C again within 2 seconds to exit)"
+            }
 
-        trap handle_sigint INT
+            trap handle_sigint INT
+        fi
 
         while true; do
-            # Reset SIGINT count at start of each iteration
-            SIGINT_COUNT=0
+            # Reset SIGINT count at start of each iteration (normal mode only)
+            if [[ "$DRAIN_MODE" != "true" ]]; then
+                SIGINT_COUNT=0
+            fi
             
             # In normal auto mode (not --drain), wait for work before starting agent
             # This prevents thrashing when no work is available
@@ -539,6 +561,9 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
             "${CMD[@]}" || true
             END_TIME=$(date +%s)
             DURATION=$((END_TIME - START_TIME))
+            
+            # Increment iteration count after agent completes
+            ITERATION_COUNT=$((ITERATION_COUNT + 1))
 
             # If command failed in less than 5 seconds, it's likely a setup error (missing image, etc.)
             # Don't loop - exit with error so user can fix the issue
@@ -613,35 +638,57 @@ else
         exec "$COPILOT_PATH" "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT"
     else
         echo "Loop mode enabled - agent will restart on exit"
-        # Track consecutive Ctrl+C presses for clean exit
-        SIGINT_COUNT=0
-        LAST_SIGINT=0
+        
+        # Initialize drain mode tracking variables
+        DRAIN_START_TIME=$(date +%s)
+        ITERATION_COUNT=0
+        
+        # Set up signal handlers based on mode
+        if [[ "$DRAIN_MODE" == "true" ]]; then
+            # Drain mode: signal handlers call drain_complete() with 'interrupted' reason
+            handle_drain_sigint() {
+                drain_complete "$ITERATION_COUNT" "$DRAIN_START_TIME" "interrupted"
+                exit 130
+            }
+            handle_drain_sigterm() {
+                drain_complete "$ITERATION_COUNT" "$DRAIN_START_TIME" "interrupted"
+                exit 143
+            }
+            trap handle_drain_sigint INT
+            trap handle_drain_sigterm TERM
+        else
+            # Normal mode: track consecutive Ctrl+C presses for clean exit
+            SIGINT_COUNT=0
+            LAST_SIGINT=0
 
-        handle_sigint() {
-            local now
-            now=$(date +%s)
-            # If Ctrl+C pressed twice within 2 seconds, exit
-            if [[ $((now - LAST_SIGINT)) -le 2 ]]; then
-                SIGINT_COUNT=$((SIGINT_COUNT + 1))
-            else
-                SIGINT_COUNT=1
-            fi
-            LAST_SIGINT=$now
+            handle_sigint() {
+                local now
+                now=$(date +%s)
+                # If Ctrl+C pressed twice within 2 seconds, exit
+                if [[ $((now - LAST_SIGINT)) -le 2 ]]; then
+                    SIGINT_COUNT=$((SIGINT_COUNT + 1))
+                else
+                    SIGINT_COUNT=1
+                fi
+                LAST_SIGINT=$now
 
-            if [[ $SIGINT_COUNT -ge 2 ]]; then
+                if [[ $SIGINT_COUNT -ge 2 ]]; then
+                    echo ""
+                    echo "Ctrl+C pressed twice - exiting"
+                    exit 0
+                fi
                 echo ""
-                echo "Ctrl+C pressed twice - exiting"
-                exit 0
-            fi
-            echo ""
-            echo "(Press Ctrl+C again within 2 seconds to exit)"
-        }
+                echo "(Press Ctrl+C again within 2 seconds to exit)"
+            }
 
-        trap handle_sigint INT
+            trap handle_sigint INT
+        fi
 
         while true; do
-            # Reset SIGINT count at start of each iteration
-            SIGINT_COUNT=0
+            # Reset SIGINT count at start of each iteration (normal mode only)
+            if [[ "$DRAIN_MODE" != "true" ]]; then
+                SIGINT_COUNT=0
+            fi
             
             # In normal auto mode (not --drain), wait for work before starting agent
             # This prevents thrashing when no work is available
@@ -653,6 +700,9 @@ else
             "$COPILOT_PATH" "${COPILOT_FLAGS[@]}" "${BLOCKED_TOOLS[@]}" "${TOOLS[@]}" -i "$PROMPT" || true
             END_TIME=$(date +%s)
             DURATION=$((END_TIME - START_TIME))
+            
+            # Increment iteration count after agent completes
+            ITERATION_COUNT=$((ITERATION_COUNT + 1))
 
             # If command failed in less than 5 seconds, it's likely a setup error
             # Don't loop - exit with error so user can fix the issue
