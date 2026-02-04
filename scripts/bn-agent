@@ -278,6 +278,30 @@ check_work_remaining() {
     echo $((task_count + bug_count))
 }
 
+# Drain mode completion function
+# Prints human-readable summary and optionally JSON to stderr
+# Arguments: iterations, start_time (epoch seconds), exit_reason
+drain_complete() {
+    local iterations="$1"
+    local start_time="$2"
+    local reason="$3"
+    local now
+    now=$(date +%s)
+    local runtime=$((now - start_time))
+    
+    echo ""
+    echo "✅ No work remaining - drain complete"
+    echo "   Iterations: $iterations"
+    echo "   Runtime: ${runtime}s"
+    echo "   Exit reason: $reason"
+    
+    if [[ "${BN_DRAIN_JSON:-}" == "1" ]]; then
+        cat >&2 << EOF
+{"status":"drained","iterations_completed":$iterations,"total_runtime_seconds":$runtime,"exit_reason":"$reason"}
+EOF
+    fi
+}
+
 # Helper function to get prompt from bn config agents emit
 # Maps CLI names (auto, qa) to internal names (worker, ask)
 get_agent_prompt() {
