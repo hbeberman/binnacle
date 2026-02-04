@@ -545,6 +545,14 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
             trap handle_sigint INT
         fi
 
+        # Pre-flight check: in drain mode, exit immediately if no work at startup
+        if [[ "$DRAIN_MODE" == "true" ]]; then
+            if [[ "$(check_work_remaining)" -eq 0 ]]; then
+                drain_complete "$ITERATION_COUNT" "$DRAIN_START_TIME" "immediate_no_work"
+                exit 0
+            fi
+        fi
+
         while true; do
             # Reset SIGINT count at start of each iteration (normal mode only)
             if [[ "$DRAIN_MODE" != "true" ]]; then
@@ -575,6 +583,14 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
                 echo ""
                 echo "Fix the issue and try again. Not restarting to avoid loop."
                 exit 1
+            fi
+
+            # Between-iteration check: in drain mode, exit when no work remains
+            if [[ "$DRAIN_MODE" == "true" ]]; then
+                if [[ "$(check_work_remaining)" -eq 0 ]]; then
+                    drain_complete "$ITERATION_COUNT" "$DRAIN_START_TIME" "no_work_remaining"
+                    exit 0
+                fi
             fi
 
             echo ""
@@ -684,6 +700,14 @@ else
             trap handle_sigint INT
         fi
 
+        # Pre-flight check: in drain mode, exit immediately if no work at startup
+        if [[ "$DRAIN_MODE" == "true" ]]; then
+            if [[ "$(check_work_remaining)" -eq 0 ]]; then
+                drain_complete "$ITERATION_COUNT" "$DRAIN_START_TIME" "immediate_no_work"
+                exit 0
+            fi
+        fi
+
         while true; do
             # Reset SIGINT count at start of each iteration (normal mode only)
             if [[ "$DRAIN_MODE" != "true" ]]; then
@@ -711,6 +735,14 @@ else
                 echo "❌ Agent failed immediately (in ${DURATION}s). Check the error above."
                 echo "Fix the issue and try again. Not restarting to avoid loop."
                 exit 1
+            fi
+
+            # Between-iteration check: in drain mode, exit when no work remains
+            if [[ "$DRAIN_MODE" == "true" ]]; then
+                if [[ "$(check_work_remaining)" -eq 0 ]]; then
+                    drain_complete "$ITERATION_COUNT" "$DRAIN_START_TIME" "no_work_remaining"
+                    exit 0
+                fi
             fi
 
             echo ""
