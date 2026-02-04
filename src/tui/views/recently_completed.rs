@@ -223,10 +223,26 @@ impl RecentlyCompletedView {
 
             let relative_time = item.relative_time();
 
-            // Determine item type indicator
-            let type_indicator = match item.entity_type.as_deref() {
-                Some("bug") => "●",
-                _ => " ",
+            // Determine item type label and color
+            let (type_label, type_color) = match item.entity_type.as_deref() {
+                Some("bug") => ("(Bug)", Color::Red),
+                Some("idea") => ("(Idea)", Color::LightCyan),
+                Some("task") | None => ("(Task)", Color::Green),
+                Some(other) => {
+                    // Capitalize first letter for any other type
+                    let label = format!(
+                        "({})",
+                        other
+                            .chars()
+                            .next()
+                            .unwrap_or('?')
+                            .to_uppercase()
+                            .chain(other.chars().skip(1))
+                            .collect::<String>()
+                    );
+                    // Use a leaked string to get a static reference (safe since this is UI rendering)
+                    (Box::leak(label.into_boxed_str()) as &str, Color::Gray)
+                }
             };
 
             let line = Line::from(vec![
@@ -235,7 +251,8 @@ impl RecentlyCompletedView {
                 Span::raw(" "),
                 Span::styled(format!("[P{}]", item.priority), priority_style),
                 Span::raw(" "),
-                Span::styled(type_indicator, Style::default().fg(Color::Red)),
+                Span::styled(type_label, Style::default().fg(type_color)),
+                Span::raw(" "),
                 Span::raw(format!("{:<width$}", truncated_title, width = title_width)),
                 Span::styled(
                     format!(" {:>10}", relative_time),
