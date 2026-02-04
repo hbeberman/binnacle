@@ -4,6 +4,7 @@
 //! - Directory resolution (., .., ~, absolute paths)
 //! - Multi-source layout discovery (project → session → user)
 //! - Conversion from Layout to TmuxCommand sequences
+//! - Shell persistence for pane commands (keeps shells interactive after command exits)
 
 use super::command::TmuxCommand;
 use super::parser::parse_layout;
@@ -124,7 +125,8 @@ impl ResolvedLayout {
             for (pane_idx, pane) in first_window.panes.iter().enumerate() {
                 if let Some(cmd) = &pane.command {
                     let target = format!("{}:0.{}", self.name, pane_idx);
-                    commands.push(TmuxCommand::send_keys(Some(&target), cmd, true));
+                    let wrapped = wrap_command_with_shell(cmd);
+                    commands.push(TmuxCommand::send_keys(Some(&target), &wrapped, true));
                     commands.push(TmuxCommand::send_keys(Some(&target), "Enter", false));
                 }
             }
@@ -154,7 +156,8 @@ impl ResolvedLayout {
             for (pane_idx, pane) in window.panes.iter().enumerate() {
                 if let Some(cmd) = &pane.command {
                     let target = format!("{}:{}.{}", self.name, window_idx, pane_idx);
-                    commands.push(TmuxCommand::send_keys(Some(&target), cmd, true));
+                    let wrapped = wrap_command_with_shell(cmd);
+                    commands.push(TmuxCommand::send_keys(Some(&target), &wrapped, true));
                     commands.push(TmuxCommand::send_keys(Some(&target), "Enter", false));
                 }
             }
@@ -181,6 +184,15 @@ fn create_pane(target: &str, pane: &ResolvedPane) -> TmuxCommand {
 fn rename_window(session: &str, window_idx: usize, name: &str) -> TmuxCommand {
     // Use select-window with rename-window
     TmuxCommand::rename_window(&format!("{}:{}", session, window_idx), name)
+}
+
+/// Wrap a pane command with shell exec to keep the shell interactive after exit.
+///
+/// This appends `; exec ${SHELL:-/bin/sh}` to the command, so that when the
+/// command finishes, the pane stays open with an interactive shell instead of
+/// closing. Uses $SHELL if available, falling back to /bin/sh.
+fn wrap_command_with_shell(cmd: &str) -> String {
+    format!("{}; exec ${{SHELL:-/bin/sh}}", cmd)
 }
 
 fn resolve_window(window: Window, base_dir: &Path) -> Result<ResolvedWindow> {
@@ -668,5 +680,46 @@ mod tests {
         assert_eq!(LayoutSource::Project.to_string(), "project");
         assert_eq!(LayoutSource::Session.to_string(), "session");
         assert_eq!(LayoutSource::User.to_string(), "user");
+    }
+
+    #[test]
+    fn test_wrap_command_with_shell() {
+        let wrapped = wrap_command_with_shell("nvim");
+        assert_eq!(wrapped, "nvim; exec ${SHELL:-/bin/sh}");
+    }
+
+    #[test]
+    fn test_wrap_command_with_shell_complex() {
+        let wrapped = wrap_command_with_shell("cargo watch -x test");
+        assert_eq!(wrapped, "cargo watch -x test; exec ${SHELL:-/bin/sh}");
+    }
+
+    #[test]
+    fn test_pane_commands_are_wrapped_with_shell() {
+        let resolved = ResolvedLayout {
+            name: "test".to_string(),
+            windows: vec![ResolvedWindow {
+                name: "main".to_string(),
+                panes: vec![ResolvedPane {
+                    split: None,
+                    size: None,
+                    dir: Some(PathBuf::from("/workspace")),
+                    command: Some("htop".to_string()),
+                }],
+            }],
+        };
+
+        let commands = resolved.to_commands();
+        let cmd_strings: Vec<_> = commands.into_iter().map(|c| c.build()).collect();
+
+        // Verify that the command includes the shell wrapper
+        let has_wrapped_cmd = cmd_strings
+            .iter()
+            .any(|s| s.contains("htop; exec ${SHELL:-/bin/sh}"));
+        assert!(
+            has_wrapped_cmd,
+            "Expected wrapped command, got: {:?}",
+            cmd_strings
+        );
     }
 }
