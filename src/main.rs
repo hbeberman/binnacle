@@ -1508,7 +1508,9 @@ fn run_command(
                                 layout_name: name.clone(),
                                 source: discovered.source.to_string(),
                                 path: discovered.path.display().to_string(),
-                                warning,
+                                windows_created: 0,
+                                panes_created: 0,
+                                warnings: warning.into_iter().collect(),
                                 in_tmux,
                                 commands: if in_tmux {
                                     Some(vec![format!("tmux switch-client -t {}", session_name)])
@@ -1519,27 +1521,54 @@ fn run_command(
                             output(&result, human);
                         } else {
                             // Create new session
-                            let commands = resolved.to_commands();
+                            let tmux_commands = resolved.to_commands();
 
-                            // Execute all commands
-                            for cmd in &commands {
+                            // Count windows and panes from the resolved layout
+                            let windows_created = resolved.windows.len();
+                            let panes_created: usize =
+                                resolved.windows.iter().map(|w| w.panes.len()).sum();
+
+                            // Execute commands, collecting warnings for non-fatal failures
+                            let mut warnings = Vec::new();
+
+                            for cmd in &tmux_commands {
                                 let args = cmd.args();
-                                let status = Command::new(&args[0])
-                                    .args(&args[1..])
-                                    .status()
-                                    .map_err(|e| {
-                                        binnacle::Error::Other(format!(
-                                            "Failed to execute '{}': {}",
-                                            cmd.clone().build(),
-                                            e
-                                        ))
-                                    })?;
+                                let result = Command::new(&args[0]).args(&args[1..]).status();
 
-                                if !status.success() {
-                                    return Err(binnacle::Error::Other(format!(
-                                        "Tmux command failed: {}",
-                                        cmd.clone().build()
-                                    )));
+                                match result {
+                                    Ok(status) if status.success() => {
+                                        // Command succeeded
+                                    }
+                                    Ok(_) => {
+                                        // Command failed
+                                        if cmd.is_fatal() {
+                                            return Err(binnacle::Error::Other(format!(
+                                                "Tmux command failed: {}",
+                                                cmd.clone().build()
+                                            )));
+                                        } else {
+                                            warnings.push(format!(
+                                                "Command failed: {}",
+                                                cmd.clone().build()
+                                            ));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        // Failed to execute
+                                        if cmd.is_fatal() {
+                                            return Err(binnacle::Error::Other(format!(
+                                                "Failed to execute '{}': {}",
+                                                cmd.clone().build(),
+                                                e
+                                            )));
+                                        } else {
+                                            warnings.push(format!(
+                                                "Failed to execute '{}': {}",
+                                                cmd.clone().build(),
+                                                e
+                                            ));
+                                        }
+                                    }
                                 }
                             }
 
@@ -1578,7 +1607,9 @@ fn run_command(
                                 layout_name: name.clone(),
                                 source: discovered.source.to_string(),
                                 path: discovered.path.display().to_string(),
-                                warning: None,
+                                windows_created,
+                                panes_created,
+                                warnings,
                                 in_tmux,
                                 commands: if in_tmux {
                                     Some(vec![format!("tmux switch-client -t {}", session_name)])
@@ -2065,7 +2096,9 @@ fn run_command(
                                     layout_name: name.clone(),
                                     source: discovered.source.to_string(),
                                     path: discovered.path.display().to_string(),
-                                    warning,
+                                    windows_created: 0,
+                                    panes_created: 0,
+                                    warnings: warning.into_iter().collect(),
                                     in_tmux,
                                     commands: if in_tmux {
                                         Some(vec![format!(
@@ -2079,27 +2112,54 @@ fn run_command(
                                 output(&result, human);
                             } else {
                                 // Create new session
-                                let commands = resolved.to_commands();
+                                let tmux_commands = resolved.to_commands();
 
-                                // Execute all commands
-                                for cmd in &commands {
+                                // Count windows and panes from the resolved layout
+                                let windows_created = resolved.windows.len();
+                                let panes_created: usize =
+                                    resolved.windows.iter().map(|w| w.panes.len()).sum();
+
+                                // Execute commands, collecting warnings for non-fatal failures
+                                let mut warnings = Vec::new();
+
+                                for cmd in &tmux_commands {
                                     let args = cmd.args();
-                                    let status = Command::new(&args[0])
-                                        .args(&args[1..])
-                                        .status()
-                                        .map_err(|e| {
-                                        binnacle::Error::Other(format!(
-                                            "Failed to execute '{}': {}",
-                                            cmd.clone().build(),
-                                            e
-                                        ))
-                                    })?;
+                                    let result = Command::new(&args[0]).args(&args[1..]).status();
 
-                                    if !status.success() {
-                                        return Err(binnacle::Error::Other(format!(
-                                            "Tmux command failed: {}",
-                                            cmd.clone().build()
-                                        )));
+                                    match result {
+                                        Ok(status) if status.success() => {
+                                            // Command succeeded
+                                        }
+                                        Ok(_) => {
+                                            // Command failed
+                                            if cmd.is_fatal() {
+                                                return Err(binnacle::Error::Other(format!(
+                                                    "Tmux command failed: {}",
+                                                    cmd.clone().build()
+                                                )));
+                                            } else {
+                                                warnings.push(format!(
+                                                    "Command failed: {}",
+                                                    cmd.clone().build()
+                                                ));
+                                            }
+                                        }
+                                        Err(e) => {
+                                            // Failed to execute
+                                            if cmd.is_fatal() {
+                                                return Err(binnacle::Error::Other(format!(
+                                                    "Failed to execute '{}': {}",
+                                                    cmd.clone().build(),
+                                                    e
+                                                )));
+                                            } else {
+                                                warnings.push(format!(
+                                                    "Failed to execute '{}': {}",
+                                                    cmd.clone().build(),
+                                                    e
+                                                ));
+                                            }
+                                        }
                                     }
                                 }
 
@@ -2139,7 +2199,9 @@ fn run_command(
                                     layout_name: name.clone(),
                                     source: discovered.source.to_string(),
                                     path: discovered.path.display().to_string(),
-                                    warning: None,
+                                    windows_created,
+                                    panes_created,
+                                    warnings,
                                     in_tmux,
                                     commands: if in_tmux {
                                         Some(vec![format!(

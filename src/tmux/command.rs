@@ -298,6 +298,18 @@ impl TmuxCommand {
     pub fn args(&self) -> &[String] {
         &self.args
     }
+
+    /// Get the tmux subcommand name (e.g., "start-server", "new-session").
+    pub fn subcommand(&self) -> &str {
+        self.args.get(1).map(|s| s.as_str()).unwrap_or("")
+    }
+
+    /// Check if this is a fatal command that should cause load to fail.
+    /// Fatal commands are: start-server, new-session
+    /// Non-fatal commands can generate warnings instead of errors.
+    pub fn is_fatal(&self) -> bool {
+        matches!(self.subcommand(), "start-server" | "new-session")
+    }
 }
 
 #[cfg(test)]
@@ -571,5 +583,51 @@ mod tests {
         let cmd = TmuxCommand::new_session("test", true, None);
         let args = cmd.args();
         assert_eq!(args, &["tmux", "new-session", "-d", "-s", "test"]);
+    }
+
+    #[test]
+    fn test_subcommand() {
+        assert_eq!(TmuxCommand::start_server().subcommand(), "start-server");
+        assert_eq!(
+            TmuxCommand::new_session("test", true, None).subcommand(),
+            "new-session"
+        );
+        assert_eq!(
+            TmuxCommand::new_window("editor", None, None).subcommand(),
+            "new-window"
+        );
+        assert_eq!(
+            TmuxCommand::split_window(None, Split::Horizontal, None, None).subcommand(),
+            "split-window"
+        );
+        assert_eq!(
+            TmuxCommand::send_keys(None, "hello", true).subcommand(),
+            "send-keys"
+        );
+        assert_eq!(
+            TmuxCommand::select_window("test:0").subcommand(),
+            "select-window"
+        );
+        assert_eq!(
+            TmuxCommand::rename_window("test:0", "editor").subcommand(),
+            "rename-window"
+        );
+    }
+
+    #[test]
+    fn test_is_fatal() {
+        // Fatal commands
+        assert!(TmuxCommand::start_server().is_fatal());
+        assert!(TmuxCommand::new_session("test", true, None).is_fatal());
+
+        // Non-fatal commands
+        assert!(!TmuxCommand::new_window("editor", None, None).is_fatal());
+        assert!(!TmuxCommand::split_window(None, Split::Horizontal, None, None).is_fatal());
+        assert!(!TmuxCommand::send_keys(None, "hello", true).is_fatal());
+        assert!(!TmuxCommand::select_window("test:0").is_fatal());
+        assert!(!TmuxCommand::rename_window("test:0", "editor").is_fatal());
+        assert!(!TmuxCommand::has_session("test").is_fatal());
+        assert!(!TmuxCommand::attach_session("test").is_fatal());
+        assert!(!TmuxCommand::set_environment(None, "VAR", "value", false).is_fatal());
     }
 }
