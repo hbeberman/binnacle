@@ -665,12 +665,31 @@ async fn get_ready(State(state): State<AppState>) -> Result<Json<serde_json::Val
             .map(|b| serde_json::to_value(b).unwrap_or_default()),
     );
 
+    // Get in-progress tasks and bugs for ACTIVE section
+    let in_progress_tasks = storage
+        .list_tasks(Some("in_progress"), None, None)
+        .unwrap_or_default();
+    let in_progress_bugs = storage
+        .list_bugs(None, None, None, Some("in_progress"), false)
+        .unwrap_or_default();
+
+    let mut all_in_progress: Vec<serde_json::Value> = in_progress_tasks
+        .into_iter()
+        .map(|t| serde_json::to_value(t).unwrap_or_default())
+        .collect();
+    all_in_progress.extend(
+        in_progress_bugs
+            .into_iter()
+            .map(|b| serde_json::to_value(b).unwrap_or_default()),
+    );
+
     // Include recently completed items for TUI display
     let recently_completed_tasks = storage.get_recently_completed_tasks().unwrap_or_default();
     let recently_completed_bugs = storage.get_recently_completed_bugs().unwrap_or_default();
 
     Ok(Json(serde_json::json!({
         "tasks": all_ready,
+        "in_progress_tasks": all_in_progress,
         "recently_completed_tasks": recently_completed_tasks,
         "recently_completed_bugs": recently_completed_bugs
     })))

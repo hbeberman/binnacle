@@ -100,6 +100,8 @@ pub enum InputMode {
 struct ReadyResponse {
     tasks: Vec<TaskData>,
     #[serde(default)]
+    in_progress_tasks: Vec<TaskData>,
+    #[serde(default)]
     recently_completed_tasks: Vec<CompletedTaskData>,
     #[serde(default)]
     recently_completed_bugs: Vec<CompletedBugData>,
@@ -1039,6 +1041,15 @@ impl TuiApp {
 
         let ready_data: ReadyResponse = ready_resp.json().await?;
 
+        // Convert in-progress items (ACTIVE section)
+        let mut active: Vec<WorkItem> = ready_data
+            .in_progress_tasks
+            .into_iter()
+            .map(|t| t.into())
+            .collect();
+        // Sort active items by priority
+        active.sort_by_key(|item| item.priority);
+
         // Separate queued and non-queued items
         let mut queued: Vec<WorkItem> = Vec::new();
         let mut ready: Vec<WorkItem> = Vec::new();
@@ -1056,7 +1067,7 @@ impl TuiApp {
         queued.sort_by_key(|item| item.priority);
         ready.sort_by_key(|item| item.priority);
 
-        self.queue_ready_view.update_items(queued, ready);
+        self.queue_ready_view.update_items(active, queued, ready);
 
         // Convert recently completed items
         let completed_tasks: Vec<CompletedItem> = ready_data
@@ -1931,6 +1942,9 @@ mod tests {
                 {"id":"bn-8d3c","type":"task","title":"Update docs","priority":2,"status":"pending","queued":false},
                 {"id":"bn-855a","type":"bug","title":"TUI bug","priority":2,"status":"pending","severity":"triage","queued":false}
             ],
+            "in_progress_tasks": [
+                {"id":"bn-1234","type":"task","title":"Active task","priority":1,"status":"in_progress","queued":false}
+            ],
             "recently_completed_tasks": [],
             "recently_completed_bugs": []
         }"#;
@@ -1940,5 +1954,7 @@ mod tests {
         assert_eq!(response.tasks.len(), 2);
         assert_eq!(response.tasks[0].core.entity_type, Some("task".to_string()));
         assert_eq!(response.tasks[1].core.entity_type, Some("bug".to_string()));
+        assert_eq!(response.in_progress_tasks.len(), 1);
+        assert_eq!(response.in_progress_tasks[0].core.id, "bn-1234".to_string());
     }
 }
