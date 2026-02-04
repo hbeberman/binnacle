@@ -2,7 +2,7 @@
 
 use crate::tmux::schema::{Layout, Pane, Split, Window};
 use crate::{Error, Result};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 /// Capture the current tmux session state.
@@ -221,8 +221,11 @@ fn is_shell_command(cmd: &str) -> bool {
 }
 
 /// Save layout to a KDL file.
+///
+/// This version saves absolute paths. For portable/relative paths, use
+/// `save_layout_to_file_portable`.
 pub fn save_layout_to_file(layout: &Layout, path: &Path) -> Result<()> {
-    let kdl_content = layout_to_kdl(layout);
+    let kdl_content = layout_to_kdl(layout, None);
 
     // Create parent directory if it doesn't exist
     if let Some(parent) = path.parent() {
@@ -236,8 +239,101 @@ pub fn save_layout_to_file(layout: &Layout, path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Save layout to a KDL file with portable paths.
+///
+/// Paths are converted to be relative to `base_dir` when possible:
+/// - Paths under `base_dir` become relative (e.g., `./src`)
+/// - Paths under home directory become `~/...`
+/// - Other paths remain absolute
+pub fn save_layout_to_file_portable(layout: &Layout, path: &Path, base_dir: &Path) -> Result<()> {
+    let kdl_content = layout_to_kdl(layout, Some(base_dir));
+
+    // Create parent directory if it doesn't exist
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| Error::Other(format!("Failed to create directory: {}", e)))?;
+    }
+
+    std::fs::write(path, kdl_content)
+        .map_err(|e| Error::Other(format!("Failed to write layout file: {}", e)))?;
+
+    Ok(())
+}
+
+/// Convert an absolute path to a portable format.
+///
+/// Conversion priority:
+/// 1. If path is under `base_dir`: convert to relative path (e.g., `./src`)
+/// 2. If path is a parent of `base_dir` (up to 2 levels): use `..` or `../..`
+/// 3. If path is under home directory: convert to `~/...`
+/// 4. Otherwise: keep as absolute path
+pub fn to_portable_path(path: &Path, base_dir: &Path) -> String {
+    let path = normalize_path(path);
+    let base = normalize_path(base_dir);
+
+    // Check if path is under base_dir (most common case for project files)
+    if let Ok(suffix) = path.strip_prefix(&base) {
+        if suffix.as_os_str().is_empty() {
+            return ".".to_string();
+        }
+        return format!("./{}", suffix.display());
+    }
+
+    // Check if path is a parent of base_dir (up to 2 levels for reasonable readability)
+    if let Ok(suffix) = base.strip_prefix(&path) {
+        let depth = suffix.components().count();
+        if depth > 0 && depth <= 2 {
+            let dotdots: Vec<&str> = (0..depth).map(|_| "..").collect();
+            return dotdots.join("/");
+        }
+    }
+
+    // Try to use ~ for home directory paths
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(suffix) = path.strip_prefix(&home) {
+            if suffix.as_os_str().is_empty() {
+                return "~".to_string();
+            }
+            return format!("~/{}", suffix.display());
+        }
+    }
+
+    // Fall back to absolute path
+    path.display().to_string()
+}
+
+/// Normalize a path by resolving . and .. where possible.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut result = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                // Only pop if we have something to pop and it's not a ..
+                if result.components().next_back().is_some()
+                    && !matches!(result.components().next_back(), Some(Component::ParentDir))
+                {
+                    result.pop();
+                } else {
+                    result.push(component);
+                }
+            }
+            Component::CurDir => {
+                // Skip current dir components
+            }
+            _ => {
+                result.push(component);
+            }
+        }
+    }
+
+    result
+}
+
 /// Convert layout to KDL format.
-fn layout_to_kdl(layout: &Layout) -> String {
+///
+/// If `base_dir` is provided, paths are converted to portable format.
+fn layout_to_kdl(layout: &Layout, base_dir: Option<&Path>) -> String {
     let mut kdl = String::new();
 
     kdl.push_str(&format!("layout \"{}\" {{\n", layout.name));
@@ -266,9 +362,13 @@ fn layout_to_kdl(layout: &Layout) -> String {
                 kdl.push_str(&format!(" size=\"{}\"", size_str));
             }
 
-            // Add dir attribute
+            // Add dir attribute (portable if base_dir provided)
             if let Some(dir) = &pane.dir {
-                kdl.push_str(&format!(" dir=\"{}\"", dir.display()));
+                let dir_str = match base_dir {
+                    Some(base) => to_portable_path(dir, base),
+                    None => dir.display().to_string(),
+                };
+                kdl.push_str(&format!(" dir=\"{}\"", dir_str));
             }
 
             // Add command as child node
@@ -318,7 +418,7 @@ mod tests {
             }],
         };
 
-        let kdl = layout_to_kdl(&layout);
+        let kdl = layout_to_kdl(&layout, None);
         assert!(kdl.contains("layout \"test-session\""));
         assert!(kdl.contains("window \"editor\""));
         assert!(kdl.contains("dir=\"/workspace\""));
@@ -348,8 +448,91 @@ mod tests {
             }],
         };
 
-        let kdl = layout_to_kdl(&layout);
+        let kdl = layout_to_kdl(&layout, None);
         assert!(kdl.contains("split=\"horizontal\""));
         assert!(kdl.contains("cmd \"cargo watch\""));
+    }
+
+    #[test]
+    fn test_to_portable_path_relative_to_base() {
+        let base = PathBuf::from("/home/user/project");
+        let path = PathBuf::from("/home/user/project/src/main.rs");
+        assert_eq!(to_portable_path(&path, &base), "./src/main.rs");
+    }
+
+    #[test]
+    fn test_to_portable_path_same_as_base() {
+        let base = PathBuf::from("/home/user/project");
+        let path = PathBuf::from("/home/user/project");
+        assert_eq!(to_portable_path(&path, &base), ".");
+    }
+
+    #[test]
+    fn test_to_portable_path_parent_of_base() {
+        let base = PathBuf::from("/home/user/project/deep");
+        let path = PathBuf::from("/home/user/project");
+        assert_eq!(to_portable_path(&path, &base), "..");
+    }
+
+    #[test]
+    fn test_to_portable_path_sibling_uses_tilde_if_under_home() {
+        // Siblings outside project should use ~ if under home directory
+        if let Some(home) = dirs::home_dir() {
+            let base = home.join("project");
+            let path = home.join("other");
+            // Since "other" is under home but not under project, it should use ~/other
+            assert_eq!(to_portable_path(&path, &base), "~/other");
+        }
+    }
+
+    #[test]
+    fn test_to_portable_path_sibling_absolute_if_not_under_home() {
+        // Siblings outside home directory stay absolute
+        let base = PathBuf::from("/opt/project");
+        let path = PathBuf::from("/opt/other");
+        // Not under home, not under project - stays absolute
+        assert_eq!(to_portable_path(&path, &base), "/opt/other");
+    }
+
+    #[test]
+    fn test_to_portable_path_uses_tilde_for_home() {
+        // Only test if we can get the home directory
+        if let Some(home) = dirs::home_dir() {
+            let base = PathBuf::from("/unrelated/path");
+            let path = home.join("documents");
+            assert_eq!(to_portable_path(&path, &base), "~/documents");
+        }
+    }
+
+    #[test]
+    fn test_to_portable_path_home_dir_itself() {
+        if let Some(home) = dirs::home_dir() {
+            let base = PathBuf::from("/unrelated/path");
+            assert_eq!(to_portable_path(&home, &base), "~");
+        }
+    }
+
+    #[test]
+    fn test_layout_to_kdl_with_portable_paths() {
+        let layout = Layout {
+            name: "dev".to_string(),
+            windows: vec![Window {
+                name: "code".to_string(),
+                panes: vec![Pane {
+                    split: None,
+                    size: None,
+                    dir: Some(PathBuf::from("/workspace/src")),
+                    command: None,
+                }],
+            }],
+        };
+
+        let base = PathBuf::from("/workspace");
+        let kdl = layout_to_kdl(&layout, Some(&base));
+        assert!(
+            kdl.contains("dir=\"./src\""),
+            "Expected portable path, got: {}",
+            kdl
+        );
     }
 }
