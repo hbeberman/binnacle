@@ -1,0 +1,27 @@
+layout "bn-binnacle" {
+    window "bn" {
+        pane dir="/home/henry/repos/binnacle"
+        pane split="horizontal" dir="/home/henry/repos/binnacle" {
+            cmd "bn"
+        }
+        pane split="horizontal" dir="/home/henry/repos/binnacle"
+        pane split="horizontal" dir="/home/henry/repos/binnacle" {
+            cmd "bn"
+        }
+    }
+    window "prd" {
+        pane dir="/home/henry/repos/binnacle"
+        pane split="horizontal" dir="/home/henry/repos/binnacle"
+        pane split="horizontal" dir="/home/henry/repos/binnacle" {
+            cmd "bn"
+        }
+    }
+    window "prd2" {
+        pane dir="/home/henry/repos/binnacle"
+        pane split="horizontal" dir="/home/henry/repos/binnacle"
+    }
+    window "general" {
+        pane dir="/home/henry/repos/binnacle"
+        pane split="horizontal" dir="/home/henry/repos/binnacle"
+    }
+}
