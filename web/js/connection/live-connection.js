@@ -129,8 +129,9 @@ function routeMessage(message, baseUrl, onStateChange) {
         return true;
     }
     
-    // Handle sync messages immediately (full state update)
-    if (message.type === 'sync') {
+    // Handle sync/state messages immediately (full state update)
+    // Server sends 'state' type, legacy protocol uses 'sync' type
+    if (message.type === 'sync' || message.type === 'state') {
         handleMessage(message);
         if (onStateChange) {
             onStateChange('sync');
