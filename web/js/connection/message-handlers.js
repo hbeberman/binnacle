@@ -75,14 +75,17 @@ export function setReloadCallback(callback) {
 // ============================================
 
 /**
- * Handle 'sync' message - full state synchronization
+ * Handle 'sync' or 'state' message - full state synchronization
  * 
- * The sync message contains all entities and edges in a single payload.
+ * The sync/state message contains all entities and edges in a single payload.
  * This is used for initial state load and recovery from missed updates.
+ * 
+ * Note: The server sends 'state' type messages with 'links' field, while
+ * legacy clients may send 'sync' type with 'edges' field. Both are supported.
  * 
  * Expected message format:
  * {
- *   type: 'sync',
+ *   type: 'sync' | 'state',
  *   version: number,
  *   timestamp: string,
  *   data: {
@@ -94,13 +97,13 @@ export function setReloadCallback(callback) {
  *     milestones: [],
  *     queues: [],
  *     agents: [],
- *     edges: [],
+ *     edges: [] | links: [],  // server sends 'links', legacy may send 'edges'
  *     ready: [],
  *     log: []  // optional, may be paginated separately
  *   }
  * }
  */
-registerHandler('sync', (message) => {
+function handleStateSync(message) {
     const { version, timestamp, data } = message;
     
     if (!data) {
@@ -150,9 +153,10 @@ registerHandler('sync', (message) => {
         state.setEntities('agents', normalizeEntities(data.agents, 'agent'));
     }
     
-    // Set edges
-    if (data.edges !== undefined) {
-        state.setEdges(normalizeEdges(data.edges));
+    // Set edges (server may send as 'edges' or 'links')
+    const edgesData = data.edges !== undefined ? data.edges : data.links;
+    if (edgesData !== undefined) {
+        state.setEdges(normalizeEdges(edgesData));
     }
     
     // Set ready queue
@@ -174,7 +178,11 @@ registerHandler('sync', (message) => {
     }
     
     console.log(`Sync complete: ${countEntities()} entities, ${state.getEdges().length} edges`);
-});
+}
+
+// Register for both 'sync' (legacy) and 'state' (new protocol) message types
+registerHandler('sync', handleStateSync);
+registerHandler('state', handleStateSync);
 
 /**
  * Handle 'reload' message - legacy notification to refetch all data
