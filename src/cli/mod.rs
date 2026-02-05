@@ -330,6 +330,15 @@ without sudo, set up rootless containerd:
    ls $XDG_RUNTIME_DIR/containerd/containerd.sock
 
 For detailed instructions, see: container/README.md
+
+OPT-IN FOR SYSTEM CONTAINERD (requires sudo):
+
+If you prefer to use system containerd (with sudo), explicitly opt in:
+
+   export BN_ALLOW_SUDO=1
+
+This is required because sudo-based container operations are blocked by default
+for security. CI environments typically set this environment variable.
 "
     )]
     Container {
