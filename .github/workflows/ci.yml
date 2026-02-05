@@ -48,6 +48,8 @@ jobs:
 
       - name: Run tests
         run: cargo test --all-features
+        env:
+          BN_ALLOW_SUDO: "1"
 
   clippy:
     name: Clippy
