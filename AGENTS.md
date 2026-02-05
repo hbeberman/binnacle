@@ -176,12 +176,12 @@ bn doc update bn-xxxx -c "Updated content..."
 
 For complex features, suggest the human use specialized agents:
 
-1. **@binnacle-prd** - Research, outline, and create detailed PRD (combines planning + specification)
-2. **@binnacle-buddy** - Quick questions, create tasks/bugs/ideas from PRD
-3. **@binnacle-do** - Focused execution with task tracking
-4. **@binnacle-ask** - Read-only codebase exploration
+1. **@binnacle-plan** - Research and outline (for ambiguous or large tasks)
+2. **@binnacle-prd** - Detailed specification (when plan is approved)
+3. **@binnacle-tasks** - Create bn tasks from PRD
+4. **Execute** - Implement with task tracking (you're here)
 
-If a task seems too large or unclear, suggest the human invoke the PRD agent first.
+If a task seems too large or unclear, suggest the human invoke the planning workflow.
 
 Run `bn --help` for the complete command reference.
 <!-- END BINNACLE SECTION -->
