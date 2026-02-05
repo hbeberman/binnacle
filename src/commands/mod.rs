@@ -20082,16 +20082,40 @@ pub fn agent_spawn(
         "--rm".to_string(),
     ];
 
-    // Check if we have a real terminal
-    use std::io::IsTerminal;
-    let is_tty = std::io::stdin().is_terminal();
+    // agent_spawn always runs detached (stdin=null, output to log file)
+    // so we never allocate a TTY - ctr panics if --tty is used without a real console
 
-    if is_tty {
-        args.push("--tty".to_string());
+    // Handle networking based on containerd mode
+    match &containerd_mode {
+        ContainerdMode::Rootless {
+            child_pid,
+            resolv_conf_path,
+            ..
+        } if *child_pid > 0 => {
+            // Rootless mode: disable cgroups (permission issues) and share network namespace
+            args.push("--cgroup".to_string());
+            args.push(String::new()); // Empty string disables cgroup
+
+            // Share network namespace with rootlesskit for slirp4netns connectivity
+            args.push("--with-ns".to_string());
+            args.push(format!("network:/proc/{}/ns/net", child_pid));
+
+            // Mount resolv.conf for DNS resolution
+            if Path::new(resolv_conf_path).exists() {
+                args.push("--mount".to_string());
+                args.push(format!(
+                    "type=bind,src={},dst=/etc/resolv.conf,options=rbind:ro",
+                    resolv_conf_path
+                ));
+            }
+        }
+        _ => {
+            // System mode or simple rootless: use host networking
+            // SECURITY: Host networking removes network namespace isolation.
+            // Required for AI agent API calls (OpenAI, Anthropic, etc.) and package installs.
+            args.push("--net-host".to_string());
+        }
     }
-
-    // Host networking for API access
-    args.push("--net-host".to_string());
 
     // Run as host user's UID/GID
     #[cfg(unix)]
@@ -21560,18 +21584,50 @@ pub enum ContainerdMode {
     /// System-wide containerd using sudo (default socket at /run/containerd/containerd.sock)
     System,
     /// Rootless containerd (socket at $XDG_RUNTIME_DIR/containerd/containerd.sock)
-    Rootless { socket_path: String },
+    /// This mode requires nsenter to access the rootlesskit namespace.
+    Rootless {
+        /// Path to the containerd socket (inside the namespace, typically /run/containerd/containerd.sock)
+        socket_path: String,
+        /// PID of the rootlesskit child process (for nsenter)
+        child_pid: u32,
+        /// Path to resolv.conf for DNS (from containerd-rootless directory)
+        resolv_conf_path: String,
+    },
 }
 
 /// Detect the containerd runtime mode.
 /// Checks for rootless containerd first, falls back to system containerd.
 pub fn detect_containerd_mode() -> ContainerdMode {
-    // Check for rootless containerd socket at XDG_RUNTIME_DIR/containerd/containerd.sock
+    // Check for rootless containerd setup at XDG_RUNTIME_DIR/containerd-rootless
     if let Ok(xdg_runtime) = std::env::var("XDG_RUNTIME_DIR") {
+        let rootless_dir = format!("{}/containerd-rootless", xdg_runtime);
+        let child_pid_file = format!("{}/child_pid", rootless_dir);
+        let resolv_conf = format!("{}/resolv.conf", rootless_dir);
+
+        // Check if the rootless containerd is set up (has child_pid file)
+        if let Ok(pid_str) = fs::read_to_string(&child_pid_file) {
+            if let Ok(child_pid) = pid_str.trim().parse::<u32>() {
+                // Verify the process is still running
+                if Path::new(&format!("/proc/{}", child_pid)).exists() {
+                    return ContainerdMode::Rootless {
+                        // Inside the namespace, the socket is at the standard location
+                        socket_path: "/run/containerd/containerd.sock".to_string(),
+                        child_pid,
+                        resolv_conf_path: resolv_conf,
+                    };
+                }
+            }
+        }
+
+        // Also check for the simple rootless socket (without rootlesskit)
         let rootless_socket = format!("{}/containerd/containerd.sock", xdg_runtime);
         if Path::new(&rootless_socket).exists() {
+            // This is a simpler rootless setup without user namespaces
+            // It won't work for container run, but we detect it for better error messages
             return ContainerdMode::Rootless {
                 socket_path: rootless_socket,
+                child_pid: 0, // No namespace to enter
+                resolv_conf_path: String::new(),
             };
         }
     }
@@ -21581,14 +21637,34 @@ pub fn detect_containerd_mode() -> ContainerdMode {
 }
 
 /// Create a Command for ctr with the appropriate mode.
-/// For rootless mode, uses -a flag with socket path and no sudo.
+/// For rootless mode, uses nsenter to enter the rootlesskit namespace.
 /// For system mode, uses sudo.
 fn ctr_command(mode: &ContainerdMode) -> Command {
     match mode {
-        ContainerdMode::Rootless { socket_path } => {
-            let mut cmd = Command::new("ctr");
-            cmd.arg("-a").arg(socket_path);
-            cmd
+        ContainerdMode::Rootless {
+            socket_path,
+            child_pid,
+            ..
+        } => {
+            if *child_pid > 0 {
+                // Use nsenter to enter the rootlesskit namespace
+                let mut cmd = Command::new("nsenter");
+                cmd.arg("-U")
+                    .arg("--preserve-credentials")
+                    .arg("-m")
+                    .arg("-n")
+                    .arg("-t")
+                    .arg(child_pid.to_string())
+                    .arg("ctr")
+                    .arg("-a")
+                    .arg(socket_path);
+                cmd
+            } else {
+                // Simple rootless mode (no namespace)
+                let mut cmd = Command::new("ctr");
+                cmd.arg("-a").arg(socket_path);
+                cmd
+            }
         }
         ContainerdMode::System => {
             let mut cmd = Command::new("sudo");
@@ -22670,11 +22746,38 @@ pub fn container_run(
     // This means the container can still output to stdout/stderr, but interactive
     // programs may not work correctly. This is acceptable for non-TTY contexts.
 
-    // SECURITY: Host networking removes network namespace isolation.
-    // Required for AI agent API calls (OpenAI, Anthropic, etc.) and package installs.
-    // The container can access all host network interfaces including localhost services.
-    // See bn-a3a2 for planned rootless support with more restrictive networking.
-    args.push("--net-host".to_string());
+    // Handle networking based on containerd mode
+    match &containerd_mode {
+        ContainerdMode::Rootless {
+            child_pid,
+            resolv_conf_path,
+            ..
+        } if *child_pid > 0 => {
+            // Rootless mode: disable cgroups (permission issues) and share network namespace
+            args.push("--cgroup".to_string());
+            args.push(String::new()); // Empty string disables cgroup
+
+            // Share network namespace with rootlesskit for slirp4netns connectivity
+            args.push("--with-ns".to_string());
+            args.push(format!("network:/proc/{}/ns/net", child_pid));
+
+            // Mount resolv.conf for DNS resolution
+            if Path::new(resolv_conf_path).exists() {
+                args.push("--mount".to_string());
+                args.push(format!(
+                    "type=bind,src={},dst=/etc/resolv.conf,options=rbind:ro",
+                    resolv_conf_path
+                ));
+            }
+        }
+        _ => {
+            // SECURITY: Host networking removes network namespace isolation.
+            // Required for AI agent API calls (OpenAI, Anthropic, etc.) and package installs.
+            // The container can access all host network interfaces including localhost services.
+            // See bn-a3a2 for planned rootless support with more restrictive networking.
+            args.push("--net-host".to_string());
+        }
+    }
 
     // Run as host user's UID/GID to preserve file ownership in mounted workspace
     // Container uses nss_wrapper to provide user identity for Node.js, git, etc.
@@ -32244,8 +32347,17 @@ mod tests {
         }
 
         match mode {
-            ContainerdMode::Rootless { socket_path: path } => {
-                assert!(path.ends_with("containerd/containerd.sock"));
+            ContainerdMode::Rootless {
+                socket_path: path,
+                child_pid,
+                ..
+            } => {
+                assert!(
+                    path.ends_with("containerd/containerd.sock")
+                        || path.ends_with("containerd.sock")
+                );
+                // Simple rootless mode (no rootlesskit) has child_pid = 0
+                assert_eq!(child_pid, 0);
             }
             ContainerdMode::System => {
                 panic!("Expected Rootless mode but got System");
@@ -32267,10 +32379,24 @@ mod tests {
     fn test_ctr_command_rootless_mode() {
         let mode = ContainerdMode::Rootless {
             socket_path: "/run/user/1000/containerd/containerd.sock".to_string(),
+            child_pid: 0, // Simple rootless mode without namespace
+            resolv_conf_path: String::new(),
         };
         let cmd = ctr_command(&mode);
-        // In rootless mode, program should be "ctr"
+        // In simple rootless mode (child_pid=0), program should be "ctr"
         assert_eq!(cmd.get_program(), "ctr");
+    }
+
+    #[test]
+    fn test_ctr_command_rootless_with_namespace() {
+        let mode = ContainerdMode::Rootless {
+            socket_path: "/run/containerd/containerd.sock".to_string(),
+            child_pid: 12345,
+            resolv_conf_path: "/run/user/1000/containerd-rootless/resolv.conf".to_string(),
+        };
+        let cmd = ctr_command(&mode);
+        // In rootless mode with namespace, program should be "nsenter"
+        assert_eq!(cmd.get_program(), "nsenter");
     }
 
     #[test]
