@@ -546,7 +546,8 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
         fi
 
         # Pre-flight check: in drain mode, exit immediately if no work at startup
-        if [[ "$DRAIN_MODE" == "true" ]]; then
+        # Only applies to 'auto' mode since other agent types don't consume work from the ready queue
+        if [[ "$AGENT_TYPE" == "auto" && "$DRAIN_MODE" == "true" ]]; then
             if [[ "$(check_work_remaining)" -eq 0 ]]; then
                 drain_complete "$ITERATION_COUNT" "$DRAIN_START_TIME" "immediate_no_work"
                 exit 0
@@ -561,7 +562,8 @@ if [[ "$USE_CONTAINER" == "true" ]]; then
             
             # In normal auto mode (not --drain), wait for work before starting agent
             # This prevents thrashing when no work is available
-            if [[ "$DRAIN_MODE" != "true" ]]; then
+            # Only applies to 'auto' mode since other agent types don't consume work from the ready queue
+            if [[ "$AGENT_TYPE" == "auto" && "$DRAIN_MODE" != "true" ]]; then
                 wait_for_work
             fi
             
@@ -701,7 +703,8 @@ else
         fi
 
         # Pre-flight check: in drain mode, exit immediately if no work at startup
-        if [[ "$DRAIN_MODE" == "true" ]]; then
+        # Only applies to 'auto' mode since other agent types don't consume work from the ready queue
+        if [[ "$AGENT_TYPE" == "auto" && "$DRAIN_MODE" == "true" ]]; then
             if [[ "$(check_work_remaining)" -eq 0 ]]; then
                 drain_complete "$ITERATION_COUNT" "$DRAIN_START_TIME" "immediate_no_work"
                 exit 0
@@ -716,7 +719,8 @@ else
             
             # In normal auto mode (not --drain), wait for work before starting agent
             # This prevents thrashing when no work is available
-            if [[ "$DRAIN_MODE" != "true" ]]; then
+            # Only applies to 'auto' mode since other agent types don't consume work from the ready queue
+            if [[ "$AGENT_TYPE" == "auto" && "$DRAIN_MODE" != "true" ]]; then
                 wait_for_work
             fi
             
