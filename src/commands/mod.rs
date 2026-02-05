@@ -20108,29 +20108,31 @@ pub fn agent_spawn(
                     resolv_conf_path
                 ));
             }
+            // In rootless mode with user namespaces, container UID 0 maps to host user
+            // So we don't need --user flag - running as root inside = host user outside
         }
         _ => {
             // System mode or simple rootless: use host networking
             // SECURITY: Host networking removes network namespace isolation.
             // Required for AI agent API calls (OpenAI, Anthropic, etc.) and package installs.
             args.push("--net-host".to_string());
-        }
-    }
 
-    // Run as host user's UID/GID
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let meta = fs::metadata(&worktree_abs).map_err(|e| {
-            Error::Other(format!(
-                "Failed to read worktree metadata for user mapping: {}",
-                e
-            ))
-        })?;
-        let uid = meta.uid();
-        let gid = meta.gid();
-        args.push("--user".to_string());
-        args.push(format!("{}:{}", uid, gid));
+            // Run as host user's UID/GID (only for non-userns modes)
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let meta = fs::metadata(&worktree_abs).map_err(|e| {
+                    Error::Other(format!(
+                        "Failed to read worktree metadata for user mapping: {}",
+                        e
+                    ))
+                })?;
+                let uid = meta.uid();
+                let gid = meta.gid();
+                args.push("--user".to_string());
+                args.push(format!("{}:{}", uid, gid));
+            }
+        }
     }
 
     #[cfg(not(unix))]
@@ -22769,6 +22771,8 @@ pub fn container_run(
                     resolv_conf_path
                 ));
             }
+            // In rootless mode with user namespaces, container UID 0 maps to host user
+            // So we don't need --user flag - running as root inside = host user outside
         }
         _ => {
             // SECURITY: Host networking removes network namespace isolation.
@@ -22776,26 +22780,26 @@ pub fn container_run(
             // The container can access all host network interfaces including localhost services.
             // See bn-a3a2 for planned rootless support with more restrictive networking.
             args.push("--net-host".to_string());
-        }
-    }
 
-    // Run as host user's UID/GID to preserve file ownership in mounted workspace
-    // Container uses nss_wrapper to provide user identity for Node.js, git, etc.
-    // SECURITY: User mapping is mandatory to prevent running as root
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let meta = fs::metadata(&worktree_abs).map_err(|e| {
-            Error::Other(format!(
-                "Failed to read worktree metadata for user mapping: {}. \
-                Container cannot run without user mapping.",
-                e
-            ))
-        })?;
-        let uid = meta.uid();
-        let gid = meta.gid();
-        args.push("--user".to_string());
-        args.push(format!("{}:{}", uid, gid));
+            // Run as host user's UID/GID to preserve file ownership in mounted workspace
+            // Container uses nss_wrapper to provide user identity for Node.js, git, etc.
+            // SECURITY: User mapping is mandatory to prevent running as root
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let meta = fs::metadata(&worktree_abs).map_err(|e| {
+                    Error::Other(format!(
+                        "Failed to read worktree metadata for user mapping: {}. \
+                        Container cannot run without user mapping.",
+                        e
+                    ))
+                })?;
+                let uid = meta.uid();
+                let gid = meta.gid();
+                args.push("--user".to_string());
+                args.push(format!("{}:{}", uid, gid));
+            }
+        }
     }
 
     #[cfg(not(unix))]
