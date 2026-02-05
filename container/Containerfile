@@ -34,8 +34,12 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal && \
     rustup component add rustfmt clippy && \
-    cargo install cargo-audit && \
     chmod -R a+rw $RUSTUP_HOME $CARGO_HOME
+
+# Install cargo-audit from prebuilt binary (faster than compiling from source)
+ARG CARGO_AUDIT_VERSION=0.22.1
+RUN curl -L "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${CARGO_AUDIT_VERSION}/cargo-audit-x86_64-unknown-linux-gnu-v${CARGO_AUDIT_VERSION}.tgz" \
+    | tar -xzf - -C /usr/local/cargo/bin --strip-components=1 cargo-audit-x86_64-unknown-linux-gnu-v${CARGO_AUDIT_VERSION}/cargo-audit
 
 # Install rust-analyzer from prebuilt binary (faster than rustup component)
 RUN mkdir -p ~/.local/bin && \
