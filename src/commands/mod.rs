@@ -10958,6 +10958,9 @@ pub struct LinkAdded {
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub pinned: bool,
+    /// Milestones that were auto-completed because this link completed their children
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub auto_completed_milestones: Vec<String>,
 }
 
 impl Output for LinkAdded {
@@ -10972,10 +10975,17 @@ impl Output for LinkAdded {
             .map(|r| format!(" ({})", r))
             .unwrap_or_default();
         let pinned_str = if self.pinned { " [pinned]" } else { "" };
-        format!(
+        let mut output = format!(
             "Created link: {} --[{}]--> {}{}{}",
             self.source, self.edge_type, self.target, reason_str, pinned_str
-        )
+        );
+        if !self.auto_completed_milestones.is_empty() {
+            output.push_str(&format!(
+                "\nAuto-completed milestone(s): {}",
+                self.auto_completed_milestones.join(", ")
+            ));
+        }
+        output
     }
 }
 
@@ -11032,6 +11042,21 @@ pub fn link_add(
 
     storage.add_edge(&edge)?;
 
+    // For child_of edges, check if this completes a parent milestone.
+    // This handles the case where an already-closed child is linked to a milestone.
+    let auto_completed_milestones = if edge_type == EdgeType::ChildOf {
+        // Check if the source (child) is already in a terminal state
+        let child_closed = is_entity_closed(&storage, source);
+        if child_closed {
+            // Trigger milestone auto-complete check on the source
+            check_and_auto_complete_parent_milestones(&mut storage, source)?
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     Ok(LinkAdded {
         id,
         source: source.to_string(),
@@ -11039,6 +11064,7 @@ pub fn link_add(
         edge_type: edge_type.to_string(),
         reason,
         pinned,
+        auto_completed_milestones,
     })
 }
 
@@ -11106,6 +11132,25 @@ fn get_entity_type(storage: &Storage, id: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Check if an entity is in a closed/terminal state (Done or Cancelled).
+/// Returns true if the entity is closed, false otherwise or if entity not found.
+fn is_entity_closed(storage: &Storage, id: &str) -> bool {
+    // Try task first
+    if let Ok(task) = storage.get_task(id) {
+        return matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled);
+    }
+    // Try bug
+    if let Ok(bug) = storage.get_bug(id) {
+        return matches!(bug.status, TaskStatus::Done | TaskStatus::Cancelled);
+    }
+    // Try milestone
+    if let Ok(milestone) = storage.get_milestone(id) {
+        return matches!(milestone.status, TaskStatus::Done | TaskStatus::Cancelled);
+    }
+    // Other entity types (test, queue, idea, doc, agent) don't have a closed status
+    false
 }
 
 /// Validate edge type constraints based on source/target entity types.
@@ -29318,6 +29363,185 @@ mod tests {
         // Human-readable output should not show [pinned]
         let human = list.to_human();
         assert!(!human.contains("[pinned]"));
+    }
+
+    #[test]
+    fn test_link_add_child_of_auto_completes_milestone_when_child_already_closed() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Test Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a task and close it before linking
+        let task = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_close(temp.path(), &task.id, Some("Done".to_string()), false).unwrap();
+
+        // Now link the already-closed task to the milestone as a child
+        let result = link_add(
+            temp.path(),
+            &task.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // The milestone should be auto-completed since all its children (just this one) are done
+        assert_eq!(result.auto_completed_milestones.len(), 1);
+        assert_eq!(result.auto_completed_milestones[0], milestone.id);
+
+        // Verify milestone is now done
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Done);
+
+        // Human-readable output should mention auto-completed milestone
+        let human = result.to_human();
+        assert!(human.contains("Auto-completed milestone"));
+    }
+
+    #[test]
+    fn test_link_add_child_of_no_auto_complete_when_child_not_closed() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Test Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create a task but don't close it
+        let task = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        // Link the open task to the milestone as a child
+        let result = link_add(
+            temp.path(),
+            &task.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // The milestone should NOT be auto-completed since the child is still open
+        assert!(result.auto_completed_milestones.is_empty());
+
+        // Verify milestone is still pending
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Pending);
+    }
+
+    #[test]
+    fn test_link_add_child_of_auto_completes_with_multiple_closed_children() {
+        let temp = setup_isolated();
+
+        // Create a milestone
+        let milestone = milestone_create(
+            temp.path(),
+            "Test Milestone".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Create and close first task, link it to milestone
+        let task1 = task_create(
+            temp.path(),
+            "Task 1".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_close(temp.path(), &task1.id, Some("Done".to_string()), false).unwrap();
+        link_add(
+            temp.path(),
+            &task1.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // Milestone should be auto-completed now (only child is done)
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Done);
+
+        // Reopen the milestone for the next part of the test
+        milestone_reopen(temp.path(), &milestone.id).unwrap();
+
+        // Create and close second task, link it to milestone
+        let task2 = task_create(
+            temp.path(),
+            "Task 2".to_string(),
+            None,
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .unwrap();
+        task_close(temp.path(), &task2.id, Some("Done".to_string()), false).unwrap();
+        let result = link_add(
+            temp.path(),
+            &task2.id,
+            &milestone.id,
+            "child_of",
+            None,
+            false,
+        )
+        .unwrap();
+
+        // The milestone should be auto-completed again (all 2 children are done)
+        assert_eq!(result.auto_completed_milestones.len(), 1);
+        assert_eq!(result.auto_completed_milestones[0], milestone.id);
+
+        // Verify milestone is done
+        let ms = milestone_show(temp.path(), &milestone.id).unwrap();
+        assert_eq!(ms.milestone.status, TaskStatus::Done);
     }
 
     #[test]
