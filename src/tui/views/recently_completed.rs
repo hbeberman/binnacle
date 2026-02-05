@@ -188,8 +188,9 @@ impl RecentlyCompletedView {
         }
 
         // Calculate available width for title
-        // Format: " > bn-xxxx  [P1] title...                     10m ago"
-        let title_width = area.width.saturating_sub(38) as usize;
+        // Format: " > bn-xxxx  [P1] Type title...               10m ago"
+        // Widths:  3 + 8 + 5 + 5 = 21 fixed + 11 timestamp + 2 borders = 34
+        let title_width = area.width.saturating_sub(36) as usize;
 
         // Build list items
         let mut list_items: Vec<ListItem> = Vec::new();
@@ -223,23 +224,20 @@ impl RecentlyCompletedView {
 
             let relative_time = item.relative_time();
 
-            // Determine item type label and color
+            // Determine item type label and color (fixed-width 6 chars for alignment)
             let (type_label, type_color) = match item.entity_type.as_deref() {
-                Some("bug") => ("(Bug)", Color::Red),
-                Some("idea") => ("(Idea)", Color::LightCyan),
-                Some("task") | None => ("(Task)", Color::Green),
+                Some("bug") => ("Bug ", Color::Red),
+                Some("idea") => ("Idea", Color::LightCyan),
+                Some("task") | None => ("Task", Color::Green),
                 Some(other) => {
                     // Capitalize first letter for any other type
-                    let label = format!(
-                        "({})",
-                        other
-                            .chars()
-                            .next()
-                            .unwrap_or('?')
-                            .to_uppercase()
-                            .chain(other.chars().skip(1))
-                            .collect::<String>()
-                    );
+                    let label = other
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .chain(other.chars().skip(1))
+                        .collect::<String>();
                     // Use a leaked string to get a static reference (safe since this is UI rendering)
                     (Box::leak(label.into_boxed_str()) as &str, Color::Gray)
                 }
@@ -251,7 +249,10 @@ impl RecentlyCompletedView {
                 Span::raw(" "),
                 Span::styled(format!("[P{}]", item.priority), priority_style),
                 Span::raw(" "),
-                Span::styled(type_label, Style::default().fg(type_color)),
+                Span::styled(
+                    format!("{:<4}", type_label),
+                    Style::default().fg(type_color),
+                ),
                 Span::raw(" "),
                 Span::raw(format!("{:<width$}", truncated_title, width = title_width)),
                 Span::styled(
