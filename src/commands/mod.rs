@@ -811,7 +811,7 @@ output-format "json"
     // Build container image if requested and not already present
     let container_built = if build_container {
         let image_name = "localhost/binnacle-self:latest";
-        if !container_image_exists(image_name) {
+        if !container_image_exists(image_name)? {
             eprintln!("📦 Building binnacle container image...");
             match build_embedded_container("latest", false) {
                 Ok(()) => {
@@ -1459,7 +1459,7 @@ fn init_with_options(
     // Build container image if requested and not already present
     let container_built = if build_container {
         let image_name = "localhost/binnacle-self:latest";
-        if !container_image_exists(image_name) {
+        if !container_image_exists(image_name)? {
             eprintln!("📦 Building binnacle container image...");
             match container_build(
                 repo_path,
@@ -19968,7 +19968,7 @@ pub fn agent_spawn(
     }
 
     // Detect containerd mode (rootless vs system)
-    let containerd_mode = detect_containerd_mode();
+    let containerd_mode = detect_containerd_mode()?;
     warn_system_containerd_mode(&containerd_mode);
 
     // Discover container definitions and compute image name (same logic as container_run)
@@ -20015,7 +20015,7 @@ pub fn agent_spawn(
     };
 
     // Check if the worker image exists in containerd
-    if !container_image_exists(&image_name) {
+    if !container_image_exists(&image_name)? {
         return Ok(AgentSpawnResult {
             success: false,
             agent_id: None,
@@ -21599,7 +21599,11 @@ pub enum ContainerdMode {
 
 /// Detect the containerd runtime mode.
 /// Checks for rootless containerd first, falls back to system containerd.
-pub fn detect_containerd_mode() -> ContainerdMode {
+///
+/// # Errors
+/// Returns an error if system containerd would be used but `BN_ALLOW_SUDO=1` is not set.
+/// This prevents binnacle from running sudo commands without explicit user consent.
+pub fn detect_containerd_mode() -> Result<ContainerdMode> {
     // Check for rootless containerd setup at XDG_RUNTIME_DIR/containerd-rootless
     if let Ok(xdg_runtime) = std::env::var("XDG_RUNTIME_DIR") {
         let rootless_dir = format!("{}/containerd-rootless", xdg_runtime);
@@ -21611,12 +21615,12 @@ pub fn detect_containerd_mode() -> ContainerdMode {
             if let Ok(child_pid) = pid_str.trim().parse::<u32>() {
                 // Verify the process is still running
                 if Path::new(&format!("/proc/{}", child_pid)).exists() {
-                    return ContainerdMode::Rootless {
+                    return Ok(ContainerdMode::Rootless {
                         // Inside the namespace, the socket is at the standard location
                         socket_path: "/run/containerd/containerd.sock".to_string(),
                         child_pid,
                         resolv_conf_path: resolv_conf,
-                    };
+                    });
                 }
             }
         }
@@ -21626,16 +21630,31 @@ pub fn detect_containerd_mode() -> ContainerdMode {
         if Path::new(&rootless_socket).exists() {
             // This is a simpler rootless setup without user namespaces
             // It won't work for container run, but we detect it for better error messages
-            return ContainerdMode::Rootless {
+            return Ok(ContainerdMode::Rootless {
                 socket_path: rootless_socket,
                 child_pid: 0, // No namespace to enter
                 resolv_conf_path: String::new(),
-            };
+            });
         }
     }
 
-    // Fall back to system containerd
-    ContainerdMode::System
+    // Fall back to system containerd - but require explicit opt-in for sudo
+    if std::env::var("BN_ALLOW_SUDO")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        Ok(ContainerdMode::System)
+    } else {
+        Err(Error::Other(
+            "System containerd requires sudo, which is blocked by default.\n\n\
+             To enable sudo-based container operations:\n\n\
+                 export BN_ALLOW_SUDO=1\n\n\
+             Recommended: Set up rootless containerd instead (no sudo needed):\n\n\
+                 bn help container\n\n\
+             For more information, see the rootless containerd documentation."
+                .to_string(),
+        ))
+    }
 }
 
 /// Create a Command for ctr with the appropriate mode.
@@ -21731,10 +21750,10 @@ For more info, see: https://github.com/containerd/containerd"#
 }
 
 /// Check if the binnacle worker image exists in containerd.
-fn container_image_exists(image_name: &str) -> bool {
-    let mode = detect_containerd_mode();
+fn container_image_exists(image_name: &str) -> Result<bool> {
+    let mode = detect_containerd_mode()?;
     let filter = format!("name=={}", image_name);
-    ctr_command(&mode)
+    Ok(ctr_command(&mode)
         .args(["-n", "binnacle", "images", "check", &filter])
         .output()
         .map(|o| {
@@ -21747,7 +21766,7 @@ fn container_image_exists(image_name: &str) -> bool {
                 false
             }
         })
-        .unwrap_or(false)
+        .unwrap_or(false))
 }
 
 /// Parse a memory limit string (e.g., "512m", "1g", "2048m") into bytes.
@@ -21987,7 +22006,7 @@ pub fn container_build(
         let is_embedded = def_src.source == crate::container::DefinitionSource::Embedded;
         let image_name = generate_image_name_for_definition(repo_path, def_name, tag, is_embedded)?;
 
-        if container_image_exists(&image_name) && !no_cache {
+        if container_image_exists(&image_name)? && !no_cache {
             eprintln!("\n⏭️  Skipping {} (image exists: {})", def_name, image_name);
             skipped.push(def_name.clone());
             continue;
@@ -22048,7 +22067,7 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     // Ensure binnacle-default base image exists before building binnacle-self
     // The worker Containerfile uses "FROM binnacle-default:latest"
     let default_image = format!("localhost/binnacle-default:{}", tag);
-    if !container_image_exists(&default_image) {
+    if !container_image_exists(&default_image)? {
         eprintln!("📦 Building base image (binnacle-default) first...");
         build_embedded_default_container(tag, no_cache)?;
     }
@@ -22165,7 +22184,7 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     }
 
     eprintln!("📥 Importing image to containerd...");
-    let mode = detect_containerd_mode();
+    let mode = detect_containerd_mode()?;
     warn_system_containerd_mode(&mode);
     let import_output = ctr_command(&mode)
         .args([
@@ -22321,7 +22340,7 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
     }
 
     eprintln!("📥 Importing image to containerd...");
-    let mode = detect_containerd_mode();
+    let mode = detect_containerd_mode()?;
     warn_system_containerd_mode(&mode);
     let import_output = ctr_command(&mode)
         .args([
@@ -22475,7 +22494,7 @@ fn build_definition_container(
     }
 
     eprintln!("📥 Importing image to containerd...");
-    let mode = detect_containerd_mode();
+    let mode = detect_containerd_mode()?;
     warn_system_containerd_mode(&mode);
     let import_output = ctr_command(&mode)
         .args([
@@ -22604,7 +22623,7 @@ pub fn container_run(
     }
 
     // Detect containerd mode (rootless vs system)
-    let containerd_mode = detect_containerd_mode();
+    let containerd_mode = detect_containerd_mode()?;
     warn_system_containerd_mode(&containerd_mode);
 
     // Determine which container image to use
@@ -22679,7 +22698,7 @@ pub fn container_run(
     };
 
     // Check if the worker image exists in containerd
-    if !container_image_exists(&image_name) {
+    if !container_image_exists(&image_name)? {
         return Ok(ContainerRunResult {
             success: false,
             name: None,
@@ -23200,7 +23219,7 @@ pub fn container_stop(name: Option<String>, all: bool) -> Result<ContainerStopRe
     }
 
     // Detect containerd mode (rootless vs system)
-    let containerd_mode = detect_containerd_mode();
+    let containerd_mode = detect_containerd_mode()?;
     warn_system_containerd_mode(&containerd_mode);
 
     let mut stopped = Vec::new();
@@ -23291,7 +23310,7 @@ pub fn container_list(all: bool, _quiet: bool) -> Result<ContainerListResult> {
     }
 
     // Detect containerd mode (rootless vs system)
-    let containerd_mode = detect_containerd_mode();
+    let containerd_mode = detect_containerd_mode()?;
     warn_system_containerd_mode(&containerd_mode);
 
     // Get list of containers
@@ -32314,14 +32333,38 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_containerd_mode_system_default() {
-        // When XDG_RUNTIME_DIR is not set or socket doesn't exist, should use System mode
+    fn test_containerd_mode_system_blocked_without_opt_in() {
+        // When XDG_RUNTIME_DIR is not set and BN_ALLOW_SUDO is not set, should return error
         // SAFETY: Test runs in single thread and we're modifying test-specific env vars
         unsafe {
             std::env::remove_var("XDG_RUNTIME_DIR");
+            std::env::remove_var("BN_ALLOW_SUDO");
         }
-        let mode = detect_containerd_mode();
-        assert_eq!(mode, ContainerdMode::System);
+        let result = detect_containerd_mode();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("BN_ALLOW_SUDO"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_containerd_mode_system_allowed_with_opt_in() {
+        // When XDG_RUNTIME_DIR is not set but BN_ALLOW_SUDO=1, should return System mode
+        // SAFETY: Test runs in single thread and we're modifying test-specific env vars
+        unsafe {
+            std::env::remove_var("XDG_RUNTIME_DIR");
+            std::env::set_var("BN_ALLOW_SUDO", "1");
+        }
+        let result = detect_containerd_mode();
+
+        // Clean up env var
+        // SAFETY: Test runs in single thread and we're modifying test-specific env vars
+        unsafe {
+            std::env::remove_var("BN_ALLOW_SUDO");
+        }
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ContainerdMode::System);
     }
 
     #[test]
@@ -32342,7 +32385,7 @@ mod tests {
             std::env::set_var("XDG_RUNTIME_DIR", temp.path());
         }
 
-        let mode = detect_containerd_mode();
+        let result = detect_containerd_mode();
 
         // Clean up env var
         // SAFETY: Test runs in single thread and we're modifying test-specific env vars
@@ -32350,7 +32393,8 @@ mod tests {
             std::env::remove_var("XDG_RUNTIME_DIR");
         }
 
-        match mode {
+        assert!(result.is_ok());
+        match result.unwrap() {
             ContainerdMode::Rootless {
                 socket_path: path,
                 child_pid,
