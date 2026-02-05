@@ -677,6 +677,27 @@ systemctl --user status containerd
 systemctl --user start containerd
 ```
 
+### "System containerd requires sudo, which is blocked by default"
+
+This error occurs when binnacle detects only system containerd (requiring sudo) and `BN_ALLOW_SUDO` is not set.
+
+**Option 1 (Recommended):** Set up rootless containerd to avoid sudo entirely. See the [Rootless Setup](#rootless-setup) section.
+
+**Option 2:** Explicitly opt in to sudo-based operations:
+
+```bash
+export BN_ALLOW_SUDO=1
+bn container build worker
+bn container run ../worktree
+```
+
+**For CI environments:** Set `BN_ALLOW_SUDO=1` in your workflow:
+
+```yaml
+env:
+  BN_ALLOW_SUDO: "1"
+```
+
 ### Image not found
 
 Build the image first:
