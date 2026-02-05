@@ -1714,3 +1714,133 @@ fn test_embedded_source_shows_correctly_for_fallback_definitions() {
         );
     }
 }
+
+// === BN_ALLOW_SUDO Security Tests ===
+
+#[test]
+fn test_container_list_blocked_without_bn_allow_sudo() {
+    // Test that container operations fail with helpful error when:
+    // 1. Rootless containerd is not configured (no XDG_RUNTIME_DIR/containerd socket)
+    // 2. BN_ALLOW_SUDO is not set
+    //
+    // This verifies the security guard that prevents binnacle from
+    // running sudo commands without explicit user consent.
+    //
+    // We need to bypass the "ctr not found" check by creating a fake ctr binary.
+    let env = TestEnv::new();
+
+    // Create a fake ctr binary that just exists (doesn't need to do anything)
+    let fake_bin = env.repo_path().join("fake_bin");
+    fs::create_dir_all(&fake_bin).unwrap();
+    let fake_ctr = fake_bin.join("ctr");
+    fs::write(&fake_ctr, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&fake_ctr).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&fake_ctr, perms).unwrap();
+    }
+
+    // Create a test environment without rootless containerd
+    // Point XDG_RUNTIME_DIR to a directory that doesn't have containerd setup
+    let fake_runtime = env.repo_path().join("fake_runtime");
+    fs::create_dir_all(&fake_runtime).unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    // Set XDG_RUNTIME_DIR to our fake dir (no containerd socket)
+    cmd.env("XDG_RUNTIME_DIR", &fake_runtime);
+    // Prepend our fake bin dir to PATH so our fake ctr is found
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    cmd.env("PATH", format!("{}:{}", fake_bin.display(), current_path));
+    // Ensure BN_ALLOW_SUDO is NOT set
+    cmd.env_remove("BN_ALLOW_SUDO");
+    cmd.args(["container", "list"]);
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("BN_ALLOW_SUDO"));
+}
+
+#[test]
+fn test_container_list_error_includes_opt_in_instructions() {
+    // Verify the error message includes clear instructions for opting in
+    let env = TestEnv::new();
+
+    // Create a fake ctr binary
+    let fake_bin = env.repo_path().join("fake_bin");
+    fs::create_dir_all(&fake_bin).unwrap();
+    let fake_ctr = fake_bin.join("ctr");
+    fs::write(&fake_ctr, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&fake_ctr).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&fake_ctr, perms).unwrap();
+    }
+
+    // Create environment without rootless containerd
+    let fake_runtime = env.repo_path().join("fake_runtime");
+    fs::create_dir_all(&fake_runtime).unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.env("XDG_RUNTIME_DIR", &fake_runtime);
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    cmd.env("PATH", format!("{}:{}", fake_bin.display(), current_path));
+    cmd.env_remove("BN_ALLOW_SUDO");
+    cmd.args(["container", "list"]);
+
+    // Should mention the exact environment variable setting
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("BN_ALLOW_SUDO=1"));
+}
+
+#[test]
+fn test_container_list_works_with_bn_allow_sudo_set() {
+    // Test that BN_ALLOW_SUDO=1 allows the command to proceed past the sudo guard
+    // (It will fail when trying to actually run ctr, but won't fail
+    // due to the sudo guard - which is what we're testing)
+    let env = TestEnv::new();
+
+    // Create a fake ctr binary that outputs nothing (simulates ctr not running)
+    let fake_bin = env.repo_path().join("fake_bin");
+    fs::create_dir_all(&fake_bin).unwrap();
+    let fake_ctr = fake_bin.join("ctr");
+    // Return success but empty output - the code expects ctr output format
+    fs::write(&fake_ctr, "#!/bin/sh\necho 'CONTAINER IMAGE'\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&fake_ctr).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&fake_ctr, perms).unwrap();
+    }
+
+    // Create environment without rootless containerd
+    let fake_runtime = env.repo_path().join("fake_runtime");
+    fs::create_dir_all(&fake_runtime).unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bn"));
+    cmd.current_dir(env.repo_path());
+    cmd.env("XDG_RUNTIME_DIR", &fake_runtime);
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    cmd.env("PATH", format!("{}:{}", fake_bin.display(), current_path));
+    // Set the opt-in
+    cmd.env("BN_ALLOW_SUDO", "1");
+    cmd.args(["container", "list"]);
+
+    let output = cmd.output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // The error should NOT be about BN_ALLOW_SUDO - it passed that check
+    // It might fail for other reasons (actual ctr operations) but that's OK
+    assert!(
+        !stderr.contains("BN_ALLOW_SUDO=1"),
+        "With BN_ALLOW_SUDO=1 set, should not see the sudo guard error. Got: {}",
+        stderr
+    );
+}
