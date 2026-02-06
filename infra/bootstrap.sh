@@ -263,7 +263,11 @@ EOF
 
   echo "  → Initializing binnacle session..."
   bn session init
-  popd
+
+  echo "  → Building worker container image..."
+  bn container build worker
+
+  # Stay in ~/repos/project for the user
 fi
 
 ###############################################################################
