@@ -214,7 +214,7 @@ if phase_at_least 6; then
   echo "    and build the binnacle container image."
   echo ""
   pushd "$REPOS_DIR/binnacle"
-  bn system host-init
+  bn system host-init --accept-all
   popd
 fi
 
@@ -262,7 +262,7 @@ EOF
   git commit -m "Initial commit: binnacle project setup"
 
   echo "  → Initializing binnacle session..."
-  bn session init
+  bn session init --yes
 
   echo "  → Building worker container image..."
   bn container build worker
