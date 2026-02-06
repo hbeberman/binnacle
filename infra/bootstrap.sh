@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # bootstrap.sh — Full binnacle development environment setup for Azure Linux 3
 # Run this on a fresh Azure Linux 3 VM to get a working binnacle dev environment.
+# Requires TWO runs: first run configures subuid/subgid and forces re-login,
+# second run completes the full setup.
 set -e
 
 ###############################################################################
@@ -10,76 +12,123 @@ BINNACLE_BRANCH="hbeberman/02-04-26"
 BINNACLE_REPO="https://github.com/hbeberman/binnacle.git"
 REPOS_DIR="$HOME/repos"
 
-###############################################################################
-# 1. Install Rust toolchain
-###############################################################################
-echo "========================================"
-echo "  1/6  Installing Rust toolchain"
-echo "========================================"
-
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-. "$HOME/.cargo/env"
-
-rustup target add wasm32-unknown-unknown
-cargo install wasm-pack
+banner() {
+  echo ""
+  echo "========================================"
+  echo "  $1"
+  echo "========================================"
+  echo ""
+}
 
 ###############################################################################
-# 2. Install system packages
+# Phase gate: subuid/subgid must be configured before anything else
 ###############################################################################
-echo "========================================"
-echo "  2/6  Installing system packages"
-echo "========================================"
+if ! grep -q "^$USER:" /etc/subuid 2>/dev/null; then
+  banner "First run — configuring rootless container support"
 
+  echo "  Rootless containers (buildah, containerd) require subuid/subgid"
+  echo "  mappings in /etc/subuid and /etc/subgid. These mappings only take"
+  echo "  effect after a fresh login, so this first run will:"
+  echo ""
+  echo "    1. Add $USER to /etc/subuid and /etc/subgid"
+  echo "    2. Set newuidmap/newgidmap permissions"
+  echo "    3. Force logout all of your sessions"
+  echo ""
+  echo "  After logging back in, run bootstrap.sh again to continue setup."
+  echo ""
+  read -rp "  Proceed? (Y/n): " answer
+  if [[ "$answer" =~ ^[Nn] ]]; then
+    echo "  Aborted."
+    exit 0
+  fi
+
+  echo ""
+  echo "  → Adding $USER to /etc/subuid and /etc/subgid..."
+  sudo sh -c "echo \"$USER:100000:65536\" >> /etc/subuid"
+  sudo sh -c "echo \"$USER:100000:65536\" >> /etc/subgid"
+
+  echo "  → Setting newuidmap/newgidmap setuid permissions..."
+  sudo chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
+
+  echo "  → Adding ~/.local/bin and ~/.cargo/bin to PATH..."
+  echo 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
+
+  echo ""
+  echo "  ✅ subuid/subgid configured. Logging out all sessions now..."
+  echo "  → SSH back in and run: bootstrap.sh"
+  echo ""
+
+  loginctl terminate-user "$USER"
+  exit 0
+fi
+
+###############################################################################
+# 0. Install all system packages upfront
+###############################################################################
+banner "0/6  Installing system packages (dnf)"
+
+echo "  → Enabling extended repos..."
 sudo dnf install -y azurelinux-repos-extended
+
+echo "  → Installing build tools, container runtimes, and dev dependencies..."
 sudo dnf install -y \
     gcc make pkg-config openssl-devel \
     containerd buildah \
     nodejs npm git \
     glibc-devel kernel-headers binutils \
-    netavark jq
+    netavark jq \
+    golang slirp4netns systemd-container
 
+echo "  → Enabling containerd service..."
 sudo systemctl enable --now containerd
 
 ###############################################################################
-# 3. Install npm packages
+# 1. Install Rust toolchain
 ###############################################################################
-echo "========================================"
-echo "  3/6  Installing npm packages"
-echo "========================================"
+banner "1/6  Installing Rust toolchain"
 
+echo "  → Installing rustup..."
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+. "$HOME/.cargo/env"
+
+echo "  → Adding wasm32 target and wasm-pack..."
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+
+###############################################################################
+# 2. Install npm packages
+###############################################################################
+banner "2/6  Configuring npm and installing global packages"
+
+echo "  → Setting npm prefix to ~/.local..."
+npm config set prefix ~/.local
+
+echo "  → Installing marked and highlight.js..."
 npm install -g marked highlight.js
 
 ###############################################################################
-# 4. Setup rootless containerd
+# 3. Setup rootless containerd
 ###############################################################################
-echo "========================================"
-echo "  4/6  Setting up rootless containerd"
-echo "========================================"
+banner "3/6  Setting up rootless containerd"
 
-sudo dnf install -y golang slirp4netns systemd-container
-
-# Build rootlesskit from source
+echo "  → Building rootlesskit from source..."
 mkdir -p "$REPOS_DIR"
 git clone https://github.com/rootless-containers/rootlesskit.git "$REPOS_DIR/rootlesskit"
 pushd "$REPOS_DIR/rootlesskit"
 make && sudo make install
 popd
 
-# Build passt/pasta (usermode networking)
+echo "  → Building passt/pasta (usermode networking)..."
 git clone https://passt.top/passt "$REPOS_DIR/passt"
 pushd "$REPOS_DIR/passt"
 make && sudo make install
 popd
 
-# Configure subuid/subgid
-sudo sh -c "echo \"$USER:100000:65536\" >> /etc/subuid"
-sudo sh -c "echo \"$USER:100000:65536\" >> /etc/subgid"
-
-# Install containerd-rootless.sh
+echo "  → Installing containerd-rootless.sh..."
 git clone https://github.com/containerd/nerdctl.git "$REPOS_DIR/nerdctl"
 sudo cp "$REPOS_DIR/nerdctl/extras/rootless/containerd-rootless.sh" /usr/local/bin/
 
-# Setup user dbus socket
+echo "  → Setting up user dbus socket..."
 mkdir -p ~/.config/systemd/user
 
 cat > ~/.config/systemd/user/dbus.socket <<'EOF'
@@ -110,38 +159,78 @@ EOF
 systemctl --user daemon-reload
 systemctl --user enable --now dbus.socket
 
-# Install and enable rootless containerd
+echo "  → Installing and enabling rootless containerd..."
 "$REPOS_DIR/nerdctl/extras/rootless/containerd-rootless-setuptool.sh" install
 systemctl --user enable --now containerd.service
 
 ###############################################################################
-# 5. Clone and build binnacle
+# 4. Clone and build binnacle
 ###############################################################################
-echo "========================================"
-echo "  5/6  Cloning and building binnacle"
-echo "========================================"
+banner "4/6  Cloning and building binnacle"
 
-# Add ~/.local/bin to PATH
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-export PATH="$HOME/.local/bin:$PATH"
-
+echo "  → Cloning binnacle (branch: $BINNACLE_BRANCH)..."
 mkdir -p "$REPOS_DIR"
 git clone -b "$BINNACLE_BRANCH" "$BINNACLE_REPO" "$REPOS_DIR/binnacle"
 pushd "$REPOS_DIR/binnacle"
+
+echo "  → Installing npm dependencies for web bundle..."
+npm install
+
+echo "  → Building binnacle (release mode, this may take a few minutes)..."
 cargo install --path . --all-features
 
+banner "5/6  Initializing binnacle system"
+
+echo "  → Running bn system host-init..."
+echo "    This will install Copilot CLI, set up agent scripts,"
+echo "    and build the binnacle container image."
+echo ""
 bn system host-init
-bn system session-init
-bn container build worker
+popd
+
+banner "5.5/6  Setting up starter project"
+
+echo "  → Creating ~/repos/project as a ready-to-use binnacle workspace..."
+mkdir -p "$REPOS_DIR/project"
+pushd "$REPOS_DIR/project"
+git init
+cp -r "$REPOS_DIR/binnacle/.binnacle" .
+
+cat > README.md <<'EOF'
+# My Project
+
+This project is managed with [binnacle](https://github.com/hbeberman/binnacle) — a task and workflow tracker for AI-assisted development.
+
+## Quick Start
+
+```bash
+# Set your GitHub PAT for Copilot access
+export COPILOT_GITHUB_TOKEN=<your-pat>
+
+# Launch an agent
+bn-agent buddy
+```
+
+## Useful Commands
+
+- `bn ready` — Show tasks ready to work on
+- `bn task create "Title"` — Create a new task
+- `bn orient` — Get project overview
+- `bn-agent buddy` — Launch an AI agent session
+EOF
+
+git add .
+git commit -m "Initial commit: binnacle project setup"
+
+echo "  → Initializing binnacle session..."
+bn session init
 popd
 
 ###############################################################################
-# 6. PAT setup instructions
+# 6. Done!
 ###############################################################################
-echo "========================================"
-echo "  6/6  Setup complete!"
-echo "========================================"
-echo ""
+banner "6/6  Setup complete!"
+
 echo "To finish, create a fine-grained GitHub PAT:"
 echo ""
 echo "  1. Go to https://github.com/settings/tokens"
@@ -157,6 +246,6 @@ echo "  export COPILOT_GITHUB_TOKEN=<your-pat>"
 echo ""
 echo "Start using binnacle:"
 echo ""
-echo "  cd ~/repos/binnacle"
+echo "  cd ~/repos/project"
 echo "  bn-agent buddy"
 echo ""

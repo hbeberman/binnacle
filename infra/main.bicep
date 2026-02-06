@@ -25,11 +25,11 @@ var nsgName = '${username}-binnacle-nsg'
 var pipName = '${username}-binnacle-pip'
 var nicName = '${username}-binnacle-nic'
 
-// Embed bootstrap.sh content via loadTextContent() for cloud-init delivery
-var bootstrapScript = loadTextContent('bootstrap.sh')
+// Embed bootstrap.sh as base64 at compile time (no line-wrapping issues)
+var bootstrapB64 = loadFileAsBase64('bootstrap.sh')
 
-// Cloud-init YAML that writes bootstrap.sh to the user's home directory
-var cloudInit = '#cloud-config\nwrite_files:\n  - path: /home/${username}/bootstrap.sh\n    permissions: \'0755\'\n    owner: ${username}:${username}\n    content: |\n${indent(bootstrapScript, 6)}\n'
+// Cloud-init YAML that writes bootstrap.sh to a system-wide location
+var cloudInit = '#cloud-config\nwrite_files:\n  - path: /usr/local/bin/bootstrap.sh\n    permissions: \'0755\'\n    encoding: b64\n    content: ${bootstrapB64}\n'
 
 // Network Security Group — allow SSH inbound
 resource nsg 'Microsoft.Network/networkSecurityGroups@2024-01-01' = {
