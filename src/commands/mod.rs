@@ -16201,7 +16201,9 @@ pub fn config_list(repo_path: &Path) -> Result<ConfigList> {
 
 // === Agent Configuration Commands ===
 
-use crate::agents::{AGENT_TYPES, resolve_agent_for_repo, resolve_all_agents_for_repo};
+use crate::agents::{
+    AGENT_TYPES, CopilotConfig, resolve_agent_for_repo, resolve_all_agents_for_repo,
+};
 use crate::config::ValueSource;
 
 /// Agent list entry for display.
@@ -16432,6 +16434,68 @@ pub fn config_agents_emit(repo_path: &Path, name: &str) -> Result<ConfigAgentEmi
         name: resolved.agent.name.clone(),
         prompt: resolved.agent.prompt.clone(),
     })
+}
+
+/// Copilot config output with staff flag, ready to write to ~/.copilot/config.json.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigAgentCopilotConfig {
+    /// Always true for container agents.
+    pub staff: bool,
+    /// LLM model identifier.
+    pub model: String,
+    /// Reasoning effort level.
+    pub reasoning_effort: String,
+    /// Whether to show model reasoning in output.
+    pub show_reasoning: bool,
+    /// Whether to render markdown in output.
+    pub render_markdown: bool,
+}
+
+impl Output for ConfigAgentCopilotConfig {
+    fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+
+    fn to_human(&self) -> String {
+        // In human mode, also emit JSON (this is config meant for a file)
+        self.to_json()
+    }
+}
+
+impl From<CopilotConfig> for ConfigAgentCopilotConfig {
+    fn from(c: CopilotConfig) -> Self {
+        Self {
+            staff: true,
+            model: c.model,
+            reasoning_effort: c.reasoning_effort,
+            show_reasoning: c.show_reasoning,
+            render_markdown: c.render_markdown,
+        }
+    }
+}
+
+/// Emit copilot config JSON for an agent type.
+///
+/// Never fails: returns CopilotConfig::default() for unknown types or resolution
+/// errors with a stderr warning. Always includes staff: true.
+pub fn config_agents_copilot_config(repo_path: &Path, name: &str) -> ConfigAgentCopilotConfig {
+    match resolve_agent_for_repo(name, repo_path) {
+        Ok(Some(resolved)) => resolved.agent.copilot.into(),
+        Ok(None) => {
+            eprintln!(
+                "Warning: unknown agent type '{}', using default copilot config",
+                name
+            );
+            CopilotConfig::default().into()
+        }
+        Err(e) => {
+            eprintln!(
+                "Warning: failed to resolve agent '{}': {}, using default copilot config",
+                name, e
+            );
+            CopilotConfig::default().into()
+        }
+    }
 }
 
 /// Generate agent file content for pre-commit hook validation.
