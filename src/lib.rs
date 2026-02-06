@@ -82,6 +82,9 @@ pub(crate) mod test_utils {
             };
             // Set thread-local override for this test's data directory
             crate::storage::set_data_dir_override(env.data_path().to_path_buf());
+            // Suppress agent-related env vars so the host's BN_AGENT_ID etc.
+            // don't leak into isolated tests
+            crate::commands::set_suppress_agent_env_vars(true);
             env
         }
 
@@ -158,6 +161,7 @@ pub(crate) mod test_utils {
             // Clean up thread-local override if this instance set it
             if self.thread_local_set {
                 crate::storage::clear_data_dir_override();
+                crate::commands::set_suppress_agent_env_vars(false);
             }
             // Clean up environment variables if this instance set them
             if self.env_vars_set {
