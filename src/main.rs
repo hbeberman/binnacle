@@ -2908,13 +2908,9 @@ fn run_gui(
         }
     }
 
-    // Determine port: use specified port, or for tunnel mode use default (no auto-port)
+    // Determine port: use specified port, or find an available one
     let actual_port = match port {
         Some(p) => p,
-        None if tunnel => {
-            // Tunnel mode: use default port directly (no auto-port search)
-            DEFAULT_PORT
-        }
         None => find_available_port(host, DEFAULT_PORT).ok_or_else(|| {
             binnacle::Error::Other(format!(
                 "Could not find an available port starting from {}",
