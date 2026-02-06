@@ -32,13 +32,12 @@ use std::time::Instant;
 const TOKEN_ACQUISITION_GUIDANCE: &str = r#"
 To create a GitHub Personal Access Token (PAT) for Copilot:
 
-1. Go to https://github.com/settings/tokens
-2. Click "Generate new token" → "Fine-grained token"
+1. Go to https://github.com/settings/personal-access-tokens
+2. Click "Generate new token"
 3. Give it a name (e.g., "binnacle")
 4. Set expiration (90 days recommended for security)
 5. Under "Repository access", select your target repositories or "All repositories"
-6. Under "Permissions", enable:
-   - "Copilot" → Read-only (required for AI features)
+6. No additional permissions are needed to run Copilot CLI.
 7. Click "Generate token" and copy the token
 
 Then run:

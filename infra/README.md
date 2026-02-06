@@ -4,7 +4,7 @@ Azure VM provisioning for binnacle development environments using Bicep and clou
 
 ## Overview
 
-This directory contains infrastructure-as-code for one-command Azure VM provisioning. Team members deploy a Bicep template, SSH into the VM, run `~/bootstrap.sh`, and have a fully working binnacle development environment with rootless containerd.
+This directory contains infrastructure-as-code for one-command Azure VM provisioning. Team members deploy a Bicep template, SSH into the VM, run `bootstrap.sh`, and have a fully working binnacle development environment with rootless containerd.
 
 ## File Layout
 
@@ -12,7 +12,7 @@ This directory contains infrastructure-as-code for one-command Azure VM provisio
 infra/
 ├── main.bicep          # Azure VM + networking resources (Bicep template)
 ├── main.bicepparam     # Default parameter values
-├── bootstrap.sh        # Dev environment setup script (placed in ~ via cloud-init)
+├── bootstrap.sh        # Dev environment setup script (placed in /usr/local/bin/ via cloud-init)
 └── README.md           # This file
 ```
 
@@ -56,7 +56,16 @@ The deployment takes a few minutes. On success, the output includes:
 - `publicIpAddress` — the VM's public IP
 - `sshCommand` — a ready-to-use SSH command
 
+#### Get the deployment results quickly
+
+Append to your `az deployment group create` command:
+
+```bash
+az deployment group create ... | tee /dev/tty | (echo; jq -r '.properties.outputs.sshCommand.value'; echo; )
+```
+
 ### 3. SSH into the VM
+
 Use the `sshCommand` from the deployment output, or find the IP with:
 
 ```bash
@@ -73,10 +82,10 @@ ssh <username>@<public-ip>
 ### 4. Run the bootstrap script
 
 ```bash
-~/bootstrap.sh
+bootstrap.sh
 ```
 
-The script is placed in your home directory by cloud-init during VM provisioning. It runs through six stages:
+The script is placed in `/usr/local/bin/` by cloud-init during VM provisioning. It runs through six stages:
 
 1. **Rust toolchain** — rustup, wasm32 target, wasm-pack
 2. **System packages** — gcc, openssl-devel, containerd, buildah, nodejs, npm, git
@@ -91,11 +100,11 @@ Takes approximately 20–30 minutes (mostly unattended).
 
 After bootstrap completes, create a fine-grained GitHub PAT:
 
-1. Go to <https://github.com/settings/tokens>
-2. Click **Generate new token** → **Fine-grained token**
+1. Go to <https://github.com/settings/personal-access-tokens>
+2. Click **Generate new token**
 3. Set a name (e.g., `binnacle`) and expiration
 4. Repository access: select your target repos or **All repositories**
-5. Permissions: enable **Copilot Requests → Read-only**
+5. No additional permissions are needed to run Copilot CLI.
 6. Click **Generate token** and copy it
 
 Then export it in your shell:
@@ -134,16 +143,16 @@ az group delete -g <username>-binnacle-rg --yes --no-wait
 The bootstrap script clones binnacle from a specific branch. To change it, edit the `BINNACLE_BRANCH` variable at the top of `bootstrap.sh` before running:
 
 ```bash
-vi ~/bootstrap.sh   # change BINNACLE_BRANCH="hbeberman/02-04-26" to your branch
-~/bootstrap.sh
+vi /usr/local/bin/bootstrap.sh   # change BINNACLE_BRANCH="hbeberman/02-04-26" to your branch
+bootstrap.sh
 ```
 
 ## Troubleshooting
 
 - **SSH connection refused**: Wait a few minutes after deployment for the VM to finish booting and cloud-init to complete.
 - **bootstrap.sh not found**: Cloud-init may still be running. Check with `cloud-init status --wait`.
-- **bootstrap.sh permission denied**: Run `chmod +x ~/bootstrap.sh` and retry.
+- **bootstrap.sh permission denied**: Cloud-init sets 0755 permissions. If they're missing, run `sudo chmod +x /usr/local/bin/bootstrap.sh` and retry.
 - **Build failures in bootstrap.sh**: Ensure the VM has internet access and the binnacle repo branch exists. Check `BINNACLE_BRANCH` at the top of the script.
 - **DNS resolution issues in containers**: See the rootless containerd DNS fix in the binnacle docs.
 - **Deployment fails with quota error**: The default VM size (`Standard_D16ds_v5`) requires sufficient vCPU quota. Request a quota increase or use a smaller `vmSize` parameter.
-- **Re-running bootstrap.sh**: The script uses `git clone` which fails if the target directories already exist. Remove `~/repos/` before re-running: `rm -rf ~/repos && ~/bootstrap.sh`.
+- **Re-running bootstrap.sh**: The script skips `git clone` if target directories already exist. To force a fresh clone of build dependencies, run `rm -rf ~/repos/binnacle-bootstrap-deps` then re-run. To start completely fresh: `rm -rf ~/repos && bootstrap.sh`.

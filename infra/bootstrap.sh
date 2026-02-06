@@ -14,6 +14,7 @@ set -e
 BINNACLE_TAG="v0.0.1-alpha.10"
 BINNACLE_REPO="https://github.com/hbeberman/binnacle.git"
 REPOS_DIR="$HOME/repos"
+DEPS_DIR="$REPOS_DIR/binnacle-bootstrap-deps"
 
 START_PHASE=0
 if [[ "$1" == "--phase" && -n "$2" ]]; then
@@ -132,21 +133,27 @@ if phase_at_least 4; then
   banner "4/8  Setting up rootless containerd"
 
   echo "  → Building rootlesskit from source..."
-  mkdir -p "$REPOS_DIR"
-  git clone https://github.com/rootless-containers/rootlesskit.git "$REPOS_DIR/rootlesskit"
-  pushd "$REPOS_DIR/rootlesskit"
+  mkdir -p "$DEPS_DIR"
+  [[ -d "$DEPS_DIR/rootlesskit" ]] || git clone https://github.com/rootless-containers/rootlesskit.git "$DEPS_DIR/rootlesskit"
+  pushd "$DEPS_DIR/rootlesskit"
   make && sudo make install
   popd
 
   echo "  → Building passt/pasta (usermode networking)..."
-  git clone https://passt.top/passt "$REPOS_DIR/passt"
-  pushd "$REPOS_DIR/passt"
+  [[ -d "$DEPS_DIR/passt" ]] || git clone https://passt.top/passt "$DEPS_DIR/passt"
+  pushd "$DEPS_DIR/passt"
   make && sudo make install
   popd
 
   echo "  → Installing containerd-rootless.sh..."
-  git clone https://github.com/containerd/nerdctl.git "$REPOS_DIR/nerdctl"
-  sudo cp "$REPOS_DIR/nerdctl/extras/rootless/containerd-rootless.sh" /usr/local/bin/
+  [[ -d "$DEPS_DIR/nerdctl" ]] || git clone https://github.com/containerd/nerdctl.git "$DEPS_DIR/nerdctl"
+  sudo cp "$DEPS_DIR/nerdctl/extras/rootless/containerd-rootless.sh" /usr/local/bin/
+
+  # Need to enable lingering and user session for rootless containerd to work properly for non-login sessions (e.g., vscode tunnels etc.)
+  echo "  → Enabling lingering and user session..."
+  sudo loginctl enable-linger "$USER"
+  XDG_RUNTIME_DIR="/run/user/$(id -u)"
+  export XDG_RUNTIME_DIR
 
   echo "  → Setting up user dbus socket..."
   mkdir -p ~/.config/systemd/user
@@ -180,7 +187,7 @@ EOF
   systemctl --user enable --now dbus.socket
 
   echo "  → Installing and enabling rootless containerd..."
-  "$REPOS_DIR/nerdctl/extras/rootless/containerd-rootless-setuptool.sh" install
+  "$DEPS_DIR/nerdctl/extras/rootless/containerd-rootless-setuptool.sh" install
   systemctl --user enable --now containerd.service
 fi
 
@@ -192,7 +199,7 @@ if phase_at_least 5; then
 
   echo "  → Cloning binnacle (tag: $BINNACLE_TAG)..."
   mkdir -p "$REPOS_DIR"
-  git clone -b "$BINNACLE_TAG" "$BINNACLE_REPO" "$REPOS_DIR/binnacle"
+  [[ -d "$REPOS_DIR/binnacle" ]] || git clone -b "$BINNACLE_TAG" "$BINNACLE_REPO" "$REPOS_DIR/binnacle"
   pushd "$REPOS_DIR/binnacle"
 
   echo "  → Installing npm dependencies for web bundle..."
@@ -277,11 +284,11 @@ banner "8/8  Setup complete!"
 
 echo "To finish, create a fine-grained GitHub PAT:"
 echo ""
-echo "  1. Go to https://github.com/settings/tokens"
-echo "  2. Click 'Generate new token' -> 'Fine-grained token'"
+echo "  1. Go to https://github.com/settings/personal-access-tokens"
+echo "  2. Click 'Generate new token'"
 echo "  3. Name it (e.g., 'binnacle'), set expiration"
 echo "  4. Repository access: select your target repos or 'All repositories'"
-echo "  5. Permissions: enable 'Copilot Requests' -> Read-only"
+echo "  5. No additional permissions are needed to run Copilot CLI."
 echo "  6. Click 'Generate token' and copy it"
 echo ""
 echo "Then export it in your shell:"
