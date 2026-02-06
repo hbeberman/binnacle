@@ -608,4 +608,77 @@ agent "worker" {{
         assert!(resolved.agent.copilot.show_reasoning);
         assert!(resolved.agent.copilot.render_markdown);
     }
+
+    #[test]
+    fn test_copilot_config_multi_layer_override() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path();
+
+        // System layer: override model only
+        let system_dir = temp_dir.path().join("system_config");
+        std::fs::create_dir_all(&system_dir).unwrap();
+        let system_config = system_dir.join("config.kdl");
+        let mut f = std::fs::File::create(&system_config).unwrap();
+        writeln!(
+            f,
+            r#"
+agent "worker" {{
+    model "claude-sonnet-4"
+}}
+"#
+        )
+        .unwrap();
+
+        // Session layer: override reasoning_effort only
+        let session_dir = temp_dir.path().join("session_config");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let session_config = session_dir.join("config.kdl");
+        let mut f = std::fs::File::create(&session_config).unwrap();
+        writeln!(
+            f,
+            r#"
+agent "worker" {{
+    reasoning-effort "low"
+}}
+"#
+        )
+        .unwrap();
+
+        // Project layer: override render-markdown only
+        let project_dir = repo_root.join(".binnacle/agents");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        let project_config = project_dir.join("config.kdl");
+        let mut f = std::fs::File::create(&project_config).unwrap();
+        writeln!(
+            f,
+            r#"
+agent "worker" {{
+    render-markdown #false
+}}
+"#
+        )
+        .unwrap();
+
+        let paths = AgentPaths {
+            system: Some(system_config),
+            session: Some(session_config),
+            project: Some(project_config),
+            repo_root: Some(repo_root.to_path_buf()),
+        };
+
+        let mut resolver = AgentResolver::with_paths(paths);
+        let resolved = resolver.resolve(AGENT_WORKER).unwrap().unwrap();
+
+        // System set model
+        assert_eq!(resolved.agent.copilot.model, "claude-sonnet-4");
+        // Session set reasoning_effort (overriding embedded "high")
+        assert_eq!(resolved.agent.copilot.reasoning_effort, "low");
+        // Embedded show_reasoning preserved (no layer overrode it)
+        assert!(resolved.agent.copilot.show_reasoning);
+        // Project set render_markdown to false
+        assert!(!resolved.agent.copilot.render_markdown);
+        // Source should be Project (last layer that modified it)
+        assert_eq!(resolved.source, ValueSource::Project);
+        assert!(resolved.copilot_merged);
+    }
 }
