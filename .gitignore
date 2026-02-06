@@ -44,3 +44,4 @@ web/tests/
 
 # Container build artifacts
 container/bn
+infra/main.json

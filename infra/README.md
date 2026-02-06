@@ -57,18 +57,17 @@ The deployment takes a few minutes. On success, the output includes:
 - `sshCommand` — a ready-to-use SSH command
 
 ### 3. SSH into the VM
-
-```bash
-ssh <username>@<public-ip>
-```
-
 Use the `sshCommand` from the deployment output, or find the IP with:
 
 ```bash
 az deployment group show \
   -g <username>-binnacle-rg \
   -n main \
-  --query properties.outputs.publicIpAddress.value -o tsv
+  --query properties.outputs.sshCommand.value -o tsv
+```
+
+```bash
+ssh <username>@<public-ip>
 ```
 
 ### 4. Run the bootstrap script
