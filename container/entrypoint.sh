@@ -58,14 +58,30 @@ if [ "$ENV_JSON" != "{}" ]; then
 fi
 
 # === 4. WORKER-SPECIFIC: COPILOT CONFIG ===
-# Write Copilot config to enable LSP
+# Write resolved copilot config (model, reasoning, staff mode)
 COPILOT_CONFIG="$HOME/.copilot/config.json"
-cat > "$COPILOT_CONFIG" << 'EOF'
-{
-  "staff": true
-}
-EOF
-echo "🔧 Copilot config written to $COPILOT_CONFIG (staff mode enabled for LSP)"
+
+# Use bn config agents copilot-config to get resolved settings.
+# This command never fails — it falls back to CopilotConfig::default() for
+# unknown types or resolution errors, and always includes staff:true.
+BN_AGENT_TYPE="${BN_AGENT_TYPE:-worker}"
+COPILOT_CONFIG_JSON=$(bn config agents copilot-config "$BN_AGENT_TYPE" 2>/dev/null || true)
+
+if [ -z "$COPILOT_CONFIG_JSON" ] || ! echo "$COPILOT_CONFIG_JSON" | jq empty 2>/dev/null; then
+    # Shell-level fallback: defaults matching CopilotConfig::default()
+    echo "⚠️  Could not resolve copilot config via bn, using defaults"
+    COPILOT_CONFIG_JSON='{
+  "staff": true,
+  "model": "claude-opus-4.6",
+  "reasoning_effort": "high",
+  "show_reasoning": true,
+  "render_markdown": true
+}'
+fi
+
+echo "$COPILOT_CONFIG_JSON" > "$COPILOT_CONFIG"
+RESOLVED_MODEL=$(echo "$COPILOT_CONFIG_JSON" | jq -r '.model // "unknown"')
+echo "🔧 Copilot config written to $COPILOT_CONFIG (model: $RESOLVED_MODEL)"
 
 # Write LSP configuration for Copilot code intelligence
 LSP_CONFIG="$HOME/.copilot/lsp-config.json"
@@ -99,7 +115,6 @@ echo "🔧 LSP configuration written to $LSP_CONFIG"
 jq -r '.lspServers | keys[] as $k | "   - \($k): \(.[$k].command)"' "$LSP_CONFIG"
 
 # === 5. ORIENT AGENT ===
-BN_AGENT_TYPE="${BN_AGENT_TYPE:-worker}"
 echo "🧭 Orienting agent (type: $BN_AGENT_TYPE)..."
 bn orient --type "$BN_AGENT_TYPE" -H
 
