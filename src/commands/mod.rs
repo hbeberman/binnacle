@@ -20101,11 +20101,22 @@ pub fn agent_spawn(
             args.push(format!("network:/proc/{}/ns/net", child_pid));
 
             // Mount resolv.conf for DNS resolution
-            if Path::new(resolv_conf_path).exists() {
+            // Priority: rootlesskit state dir > namespace's /etc/resolv.conf
+            // When ctr runs via nsenter inside the rootlesskit namespace,
+            // /etc/resolv.conf resolves to the namespace's copy (with slirp4netns/pasta DNS).
+            let resolv_src = if Path::new(resolv_conf_path).exists() {
+                Some(resolv_conf_path.as_str())
+            } else {
+                // rootlesskit with slirp4netns/pasta creates resolv.conf inside the
+                // namespace via --copy-up=/etc. Since ctr runs inside the namespace
+                // (via nsenter), /etc/resolv.conf points to the namespace's copy.
+                Some("/etc/resolv.conf")
+            };
+            if let Some(resolv) = resolv_src {
                 args.push("--mount".to_string());
                 args.push(format!(
                     "type=bind,src={},dst=/etc/resolv.conf,options=rbind:ro",
-                    resolv_conf_path
+                    resolv
                 ));
             }
             // In rootless mode with user namespaces, container UID 0 maps to host user
@@ -22783,11 +22794,22 @@ pub fn container_run(
             args.push(format!("network:/proc/{}/ns/net", child_pid));
 
             // Mount resolv.conf for DNS resolution
-            if Path::new(resolv_conf_path).exists() {
+            // Priority: rootlesskit state dir > namespace's /etc/resolv.conf
+            // When ctr runs via nsenter inside the rootlesskit namespace,
+            // /etc/resolv.conf resolves to the namespace's copy (with slirp4netns/pasta DNS).
+            let resolv_src = if Path::new(resolv_conf_path).exists() {
+                Some(resolv_conf_path.as_str())
+            } else {
+                // rootlesskit with slirp4netns/pasta creates resolv.conf inside the
+                // namespace via --copy-up=/etc. Since ctr runs inside the namespace
+                // (via nsenter), /etc/resolv.conf points to the namespace's copy.
+                Some("/etc/resolv.conf")
+            };
+            if let Some(resolv) = resolv_src {
                 args.push("--mount".to_string());
                 args.push(format!(
                     "type=bind,src={},dst=/etc/resolv.conf,options=rbind:ro",
-                    resolv_conf_path
+                    resolv
                 ));
             }
             // In rootless mode with user namespaces, container UID 0 maps to host user
