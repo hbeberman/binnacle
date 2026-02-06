@@ -13,7 +13,7 @@
 
 use crate::agents::definitions::{
     AGENT_ASK, AGENT_BUDDY, AGENT_DO, AGENT_FREE, AGENT_PRD, AGENT_WORKER, AgentDefinition,
-    ExecutionMode, LifecycleMode, ToolPermissions,
+    CopilotConfig, ExecutionMode, LifecycleMode, ToolPermissions,
 };
 
 // Embedded prompt content (included at compile time)
@@ -192,6 +192,7 @@ fn worker_agent() -> AgentDefinition {
         WORKER_PROMPT.trim(),
     )
     .with_tools(tool_sets::worker_tools())
+    .with_copilot(CopilotConfig::default())
 }
 
 /// Do agent: Host-based directed task executor.
@@ -204,6 +205,7 @@ fn do_agent() -> AgentDefinition {
         DO_PROMPT_TEMPLATE.trim(),
     )
     .with_tools(tool_sets::worker_tools())
+    .with_copilot(CopilotConfig::default())
 }
 
 /// PRD agent: Host-based PRD writer/planner.
@@ -216,6 +218,7 @@ fn prd_agent() -> AgentDefinition {
         PRD_PROMPT.trim(),
     )
     .with_tools(tool_sets::prd_tools())
+    .with_copilot(CopilotConfig::default())
 }
 
 /// Buddy agent: Host-based quick entry helper.
@@ -228,6 +231,7 @@ fn buddy_agent() -> AgentDefinition {
         BUDDY_PROMPT.trim(),
     )
     .with_tools(tool_sets::buddy_tools())
+    .with_copilot(CopilotConfig::default())
 }
 
 /// Ask agent: Host-based read-only Q&A assistant.
@@ -240,6 +244,7 @@ fn ask_agent() -> AgentDefinition {
         ASK_PROMPT.trim(),
     )
     .with_tools(tool_sets::ask_tools())
+    .with_copilot(CopilotConfig::default())
 }
 
 /// Free agent: Host-based general purpose agent.
@@ -252,6 +257,7 @@ fn free_agent() -> AgentDefinition {
         FREE_PROMPT.trim(),
     )
     .with_tools(tool_sets::free_tools())
+    .with_copilot(CopilotConfig::default())
 }
 
 /// Generate a "do" prompt with the given task description.
@@ -421,5 +427,21 @@ mod tests {
         assert!(tools.allow.contains(&"view".to_string()));
         assert!(tools.allow.contains(&"grep".to_string()));
         assert!(tools.allow.contains(&"glob".to_string()));
+    }
+
+    #[test]
+    fn test_all_embedded_agents_have_copilot_defaults() {
+        let expected = CopilotConfig::default();
+        for agent in get_all_embedded_agents() {
+            assert_eq!(
+                agent.copilot, expected,
+                "Agent '{}' should have CopilotConfig defaults",
+                agent.name
+            );
+            assert_eq!(agent.copilot.model, "claude-opus-4.6");
+            assert_eq!(agent.copilot.reasoning_effort, "high");
+            assert!(agent.copilot.show_reasoning);
+            assert!(agent.copilot.render_markdown);
+        }
     }
 }
