@@ -125,6 +125,33 @@ impl ToolPermissions {
     }
 }
 
+/// Copilot-specific configuration for an agent.
+///
+/// Controls model selection, reasoning behavior, and rendering preferences
+/// when the agent runs under GitHub Copilot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CopilotConfig {
+    /// The model to use (e.g., "claude-opus-4.6", "gpt-4").
+    pub model: String,
+    /// Reasoning effort level (e.g., "high", "medium", "low").
+    pub reasoning_effort: String,
+    /// Whether to show model reasoning in output.
+    pub show_reasoning: bool,
+    /// Whether to render markdown in output.
+    pub render_markdown: bool,
+}
+
+impl Default for CopilotConfig {
+    fn default() -> Self {
+        Self {
+            model: "claude-opus-4.6".to_string(),
+            reasoning_effort: "high".to_string(),
+            show_reasoning: true,
+            render_markdown: true,
+        }
+    }
+}
+
 /// Agent definition with all configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentDefinition {
@@ -140,6 +167,9 @@ pub struct AgentDefinition {
     pub tools: ToolPermissions,
     /// The agent's prompt content.
     pub prompt: String,
+    /// Copilot-specific configuration.
+    #[serde(default)]
+    pub copilot: CopilotConfig,
 }
 
 impl AgentDefinition {
@@ -158,12 +188,19 @@ impl AgentDefinition {
             lifecycle,
             tools: ToolPermissions::default(),
             prompt: prompt.into(),
+            copilot: CopilotConfig::default(),
         }
     }
 
     /// Set tool permissions.
     pub fn with_tools(mut self, tools: ToolPermissions) -> Self {
         self.tools = tools;
+        self
+    }
+
+    /// Set copilot configuration.
+    pub fn with_copilot(mut self, copilot: CopilotConfig) -> Self {
+        self.copilot = copilot;
         self
     }
 
@@ -219,8 +256,15 @@ impl AgentDefinition {
 
         // Include trailing newline for POSIX compliance
         format!(
-            "---\nname: {}\ndescription: {}\ntools: {}\n---\n{}\n",
-            display_name, self.description, tools_yaml, self.prompt
+            "---\nname: {}\ndescription: {}\ntools: {}\nmodel: {}\nreasoning_effort: {}\nshow_reasoning: {}\nrender_markdown: {}\n---\n{}\n",
+            display_name,
+            self.description,
+            tools_yaml,
+            self.copilot.model,
+            self.copilot.reasoning_effort,
+            self.copilot.show_reasoning,
+            self.copilot.render_markdown,
+            self.prompt
         )
     }
 
@@ -479,6 +523,12 @@ mod tests {
         // Check tools are mapped correctly
         assert!(content.contains("edit")); // write -> edit
         assert!(content.contains("binnacle/*")); // binnacle -> binnacle/*
+
+        // Check copilot config defaults in frontmatter
+        assert!(content.contains("model: claude-opus-4.6"));
+        assert!(content.contains("reasoning_effort: high"));
+        assert!(content.contains("show_reasoning: true"));
+        assert!(content.contains("render_markdown: true"));
     }
 
     #[test]
@@ -504,5 +554,93 @@ mod tests {
             "",
         );
         assert_eq!(custom.display_name(), "Custom");
+    }
+
+    #[test]
+    fn test_copilot_config_default() {
+        let config = CopilotConfig::default();
+        assert_eq!(config.model, "claude-opus-4.6");
+        assert_eq!(config.reasoning_effort, "high");
+        assert!(config.show_reasoning);
+        assert!(config.render_markdown);
+    }
+
+    #[test]
+    fn test_copilot_config_serialization() {
+        let config = CopilotConfig {
+            model: "gpt-4".to_string(),
+            reasoning_effort: "low".to_string(),
+            show_reasoning: false,
+            render_markdown: false,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: CopilotConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(config, parsed);
+    }
+
+    #[test]
+    fn test_agent_definition_with_copilot() {
+        let copilot = CopilotConfig {
+            model: "gpt-4".to_string(),
+            reasoning_effort: "medium".to_string(),
+            show_reasoning: false,
+            render_markdown: true,
+        };
+
+        let agent = AgentDefinition::new(
+            "test",
+            "Test agent",
+            ExecutionMode::Host,
+            LifecycleMode::Stateless,
+            "Prompt",
+        )
+        .with_copilot(copilot.clone());
+
+        assert_eq!(agent.copilot, copilot);
+        assert_eq!(agent.copilot.model, "gpt-4");
+        assert!(!agent.copilot.show_reasoning);
+    }
+
+    #[test]
+    fn test_agent_definition_default_copilot() {
+        let agent = AgentDefinition::new(
+            "test",
+            "Test agent",
+            ExecutionMode::Host,
+            LifecycleMode::Stateless,
+            "Prompt",
+        );
+
+        // Should use CopilotConfig defaults
+        assert_eq!(agent.copilot.model, "claude-opus-4.6");
+        assert_eq!(agent.copilot.reasoning_effort, "high");
+        assert!(agent.copilot.show_reasoning);
+        assert!(agent.copilot.render_markdown);
+    }
+
+    #[test]
+    fn test_generate_agent_file_content_custom_copilot() {
+        let copilot = CopilotConfig {
+            model: "gpt-4".to_string(),
+            reasoning_effort: "low".to_string(),
+            show_reasoning: false,
+            render_markdown: false,
+        };
+
+        let agent = AgentDefinition::new(
+            "worker",
+            "Test worker",
+            ExecutionMode::Container,
+            LifecycleMode::Stateful,
+            "Test prompt",
+        )
+        .with_copilot(copilot);
+
+        let content = agent.generate_agent_file_content();
+        assert!(content.contains("model: gpt-4"));
+        assert!(content.contains("reasoning_effort: low"));
+        assert!(content.contains("show_reasoning: false"));
+        assert!(content.contains("render_markdown: false"));
     }
 }

@@ -2,6 +2,10 @@
 name: Binnacle PRD
 description: Converts ideas into detailed PRDs
 tools: ['edit', 'execute', 'binnacle/*', 'read', 'search', 'agent']
+model: claude-opus-4.6
+reasoning_effort: high
+show_reasoning: true
+render_markdown: true
 ---
 Run `bn orient --type planner` to get oriented with the project. Read PRD.md. Your job is to help render ideas into proper PRDs. First, ask the user: "Do you have a specific idea or topic in mind, or would you like me to pick one from the open ideas?" 
 
