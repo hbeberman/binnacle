@@ -1683,6 +1683,16 @@ pub enum ConfigAgentsCommands {
         /// Agent name (worker, do, prd, buddy, ask, free)
         name: String,
     },
+
+    /// Emit copilot config JSON for an agent type
+    ///
+    /// Outputs full JSON copilot config ready to write to ~/.copilot/config.json.
+    /// Always includes "staff": true. Never fails: returns defaults for unknown
+    /// types or resolution errors with a stderr warning.
+    CopilotConfig {
+        /// Agent type name (e.g., worker, do, prd, buddy, ask, free)
+        name: String,
+    },
 }
 
 /// MCP server subcommands

@@ -1065,6 +1065,10 @@ fn run_command(
                     let result = commands::config_agents_emit(repo_path, &name)?;
                     output(&result, human);
                 }
+                ConfigAgentsCommands::CopilotConfig { name } => {
+                    let result = commands::config_agents_copilot_config(repo_path, &name);
+                    output(&result, human);
+                }
             },
         },
         Some(Commands::Mcp { command }) => match command {
@@ -4396,6 +4400,10 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 ),
                 ConfigAgentsCommands::Emit { name } => (
                     "config agents emit".to_string(),
+                    serde_json::json!({ "name": name }),
+                ),
+                ConfigAgentsCommands::CopilotConfig { name } => (
+                    "config agents copilot-config".to_string(),
                     serde_json::json!({ "name": name }),
                 ),
             },
