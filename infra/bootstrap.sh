@@ -5,7 +5,7 @@
 # second run completes the full setup.
 #
 # Usage: bootstrap.sh [--phase N]
-#   --phase N   Skip to phase N (0-7). Useful for resuming after a failure.
+#   --phase N   Skip to phase N (1-8). Useful for resuming after a failure.
 set -e
 
 ###############################################################################
@@ -66,11 +66,6 @@ if ! grep -q "^$USER:" /etc/subuid 2>/dev/null; then
   echo "  → Adding ~/.local/bin and ~/.cargo/bin to PATH..."
   echo 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
 
-  echo "  → Setting default git identity and branch name..."
-  git config --global user.name "binnacle-bot"
-  git config --global user.email "noreply@binnacle.bot"
-  git config --global init.defaultBranch main
-
   echo ""
   echo "  ✅ subuid/subgid configured. Logging out all sessions now..."
   echo "  → SSH back in and run: bootstrap.sh"
@@ -84,7 +79,7 @@ fi
 # 1. Install all system packages upfront
 ###############################################################################
 if phase_at_least 1; then
-  banner "1/7  Installing system packages (dnf)"
+  banner "1/8  Installing system packages (dnf)"
 
   echo "  → Enabling extended repos..."
   sudo dnf install -y azurelinux-repos-extended
@@ -106,7 +101,7 @@ fi
 # 2. Install Rust toolchain
 ###############################################################################
 if phase_at_least 2; then
-  banner "2/7  Installing Rust toolchain"
+  banner "2/8  Installing Rust toolchain"
 
   echo "  → Installing rustup..."
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -121,7 +116,7 @@ fi
 # 3. Install npm packages
 ###############################################################################
 if phase_at_least 3; then
-  banner "3/7  Configuring npm and installing global packages"
+  banner "3/8  Configuring npm and installing global packages"
 
   echo "  → Setting npm prefix to ~/.local..."
   npm config set prefix ~/.local
@@ -134,7 +129,7 @@ fi
 # 4. Setup rootless containerd
 ###############################################################################
 if phase_at_least 4; then
-  banner "4/7  Setting up rootless containerd"
+  banner "4/8  Setting up rootless containerd"
 
   echo "  → Building rootlesskit from source..."
   mkdir -p "$REPOS_DIR"
@@ -193,7 +188,7 @@ fi
 # 5. Clone and build binnacle
 ###############################################################################
 if phase_at_least 5; then
-  banner "5/7  Cloning and building binnacle"
+  banner "5/8  Cloning and building binnacle"
 
   echo "  → Cloning binnacle (branch: $BINNACLE_BRANCH)..."
   mkdir -p "$REPOS_DIR"
@@ -209,10 +204,10 @@ if phase_at_least 5; then
 fi
 
 ###############################################################################
-# 6. Initialize binnacle and set up starter project
+# 6. Initialize binnacle system
 ###############################################################################
 if phase_at_least 6; then
-  banner "6/7  Initializing binnacle system"
+  banner "6/8  Initializing binnacle system"
 
   echo "  → Running bn system host-init..."
   echo "    This will install Copilot CLI, set up agent scripts,"
@@ -221,8 +216,18 @@ if phase_at_least 6; then
   pushd "$REPOS_DIR/binnacle"
   bn system host-init
   popd
+fi
 
-  banner "6/7  Setting up starter project"
+###############################################################################
+# 7. Set up starter project
+###############################################################################
+if phase_at_least 7; then
+  banner "7/8  Setting up starter project"
+
+  echo "  → Setting default git identity and branch name..."
+  git config --global user.name "binnacle-bot"
+  git config --global user.email "noreply@binnacle.bot"
+  git config --global init.defaultBranch main
 
   echo "  → Creating ~/repos/project as a ready-to-use binnacle workspace..."
   mkdir -p "$REPOS_DIR/project"
@@ -262,9 +267,9 @@ EOF
 fi
 
 ###############################################################################
-# 7. Done!
+# 8. Done!
 ###############################################################################
-banner "7/7  Setup complete!"
+banner "8/8  Setup complete!"
 
 echo "To finish, create a fine-grained GitHub PAT:"
 echo ""
