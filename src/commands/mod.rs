@@ -22140,6 +22140,8 @@ fn build_embedded_container(tag: &str, no_cache: bool) -> Result<()> {
     build_cmd
         .arg("bud")
         .arg("--layers") // Enable layer caching for faster rebuilds
+        .arg("--network")
+        .arg("slirp4netns") // pasta fails with large route tables (e.g. VPN split-tunnel)
         .arg("-t")
         .arg(format!("localhost/binnacle-self:{}", tag))
         .arg("-f")
@@ -22296,6 +22298,8 @@ fn build_embedded_default_container(tag: &str, no_cache: bool) -> Result<()> {
     build_cmd
         .arg("bud")
         .arg("--layers") // Enable layer caching for faster rebuilds
+        .arg("--network")
+        .arg("slirp4netns") // pasta fails with large route tables (e.g. VPN split-tunnel)
         .arg("-t")
         .arg(&image_ref)
         .arg("-f")
@@ -22454,6 +22458,8 @@ fn build_definition_container(
     build_cmd
         .arg("bud")
         .arg("--layers") // Enable layer caching for faster rebuilds
+        .arg("--network")
+        .arg("slirp4netns") // pasta fails with large route tables (e.g. VPN split-tunnel)
         .arg("-t")
         .arg(&image_ref)
         .arg("-f")
