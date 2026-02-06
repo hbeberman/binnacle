@@ -1,4 +1,4 @@
 # This file contains the version of GitHub Copilot CLI that this project was tested against.
 # DO NOT modify this file programmatically - human operators only.
 # Agents should read this file but never write to it.
-v0.0.399
+v0.0.404

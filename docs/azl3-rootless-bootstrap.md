@@ -33,7 +33,8 @@ pushd passt
 make && sudo make install
 popd
 
-sudo sh -c 'echo "$SUDO_USER:100000:65536" >> /etc/test'
+sudo sh -c 'echo "$SUDO_USER:100000:65536" >> /etc/subuid'
+sudo sh -c 'echo "$SUDO_USER:100000:65536" >> /etc/subgid'
 
 git clone https://github.com/containerd/nerdctl.git ~/repos/nerdctl
 sudo cp ~/repos/nerdctl/extras/rootless/containerd-rootless.sh /usr/local/bin/
