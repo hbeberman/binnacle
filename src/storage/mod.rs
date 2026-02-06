@@ -7426,6 +7426,11 @@ mod tests {
 
     #[test]
     fn test_find_git_root_worktree_resolves_to_main() {
+        // Skip in container mode: worktree resolution is intentionally disabled
+        if std::env::var("BN_CONTAINER_MODE").is_ok() {
+            return;
+        }
+
         let env = TestEnv::new();
         let base = env.path();
 
@@ -7519,6 +7524,9 @@ mod tests {
         )
         .unwrap();
 
+        // Save original value to restore later
+        let original_container_mode = std::env::var("BN_CONTAINER_MODE").ok();
+
         // Set container mode env var
         // SAFETY: This is test code; we accept the POSIX setenv race condition
         unsafe {
@@ -7534,16 +7542,25 @@ mod tests {
             "Container mode should treat worktree as its own root, not resolve to main repo"
         );
 
-        // Clean up env var
+        // Restore original env var state
         // SAFETY: This is test code; we accept the POSIX setenv race condition
         unsafe {
-            std::env::remove_var("BN_CONTAINER_MODE");
+            if let Some(val) = original_container_mode {
+                std::env::set_var("BN_CONTAINER_MODE", val);
+            } else {
+                std::env::remove_var("BN_CONTAINER_MODE");
+            }
         }
     }
 
     #[test]
     #[serial]
     fn test_get_storage_dir_uses_path_literally() {
+        // Skip in container mode: BN_STORAGE_HASH overrides path-based hashing
+        if std::env::var("BN_CONTAINER_MODE").is_ok() {
+            return;
+        }
+
         let env = TestEnv::new();
         let root = env.path();
 

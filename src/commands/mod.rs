@@ -3954,16 +3954,16 @@ pub fn orient(
     let mut storage = Storage::open(repo_path)?;
 
     // Check for MCP session mode (for MCP wrapper invocation)
-    let mcp_session_id = std::env::var("BN_MCP_SESSION").ok();
+    let mcp_session_id = read_agent_env_var("BN_MCP_SESSION");
 
     // Detect Copilot session GUID from filesystem
     let copilot_session_guid = detect_copilot_session_guid();
 
     // Check for explicit agent ID (for container/external agent management)
-    let env_agent_id = std::env::var("BN_AGENT_ID").ok();
+    let env_agent_id = read_agent_env_var("BN_AGENT_ID");
 
     // Check if we're running in container mode
-    let is_container_mode = std::env::var("BN_CONTAINER_MODE").is_ok();
+    let is_container_mode = read_agent_env_var("BN_CONTAINER_MODE").is_some();
 
     // SAFETY: Container agents MUST have BN_AGENT_ID set by their creator.
     // Using parent PID in containers is dangerous because PID 1 is the init process,
@@ -4004,7 +4004,7 @@ pub fn orient(
 
         // Use provided name, or BN_AGENT_NAME env var, or auto-generate (with parent PID for uniqueness)
         let agent_name = name
-            .or_else(|| std::env::var("BN_AGENT_NAME").ok())
+            .or_else(|| read_agent_env_var("BN_AGENT_NAME"))
             .unwrap_or_else(|| format!("agent-{}", agent_pid));
 
         // For MCP mode, check if agent with this session ID already exists
@@ -4407,11 +4407,36 @@ fn find_ancestor_agent(_storage: &Storage) -> Option<u32> {
     None
 }
 
+// Thread-local flag to suppress reading agent-related environment variables.
+// Used by tests via `TestEnv::new_isolated()` to prevent the host's `BN_AGENT_ID`
+// (and similar vars) from leaking into isolated test environments.
+#[cfg(test)]
+thread_local! {
+    static SUPPRESS_AGENT_ENV_VARS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Set whether agent-related env vars should be suppressed (test use only).
+#[cfg(test)]
+pub(crate) fn set_suppress_agent_env_vars(suppress: bool) {
+    SUPPRESS_AGENT_ENV_VARS.with(|cell| cell.set(suppress));
+}
+
+/// Read an agent-related env var, respecting the test suppression flag.
+fn read_agent_env_var(name: &str) -> Option<String> {
+    #[cfg(test)]
+    {
+        if SUPPRESS_AGENT_ENV_VARS.with(|cell| cell.get()) {
+            return None;
+        }
+    }
+    std::env::var(name).ok()
+}
+
 /// Get the current agent (by ID if BN_AGENT_ID is set, otherwise by PID).
 /// Returns the agent object if found.
 fn get_current_agent(storage: &Storage) -> Option<Agent> {
     // Check if BN_AGENT_ID is set (for containerized agents)
-    if let Ok(agent_id) = std::env::var("BN_AGENT_ID") {
+    if let Some(agent_id) = read_agent_env_var("BN_AGENT_ID") {
         return storage.get_agent_by_id(&agent_id).ok();
     }
 
@@ -21126,10 +21151,10 @@ pub fn goodbye(repo_path: &Path, reason: Option<String>, force: bool) -> Result<
     let grandparent_pid = get_grandparent_pid().unwrap_or(0);
 
     // Check for MCP session mode
-    let mcp_session_id = std::env::var("BN_MCP_SESSION").ok();
+    let mcp_session_id = read_agent_env_var("BN_MCP_SESSION");
 
     // Check for explicit agent ID (for container/external agent management)
-    let env_agent_id = std::env::var("BN_AGENT_ID").ok();
+    let env_agent_id = read_agent_env_var("BN_AGENT_ID");
 
     // When using MCP session or explicit agent ID, we don't require valid parent/grandparent PIDs
     // since we're not going to terminate them anyway
