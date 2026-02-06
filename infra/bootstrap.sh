@@ -11,7 +11,7 @@ set -e
 ###############################################################################
 # Configuration — change these as needed
 ###############################################################################
-BINNACLE_BRANCH="hbeberman/02-04-26"
+BINNACLE_TAG="v0.0.1-alpha.10"
 BINNACLE_REPO="https://github.com/hbeberman/binnacle.git"
 REPOS_DIR="$HOME/repos"
 
@@ -190,9 +190,9 @@ fi
 if phase_at_least 5; then
   banner "5/8  Cloning and building binnacle"
 
-  echo "  → Cloning binnacle (branch: $BINNACLE_BRANCH)..."
+  echo "  → Cloning binnacle (tag: $BINNACLE_TAG)..."
   mkdir -p "$REPOS_DIR"
-  git clone -b "$BINNACLE_BRANCH" "$BINNACLE_REPO" "$REPOS_DIR/binnacle"
+  git clone -b "$BINNACLE_TAG" "$BINNACLE_REPO" "$REPOS_DIR/binnacle"
   pushd "$REPOS_DIR/binnacle"
 
   echo "  → Installing npm dependencies for web bundle..."
