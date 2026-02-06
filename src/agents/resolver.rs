@@ -26,6 +26,8 @@ pub struct ResolvedAgent {
     pub source: ValueSource,
     /// Whether tools were merged from multiple layers.
     pub tools_merged: bool,
+    /// Whether copilot config was overridden from a non-embedded layer.
+    pub copilot_merged: bool,
     /// All sources that contributed to this definition.
     pub sources: Vec<ValueSource>,
 }
@@ -37,6 +39,7 @@ impl ResolvedAgent {
             agent,
             source: ValueSource::Default,
             tools_merged: false,
+            copilot_merged: false,
             sources: vec![ValueSource::Default],
         }
     }
@@ -157,6 +160,13 @@ impl AgentResolver {
                 if !override_def.tools_allow.is_empty() || !override_def.tools_deny.is_empty() {
                     resolved.tools_merged = true;
                 }
+                if override_def.model.is_some()
+                    || override_def.reasoning_effort.is_some()
+                    || override_def.show_reasoning.is_some()
+                    || override_def.render_markdown.is_some()
+                {
+                    resolved.copilot_merged = true;
+                }
             }
         }
 
@@ -170,6 +180,13 @@ impl AgentResolver {
                 if !override_def.tools_allow.is_empty() || !override_def.tools_deny.is_empty() {
                     resolved.tools_merged = true;
                 }
+                if override_def.model.is_some()
+                    || override_def.reasoning_effort.is_some()
+                    || override_def.show_reasoning.is_some()
+                    || override_def.render_markdown.is_some()
+                {
+                    resolved.copilot_merged = true;
+                }
             }
         }
 
@@ -182,6 +199,13 @@ impl AgentResolver {
                 resolved.sources.push(ValueSource::Project);
                 if !override_def.tools_allow.is_empty() || !override_def.tools_deny.is_empty() {
                     resolved.tools_merged = true;
+                }
+                if override_def.model.is_some()
+                    || override_def.reasoning_effort.is_some()
+                    || override_def.show_reasoning.is_some()
+                    || override_def.render_markdown.is_some()
+                {
+                    resolved.copilot_merged = true;
                 }
             }
         }
@@ -496,5 +520,92 @@ agent "worker" {{
 
         // Tools should be from embedded (no override specified)
         assert!(!resolved.tools_merged);
+
+        // Copilot config should be from embedded (no override specified)
+        assert!(!resolved.copilot_merged);
+    }
+
+    #[test]
+    fn test_copilot_config_merge_from_project() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path();
+
+        // Create .binnacle/agents/config.kdl with copilot overrides
+        let agents_dir = repo_root.join(".binnacle/agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+
+        let config_path = agents_dir.join("config.kdl");
+        let mut file = std::fs::File::create(&config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+agent "worker" {{
+    model "claude-sonnet-4"
+    reasoning-effort "medium"
+}}
+"#
+        )
+        .unwrap();
+
+        let mut resolver = AgentResolver::for_repo(repo_root);
+        let resolved = resolver.resolve(AGENT_WORKER).unwrap().unwrap();
+
+        // Copilot config should be overridden
+        assert_eq!(resolved.agent.copilot.model, "claude-sonnet-4");
+        assert_eq!(resolved.agent.copilot.reasoning_effort, "medium");
+        // Unset fields preserve defaults
+        assert!(resolved.agent.copilot.show_reasoning);
+        assert!(resolved.agent.copilot.render_markdown);
+        assert!(resolved.copilot_merged);
+        assert_eq!(resolved.source, ValueSource::Project);
+    }
+
+    #[test]
+    fn test_copilot_config_partial_override() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path();
+
+        // Override only render_markdown
+        let agents_dir = repo_root.join(".binnacle/agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+
+        let config_path = agents_dir.join("config.kdl");
+        let mut file = std::fs::File::create(&config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+agent "worker" {{
+    render-markdown #false
+}}
+"#
+        )
+        .unwrap();
+
+        let mut resolver = AgentResolver::for_repo(repo_root);
+        let resolved = resolver.resolve(AGENT_WORKER).unwrap().unwrap();
+
+        // Only render_markdown should be overridden
+        assert_eq!(resolved.agent.copilot.model, "claude-opus-4.6");
+        assert_eq!(resolved.agent.copilot.reasoning_effort, "high");
+        assert!(resolved.agent.copilot.show_reasoning);
+        assert!(!resolved.agent.copilot.render_markdown);
+        assert!(resolved.copilot_merged);
+    }
+
+    #[test]
+    fn test_copilot_not_merged_without_override() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path();
+
+        // No config files
+        let mut resolver = AgentResolver::for_repo(repo_root);
+        let resolved = resolver.resolve(AGENT_WORKER).unwrap().unwrap();
+
+        assert!(!resolved.copilot_merged);
+        // Should have defaults
+        assert_eq!(resolved.agent.copilot.model, "claude-opus-4.6");
+        assert_eq!(resolved.agent.copilot.reasoning_effort, "high");
+        assert!(resolved.agent.copilot.show_reasoning);
+        assert!(resolved.agent.copilot.render_markdown);
     }
 }
