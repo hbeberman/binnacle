@@ -41,13 +41,35 @@ az deployment group create \
      sshPublicKey="$(cat ~/.ssh/id_rsa.pub)"
 ```
 
+Alternatively, edit `main.bicepparam` with your values and deploy using the parameter file:
+
+```bash
+az deployment group create \
+  -g <username>-binnacle-rg \
+  -f infra/main.bicep \
+  -p infra/main.bicepparam
+```
+
+The deployment takes a few minutes. On success, the output includes:
+
+- `vmName` — the created VM's name
+- `publicIpAddress` — the VM's public IP
+- `sshCommand` — a ready-to-use SSH command
+
 ### 3. SSH into the VM
 
 ```bash
 ssh <username>@<public-ip>
 ```
 
-The public IP is shown in the deployment output.
+Use the `sshCommand` from the deployment output, or find the IP with:
+
+```bash
+az deployment group show \
+  -g <username>-binnacle-rg \
+  -n main \
+  --query properties.outputs.publicIpAddress.value -o tsv
+```
 
 ### 4. Run the bootstrap script
 
@@ -55,11 +77,29 @@ The public IP is shown in the deployment output.
 ~/bootstrap.sh
 ```
 
-This installs the Rust toolchain, system packages, rootless containerd, and builds binnacle from source. Takes approximately 20–30 minutes (mostly unattended).
+The script is placed in your home directory by cloud-init during VM provisioning. It runs through six stages:
+
+1. **Rust toolchain** — rustup, wasm32 target, wasm-pack
+2. **System packages** — gcc, openssl-devel, containerd, buildah, nodejs, npm, git
+3. **npm packages** — marked, highlight.js
+4. **Rootless containerd** — rootlesskit, passt/pasta, nerdctl, dbus user socket, subuid/subgid
+5. **Binnacle** — clone, build, `bn system host-init`, `bn system session-init`, `bn container build worker`
+6. **PAT instructions** — printed at the end
+
+Takes approximately 20–30 minutes (mostly unattended).
 
 ### 5. Set up your GitHub PAT
 
-After bootstrap completes, follow the printed instructions to create a fine-grained GitHub PAT with **Copilot Requests: Read-only** permission, then:
+After bootstrap completes, create a fine-grained GitHub PAT:
+
+1. Go to <https://github.com/settings/tokens>
+2. Click **Generate new token** → **Fine-grained token**
+3. Set a name (e.g., `binnacle`) and expiration
+4. Repository access: select your target repos or **All repositories**
+5. Permissions: enable **Copilot Requests → Read-only**
+6. Click **Generate token** and copy it
+
+Then export it in your shell:
 
 ```bash
 export COPILOT_GITHUB_TOKEN=<your-pat>
@@ -90,9 +130,21 @@ To delete all resources when you're done:
 az group delete -g <username>-binnacle-rg --yes --no-wait
 ```
 
+## Configuration
+
+The bootstrap script clones binnacle from a specific branch. To change it, edit the `BINNACLE_BRANCH` variable at the top of `bootstrap.sh` before running:
+
+```bash
+vi ~/bootstrap.sh   # change BINNACLE_BRANCH="hbeberman/02-04-26" to your branch
+~/bootstrap.sh
+```
+
 ## Troubleshooting
 
 - **SSH connection refused**: Wait a few minutes after deployment for the VM to finish booting and cloud-init to complete.
 - **bootstrap.sh not found**: Cloud-init may still be running. Check with `cloud-init status --wait`.
-- **Build failures in bootstrap.sh**: Ensure the VM has internet access and the binnacle repo branch exists.
+- **bootstrap.sh permission denied**: Run `chmod +x ~/bootstrap.sh` and retry.
+- **Build failures in bootstrap.sh**: Ensure the VM has internet access and the binnacle repo branch exists. Check `BINNACLE_BRANCH` at the top of the script.
 - **DNS resolution issues in containers**: See the rootless containerd DNS fix in the binnacle docs.
+- **Deployment fails with quota error**: The default VM size (`Standard_D16ds_v5`) requires sufficient vCPU quota. Request a quota increase or use a smaller `vmSize` parameter.
+- **Re-running bootstrap.sh**: The script uses `git clone` which fails if the target directories already exist. Remove `~/repos/` before re-running: `rm -rf ~/repos && ~/bootstrap.sh`.
