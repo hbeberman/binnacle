@@ -1244,6 +1244,7 @@ fn run_command(
                 write_copilot_agents,
                 build_container,
                 yes,
+                accept_all,
                 token,
                 token_non_validated,
             } => {
@@ -1255,6 +1256,19 @@ fn run_command(
                 let result = if container_mode {
                     // Container mode: auto-enable skills/MCP, skip installs
                     commands::system_init_container_mode()?
+                } else if accept_all {
+                    // Accept all: enable every optional setup step
+                    commands::system_init_non_interactive(
+                        true,
+                        true,
+                        true,
+                        true,
+                        true,
+                        true,
+                        true,
+                        token.as_deref(),
+                        token_non_validated.as_deref(),
+                    )?
                 } else if yes {
                     // Non-interactive: use flags directly
                     commands::system_init_non_interactive(
@@ -4537,6 +4551,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                 write_copilot_agents,
                 build_container,
                 yes,
+                accept_all,
                 token,
                 token_non_validated,
             } => (
@@ -4550,6 +4565,7 @@ fn serialize_command(command: &Option<Commands>) -> (String, serde_json::Value) 
                     "write_copilot_agents": write_copilot_agents,
                     "build_container": build_container,
                     "yes": yes,
+                    "accept_all": accept_all,
                     "token": token,
                     "token_non_validated": token_non_validated,
                 }),

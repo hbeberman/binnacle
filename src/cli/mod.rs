@@ -1956,8 +1956,16 @@ pub enum SystemCommands {
         build_container: bool,
 
         /// Skip interactive prompts (use flags to control what gets set up)
-        #[arg(long, short = 'y')]
+        #[arg(long, short = 'y', conflicts_with = "accept_all")]
         yes: bool,
+
+        /// Enable all optional setup steps without prompting
+        ///
+        /// Equivalent to passing -y with every --write-*/--install-*/--build-* flag.
+        /// Token flags (--token, --token-non-validated) are orthogonal and can be
+        /// combined with --accept-all.
+        #[arg(long, conflicts_with_all = ["yes", "write_claude_skills", "write_codex_skills", "write_mcp_copilot", "install_copilot", "install_bn_agent", "write_copilot_agents", "build_container"])]
+        accept_all: bool,
 
         /// GitHub PAT to store with full Copilot validation
         ///
