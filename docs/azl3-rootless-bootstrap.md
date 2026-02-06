@@ -1,5 +1,7 @@
 # AZL3 Rootless Containerd Bootstrap
+
 ## Binnacle Build Dependencies
+
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup target add wasm32-unknown-unknown
@@ -17,27 +19,29 @@ export PATH=$HOME/.local/bin/:$PATH
 ```
 
 ## Rootless Containerd Setup
+
 > [!NOTE]
 > You can skip Rootless Containerd if you allow binnacle access to passwordless sudo for ctr calls, enabled by setting BN_ALLOW_SUDO=1 when calling bn-agent.
 
 ```bash
 sudo dnf install -y golang slirp4netns systemd-container
-git clone https://github.com/rootless-containers/rootlesskit.git ~/repos/rootlesskit
-pushd ~/repos/rootlesskit
+mkdir -p ~/repos/binnacle-bootstrap-deps
+git clone https://github.com/rootless-containers/rootlesskit.git ~/repos/binnacle-bootstrap-deps/rootlesskit
+pushd ~/repos/binnacle-bootstrap-deps/rootlesskit
 make && sudo make install
 popd
 
-# Usermode Network  
-git clone https://passt.top/passt
-pushd passt
+# Usermode Network
+git clone https://passt.top/passt ~/repos/binnacle-bootstrap-deps/passt
+pushd ~/repos/binnacle-bootstrap-deps/passt
 make && sudo make install
 popd
 
 sudo sh -c 'echo "$SUDO_USER:100000:65536" >> /etc/subuid'
 sudo sh -c 'echo "$SUDO_USER:100000:65536" >> /etc/subgid'
 
-git clone https://github.com/containerd/nerdctl.git ~/repos/nerdctl
-sudo cp ~/repos/nerdctl/extras/rootless/containerd-rootless.sh /usr/local/bin/
+git clone https://github.com/containerd/nerdctl.git ~/repos/binnacle-bootstrap-deps/nerdctl
+sudo cp ~/repos/binnacle-bootstrap-deps/nerdctl/extras/rootless/containerd-rootless.sh /usr/local/bin/
 
 # Setup a user dbus socket
 mkdir -p ~/.config/systemd/user
@@ -74,20 +78,23 @@ EOF
 systemctl --user daemon-reload
 systemctl --user enable --now dbus.socket
 
-~/repos/nerdctl/extras/rootless/containerd-rootless-setuptool.sh install
+~/repos/binnacle-bootstrap-deps/nerdctl/extras/rootless/containerd-rootless-setuptool.sh install
 systemctl --user enable --now containerd.service
 ```
 
 ## Grabbing a GH Copilot Enabled PAT
+
 **Get a GitHub PAT with Copilot access:**
-1. Go to https://github.com/settings/tokens
-2. Click **"Generate new token"** → **"Fine-grained token"**
+
+1. Go to <https://github.com/settings/personal-access-tokens>
+2. Click **"Generate new token"**
 3. Name it (e.g., "binnacle"), set expiration (default is fine)
 4. **Repository access**: select your target repos or "All repositories"
-5. **Permissions**: enable **"Copilot Requests"** → Read-only
+5. No additional permissions are needed to run Copilot CLI.
 6. Click **"Generate token"** and copy it
 
-## Install and run Binnacle!
+## Install and run Binnacle
+
 ```bash
 git clone https://github.com/hbeberman/binnacle.git ~/repos/binnacle
 pushd ~/reops/binnacle
