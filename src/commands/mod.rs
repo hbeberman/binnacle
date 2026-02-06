@@ -16305,6 +16305,8 @@ pub struct ConfigAgentShow {
     pub tools_allow: Vec<String>,
     /// Denied tools
     pub tools_deny: Vec<String>,
+    /// Copilot runtime configuration
+    pub copilot: CopilotConfig,
     /// Prompt preview (first 500 chars or configurable)
     pub prompt_preview: String,
     /// Full prompt length
@@ -16331,6 +16333,10 @@ impl Output for ConfigAgentShow {
                 }
             ),
             format!("Source: {}", self.source),
+            format!("Model: {}", self.copilot.model),
+            format!("Reasoning Effort: {}", self.copilot.reasoning_effort),
+            format!("Show Reasoning: {}", self.copilot.show_reasoning),
+            format!("Render Markdown: {}", self.copilot.render_markdown),
         ];
 
         lines.push(String::new());
@@ -16391,6 +16397,7 @@ pub fn config_agents_show(repo_path: &Path, name: &str) -> Result<ConfigAgentSho
         tools_merged: resolved.tools_merged,
         tools_allow: agent.tools.allow.clone(),
         tools_deny: agent.tools.deny.clone(),
+        copilot: agent.copilot.clone(),
         prompt_preview,
         prompt_length,
     })
