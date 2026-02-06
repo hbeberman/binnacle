@@ -67,7 +67,7 @@ pub mod resolver;
 // Re-export commonly used types
 pub use definitions::{
     AGENT_ASK, AGENT_BUDDY, AGENT_DO, AGENT_FREE, AGENT_PRD, AGENT_TYPES, AGENT_WORKER,
-    AgentDefinition, ExecutionMode, LifecycleMode, ToolPermissions,
+    AgentDefinition, CopilotConfig, ExecutionMode, LifecycleMode, ToolPermissions,
 };
 pub use embedded::{do_prompt, get_all_embedded_agents, get_embedded_agent};
 pub use kdl::{AgentOverride, load_overrides_from_file, parse_agent_overrides};
