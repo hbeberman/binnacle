@@ -53,6 +53,11 @@ if ! grep -q "^$USER:" /etc/subuid 2>/dev/null; then
   echo "  → Adding ~/.local/bin and ~/.cargo/bin to PATH..."
   echo 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
 
+  echo "  → Setting default git identity and branch name..."
+  git config --global user.name "binnacle-bot"
+  git config --global user.email "binnacle-bot@localhost"
+  git config --global init.defaultBranch main
+
   echo ""
   echo "  ✅ subuid/subgid configured. Logging out all sessions now..."
   echo "  → SSH back in and run: bootstrap.sh"
