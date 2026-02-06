@@ -55,7 +55,7 @@ if ! grep -q "^$USER:" /etc/subuid 2>/dev/null; then
 
   echo "  → Setting default git identity and branch name..."
   git config --global user.name "binnacle-bot"
-  git config --global user.email "binnacle-bot@localhost"
+  git config --global user.email "noreply@binnacle.bot"
   git config --global init.defaultBranch main
 
   echo ""
