@@ -12,6 +12,12 @@
 //!     execution "container"  // "container" | "host"
 //!     lifecycle "stateful"   // "stateful" | "stateless"
 //!     
+//!     // Copilot runtime settings (optional, defaults shown)
+//!     model "claude-opus-4.6"
+//!     reasoning-effort "high"
+//!     show-reasoning #true
+//!     render-markdown #true
+//!     
 //!     tools {
 //!         allow "write"
 //!         allow "shell(bn:*)"
@@ -58,6 +64,14 @@ pub struct AgentOverride {
     pub prompt_file: Option<String>,
     /// Inline prompt content.
     pub prompt: Option<String>,
+    /// Override copilot model.
+    pub model: Option<String>,
+    /// Override reasoning effort.
+    pub reasoning_effort: Option<String>,
+    /// Override show_reasoning.
+    pub show_reasoning: Option<bool>,
+    /// Override render_markdown.
+    pub render_markdown: Option<bool>,
 }
 
 impl AgentOverride {
@@ -117,6 +131,20 @@ impl AgentOverride {
         // Override with inline prompt if set
         if let Some(ref prompt) = self.prompt {
             result.prompt = prompt.clone();
+        }
+
+        // Merge copilot config (only override fields that are explicitly set)
+        if let Some(ref model) = self.model {
+            result.copilot.model = model.clone();
+        }
+        if let Some(ref reasoning_effort) = self.reasoning_effort {
+            result.copilot.reasoning_effort = reasoning_effort.clone();
+        }
+        if let Some(show_reasoning) = self.show_reasoning {
+            result.copilot.show_reasoning = show_reasoning;
+        }
+        if let Some(render_markdown) = self.render_markdown {
+            result.copilot.render_markdown = render_markdown;
         }
 
         result
@@ -179,6 +207,26 @@ fn parse_agent_node(node: &KdlNode) -> Result<AgentOverride, Error> {
                         override_def.prompt = Some(content);
                     }
                 }
+                "model" => {
+                    if let Some(model) = get_string_arg(child) {
+                        override_def.model = Some(model);
+                    }
+                }
+                "reasoning-effort" => {
+                    if let Some(effort) = get_string_arg(child) {
+                        override_def.reasoning_effort = Some(effort);
+                    }
+                }
+                "show-reasoning" => {
+                    if let Some(val) = get_bool_arg(child) {
+                        override_def.show_reasoning = Some(val);
+                    }
+                }
+                "render-markdown" => {
+                    if let Some(val) = get_bool_arg(child) {
+                        override_def.render_markdown = Some(val);
+                    }
+                }
                 "tools" => {
                     parse_tools_node(child, &mut override_def)?;
                 }
@@ -224,6 +272,11 @@ fn get_string_arg(node: &KdlNode) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Get a boolean argument from a node's first entry.
+fn get_bool_arg(node: &KdlNode) -> Option<bool> {
+    node.entries().first().and_then(|e| e.value().as_bool())
+}
+
 /// Load agent overrides from a KDL file path.
 ///
 /// Returns an empty vector if the file doesn't exist.
@@ -245,7 +298,7 @@ pub fn load_overrides_from_file(path: &Path) -> Result<Vec<AgentOverride>, Error
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::definitions::{ExecutionMode, LifecycleMode};
+    use crate::agents::definitions::{CopilotConfig, ExecutionMode, LifecycleMode};
 
     #[test]
     fn test_parse_agent_override_basic() {
@@ -351,6 +404,10 @@ mod tests {
             tools_deny: vec![],
             prompt_file: None,
             prompt: Some("Custom prompt".to_string()),
+            model: None,
+            reasoning_effort: None,
+            show_reasoning: None,
+            render_markdown: None,
         };
 
         let result = override_def.apply_to(&base, None);
@@ -458,5 +515,124 @@ mod tests {
         assert!(result.tools.allow.contains(&"read".to_string()));
         assert!(result.tools.deny.contains(&"shell(rm:*)".to_string()));
         assert!(result.tools.deny.contains(&"shell(sudo:*)".to_string()));
+    }
+
+    #[test]
+    fn test_parse_copilot_config_all_fields() {
+        let kdl = r#"
+            agent "worker" {
+                model "claude-sonnet-4"
+                reasoning-effort "medium"
+                show-reasoning #false
+                render-markdown #false
+            }
+        "#;
+
+        let doc: KdlDocument = kdl.parse().unwrap();
+        let overrides = parse_agent_overrides(&doc).unwrap();
+
+        assert_eq!(overrides.len(), 1);
+        let worker = &overrides[0];
+        assert_eq!(worker.model, Some("claude-sonnet-4".to_string()));
+        assert_eq!(worker.reasoning_effort, Some("medium".to_string()));
+        assert_eq!(worker.show_reasoning, Some(false));
+        assert_eq!(worker.render_markdown, Some(false));
+    }
+
+    #[test]
+    fn test_parse_copilot_config_partial() {
+        let kdl = r#"
+            agent "worker" {
+                model "gpt-4"
+            }
+        "#;
+
+        let doc: KdlDocument = kdl.parse().unwrap();
+        let overrides = parse_agent_overrides(&doc).unwrap();
+
+        assert_eq!(overrides.len(), 1);
+        let worker = &overrides[0];
+        assert_eq!(worker.model, Some("gpt-4".to_string()));
+        assert!(worker.reasoning_effort.is_none());
+        assert!(worker.show_reasoning.is_none());
+        assert!(worker.render_markdown.is_none());
+    }
+
+    #[test]
+    fn test_apply_copilot_config_override() {
+        let base = AgentDefinition::new(
+            "worker",
+            "Test worker",
+            ExecutionMode::Container,
+            LifecycleMode::Stateful,
+            "Prompt",
+        );
+        // base.copilot is CopilotConfig::default()
+
+        let override_def = AgentOverride {
+            name: "worker".to_string(),
+            model: Some("claude-sonnet-4".to_string()),
+            reasoning_effort: Some("low".to_string()),
+            ..Default::default()
+        };
+
+        let result = override_def.apply_to(&base, None);
+
+        assert_eq!(result.copilot.model, "claude-sonnet-4");
+        assert_eq!(result.copilot.reasoning_effort, "low");
+        // Unset fields preserve defaults
+        assert!(result.copilot.show_reasoning);
+        assert!(result.copilot.render_markdown);
+    }
+
+    #[test]
+    fn test_apply_copilot_config_no_override() {
+        let base = AgentDefinition::new(
+            "worker",
+            "Test worker",
+            ExecutionMode::Container,
+            LifecycleMode::Stateful,
+            "Prompt",
+        );
+
+        let override_def = AgentOverride {
+            name: "worker".to_string(),
+            ..Default::default()
+        };
+
+        let result = override_def.apply_to(&base, None);
+
+        // All copilot fields should remain at defaults
+        assert_eq!(result.copilot, CopilotConfig::default());
+    }
+
+    #[test]
+    fn test_parse_copilot_config_with_other_fields() {
+        let kdl = r#"
+            agent "worker" {
+                description "Custom worker"
+                execution "host"
+                model "claude-opus-4.6"
+                reasoning-effort "high"
+                show-reasoning #true
+                render-markdown #true
+                tools {
+                    allow "write"
+                }
+            }
+        "#;
+
+        let doc: KdlDocument = kdl.parse().unwrap();
+        let overrides = parse_agent_overrides(&doc).unwrap();
+
+        assert_eq!(overrides.len(), 1);
+        let worker = &overrides[0];
+        assert_eq!(worker.description, Some("Custom worker".to_string()));
+        assert_eq!(worker.execution, Some(ExecutionMode::Host));
+        assert_eq!(worker.model, Some("claude-opus-4.6".to_string()));
+        assert_eq!(worker.reasoning_effort, Some("high".to_string()));
+        assert_eq!(worker.show_reasoning, Some(true));
+        assert_eq!(worker.render_markdown, Some(true));
+        assert_eq!(worker.tools_allow, vec!["write"]);
     }
 }
