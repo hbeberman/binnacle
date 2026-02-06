@@ -75,21 +75,22 @@ if git diff --cached --name-only | grep -q '^Cargo.toml$'; then
             exit 1
         fi
         
-        # Check if the new version appears in staged README.md
-        readme_version_count=$(git show :README.md | grep -c "$new_cargo_version" || true)
-        
-        if [ "$readme_version_count" -lt 2 ]; then
-            echo ""
-            echo "❌ Version sync check failed!"
-            echo "   Cargo.toml version is $new_cargo_version but README.md doesn't reference it enough times."
-            echo "   Expected at least 2 occurrences (wget and cargo install lines)."
-            echo "   Current count: $readme_version_count"
-            echo ""
-            echo "   Update README.md quickstart section to match Cargo.toml version."
-            exit 1
+        # Check that the old version no longer appears in staged README.md
+        if [ -n "$old_cargo_version" ]; then
+            old_version_count=$(git show :README.md | grep -cF "$old_cargo_version" || true)
+            
+            if [ "$old_version_count" -gt 0 ]; then
+                echo ""
+                echo "❌ Version sync check failed!"
+                echo "   Cargo.toml version changed from $old_cargo_version to $new_cargo_version"
+                echo "   but README.md still references the old version $old_version_count time(s)."
+                echo ""
+                echo "   Replace all occurrences of $old_cargo_version with $new_cargo_version in README.md."
+                exit 1
+            fi
         fi
         
-        echo "  ✓ Version $new_cargo_version is synced in README.md ($readme_version_count occurrences)"
+        echo "  ✓ Old version $old_cargo_version removed from README.md"
     else
         echo "  ✓ Cargo.toml version unchanged, skipping version sync check"
     fi

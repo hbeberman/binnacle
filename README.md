@@ -32,9 +32,7 @@ npm install marked highlight.js
 
 **Install binnacle:**
 ```bash
-cargo install binnacle@=0.0.1-alpha.9 --all-features # from crates.io (unit tests willing)
-# or
-cargo install --git https://github.com/hbeberman/binnacle --tag v0.0.1-alpha.9 --all-features  # from git
+cargo install --git https://github.com/hbeberman/binnacle --tag v0.0.1-alpha.10 --all-features  # from git
 
 # Initialize Binnacle on your system (and build its default containers)
 bn system host-init

@@ -1,6 +1,6 @@
 [package]
 name = "binnacle"
-version = "0.0.1-alpha.9"
+version = "0.0.1-alpha.10"
 edition = "2024"
 rust-version = "1.85"
 description = "A CLI tool for AI agents and humans to track project graphs"
